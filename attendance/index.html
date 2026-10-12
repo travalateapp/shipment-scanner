@@ -1199,7 +1199,7 @@
   function openPayslip(ym, empId) {
     openModal('<div class="center"><div class="spinner"></div></div>');
     api('getPayslip', S.token, ym, empId || null, false).then(function (r) {
-      S.slip = { ym: ym, empId: empId || null, fileName: r.fileName };
+      S.slip = { ym: ym, empId: empId || null, fileName: r.fileName, html: r.html };
       openModal('<iframe id="slipFrame" class="slip"></iframe>' +
         '<div class="btns"><button class="btn" id="slipPdf" onclick="downloadPayslip()">' + t('⬇ Download PDF') + '</button>' +
         '<button class="btn ghost" onclick="printPayslip()">' + t('🖨 Print') + '</button></div>' +
@@ -1207,13 +1207,18 @@
       $('slipFrame').srcdoc = r.html;
     }).catch(function (e) { openModal(errBox(e) + '<button class="btn ghost" onclick="closeModal()">' + t('Close') + '</button>'); });
   }
+  /** Inside the Android app (APK) files and printing go through the app; see android/MainActivity.java. */
+  var NATIVE = window.AttendanceApp || null;
+
   function printPayslip() {
+    if (NATIVE) { NATIVE.print(S.slip.html, S.slip.fileName.replace(/\.pdf$/i, '')); return; }
     try { $('slipFrame').contentWindow.focus(); $('slipFrame').contentWindow.print(); }
     catch (e) { toast(t('Printing is not available here. Use Download PDF.')); }
   }
   function downloadPayslip() {
     var sl = S.slip; $('slipPdf').disabled = true;
     api('getPayslip', S.token, sl.ym, sl.empId, true).then(function (r) {
+      if (NATIVE) { NATIVE.saveFile(r.pdf, r.fileName, 'application/pdf'); return; }
       var bin = atob(r.pdf), bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       var url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
@@ -1700,7 +1705,9 @@
       ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 4, c: 0 }, e: { r: 4 + r.rows.length, c: r.header.length - 1 } }) };
       var wb = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(wb, ws, 'Payroll ' + ym);
-      XLSX.writeFile(wb, r.fileName);
+      if (NATIVE) NATIVE.saveFile(XLSX.write(wb, { bookType: 'xlsx', type: 'base64' }), r.fileName,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      else XLSX.writeFile(wb, r.fileName);
       $('exportMsg').innerHTML = '<div class="msg ok">Downloaded <b>' + esc(r.fileName) + '</b> (' + r.rows.length + ' employees). Check your Downloads folder.</div>';
     }).catch(function (e) {
       $('exportMsg').innerHTML = errBox(e);

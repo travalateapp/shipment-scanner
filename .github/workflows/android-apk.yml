@@ -1,0 +1,101 @@
+name: Build Android APK
+
+# Builds the Android app (android/) that opens the attendance web app full-screen.
+# Run it from GitHub: Actions → "Build Android APK" → Run workflow → paste your app link.
+# The APK is attached to a GitHub Release, so this link always gives the newest one:
+#   https://github.com/<owner>/<repo>/releases/latest/download/Attendance.apk
+on:
+  workflow_dispatch:
+    inputs:
+      app_link:
+        description: 'Your app link: the GitHub Pages link with ?id=…, the Apps Script /exec link, or just the deployment ID (AKfycb…)'
+        required: true
+  push:
+    # Test builds of changes to the Android app (no release is published).
+    branches-ignore: [main]
+    paths: ['android/**', '.github/workflows/android-apk.yml']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Work out the app link
+        id: link
+        env:
+          LINK: ${{ inputs.app_link }}
+        run: |
+          owner="${GITHUB_REPOSITORY_OWNER,,}"
+          repo="${GITHUB_REPOSITORY#*/}"
+          base="https://${owner}.github.io/${repo}/attendance/"
+          link="$(echo "$LINK" | tr -d '[:space:]')"
+          if [ -z "$link" ]; then
+            url="$base"                                    # test build without a link
+          elif [[ "$link" == *github.io* ]]; then
+            url="$link"                                    # the GitHub Pages link employees use
+          elif [[ "$link" =~ /macros/s/([A-Za-z0-9_-]+) ]]; then
+            url="${base}?id=${BASH_REMATCH[1]}"            # Apps Script /exec link
+          elif [[ "$link" =~ ^[A-Za-z0-9_-]{20,}$ ]]; then
+            url="${base}?id=${link}"                       # just the deployment ID
+          else
+            echo "::error::This does not look like the app link or a deployment ID: $link"
+            exit 1
+          fi
+          echo "App link: $url"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+
+      - name: Use the signing key from repository secrets (optional)
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > android/app/secret.keystore
+            {
+              echo "SIGN_ARGS=-PstoreFile=secret.keystore -PstorePassword=$KEYSTORE_PASSWORD -PkeyPassword=$KEYSTORE_PASSWORD"
+            } >> "$GITHUB_ENV"
+            echo "Signing with the key from repository secrets."
+          fi
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          gradle --no-daemon assembleRelease \
+            -PappUrl="${{ steps.link.outputs.url }}" \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.${{ github.run_number }} \
+            $SIGN_ARGS
+          cp app/build/outputs/apk/release/app-release.apk ../Attendance.apk
+          ls -l ../Attendance.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Attendance-apk
+          path: Attendance.apk
+
+      - name: Publish the APK as a GitHub Release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="apk-v1.${{ github.run_number }}"
+          gh release create "$tag" Attendance.apk \
+            --target "${{ github.sha }}" \
+            --title "Attendance app 1.${{ github.run_number }}" \
+            --notes "Android app for employees. Download **Attendance.apk** below (or share https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Attendance.apk) and install it. Opens: ${{ steps.link.outputs.url }}" \
+            --latest
+          echo "### APK ready" >> "$GITHUB_STEP_SUMMARY"
+          echo "Share this link with employees: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Attendance.apk" >> "$GITHUB_STEP_SUMMARY"
