@@ -1,0 +1,47 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Passed in by the "Build Android APK" workflow (-PappUrl=… -PversionCode=… -PversionName=…).
+def appUrl = (project.findProperty('appUrl') ?: '').toString().replace('"', '')
+def prop = { String name, String fallback -> (project.findProperty(name) ?: fallback).toString() }
+
+android {
+    namespace 'com.travalate.attendance'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.travalate.attendance'
+        minSdk 24
+        targetSdk 34
+        versionCode prop('versionCode', '1').toInteger()
+        versionName prop('versionName', '1.0')
+        buildConfigField 'String', 'APP_URL', '"' + appUrl + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // Every APK must be signed with the same key, or phones refuse to install an update over the old app.
+    signingConfigs {
+        release {
+            storeFile file(prop('storeFile', 'release.keystore'))
+            storePassword prop('storePassword', 'travalate-attendance')
+            keyAlias prop('keyAlias', 'attendance')
+            keyPassword prop('keyPassword', 'travalate-attendance')
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
