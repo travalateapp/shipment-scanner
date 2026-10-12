@@ -67,6 +67,29 @@ GPS, the camera and PDF downloads also work better this way, because the page is
 
 ---
 
+### Android app (APK) for employees
+GitHub builds a signed Android app that opens your attendance app full-screen. It has its own icon, keeps employees logged in, and needs no Chrome tab.
+1. On GitHub open **Actions → Build Android APK → Run workflow**.
+2. Paste **your app link**: the GitHub Pages link with `?id=…` that employees already use. The Apps Script `/exec` link or just the deployment ID (`AKfycb…`) also work.
+3. Click **Run workflow**. After about 5 minutes, a new **Release** appears with **Attendance.apk**.
+4. **Share this link with employees.** It always gives the newest APK:
+   `https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk`
+5. **Employees install it:**
+   - Open the link and download the APK.
+   - Tap the file. If Android asks, allow **"Install unknown apps"** for Chrome / Files.
+   - Tap Install, then allow **Location** and **Camera** when the app asks.
+
+**When you need a new APK:**
+- Changes to the app's screens reach the APK by themselves, because it loads the live page. You don't need a new APK for those.
+- Build again (steps 1–3) only if the app link (deployment ID) changes. Employees install the new APK over the old one, and their data is kept.
+
+Inside the app:
+- Payslip PDFs and the payroll Excel file are saved to **Downloads**.
+- **Print** opens Android's print screen, which can also save as PDF.
+- The phone's **Back** button closes pop-ups first.
+
+The signing key is in `android/app/release.keystore`. Every APK must be signed with the same key, or phones refuse to install it as an update. For extra safety you can use your own key instead: add repository secrets `ANDROID_KEYSTORE_BASE64` (the keystore file in base64) and `ANDROID_KEYSTORE_PASSWORD`. Then employees must uninstall the old app once and install the new one.
+
 ## 2. Fill the Sheet
 
 ### Settings tab
