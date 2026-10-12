@@ -1277,11 +1277,14 @@ function adminEmployees(token) {
     showSplit: !!ctx.perms.viewSplit,
     defaults: { bank: s.pfBankPct, employee: s.pfEmployeePct, employer: s.pfEmployerPct },
     list: getEmployees_().filter(e => e.active && canEditEmployee_(ctx, e.id)).map(e => {
-      const pf = pfAmounts_(e, s);
+      // Current salary (with increments); percentage defaults rounded like the payroll.
+      const now = Object.assign({}, e, { salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: baseSalary_(e) });
+      const pf = pfAmounts_(now, s);
+      const R = s.roundRupee ? Math.round : round2_;
       return {
-        id: e.id, name: e.name, salary: e.salary, pfActive: e.pf.active,
+        id: e.id, name: e.name, salary: now.salary, pfActive: e.pf.active,
         bankSalaryRaw: String(e.pf.bankSalary), employeeRaw: String(e.pf.employee), employerRaw: String(e.pf.employer),
-        bankSalary: round2_(pf.bankSalary), employee: round2_(pf.employee), employer: round2_(pf.employer),
+        bankSalary: R(pf.bankSalary), employee: R(pf.employee), employer: R(pf.employer),
       };
     }),
   };
@@ -2596,7 +2599,9 @@ function setSetting_(key, value) {
  * mark attendance for others and have no attendance, salary or requests of their own.
  */
 function getEmployees_() {
-  return getPeople_().filter(e => e.role !== 'GUARD');
+  // A–Z by name everywhere (payroll, summary, export, PF, advances, entries, pickers).
+  return getPeople_().filter(e => e.role !== 'GUARD')
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id));
 }
 
 /** Every row of the Employees tab, guards included (login, PINs, the Employees screen). */
