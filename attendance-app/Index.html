@@ -441,6 +441,7 @@
     'Check in {n} now?': '{n} का चेक-इन अभी करें?', 'Check out {n} now?': '{n} का चेक-आउट अभी करें?',
     '{n} checked in at {t}': '{n} का चेक-इन {t} बजे हो गया', '{n} checked out at {t} · {w}': '{n} का चेक-आउट {t} बजे हो गया · {w}',
     'Office location is not set yet.': 'ऑफिस की लोकेशन अभी सेट नहीं है।',
+    'Press back again to exit': 'ऐप बंद करने के लिए फिर से Back दबाएँ',
     'ios.tip': '📱 <b>iPhone पर ऐप जोड़ें:</b> Safari में <b>शेयर</b> बटन <b>⬆</b> दबाएँ, फिर <b>"Add to Home Screen"</b> → <b>Add</b>। उसके बाद नए <b>Attendance</b> आइकन से ऐप खोलें।',
     'Photo of {n}': '{n} की फ़ोटो', '📸 Take Photo': '📸 फ़ोटो लें', '🔄 Switch camera': '🔄 कैमरा बदलें',
     'Check In {n}': '{n} का चेक-इन करें', 'proxy.photo': 'चेक-इन के लिए कर्मचारी की फ़ोटो ज़रूरी है। चेहरा साफ़ दिखना चाहिए।',
@@ -691,7 +692,7 @@
   function showLogin() {
     S.token = null; store('att_token', null);
     S.profile = null; store('att_role', null); applyLang(); // the login screen is always English
-    S.home = null; S.monthCache = {}; S.prefetchedHome = null;
+    S.home = null; S.monthCache = {}; S.prefetchedHome = null; S.navStack = [];
     $('appView').classList.add('hidden'); $('loadingView').classList.add('hidden');
     $('loginView').classList.remove('hidden');
     $('empId').value = load('att_emp') || '';
@@ -738,17 +739,40 @@
     $('loginView').classList.add('hidden'); $('loadingView').classList.add('hidden');
     $('appView').classList.remove('hidden');
     applyLang();
-    go('home');
+    S.navStack = [];
+    go('home', true);
   }
 
   /* ---------------- Navigation ---------------- */
-  function go(tab) {
+  /** Screens visited, so the phone's Back button (Android app) can return to them. */
+  function navPush() {
+    S.navStack = S.navStack || [];
+    S.navStack.push({ tab: S.tab, admin: S.admin.tab });
+    if (S.navStack.length > 30) S.navStack.shift();
+  }
+
+  /**
+   * Back button in the Android app: closes a pop-up, then the check-in steps, then goes to the previous
+   * screen. Returns 'handled', or the text to show before leaving the app.
+   */
+  function appBack() {
+    if (!$('modal').classList.contains('hidden')) { closeModal(); return 'handled'; }
+    if (!$('appView').classList.contains('hidden')) {
+      if (S.flow && $('flow') && $('flow').innerHTML) { cancelFlow(); return 'handled'; }
+      var p = (S.navStack || []).pop();
+      if (p) { S.admin.tab = p.admin; go(p.tab, true); return 'handled'; }
+    }
+    return t('Press back again to exit');
+  }
+
+  function go(tab, noHistory) {
+    if (!noHistory && S.tab !== tab && S.token) navPush();
     S.tab = tab;
     Array.prototype.forEach.call(document.querySelectorAll('.nav button'), function (b) {
       b.classList.toggle('on', b.getAttribute('data-tab') === tab);
     });
     window.scrollTo(0, 0);
-    if (S.home && S.home.guard && tab !== 'admin') return go('admin');
+    if (S.home && S.home.guard && tab !== 'admin') return go('admin', true);
     if (tab === 'home') loadHome();
     if (tab === 'month') loadMonth(S.month || ymNow());
     if (tab === 'requests') loadMyRequests();
@@ -790,7 +814,7 @@
       ['home', 'month', 'requests'].forEach(function (tab) {
         document.querySelector('.nav button[data-tab="' + tab + '"]').classList.toggle('hidden', !!h.guard);
       });
-      if (h.guard) { if (S.tab !== 'admin') go('admin'); return; }
+      if (h.guard) { if (S.tab !== 'admin') go('admin', true); return; }
       $('reqBadge').textContent = h.pendingRequests;
       $('reqBadge').classList.toggle('hidden', !h.pendingRequests);
       $('adminBadge').textContent = h.adminMissed ? '!' : '';
@@ -1353,7 +1377,7 @@
     S.reloadAfterEntry = null;
     tabs.filter(function (t) { return t.key === a.tab; })[0].load();
   }
-  function adminTab(t) { S.admin.tab = t; renderAdmin(); }
+  function adminTab(tb) { if (S.admin.tab !== tb) navPush(); S.admin.tab = tb; renderAdmin(); }
   function adminBody(html) { var el = $('adminBody'); if (el) el.innerHTML = html; }
   function adminLoading() { adminBody('<div class="card center"><div class="spinner"></div></div>'); }
   function adminErr(e) { adminBody('<div class="card">' + errBox(e) + '</div>'); }

@@ -86,7 +86,7 @@ GitHub builds a signed Android app that opens your attendance app full-screen. I
 Inside the app:
 - Payslip PDFs and the payroll Excel file are saved to **Downloads**.
 - **Print** opens Android's print screen, which can also save as PDF.
-- The phone's **Back** button closes pop-ups first.
+- The phone's **Back** button closes a pop-up first, then goes back to the previous screen. On the first screen, press **Back twice** to leave the app.
 
 The signing key is in `android/app/release.keystore`. Every APK must be signed with the same key, or phones refuse to install it as an update. For extra safety you can use your own key instead: add repository secrets `ANDROID_KEYSTORE_BASE64` (the keystore file in base64) and `ANDROID_KEYSTORE_PASSWORD`. Then employees must uninstall the old app once and install the new one.
 
