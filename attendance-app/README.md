@@ -79,6 +79,13 @@ GitHub builds a signed Android app that opens your attendance app full-screen. I
    - Tap the file. If Android asks, allow **"Install unknown apps"** for Chrome / Files.
    - Tap Install, then allow **Location** and **Camera** when the app asks.
 
+**Updates install themselves (almost):**
+- Each APK built by the workflow checks GitHub every few hours. When a newer APK is published, the app asks **"Update available → Update"**, downloads it and opens Android's install screen. The employee taps **Update** and stays logged in.
+- The first time, Android asks to allow **"Install unknown apps"** for this app.
+- Android never allows a completely silent update outside the Play Store.
+- The home screen in the app shows **"App 1.N · Check for update"** to check by hand.
+- Employees on an APK older than this feature must install the new APK once from the link. After that, updates come by themselves.
+
 **When you need a new APK:**
 - Changes to the app's screens reach the APK by themselves, because it loads the live page. You don't need a new APK for those.
 - Build again (steps 1–3) only if the app link (deployment ID) changes. Employees install the new APK over the old one, and their data is kept.
@@ -172,6 +179,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Shift start / end** (e.g. 11:00–19:00): late marks, early leaving and OT use this person's times instead of the company shift. Leave both empty for the company shift.
   - Their **hourly rate** = per-day ÷ their shift hours.
   - The **full / half-day minimums** scale with the shift length. With the company 9 h shift and 8 h / 4 h minimums, an 8 h shift needs 7.1 h / 3.6 h.
+- **Morning OT** unticked: coming before the shift start doesn't count as OT; only time **after the shift end** does (evening OT). Late minutes still reduce the month's OT as usual.
 - **Hourly OT** unticked: no OT for extra hours on working days. **Sunday / week-off work is still paid** (day pay plus OT outside 09:30–17:00), and holidays still follow *Off-Day Work Is OT*.
 
 ### Holidays (national / festival)

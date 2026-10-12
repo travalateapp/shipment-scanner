@@ -450,6 +450,7 @@
     'wo.none': 'छुट्टी के दिन काम: {s}–{e} के बीच {h} घंटे से कम, इसलिए दिन का वेतन नहीं',
     'wo.rule': 'छुट्टी के दिन {s}–{e}: {f} घंटे = पूरा दिन, {h} घंटे = आधा दिन; इसके पहले/बाद का समय ओवरटाइम।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
+    'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Press back again to exit': 'ऐप बंद करने के लिए फिर से Back दबाएँ',
     'ios.tip': '📱 <b>iPhone पर ऐप जोड़ें:</b> Safari में <b>शेयर</b> बटन <b>⬆</b> दबाएँ, फिर <b>"Add to Home Screen"</b> → <b>Add</b>। उसके बाद नए <b>Attendance</b> आइकन से ऐप खोलें।',
     'Photo of {n}': '{n} की फ़ोटो', '📸 Take Photo': '📸 फ़ोटो लें', '🔄 Switch camera': '🔄 कैमरा बदलें',
@@ -852,7 +853,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261015;
+  var NEEDS_SERVER = 20261016;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -915,6 +916,9 @@
       (h.selfieRequired ? t('home.selfie') : '') + t('home.forgot') + '</p></div>';
 
     html += iosTipHtml();
+    if (NATIVE && typeof NATIVE.checkUpdate === 'function') {
+      html += '<p class="center muted small">' + t('App {v}', { v: esc(NATIVE.version()) }) + ' · <button class="link" onclick="NATIVE.checkUpdate()">' + t('Check for update') + '</button></p>';
+    }
     $('content').innerHTML = html;
     tickClock();
     clearInterval(clockTimer); clockTimer = setInterval(tickClock, 1000);
@@ -2117,8 +2121,8 @@
           return next ? ' → ' + money(next.newSalary, '₹') + ' from ' + esc(monthName(next.month)) : '';
         })() + ' · joined ' + esc(fmtDate(e.joinDate)) + (e.phone ? ' · ' + esc(e.phone) : '') + '</div>' +
         (!e.active && e.periods && e.periods.length && e.periods[e.periods.length - 1].to ? '<div class="sub">Left on ' + esc(fmtDate(e.periods[e.periods.length - 1].to)) + '</div>' : '') +
-        (e.shiftStart || e.hourlyOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
-          e.hourlyOt === false ? 'no hourly OT' : '', e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
+        (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
+          e.hourlyOt === false ? 'no hourly OT' : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
         '<div><button class="link" onclick="openStaffForm(' + i + ')">Edit</button></div></div></div>';
     });
@@ -2141,7 +2145,8 @@
         '<p class="muted small" style="margin:4px 0 0">Leave empty for the company shift. With an own shift, late marks, early leaving and OT use these times.</p>' +
         '<div class="grid2"><div class="field"><label>Shift start</label><input id="sfShiftStart" class="inp" type="time" value="' + esc(e.shiftStart || '') + '"></div>' +
         '<div class="field"><label>Shift end</label><input id="sfShiftEnd" class="inp" type="time" value="' + esc(e.shiftEnd || '') + '"></div></div>' +
-        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + '> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label></div>') +
+        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
+        '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + '> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label></div>') +
       (e.role === 'GUARD' ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfAnywhere"' + (e.anywhere ? ' checked' : '') + '> Can mark from anywhere (outstation): no office distance check, location still recorded</label>') +
       (isNew ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfActive"' + (e.active ? ' checked' : '') + ' onchange="staffActiveChanged(' + i + ')"> Active (untick when someone leaves the company)</label>' +
         '<div id="sfActiveDate" class="field hidden"><label id="sfActiveLabel"></label><input id="sfActiveOn" class="inp" type="date"></div>' +
@@ -2224,7 +2229,7 @@
       }
     }
     if ($('sfAnywhere')) data.anywhere = $('sfAnywhere').checked;
-    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; }
+    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;
     api('adminSaveStaff', S.token, data).then(function (r) {

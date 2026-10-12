@@ -55,6 +55,7 @@ public class MainActivity extends Activity {
     private PendingFile pendingFile;
     private WebView printView; // kept so it is not garbage-collected while printing
     private long lastBackAt; // for "press Back twice to exit"
+    private Updater updater;
 
     private static class PendingFile {
         final byte[] data; final String name; final String mime;
@@ -67,6 +68,8 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         setContentView(web);
         appHost = Uri.parse(BuildConfig.APP_URL).getHost();
+        updater = new Updater(this);
+        updater.check(false); // newer APK on GitHub? Ask once, download, open the installer
 
         WebSettings ws = web.getSettings();
         ws.setJavaScriptEnabled(true);
@@ -225,6 +228,13 @@ public class MainActivity extends Activity {
     protected void onResume() {
         super.onResume();
         web.onResume();
+        updater.onResume();
+    }
+
+    @Override
+    protected void onDestroy() {
+        updater.destroy();
+        super.onDestroy();
     }
 
     @Override
@@ -306,6 +316,11 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String version() {
             return BuildConfig.VERSION_NAME;
+        }
+
+        @JavascriptInterface
+        public void checkUpdate() {
+            runOnUiThread(() -> updater.check(true));
         }
     }
 }

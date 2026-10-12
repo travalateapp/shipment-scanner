@@ -83,6 +83,7 @@ jobs:
             -PappUrl="${{ steps.link.outputs.url }}" \
             -PversionCode=${{ github.run_number }} \
             -PversionName=1.${{ github.run_number }} \
+            -PupdateRepo="${GITHUB_REPOSITORY}" \
             $SIGN_ARGS
           cp app/build/outputs/apk/release/app-release.apk ../Attendance.apk
           ls -l ../Attendance.apk
