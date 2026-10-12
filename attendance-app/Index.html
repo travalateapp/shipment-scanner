@@ -451,6 +451,9 @@
     'wo.rule': 'छुट्टी के दिन {s}–{e}: {f} घंटे = पूरा दिन, {h} घंटे = आधा दिन; इसके पहले/बाद का समय ओवरटाइम।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
+    'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
+    'update.why': 'ऐप का यह संस्करण (1.{v}) पुराना है। आगे इस्तेमाल करने के लिए नया संस्करण इंस्टॉल करें। आप लॉगिन रहेंगे।',
+    'update.how': 'अभी अपडेट करें दबाएँ, फिर अगली स्क्रीन पर Update / Install दबाएँ। अगर Android पूछे तो "Install unknown apps" की अनुमति दें।',
     'Press back again to exit': 'ऐप बंद करने के लिए फिर से Back दबाएँ',
     'ios.tip': '📱 <b>iPhone पर ऐप जोड़ें:</b> Safari में <b>शेयर</b> बटन <b>⬆</b> दबाएँ, फिर <b>"Add to Home Screen"</b> → <b>Add</b>। उसके बाद नए <b>Attendance</b> आइकन से ऐप खोलें।',
     'Photo of {n}': '{n} की फ़ोटो', '📸 Take Photo': '📸 फ़ोटो लें', '🔄 Switch camera': '🔄 कैमरा बदलें',
@@ -479,6 +482,8 @@
     'prorated.note': 'Salary, PF and Basic Salary are shown only for the days passed so far. They grow every day until the month ends.',
     'day.missed': '⚠ No check-out. Auto-closed at midnight — waiting for an admin to clear it. Send a correction from Requests.',
     'Attendance (summary)': 'Attendance',
+    'update.why': 'This version of the app (1.{v}) is too old. Please install the new version to continue. You stay logged in.',
+    'update.how': 'Tap Update now, then Update / Install on the next screen. If Android asks, allow "Install unknown apps".',
     'wo.full': 'Week-off work: full day (+1 day\'s pay)', 'wo.half': 'Week-off work: half day (+½ day\'s pay)',
     'wo.none': 'Week-off work: less than {h} h between {s}–{e}, so no day pay',
     'wo.rule': 'Week-off {s}–{e}: {f} h = full day, {h} h = half day; time before / after is OT.',
@@ -815,6 +820,7 @@
   function showHome(h, sentAt) {
       S.homeStale = false;
       S.home = h; S.profile = h.profile;
+      checkAppVersion(h);
       store('att_role', h.profile.role);
       applyLang();
       S.homeLoadedAt = Date.now();
@@ -852,8 +858,32 @@
     return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : NaN;
   }
 
+  /**
+   * Required update (Android app only): when Settings → "Min Android App Version" is above this app's version
+   * (shown as "App 1.N"), the app is covered by an "update to continue" screen.
+   */
+  function checkAppVersion(info) {
+    if (!NATIVE || !info || !(info.minAppVersion > 0) || $('updateWall')) return;
+    var m = /(\d+)\s*$/.exec(String(NATIVE.version ? NATIVE.version() : ''));
+    var mine = m ? +m[1] : 0;
+    if (mine >= info.minAppVersion) return;
+    var w = document.createElement('div');
+    w.id = 'updateWall'; w.className = 'login';
+    w.style.cssText = 'position:fixed;inset:0;z-index:50;background:var(--bg)';
+    w.innerHTML = '<div class="card center"><h1 style="font-size:20px">' + t('Please update the app') + '</h1>' +
+      '<p class="muted">' + t('update.why', { v: mine }) + '</p>' +
+      '<button class="btn" id="updNow">' + t('Update now') + '</button>' +
+      '<p class="muted small">' + t('update.how') + '</p></div>';
+    document.body.appendChild(w);
+    $('updNow').onclick = function () {
+      // Apps with the built-in updater download and open the installer; older ones open the download link.
+      if (typeof NATIVE.checkUpdate === 'function') NATIVE.checkUpdate();
+      else location.href = info.appLink;
+    };
+  }
+
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261016;
+  var NEEDS_SERVER = 20261017;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2525,7 +2555,7 @@
   (function boot() {
     var setName = function (n) { $('coName').textContent = n; document.title = n + ' – Attendance'; };
     if (COMPANY && COMPANY.charAt(0) !== '<') setName(COMPANY); // '<' = not filled in (hosted page)
-    else api('publicInfo').then(function (r) { setName(r.company); }).catch(function (e) { setName('Attendance'); $('loginMsg').innerHTML = errBox(e); });
+    else api('publicInfo').then(function (r) { setName(r.company); checkAppVersion(r); }).catch(function (e) { setName('Attendance'); $('loginMsg').innerHTML = errBox(e); });
     S.token = load('att_token');
     if (S.token) startApp(); else showLogin();
   })();

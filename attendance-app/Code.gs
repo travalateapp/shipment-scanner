@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261016;
+const SERVER_VERSION = 20261017;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -123,6 +123,8 @@ const DEFAULT_SETTINGS = [
   ['Admin Back-Date Limit (days)', 45, 'Admins can add/change entries up to this many days back (super admin: no limit; 0 = no limit)'],
   ['Request Back-Date Limit (days)', 7, 'Employees can request corrections / leave up to this many days back'],
   ['Currency', '₹', ''],
+  ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
+  ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
   ['Selfie Folder ID', '', 'Filled automatically'],
 ];
 
@@ -237,7 +239,8 @@ function doPost(e) {
 
 /** Company name for the login screen (no login needed). */
 function publicInfo() {
-  return { company: getSettings_().company };
+  const s = getSettings_();
+  return { company: s.company, minAppVersion: s.minAppVersion, appLink: s.appLink };
 }
 
 function onOpen() {
@@ -431,6 +434,7 @@ function getHome(token) {
       .map(r => ({ date: r.date, in: r.in })),
     adminMissed: adminMissedCount_(emp),
     serverVersion: SERVER_VERSION,
+    minAppVersion: s.minAppVersion, appLink: s.appLink,
   };
 }
 
@@ -2567,6 +2571,8 @@ function getSettings_() {
       backDateDays: num('Admin Back-Date Limit (days)', 45),
       requestBackDays: num('Request Back-Date Limit (days)', 7),
       currency: str('Currency', '₹'),
+      minAppVersion: num('Min Android App Version', 0),
+      appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
     };
   });

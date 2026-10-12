@@ -86,6 +86,13 @@ GitHub builds a signed Android app that opens your attendance app full-screen. I
 - The home screen in the app shows **"App 1.N · Check for update"** to check by hand.
 - Employees on an APK older than this feature must install the new APK once from the link. After that, updates come by themselves.
 
+**Making an update compulsory:** in the Settings tab, set **Min Android App Version** to the version everyone must have. The version is the number N in *"App 1.N"* at the bottom of the app's home screen, or in the release name *"Attendance app 1.N"*.
+- Phones on an older APK see a full-screen **"Please update the app"** with **Update now**:
+  - Apps with the built-in updater download the update and open the installer.
+  - Older apps open the download link.
+- 0 = no minimum. iPhone users and browsers are never blocked, because they always have the latest version.
+- The two settings rows (*Min Android App Version*, *Android App Link*) appear after **Attendance App → Run setup / repair sheets**. You can also add them to the Settings tab by hand.
+
 **When you need a new APK:**
 - Changes to the app's screens reach the APK by themselves, because it loads the live page. You don't need a new APK for those.
 - Build again (steps 1–3) only if the app link (deployment ID) changes. Employees install the new APK over the old one, and their data is kept.
