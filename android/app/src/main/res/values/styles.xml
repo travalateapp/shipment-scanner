@@ -9,4 +9,5 @@
     </style>
     <color name="bg">#F3F5FA</color>
     <color name="brand">#2F5FE3</color>
+    <color name="icon_bg">#FFFFFF</color>
 </resources>

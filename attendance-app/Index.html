@@ -12,6 +12,7 @@
   <meta name="apple-mobile-web-app-title" content="Attendance">
   <meta name="theme-color" content="#2f5fe3">
   <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <link rel="icon" type="image/png" href="favicon.png">
   <style>
     :root {
       --bg: #f3f5fa; --card: #ffffff; --text: #1b2333; --muted: #6b7486; --line: #e3e7ef;
@@ -444,6 +445,10 @@
     'Check in {n} now?': '{n} का चेक-इन अभी करें?', 'Check out {n} now?': '{n} का चेक-आउट अभी करें?',
     '{n} checked in at {t}': '{n} का चेक-इन {t} बजे हो गया', '{n} checked out at {t} · {w}': '{n} का चेक-आउट {t} बजे हो गया · {w}',
     'Office location is not set yet.': 'ऑफिस की लोकेशन अभी सेट नहीं है।',
+    'Week-off work': 'छुट्टी के दिन काम', 'Week-off work ({n} days)': 'छुट्टी के दिन काम ({n} दिन)',
+    'wo.full': 'छुट्टी के दिन काम: पूरा दिन (+1 दिन का वेतन)', 'wo.half': 'छुट्टी के दिन काम: आधा दिन (+½ दिन का वेतन)',
+    'wo.none': 'छुट्टी के दिन काम: {s}–{e} के बीच {h} घंटे से कम, इसलिए दिन का वेतन नहीं',
+    'wo.rule': 'छुट्टी के दिन {s}–{e}: {f} घंटे = पूरा दिन, {h} घंटे = आधा दिन; इसके पहले/बाद का समय ओवरटाइम।',
     'Press back again to exit': 'ऐप बंद करने के लिए फिर से Back दबाएँ',
     'ios.tip': '📱 <b>iPhone पर ऐप जोड़ें:</b> Safari में <b>शेयर</b> बटन <b>⬆</b> दबाएँ, फिर <b>"Add to Home Screen"</b> → <b>Add</b>। उसके बाद नए <b>Attendance</b> आइकन से ऐप खोलें।',
     'Photo of {n}': '{n} की फ़ोटो', '📸 Take Photo': '📸 फ़ोटो लें', '🔄 Switch camera': '🔄 कैमरा बदलें',
@@ -472,6 +477,9 @@
     'prorated.note': 'Salary, PF and Basic Salary are shown only for the days passed so far. They grow every day until the month ends.',
     'day.missed': '⚠ No check-out. Auto-closed at midnight — waiting for an admin to clear it. Send a correction from Requests.',
     'Attendance (summary)': 'Attendance',
+    'wo.full': 'Week-off work: full day (+1 day\'s pay)', 'wo.half': 'Week-off work: half day (+½ day\'s pay)',
+    'wo.none': 'Week-off work: less than {h} h between {s}–{e}, so no day pay',
+    'wo.rule': 'Week-off {s}–{e}: {f} h = full day, {h} h = half day; time before / after is OT.',
     'ios.tip': '📱 <b>Install on iPhone:</b> in Safari tap the <b>Share</b> button <b>⬆</b>, then <b>"Add to Home Screen"</b> → <b>Add</b>. Then open the app from the new <b>Attendance</b> icon.',
     'proxy.info': 'For employees without a smartphone or who forgot their phone. This phone must be at the office. A photo of the employee is taken at check-in. Each entry records your name.',
     'proxy.photo': 'A photo of the employee is required to check in. Their face must be clearly visible.',
@@ -843,7 +851,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261012;
+  var NEEDS_SERVER = 20261013;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1157,7 +1165,9 @@
       '<div><b>' + tt.leave + '</b><span>' + t('Paid Leave') + '</span></div>' +
       '<div><b>' + (tt.weekOff + tt.holiday) + '</b><span>' + t('Week Off / Holiday') + '</span></div>' +
       '<div><b>' + num(tt.workedHours) + 'h</b><span>' + t('Worked') + '</span></div>' +
-      '</div>';
+      (tt.offWork ? '<div class="k-ot"><b>' + num(tt.offWorkCredit || 0) + '</b><span>' + t('Week-off work') + '</span></div>' : '') +
+      '</div>' +
+      (tt.offWork && m.rules.weekOff ? '<p class="muted small" style="margin:10px 0 0">' + t('wo.rule', { s: m.rules.weekOff.start, e: m.rules.weekOff.end, f: m.rules.weekOff.full, h: m.rules.weekOff.half }) + '</p>' : '');
     var cuts = [];
     if (m.rules.lateReducesOt && tt.lateMin) cuts.push(t('Late {m}', { m: mins(tt.lateMin) }));
     if (m.rules.earlyReducesOt && tt.earlyMin) cuts.push(t('Early {m}', { m: mins(tt.earlyMin) }));
@@ -1177,6 +1187,7 @@
         '<div class="rate-line">' + t('Rate (salary ÷ {n} days): {day}/day · {hr}/hr · {min}/min', { n: m.rules.salaryDays || tt.daysInMonth,
           day: money(p.perDay, cur), hr: money(p.hourly, cur), min: money(p.perMin, cur) }) + '</div>' +
         payLine(t('OT') + ' <span class="muted">(' + mins(tt.otMin) + (m.rules.otMultiplier != 1 ? ' × ' + m.rules.otMultiplier : '') + ')</span>', '+ ' + money(p.otPay, cur), 'green') +
+        (p.offDayPay ? payLine(t('Week-off work') + ' <span class="muted">(' + t('{n} days', { n: num(tt.offWorkCredit) }) + ')</span>', '+ ' + money(p.offDayPay, cur), 'green') : '') +
         payLine(t('Leaves') + ' <span class="muted">(' + t('{n} days', { n: tt.absent + tt.notJoined }) + ')</span>', '− ' + money(p.leaveDed, cur), 'red') +
         payLine(t('Half Days') + ' <span class="muted">(' + tt.halfDay + ')</span>', '− ' + money(p.halfDayDed, cur), 'red') +
         (p.lateCutDed ? payLine(t('Late marks cut') + ' <span class="muted">(' + t('{n} days', { n: num(tt.lateCutDays) }) + ')</span>', '− ' + money(p.lateCutDed, cur), 'red') : '') +
@@ -1246,6 +1257,11 @@
     if (d.in) html += '<div class="kv"><div><b>' + esc(d.in) + '</b><span>' + t('In') + '</span></div><div><b>' + esc(d.out || '—') + (d.overnight ? '<small> +1</small>' : '') + '</b><span>' + t('Out') + '</span></div><div><b>' + hrs(d.worked) + '</b><span>' + t('Worked') + '</span></div></div>' +
       '<div class="kv" style="margin-top:10px"><div class="k-orange"><b>' + mins(d.lateMin) + '</b><span>' + t('Late') + '</span></div><div class="k-orange"><b>' + mins(d.earlyMin) + '</b><span>' + t('Early') + '</span></div><div class="k-ot"><b>' + mins(d.otMin) + '</b><span>' + t('OT') + '</span></div></div>';
     if (d.autoOut) html += '<div class="msg err">' + (S.viewMonthAdmin ? '⚠ No check-out. Auto-closed at midnight — waiting for an admin to clear it.' : t('day.missed')) + '</div>';
+    if (d.offCredit !== undefined) {
+      var wo = m.rules.weekOff || {};
+      html += '<div class="msg ' + (d.offCredit ? 'ok' : 'warn') + '">' + (d.offCredit === 1 ? t('wo.full') : d.offCredit ? t('wo.half')
+        : t('wo.none', { h: wo.half, s: wo.start, e: wo.end })) + '</div>';
+    }
     if (d.otPending) html += '<div class="msg warn">' + t('OT {m} waiting for approval', { m: mins(d.otPending) }) + '</div>';
     if (d.otRejected) html += '<div class="msg err">' + t('OT was not approved for this day') + '</div>';
     if (S.viewMonthAdmin && d.flags) html += '<p>' + flagChips(d.flags, d.markedBy) + '</p>';
@@ -1691,6 +1707,7 @@
       (t.prorated ? payLine('Monthly salaries', '<span class="muted">' + money(t.monthlySalary, cur) + '</span>') + payLine('Salary earned till date', money(t.earned, cur), '', true)
         : payLine('Monthly salaries', money(t.monthlySalary, cur))) +
       payLine('OT pay', '+ ' + money(t.otPay, cur), 'green') +
+      (t.offDayPay ? payLine('Week-off work pay (' + num(t.offWorkCredit) + ' days)', '+ ' + money(t.offDayPay, cur), 'green') : '') +
       payLine('Leave deductions', '− ' + money(t.leaveDed, cur), 'red') +
       payLine('Half-day deductions', '− ' + money(t.halfDayDed, cur), 'red') +
       (t.lateCutDed ? payLine('Late-mark deductions', '− ' + money(t.lateCutDed, cur), 'red') : '') +
@@ -1779,7 +1796,7 @@
         (e.missedCheckouts ? '<div class="sub" style="color:var(--red)">⚠ ' + e.missedCheckouts + ' missed check-out(s)</div>' : '') + '</div>' +
         '<div class="right"><b>' + money(e.net, cur) + '</b>' + (e.pf
           ? (e.bank !== undefined ? '<div class="sub">🏦 ' + money(e.bank, cur) + ' · 💵 ' + money(e.cash, cur) + '</div>' : '') + '<div class="sub">PF ' + money(e.pfEmployee, cur) + ' + ' + money(e.pfEmployer, cur) + '</div>'
-          : '<div class="sub">− ' + money(e.deduction, cur) + ' / + ' + money(e.otPay, cur) + '</div>') + '</div></div>';
+          : '<div class="sub">− ' + money(e.deduction, cur) + ' / + ' + money((e.otPay || 0) + (e.offDayPay || 0), cur) + '</div>') + '</div></div>';
     });
     html += '<div class="pay-line total"><span>Total payroll</span><span>' + money(total, cur) + '</span></div></div>';
     adminBody(html);
