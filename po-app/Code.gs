@@ -7,8 +7,8 @@
  * 4. Deploy → New deployment → Web app
  *      Execute as: Me      Who has access: Only myself (or Anyone with a Google account)
  *
- * The first PO for a vendor saves the vendor's full details in the Vendors tab.
- * From then on, picking the vendor fills everything in automatically.
+ * The first PO for a vendor saves the vendor's full details in the Vendors tab and its items/rates
+ * in the Vendor Products tab. From then on, picking the vendor fills everything in automatically.
  */
 
 const SHEET = {
@@ -16,6 +16,7 @@ const SHEET = {
   VENDORS: 'Vendors',
   POS: 'Purchase Orders',
   ITEMS: 'PO Items',
+  PRODUCTS: 'Vendor Products',
 };
 
 const VENDOR_HEADERS = ['Vendor ID', 'Vendor Name', 'Contact Person', 'Address', 'City / State', 'Phone',
@@ -24,6 +25,8 @@ const PO_HEADERS = ['PO #', 'Date', 'Vendor ID', 'Vendor Name', 'Requisitioner',
   'Shipping Terms', 'Subtotal', 'Tax %', 'Tax', 'Shipping', 'Other', 'Total', 'Comments', 'PDF Link',
   'PDF File ID', 'Created By', 'Created At'];
 const ITEM_HEADERS = ['PO #', 'Vendor ID', 'Item #', 'Description', 'Qty', 'Unit Price', 'Total'];
+/** Each vendor's products and current rate. Updated by every PO and by the Vendors screen. */
+const PRODUCT_HEADERS = ['Vendor ID', 'Item #', 'Description', 'Rate', 'Last Ordered', 'Updated At'];
 
 /** Settings tab: one row per setting. Edit the values in the Sheet, not here. */
 const SETTING_DEFAULTS = [
@@ -53,6 +56,8 @@ function setup() {
   ensureSheet_(ss, SHEET.VENDORS, VENDOR_HEADERS);
   ensureSheet_(ss, SHEET.POS, PO_HEADERS);
   ensureSheet_(ss, SHEET.ITEMS, ITEM_HEADERS);
+  const prod = ensureSheet_(ss, SHEET.PRODUCTS, PRODUCT_HEADERS);
+  if (prod.getLastRow() < 2) seedProductsFromHistory_();
 
   const st = ensureSheet_(ss, SHEET.SETTINGS, ['Setting', 'Value']);
   const have = st.getLastRow() > 1
@@ -90,7 +95,6 @@ function getInitData() {
     comments: s['Default Comments'] || '',
     shipTo: shipTo_(s),
     vendors: getVendors_(),
-    items: getItemHistory_(),
     recent: getRecentPos_(25),
     today: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
   };
@@ -165,6 +169,8 @@ function savePO(po) {
     const n = Number(poNumber);
     if (isFinite(n) && n >= (Number(s['Next PO Number']) || 0)) setSetting_('Next PO Number', n + 1);
 
+    upsertProducts_(vendor.id, items, date);
+
     return {
       poNumber: poNumber,
       url: file.getUrl(),
@@ -206,16 +212,78 @@ function regeneratePdf(poNumber) {
 
 // ---------------------------------------------------------------- vendors
 
+/** Vendors with their products (item, description, rate) and their last PO #. */
 function getVendors_() {
   const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.VENDORS);
   if (!sh || sh.getLastRow() < 2) return [];
+  const products = getProducts_();
+  const lastPo = {};
+  const po = SpreadsheetApp.getActive().getSheetByName(SHEET.POS);
+  if (po && po.getLastRow() > 1) {
+    po.getRange(2, 1, po.getLastRow() - 1, 3).getValues().forEach(r => { if (r[0] !== '') lastPo[String(r[2])] = String(r[0]); });
+  }
   return sh.getRange(2, 1, sh.getLastRow() - 1, VENDOR_HEADERS.length).getValues()
     .filter(r => r[0] && r[1])
-    .map(r => ({
-      id: String(r[0]), name: String(r[1]), contact: String(r[2]), address: String(r[3]),
-      city: String(r[4]), phone: String(r[5]), email: String(r[6]), gstin: String(r[7]),
-    }))
+    .map(r => {
+      const id = String(r[0]);
+      return {
+        id: id, name: String(r[1]), contact: String(r[2]), address: String(r[3]),
+        city: String(r[4]), phone: String(r[5]), email: String(r[6]), gstin: String(r[7]),
+        products: products.filter(p => p.vendorId === id).map(p => ({ item: p.item, description: p.description, rate: p.rate })),
+        lastPo: lastPo[id] || '',
+      };
+    })
     .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+/**
+ * Vendors screen: saves the vendor's details and its full product list (rows not sent are removed).
+ * payload = { vendor: {...}, products: [{item, description, rate}] }
+ */
+function saveVendor(payload) {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const vendor = upsertVendor_(payload.vendor || {});
+    const seen = {};
+    const rows = (payload.products || [])
+      .map(p => ({
+        item: String(p.item || '').trim() || String(p.description || '').trim(),
+        description: String(p.description || '').trim(),
+        rate: Number(p.rate) || 0,
+      }))
+      .filter(p => {
+        const k = p.item.toLowerCase();
+        if (!k || seen[k]) return false;
+        seen[k] = true;
+        return true;
+      });
+
+    const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.PRODUCTS);
+    const vals = sh.getDataRange().getValues();
+    const old = {};
+    vals.slice(1).forEach(r => { if (String(r[0]) === vendor.id) old[String(r[1]).toLowerCase()] = r; });
+    const now = new Date();
+    const keep = vals.slice(1).filter(r => r[0] !== '' && String(r[0]) !== vendor.id);
+    rows.forEach(p => {
+      const o = old[p.item.toLowerCase()];
+      const changed = !o || String(o[2]) !== p.description || Number(o[3]) !== p.rate;
+      keep.push([vendor.id, p.item, p.description, p.rate, o ? o[4] : '', changed ? now : o[5]]);
+    });
+    rewriteRows_(sh, PRODUCT_HEADERS.length, keep);
+    return { vendorId: vendor.id, init: getInitData() };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Items of an existing PO, used by "Repeat last order". */
+function getPoItems(poNumber) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.ITEMS);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, ITEM_HEADERS.length).getValues()
+    .filter(r => String(r[0]) === String(poNumber))
+    .map(r => ({ item: String(r[2]), description: String(r[3]), qty: Number(r[4]) || 0, price: Number(r[5]) || 0 }));
 }
 
 /** New vendor → new row. Existing vendor → its row is updated when details were changed in the form. */
@@ -260,18 +328,49 @@ function upsertVendor_(v) {
 
 // ---------------------------------------------------------------- history
 
-/** Last description and price for every item (per vendor and overall) so items fill in too. */
-function getItemHistory_() {
-  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.ITEMS);
+function getProducts_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.PRODUCTS);
   if (!sh || sh.getLastRow() < 2) return [];
-  const map = {};
-  sh.getRange(2, 1, sh.getLastRow() - 1, ITEM_HEADERS.length).getValues().forEach(r => {
-    const item = String(r[2]).trim();
-    if (!item) return;
-    const rec = { vendorId: String(r[1]), item: item, description: String(r[3]), price: Number(r[5]) || 0 };
-    map[rec.vendorId + '|' + item.toLowerCase()] = rec; // later rows win → latest price
+  return sh.getRange(2, 1, sh.getLastRow() - 1, PRODUCT_HEADERS.length).getValues()
+    .filter(r => r[0] !== '' && String(r[1]).trim())
+    .map(r => ({ vendorId: String(r[0]), item: String(r[1]).trim(), description: String(r[2]), rate: Number(r[3]) || 0 }))
+    .sort((a, b) => a.item.localeCompare(b.item));
+}
+
+/** After a PO: add new items to the vendor's list and store the rate just used as the vendor's rate. */
+function upsertProducts_(vendorId, items, date) {
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.PRODUCTS);
+  const vals = sh.getDataRange().getValues();
+  const idx = {};
+  vals.forEach((r, i) => { if (i > 0 && String(r[0]) === vendorId) idx[String(r[1]).trim().toLowerCase()] = i; });
+  const now = new Date();
+  items.forEach(it => {
+    const name = it.item || it.description;
+    const i = idx[name.toLowerCase()];
+    if (i === undefined) {
+      sh.appendRow([vendorId, name, it.description, it.price, date, now]);
+      idx[name.toLowerCase()] = sh.getLastRow() - 1;
+      return;
+    }
+    const r = vals[i];
+    const changed = Number(r[3]) !== it.price || (it.description && String(r[2]) !== it.description);
+    sh.getRange(i + 1, 3, 1, 4).setValues([[it.description || r[2], it.price, date, changed ? now : r[5]]]);
   });
-  return Object.keys(map).map(k => map[k]);
+}
+
+/** One-time fill of Vendor Products from earlier POs (latest rate per vendor + item). */
+function seedProductsFromHistory_() {
+  const ss = SpreadsheetApp.getActive();
+  const items = ss.getSheetByName(SHEET.ITEMS);
+  if (!items || items.getLastRow() < 2) return;
+  const map = {};
+  items.getRange(2, 1, items.getLastRow() - 1, ITEM_HEADERS.length).getValues().forEach(r => {
+    const name = String(r[2]).trim() || String(r[3]).trim();
+    if (!r[1] || !name) return;
+    map[r[1] + '|' + name.toLowerCase()] = [String(r[1]), name, String(r[3]), Number(r[5]) || 0, '', new Date()];
+  });
+  const rows = Object.keys(map).map(k => map[k]);
+  if (rows.length) ss.getSheetByName(SHEET.PRODUCTS).getRange(2, 1, rows.length, PRODUCT_HEADERS.length).setValues(rows);
 }
 
 function getRecentPos_(limit) {
@@ -284,6 +383,7 @@ function getRecentPos_(limit) {
     .map(r => ({
       poNumber: String(r[0]),
       date: r[1] instanceof Date ? Utilities.formatDate(r[1], tz, 'dd/MM/yyyy') : String(r[1]),
+      vendorId: String(r[2]),
       vendor: String(r[3]),
       total: Number(r[13]) || 0,
       url: String(r[15]),
@@ -424,6 +524,12 @@ function ensureSheet_(ss, name, headers) {
     headers.forEach((h, i) => { if (!have[i]) sh.getRange(1, i + 1).setValue(h).setFontWeight('bold'); });
   }
   return sh;
+}
+
+/** Replaces all data rows (keeps the header). */
+function rewriteRows_(sh, width, rows) {
+  if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, Math.max(width, sh.getLastColumn())).clearContent();
+  if (rows.length) sh.getRange(2, 1, rows.length, width).setValues(rows);
 }
 
 function getSettings_() {

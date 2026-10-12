@@ -4,144 +4,234 @@
 <base target="_top">
 <meta charset="utf-8">
 <style>
-  :root { --blue:#3b4e87; --line:#d5d9e3; --bg:#f4f6fa; --muted:#667085; --ok:#137a3a; --err:#b42318; }
-  * { box-sizing: border-box; }
-  body { margin:0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#1d2433; font-size:15px; }
-  header { background:var(--blue); color:#fff; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
-  header h1 { font-size:18px; margin:0; }
-  .tabs button { background:transparent; color:#cfd7ee; border:0; font-size:15px; padding:6px 10px; cursor:pointer; border-radius:6px; }
-  .tabs button.on { background:rgba(255,255,255,.18); color:#fff; }
-  main { max-width:960px; margin:0 auto; padding:16px; }
-  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px; }
-  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--blue); margin:0 0 12px; }
-  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px 14px; }
+  :root { --blue:#3b4e87; --blue2:#eef1f9; --line:#d5d9e3; --bg:#f4f6fa; --muted:#667085; --ok:#137a3a; --err:#b42318; }
+  * { box-sizing:border-box; }
+  html, body { margin:0; }
+  body { font-family:-apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#1d2433; font-size:15px; }
+  header { background:var(--blue); color:#fff; position:sticky; top:0; z-index:20; }
+  .bar { max-width:1200px; margin:0 auto; padding:10px 16px; display:flex; align-items:center; justify-content:space-between; gap:10px; flex-wrap:wrap; }
+  header h1 { font-size:17px; margin:0; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .tabs { display:flex; gap:4px; }
+  .tabs button { background:transparent; color:#cfd7ee; border:0; font:inherit; padding:8px 12px; cursor:pointer; border-radius:7px; }
+  .tabs button.on { background:rgba(255,255,255,.2); color:#fff; font-weight:600; }
+  main { max-width:1200px; margin:0 auto; padding:16px; }
+
+  .card { background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--blue); margin:0 0 12px; display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(180px, 1fr)); gap:10px 14px; }
   label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
-  input, select, textarea { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font:inherit; background:#fff; }
+  input, select, textarea { width:100%; padding:10px; border:1px solid var(--line); border-radius:8px; font:inherit; font-size:16px; background:#fff; color:inherit; }
   input:focus, select:focus, textarea:focus { outline:2px solid #9fb0e0; border-color:#9fb0e0; }
-  textarea { min-height:60px; resize:vertical; }
-  .vsum { background:var(--bg); border-radius:8px; padding:10px 12px; line-height:1.5; margin-top:10px; }
-  .link { background:none; border:0; color:var(--blue); text-decoration:underline; cursor:pointer; padding:0; font:inherit; }
-  table.items { width:100%; border-collapse:collapse; }
-  table.items th { text-align:left; font-size:12px; color:var(--muted); font-weight:600; padding:0 6px 6px 0; }
-  table.items td { padding:0 6px 6px 0; vertical-align:top; }
-  table.items td.amt { text-align:right; padding-top:10px; white-space:nowrap; }
-  .del { background:none; border:0; color:var(--err); font-size:20px; cursor:pointer; line-height:1; padding:6px; }
-  .btn { background:var(--blue); color:#fff; border:0; border-radius:8px; padding:11px 18px; font:inherit; font-weight:600; cursor:pointer; }
+  input[readonly] { background:var(--bg); }
+  textarea { min-height:64px; resize:vertical; }
+  .muted { color:var(--muted); font-size:13px; }
+  .hidden { display:none !important; }
+  .link { background:none; border:0; color:var(--blue); text-decoration:underline; cursor:pointer; padding:0; font:inherit; font-size:14px; }
+  .btn { background:var(--blue); color:#fff; border:0; border-radius:9px; padding:11px 18px; font:inherit; font-weight:600; cursor:pointer; white-space:nowrap; }
   .btn.ghost { background:#fff; color:var(--blue); border:1px solid var(--blue); }
+  .btn.small { padding:7px 12px; font-size:14px; }
   .btn:disabled { opacity:.6; cursor:wait; }
-  .totals { margin-left:auto; max-width:320px; }
-  .totals div { display:flex; justify-content:space-between; align-items:center; padding:4px 0; gap:10px; }
-  .totals input { width:110px; text-align:right; }
-  .totals .grand { border-top:2px solid #1d2433; margin-top:6px; padding-top:8px; font-weight:700; font-size:17px; }
-  .msg { padding:12px 14px; border-radius:8px; margin-bottom:14px; }
+  .btns { display:flex; gap:8px; flex-wrap:wrap; }
+
+  .msg { padding:12px 14px; border-radius:9px; margin-bottom:14px; }
   .msg.ok { background:#e7f6ec; color:var(--ok); }
   .msg.err { background:#fdecea; color:var(--err); }
   .msg a { color:inherit; font-weight:600; margin-right:14px; }
+
+  .vsum { background:var(--bg); border-radius:9px; padding:10px 12px; line-height:1.5; margin-top:10px; font-size:14px; }
+
+  /* ---- item lines: grid rows on desktop, cards on phones ---- */
+  .lines { display:flex; flex-direction:column; }
+  .lhead, .line { display:grid; grid-template-columns:minmax(120px,1.1fr) minmax(160px,2fr) 100px 120px 110px 34px; gap:8px; align-items:center; }
+  .lhead { font-size:12px; color:var(--muted); font-weight:600; padding:0 0 6px; }
+  .line { padding:6px 0; border-top:1px solid #eef0f4; }
+  .line.picked { background:var(--blue2); border-radius:8px; }
+  .lhead.prod, .line.prod { grid-template-columns:minmax(120px,1.1fr) minmax(160px,2fr) 120px 34px; }
+  .line .name { font-weight:600; }
+  .line .sub { font-size:13px; color:var(--muted); }
+  .line .amt { text-align:right; font-variant-numeric:tabular-nums; }
+  .line input { padding:8px; }
+  .r { text-align:right; }
+  .del { background:none; border:0; color:var(--err); font-size:22px; cursor:pointer; line-height:1; padding:4px; }
+  .group { font-size:12px; font-weight:700; color:var(--blue); text-transform:uppercase; letter-spacing:.04em; margin:14px 0 4px; }
+
+  /* ---- New PO: two columns on desktop ---- */
+  .layout { display:grid; grid-template-columns:minmax(0,1fr) 330px; gap:16px; align-items:start; }
+  .side { position:sticky; top:72px; }
+  .totals > div { display:flex; justify-content:space-between; align-items:center; padding:5px 0; gap:10px; }
+  .totals input { width:120px; text-align:right; padding:8px; }
+  .totals .grand { border-top:2px solid #1d2433; margin-top:6px; padding-top:10px; font-weight:700; font-size:18px; }
+  .mobilebar { display:none; }
+
+  /* ---- lists ---- */
   .list { width:100%; border-collapse:collapse; }
-  .list th, .list td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); font-size:14px; }
-  .list td.r, .list th.r { text-align:right; }
-  .list a { color:var(--blue); margin-right:10px; }
-  .actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
-  .hidden { display:none !important; }
-  .muted { color:var(--muted); font-size:13px; }
+  .list th, .list td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--line); font-size:14px; vertical-align:middle; }
+  .list th { color:var(--muted); font-size:12px; font-weight:600; }
+  .list a, .list .link { color:var(--blue); margin-right:12px; }
+  .list tr.click { cursor:pointer; }
+  .list tr.click:hover td { background:var(--blue2); }
+
+  @media (max-width:900px) {
+    .layout { grid-template-columns:1fr; }
+    .side { position:static; }
+  }
   @media (max-width:640px) {
-    table.items thead { display:none; }
-    table.items tr { display:grid; grid-template-columns:1fr 1fr; gap:6px; border-bottom:1px solid var(--line); padding:8px 0; }
-    table.items td { padding:0; }
-    table.items td.desc { grid-column:1 / -1; }
-    table.items td.amt { text-align:left; padding-top:9px; }
+    body { font-size:15px; }
+    main { padding:10px 10px 96px; }
+    .bar { padding:8px 10px; }
+    .tabs { width:100%; }
+    .tabs button { flex:1; }
+    .card { padding:13px; border-radius:10px; }
+    .lhead { display:none; }
+    .line, .line.prod { grid-template-columns:1fr 1fr; grid-template-areas:"a a" "b b" "c d" "e f"; padding:10px 8px; gap:6px 10px; }
+    .line > :nth-child(1) { grid-area:a; }
+    .line > :nth-child(2) { grid-area:b; }
+    .line > :nth-child(3) { grid-area:c; }
+    .line > :nth-child(4) { grid-area:d; }
+    .line > :nth-child(5) { grid-area:e; text-align:left; font-weight:600; }
+    .line > :nth-child(6) { grid-area:f; justify-self:end; }
+    .line [data-l]::before { content:attr(data-l); display:block; font-size:11px; color:var(--muted); margin-bottom:2px; }
+    .side .savebtn { display:none; }
+    .mobilebar { display:flex; position:fixed; left:0; right:0; bottom:0; z-index:30; background:#fff; border-top:1px solid var(--line);
+      padding:10px 12px calc(10px + env(safe-area-inset-bottom)); align-items:center; justify-content:space-between; gap:10px; box-shadow:0 -4px 14px rgba(0,0,0,.06); }
+    .mobilebar .t { font-size:12px; color:var(--muted); }
+    .mobilebar b { font-size:18px; display:block; color:#1d2433; }
+    /* lists become cards */
+    .list thead { display:none; }
+    .list tr { display:block; border-bottom:1px solid var(--line); padding:8px 2px; }
+    .list td { display:block; border:0; padding:2px 6px; }
+    .list td.r { text-align:left; }
+    .list td[data-l]::before { content:attr(data-l) ": "; color:var(--muted); font-size:12px; }
   }
 </style>
 </head>
 <body>
 <header>
-  <h1><?= company ?> · Purchase Orders</h1>
-  <nav class="tabs">
-    <button id="tabNew" class="on" onclick="showTab('new')">New PO</button>
-    <button id="tabHist" onclick="showTab('hist')">History</button>
-  </nav>
+  <div class="bar">
+    <h1><?= company ?> · Purchase Orders</h1>
+    <nav class="tabs">
+      <button data-tab="new" class="on" onclick="showTab('new')">New PO</button>
+      <button data-tab="vendors" onclick="showTab('vendors')">Vendors</button>
+      <button data-tab="hist" onclick="showTab('hist')">History</button>
+    </nav>
+  </div>
 </header>
 
 <main>
   <div id="msg"></div>
 
   <!-- ============================== NEW PO ============================== -->
-  <section id="viewNew">
-    <div class="card">
-      <h2>Basic details</h2>
-      <div class="grid">
-        <div><label>PO #</label><input id="poNumber" inputmode="numeric"></div>
-        <div><label>Date</label><input id="date" type="date"></div>
-        <div><label>Requisitioner</label><input id="requisitioner"></div>
-        <div><label>Ship Via</label><input id="shipVia" placeholder="e.g. Transport / By hand"></div>
-        <div><label>F.O.B.</label><input id="fob"></div>
-        <div><label>Shipping Terms</label><input id="terms"></div>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Vendor</h2>
-      <label>Select vendor</label>
-      <select id="vendorSel" onchange="onVendorChange()"></select>
-
-      <div id="vendorSummary" class="vsum hidden"></div>
-      <div id="vendorEditLink" class="hidden" style="margin-top:6px">
-        <button class="link" onclick="openVendorForm()">Edit vendor details</button>
-      </div>
-
-      <div id="vendorForm" class="hidden" style="margin-top:12px">
-        <div class="grid">
-          <div><label>Vendor name *</label><input id="vName"></div>
-          <div><label>Contact person</label><input id="vContact"></div>
-          <div><label>Address</label><input id="vAddress"></div>
-          <div><label>City / State</label><input id="vCity"></div>
-          <div><label>Phone</label><input id="vPhone" inputmode="tel"></div>
-          <div><label>Email</label><input id="vEmail" type="email"></div>
-          <div><label>GSTIN</label><input id="vGstin"></div>
+  <section id="view-new">
+    <div class="layout">
+      <div>
+        <div class="card">
+          <h2>Vendor</h2>
+          <select id="vendorSel" onchange="onVendorChange()"></select>
+          <div id="vendorSummary" class="vsum hidden"></div>
+          <div id="vendorActions" class="btns hidden" style="margin-top:10px">
+            <button class="btn ghost small" id="repeatBtn" onclick="repeatLast()">↻ Repeat last order</button>
+            <button class="btn ghost small" onclick="openVendorForm()">Edit vendor details</button>
+          </div>
+          <div id="vendorForm" class="hidden" style="margin-top:12px">
+            <div class="grid" id="vendorFields"></div>
+            <p class="muted" id="vendorNote"></p>
+          </div>
         </div>
-        <p class="muted" id="vendorNote"></p>
+
+        <div class="card">
+          <h2><span id="itemsTitle">Items</span>
+            <input id="prodFilter" class="hidden" placeholder="Search products…" oninput="filterProducts()" style="max-width:240px;text-transform:none;letter-spacing:0">
+          </h2>
+          <p id="catalogHint" class="muted hidden" style="margin:0 0 10px">Enter the quantity for the products you want. Items left at 0 are not ordered. If you change a rate, it becomes this vendor's new rate.</p>
+          <div class="lhead"><div>Item #</div><div>Description</div><div>Qty</div><div class="r">Rate</div><div class="r">Total</div><div></div></div>
+          <div id="catalogGroup" class="hidden">
+            <div class="lines" id="catalogLines"></div>
+            <div class="group">Other items</div>
+          </div>
+          <div class="lines" id="extraLines"></div>
+          <datalist id="itemList"></datalist>
+          <div style="margin-top:10px"><button class="btn ghost small" onclick="addExtra()">+ Add item</button></div>
+        </div>
+
+        <div class="card">
+          <h2>PO details</h2>
+          <div class="grid">
+            <div><label>PO #</label><input id="poNumber" inputmode="numeric"></div>
+            <div><label>Date</label><input id="date" type="date"></div>
+            <div><label>Requisitioner</label><input id="requisitioner"></div>
+            <div><label>Ship Via</label><input id="shipVia" placeholder="Transport / By hand"></div>
+            <div><label>F.O.B.</label><input id="fob"></div>
+            <div><label>Shipping Terms</label><input id="terms"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="side">
+        <div class="card">
+          <h2>Summary</h2>
+          <div class="totals">
+            <div><span>Items</span><span id="lineCount">0</span></div>
+            <div><span>Subtotal</span><b id="subtotal">0.00</b></div>
+            <div><span>Tax %</span><input id="taxPct" type="number" step="0.01" min="0" inputmode="decimal" oninput="recalc()"></div>
+            <div><span>Tax</span><span id="tax">0.00</span></div>
+            <div><span>Shipping</span><input id="shipping" type="number" step="0.01" min="0" inputmode="decimal" oninput="recalc()"></div>
+            <div><span>Other</span><input id="other" type="number" step="0.01" min="0" inputmode="decimal" oninput="recalc()"></div>
+            <div class="grand"><span>Total</span><span id="total">0.00</span></div>
+          </div>
+          <div style="margin-top:12px">
+            <label>Comments or special instructions</label>
+            <textarea id="comments"></textarea>
+          </div>
+          <div class="btns" style="margin-top:12px">
+            <button class="btn savebtn" style="flex:1" onclick="save()">Save &amp; create PDF</button>
+            <button class="btn ghost" onclick="resetForm()">Clear</button>
+          </div>
+        </div>
       </div>
     </div>
 
-    <div class="card">
-      <h2>Items</h2>
-      <table class="items">
-        <thead><tr><th style="width:20%">Item #</th><th>Description</th><th style="width:11%">Qty</th><th style="width:14%">Unit price</th><th style="width:13%;text-align:right">Total</th><th style="width:30px"></th></tr></thead>
-        <tbody id="itemRows"></tbody>
+    <div class="mobilebar">
+      <div><span class="t">Total · <span id="mCount">0</span> items</span><b id="mTotal">0.00</b></div>
+      <button class="btn savebtn2" onclick="save()">Save &amp; create PDF</button>
+    </div>
+  </section>
+
+  <!-- ============================== VENDORS ============================== -->
+  <section id="view-vendors" class="hidden">
+    <div id="vendorListCard" class="card">
+      <h2>Vendors <button class="btn small" onclick="editVendor('')">+ New vendor</button></h2>
+      <input id="vendorSearch" placeholder="Search vendor…" oninput="renderVendorList()" style="margin-bottom:8px">
+      <table class="list">
+        <thead><tr><th>Vendor</th><th>Contact</th><th>Phone</th><th class="r">Products</th><th></th></tr></thead>
+        <tbody id="vendorRows"></tbody>
       </table>
-      <datalist id="itemList"></datalist>
-      <button class="btn ghost" onclick="addRow()">+ Add item</button>
     </div>
 
-    <div class="card">
-      <div class="grid" style="align-items:start">
-        <div>
-          <label>Comments or special instructions</label>
-          <textarea id="comments"></textarea>
-        </div>
-        <div class="totals">
-          <div><span>Subtotal</span><b id="subtotal">0.00</b></div>
-          <div><span>Tax %</span><input id="taxPct" type="number" step="0.01" min="0" oninput="recalc()"></div>
-          <div><span>Tax</span><span id="tax">0.00</span></div>
-          <div><span>Shipping</span><input id="shipping" type="number" step="0.01" min="0" oninput="recalc()"></div>
-          <div><span>Other</span><input id="other" type="number" step="0.01" min="0" oninput="recalc()"></div>
-          <div class="grand"><span>Total</span><span id="total">0.00</span></div>
-        </div>
+    <div id="vendorEditor" class="hidden">
+      <div class="card">
+        <h2 id="veTitle">Vendor</h2>
+        <div class="grid" id="veFields"></div>
       </div>
-    </div>
-
-    <div class="actions">
-      <button class="btn ghost" onclick="resetForm()">Clear</button>
-      <button class="btn" id="saveBtn" onclick="save()">Save &amp; create PDF</button>
+      <div class="card">
+        <h2>Products &amp; rates</h2>
+        <div class="lhead prod"><div>Item #</div><div>Description</div><div class="r">Rate</div><div></div></div>
+        <div class="lines" id="veProducts"></div>
+        <div style="margin-top:10px"><button class="btn ghost small" onclick="addVeProduct()">+ Add product</button></div>
+      </div>
+      <div class="btns" style="justify-content:flex-end">
+        <button class="btn ghost" onclick="closeVendorEditor()">Cancel</button>
+        <button class="btn ghost" id="veOrderBtn" onclick="saveVendorScreen(true)">Save &amp; new PO</button>
+        <button class="btn" onclick="saveVendorScreen(false)">Save vendor</button>
+      </div>
     </div>
   </section>
 
   <!-- ============================== HISTORY ============================== -->
-  <section id="viewHist" class="hidden">
+  <section id="view-hist" class="hidden">
     <div class="card">
       <h2>Recent purchase orders</h2>
       <table class="list">
-        <thead><tr><th>PO #</th><th>Date</th><th>Vendor</th><th class="r">Total</th><th>PDF</th></tr></thead>
+        <thead><tr><th>PO #</th><th>Date</th><th>Vendor</th><th class="r">Total</th><th></th></tr></thead>
         <tbody id="histRows"></tbody>
       </table>
     </div>
@@ -149,50 +239,70 @@
 </main>
 
 <script>
-  let DATA = null;          // from getInitData()
-  let editingVendor = false; // true when the vendor form is open for a saved vendor
+  let DATA = null;           // from getInitData()
+  let editingVendor = false; // vendor form open for a saved vendor on the New PO screen
+  let veId = '';             // vendor open in the Vendors screen ('' = new)
 
   const $ = id => document.getElementById(id);
-  const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const num = v => Number(v) || 0;
+  const r2 = n => Math.round(n * 100) / 100;
   function money(n) {
-    const p = Math.abs(Math.round(num(n) * 100) / 100).toFixed(2).split('.');
+    const p = Math.abs(r2(num(n))).toFixed(2).split('.');
     let x = p[0];
     if (x.length > 3) x = x.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + x.slice(-3);
     return (n < 0 ? '-' : '') + x + '.' + p[1];
   }
-
   function showMsg(html, kind) { $('msg').innerHTML = html ? '<div class="msg ' + kind + '">' + html + '</div>' : ''; if (html) window.scrollTo(0, 0); }
+  const fail = e => { busy(false); showMsg(esc(e.message || e), 'err'); };
+  function busy(on, text) {
+    document.querySelectorAll('.savebtn,.savebtn2').forEach(b => { b.disabled = on; b.textContent = on ? (text || 'Working…') : 'Save & create PDF'; });
+  }
 
   function showTab(t) {
-    $('viewNew').classList.toggle('hidden', t !== 'new');
-    $('viewHist').classList.toggle('hidden', t !== 'hist');
-    $('tabNew').classList.toggle('on', t === 'new');
-    $('tabHist').classList.toggle('on', t === 'hist');
+    ['new', 'vendors', 'hist'].forEach(x => $('view-' + x).classList.toggle('hidden', x !== t));
+    document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+    if (t === 'vendors') closeVendorEditor();
+    window.scrollTo(0, 0);
+  }
+
+  const VFIELDS = [
+    ['name', 'Vendor name *'], ['contact', 'Contact person'], ['address', 'Address'], ['city', 'City / State'],
+    ['phone', 'Phone', 'tel'], ['email', 'Email', 'email'], ['gstin', 'GSTIN'],
+  ];
+  function fieldsHtml(prefix) {
+    return VFIELDS.map(f => '<div><label>' + f[1] + '</label><input id="' + prefix + f[0] + '"' +
+      (f[2] ? ' type="' + (f[2] === 'tel' ? 'tel' : f[2]) + '"' : '') + '></div>').join('');
   }
 
   // ---------------------------------------------------------------- load
 
   function load() {
-    google.script.run.withSuccessHandler(d => { applyData(d); resetForm(); })
-      .withFailureHandler(e => showMsg(esc(e.message), 'err')).getInitData();
+    $('vendorFields').innerHTML = fieldsHtml('v_');
+    $('veFields').innerHTML = fieldsHtml('ve_');
+    google.script.run.withSuccessHandler(d => { applyData(d); resetForm(); }).withFailureHandler(fail).getInitData();
   }
 
   function applyData(d) {
     DATA = d;
-    const sel = $('vendorSel');
-    sel.innerHTML = '<option value="">— Select vendor —</option>' +
-      d.vendors.map(v => '<option value="' + esc(v.id) + '">' + esc(v.name) + (v.city ? ' (' + esc(v.city) + ')' : '') + '</option>').join('') +
+    const keep = $('vendorSel').value;
+    $('vendorSel').innerHTML = '<option value="">— Select vendor —</option>' +
+      d.vendors.map(v => '<option value="' + esc(v.id) + '">' + esc(v.name) + (v.city ? ' – ' + esc(v.city) : '') + '</option>').join('') +
       '<option value="__new">➕ Add new vendor…</option>';
-    const names = {};
-    d.items.forEach(i => { names[i.item] = i.description; });
-    $('itemList').innerHTML = Object.keys(names).sort().map(n => '<option value="' + esc(n) + '">' + esc(names[n]) + '</option>').join('');
+    if (keep && [...$('vendorSel').options].some(o => o.value === keep)) $('vendorSel').value = keep;
+
+    const all = {};
+    d.vendors.forEach(v => v.products.forEach(p => { all[p.item] = p.description; }));
+    $('itemList').innerHTML = Object.keys(all).sort().map(n => '<option value="' + esc(n) + '">' + esc(all[n]) + '</option>').join('');
+
+    renderVendorList();
     $('histRows').innerHTML = d.recent.length ? d.recent.map(p =>
-      '<tr><td>' + esc(p.poNumber) + '</td><td>' + esc(p.date) + '</td><td>' + esc(p.vendor) + '</td>' +
-      '<td class="r">' + money(p.total) + '</td><td>' +
+      '<tr><td data-l="PO #"><b>' + esc(p.poNumber) + '</b></td><td data-l="Date">' + esc(p.date) + '</td>' +
+      '<td data-l="Vendor">' + esc(p.vendor) + '</td><td class="r" data-l="Total">' + money(p.total) + '</td><td>' +
       (p.url ? '<a href="' + esc(p.url) + '" target="_blank">Open</a>' : '') +
       (p.downloadUrl ? '<a href="' + esc(p.downloadUrl) + '" target="_blank">Download</a>' : '') +
-      '<button class="link" onclick="regen(\'' + esc(p.poNumber) + '\')">Remake</button></td></tr>').join('')
+      '<button class="link" onclick="repeatPo(\'' + esc(p.poNumber) + '\')">Repeat</button>' +
+      '<button class="link" onclick="regen(\'' + esc(p.poNumber) + '\')">Remake PDF</button></td></tr>').join('')
       : '<tr><td colspan="5" class="muted">No purchase orders yet.</td></tr>';
   }
 
@@ -204,42 +314,38 @@
     $('comments').value = DATA.comments;
     $('vendorSel').value = '';
     onVendorChange();
-    $('itemRows').innerHTML = '';
-    addRow();
-    recalc();
   }
 
-  // ---------------------------------------------------------------- vendor
+  // ---------------------------------------------------------------- vendor on the New PO screen
 
-  const VFIELDS = { name: 'vName', contact: 'vContact', address: 'vAddress', city: 'vCity', phone: 'vPhone', email: 'vEmail', gstin: 'vGstin' };
-
-  function currentVendor() { return DATA.vendors.find(v => v.id === $('vendorSel').value); }
+  const currentVendor = () => DATA.vendors.find(v => v.id === $('vendorSel').value);
 
   function onVendorChange() {
     const val = $('vendorSel').value;
     const v = currentVendor();
     editingVendor = false;
     $('vendorSummary').classList.toggle('hidden', !v);
-    $('vendorEditLink').classList.toggle('hidden', !v);
+    $('vendorActions').classList.toggle('hidden', !v);
     $('vendorForm').classList.toggle('hidden', val !== '__new');
-    Object.keys(VFIELDS).forEach(k => $(VFIELDS[k]).value = v ? (v[k] || '') : '');
+    VFIELDS.forEach(f => $('v_' + f[0]).value = v ? (v[f[0]] || '') : '');
     if (v) {
       $('vendorSummary').innerHTML = [v.name, v.contact, v.address, v.city, v.phone && 'Phone: ' + v.phone,
         v.email, v.gstin && 'GSTIN: ' + v.gstin].filter(Boolean).map(esc).join('<br>');
+      $('repeatBtn').classList.toggle('hidden', !v.lastPo);
+      $('repeatBtn').textContent = '↻ Repeat last order (PO # ' + v.lastPo + ')';
     }
     if (val === '__new') {
-      $('vendorNote').textContent = 'These details are saved with the PO. Next time just pick this vendor from the list.';
-      $('vName').focus();
+      $('vendorNote').textContent = 'The vendor and the items on this PO are saved. Next time, pick the vendor and its products and rates appear.';
+      $('v_name').focus();
     }
-    // Refill item prices from this vendor's last order where possible.
-    document.querySelectorAll('#itemRows tr').forEach(tr => { if (!tr.querySelector('.price').value) fillItem(tr); });
+    buildLines(v);
   }
 
   function openVendorForm() {
     editingVendor = true;
     $('vendorForm').classList.remove('hidden');
     $('vendorSummary').classList.add('hidden');
-    $('vendorEditLink').classList.add('hidden');
+    $('vendorActions').classList.add('hidden');
     $('vendorNote').textContent = 'Changes are saved to this vendor when you save the PO.';
   }
 
@@ -247,75 +353,170 @@
     const val = $('vendorSel').value;
     if (!val) return null;
     const v = currentVendor();
-    if (v && !editingVendor) return v;
+    if (v && !editingVendor) return { id: v.id, name: v.name, contact: v.contact, address: v.address, city: v.city, phone: v.phone, email: v.email, gstin: v.gstin };
     const out = { id: v ? v.id : '' };
-    Object.keys(VFIELDS).forEach(k => out[k] = $(VFIELDS[k]).value.trim());
+    VFIELDS.forEach(f => out[f[0]] = $('v_' + f[0]).value.trim());
     return out;
   }
 
-  // ---------------------------------------------------------------- items
+  // ---------------------------------------------------------------- item lines
 
-  function addRow() {
-    const tr = document.createElement('tr');
-    tr.innerHTML =
-      '<td><input class="item" list="itemList" placeholder="Item #"></td>' +
-      '<td class="desc"><input class="descr" placeholder="Description"></td>' +
-      '<td><input class="qty" type="number" step="any" min="0" placeholder="Qty"></td>' +
-      '<td><input class="price" type="number" step="any" min="0" placeholder="Price"></td>' +
-      '<td class="amt">0.00</td>' +
-      '<td><button class="del" title="Remove">×</button></td>';
-    tr.querySelector('.item').addEventListener('change', () => fillItem(tr));
-    tr.querySelectorAll('.qty,.price').forEach(i => i.addEventListener('input', recalc));
-    tr.querySelector('.del').addEventListener('click', () => { tr.remove(); if (!$('itemRows').children.length) addRow(); recalc(); });
-    $('itemRows').appendChild(tr);
-    return tr;
-  }
-
-  /** Item # typed or picked → description and the last price paid (this vendor first). */
-  function fillItem(tr) {
-    const name = tr.querySelector('.item').value.trim().toLowerCase();
-    if (!name) return;
-    const vid = $('vendorSel').value;
-    const hits = DATA.items.filter(i => i.item.toLowerCase() === name);
-    const hit = hits.find(i => i.vendorId === vid) || hits[hits.length - 1];
-    if (!hit) return;
-    if (!tr.querySelector('.descr').value) tr.querySelector('.descr').value = hit.description;
-    if (!tr.querySelector('.price').value && hit.vendorId === vid) tr.querySelector('.price').value = hit.price;
+  /** Vendor's saved products become lines with a qty box; other items go below. */
+  function buildLines(v) {
+    const products = v ? v.products : [];
+    $('catalogGroup').classList.toggle('hidden', !products.length);
+    $('catalogHint').classList.toggle('hidden', !products.length);
+    $('prodFilter').classList.toggle('hidden', products.length < 6);
+    $('prodFilter').value = '';
+    $('itemsTitle').textContent = products.length ? v.name + ' – products' : 'Items';
+    $('catalogLines').innerHTML = '';
+    products.forEach(p => $('catalogLines').appendChild(catalogLine(p)));
+    $('extraLines').innerHTML = '';
+    addExtra(true);
     recalc();
   }
 
+  function catalogLine(p) {
+    const el = document.createElement('div');
+    el.className = 'line';
+    el.dataset.item = p.item;
+    el.dataset.desc = p.description;
+    el.innerHTML =
+      '<div class="name">' + esc(p.item) + '</div>' +
+      '<div class="sub">' + esc(p.description) + '</div>' +
+      '<div data-l="Qty"><input class="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="0"></div>' +
+      '<div data-l="Rate"><input class="price r" type="number" step="any" min="0" inputmode="decimal" value="' + esc(p.rate) + '"></div>' +
+      '<div class="amt">0.00</div><div></div>';
+    el.querySelectorAll('input').forEach(i => i.addEventListener('input', recalc));
+    return el;
+  }
+
+  function addExtra(silent) {
+    const el = document.createElement('div');
+    el.className = 'line extra';
+    el.innerHTML =
+      '<div data-l="Item #"><input class="item" list="itemList" placeholder="Item #"></div>' +
+      '<div data-l="Description"><input class="descr" placeholder="Description"></div>' +
+      '<div data-l="Qty"><input class="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="0"></div>' +
+      '<div data-l="Rate"><input class="price r" type="number" step="any" min="0" inputmode="decimal" placeholder="0.00"></div>' +
+      '<div class="amt">0.00</div>' +
+      '<div><button class="del" title="Remove">×</button></div>';
+    el.querySelector('.item').addEventListener('change', () => fillExtra(el));
+    el.querySelectorAll('.qty,.price').forEach(i => i.addEventListener('input', recalc));
+    el.querySelector('.del').addEventListener('click', () => { el.remove(); if (!$('extraLines').children.length) addExtra(true); recalc(); });
+    $('extraLines').appendChild(el);
+    if (silent !== true) el.querySelector('.item').focus();
+    return el;
+  }
+
+  /** Typed an item this vendor already supplies → bump its qty line instead; otherwise copy the description. */
+  function fillExtra(el) {
+    const name = el.querySelector('.item').value.trim().toLowerCase();
+    if (!name) return;
+    const same = [...$('catalogLines').children].find(c => c.dataset.item.toLowerCase() === name);
+    if (same) {
+      el.remove();
+      if (!$('extraLines').children.length) addExtra(true);
+      same.querySelector('.qty').focus();
+      return;
+    }
+    for (const v of DATA.vendors) {
+      const p = v.products.find(x => x.item.toLowerCase() === name);
+      if (p) { if (!el.querySelector('.descr').value) el.querySelector('.descr').value = p.description; break; }
+    }
+  }
+
+  function filterProducts() {
+    const q = $('prodFilter').value.trim().toLowerCase();
+    [...$('catalogLines').children].forEach(c => {
+      const hit = !q || (c.dataset.item + ' ' + c.dataset.desc).toLowerCase().includes(q) || num(c.querySelector('.qty').value) > 0;
+      c.classList.toggle('hidden', !hit);
+    });
+  }
+
   function readItems() {
-    return [...document.querySelectorAll('#itemRows tr')].map(tr => ({
-      item: tr.querySelector('.item').value.trim(),
-      description: tr.querySelector('.descr').value.trim(),
-      qty: tr.querySelector('.qty').value,
-      price: tr.querySelector('.price').value,
-    }));
+    const out = [];
+    [...$('catalogLines').children].forEach(c => {
+      const qty = num(c.querySelector('.qty').value);
+      if (qty > 0) out.push({ item: c.dataset.item, description: c.dataset.desc, qty: qty, price: c.querySelector('.price').value });
+    });
+    [...$('extraLines').children].forEach(c => {
+      const item = c.querySelector('.item').value.trim(), description = c.querySelector('.descr').value.trim();
+      if (item || description) out.push({ item: item, description: description, qty: c.querySelector('.qty').value, price: c.querySelector('.price').value });
+    });
+    return out;
   }
 
   function recalc() {
-    let sub = 0;
-    document.querySelectorAll('#itemRows tr').forEach(tr => {
-      const t = Math.round(num(tr.querySelector('.qty').value) * num(tr.querySelector('.price').value) * 100) / 100;
-      tr.querySelector('.amt').textContent = money(t);
+    let sub = 0, count = 0;
+    document.querySelectorAll('#catalogLines .line, #extraLines .line').forEach(el => {
+      const q = num(el.querySelector('.qty').value);
+      const t = r2(q * num(el.querySelector('.price').value));
+      el.querySelector('.amt').textContent = money(t);
+      if (el.dataset.item) el.classList.toggle('picked', q > 0);
+      if (q > 0) count++;
       sub += t;
     });
-    sub = Math.round(sub * 100) / 100;
-    const tax = Math.round(sub * num($('taxPct').value)) / 100;
+    sub = r2(sub);
+    const tax = r2(sub * num($('taxPct').value) / 100);
+    const total = sub + tax + num($('shipping').value) + num($('other').value);
     $('subtotal').textContent = money(sub);
     $('tax').textContent = money(tax);
-    $('total').textContent = money(sub + tax + num($('shipping').value) + num($('other').value));
+    $('total').textContent = $('mTotal').textContent = money(total);
+    $('lineCount').textContent = $('mCount').textContent = count;
   }
 
-  // ---------------------------------------------------------------- save
+  /** Put the lines of an earlier PO into the form (qty on matching products, others as extra items). */
+  function fillFromPo(items) {
+    $('extraLines').innerHTML = '';
+    [...$('catalogLines').children].forEach(c => c.querySelector('.qty').value = '');
+    items.forEach(it => {
+      const key = (it.item || it.description).toLowerCase();
+      const c = [...$('catalogLines').children].find(x => x.dataset.item.toLowerCase() === key);
+      if (c) { c.querySelector('.qty').value = it.qty; return; }
+      const el = addExtra(true);
+      el.querySelector('.item').value = it.item;
+      el.querySelector('.descr').value = it.description;
+      el.querySelector('.qty').value = it.qty;
+      el.querySelector('.price').value = it.price;
+    });
+    addExtra(true);
+    recalc();
+  }
+
+  function repeatLast() {
+    const v = currentVendor();
+    if (!v || !v.lastPo) return;
+    google.script.run.withSuccessHandler(items => {
+      fillFromPo(items);
+      showMsg('Quantities copied from PO # ' + esc(v.lastPo) + ' at the current rates. Check them, then save.', 'ok');
+    }).withFailureHandler(fail).getPoItems(v.lastPo);
+  }
+
+  function repeatPo(poNumber) {
+    const po = DATA.recent.find(p => p.poNumber === poNumber);
+    const v = po && DATA.vendors.find(x => x.id === po.vendorId);
+    if (!v) return showMsg('The vendor of PO # ' + esc(poNumber) + ' was not found.', 'err');
+    resetForm();
+    $('vendorSel').value = v.id;
+    onVendorChange();
+    showTab('new');
+    google.script.run.withSuccessHandler(items => {
+      fillFromPo(items);
+      showMsg('New PO with the items of PO # ' + esc(poNumber) + ' at the current rates. Check them, then save.', 'ok');
+    }).withFailureHandler(fail).getPoItems(poNumber);
+  }
+
+  // ---------------------------------------------------------------- save PO
 
   function save() {
     const vendor = vendorPayload();
     if (!vendor) return showMsg('Select a vendor, or choose “Add new vendor”.', 'err');
     if (!vendor.name) return showMsg('Enter the vendor name.', 'err');
-    const items = readItems().filter(i => i.item || i.description);
-    if (!items.length) return showMsg('Add at least one item.', 'err');
-    if (items.some(i => !num(i.qty))) return showMsg('Every item needs a quantity.', 'err');
+    const items = readItems();
+    if (!items.length) return showMsg('Enter a quantity for at least one item.', 'err');
+    const bad = items.find(i => !num(i.qty));
+    if (bad) return showMsg('Enter the quantity for “' + esc(bad.item || bad.description) + '”.', 'err');
 
     const po = {
       poNumber: $('poNumber').value.trim(), date: $('date').value,
@@ -323,21 +524,17 @@
       vendor: vendor, items: items,
       taxPct: $('taxPct').value, shipping: $('shipping').value, other: $('other').value, comments: $('comments').value,
     };
-    $('saveBtn').disabled = true;
-    $('saveBtn').textContent = 'Creating PDF…';
+    busy(true, 'Creating PDF…');
     showMsg('', '');
     google.script.run
       .withSuccessHandler(r => {
-        $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save & create PDF';
+        busy(false);
         applyData(r.init); resetForm();
         showMsg('PO # ' + esc(r.poNumber) + ' saved (total ' + money(r.total) + '). ' +
           '<a href="' + esc(r.url) + '" target="_blank">Open PDF</a>' +
           '<a href="' + esc(r.downloadUrl) + '" target="_blank">Download PDF</a>', 'ok');
       })
-      .withFailureHandler(e => {
-        $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save & create PDF';
-        showMsg(esc(e.message), 'err');
-      })
+      .withFailureHandler(fail)
       .savePO(po);
   }
 
@@ -349,8 +546,81 @@
           '<a href="' + esc(r.downloadUrl) + '" target="_blank">Download PDF</a>', 'ok');
         google.script.run.withSuccessHandler(applyData).getInitData();
       })
-      .withFailureHandler(e => showMsg(esc(e.message), 'err'))
+      .withFailureHandler(fail)
       .regeneratePdf(poNumber);
+  }
+
+  // ---------------------------------------------------------------- Vendors screen
+
+  function renderVendorList() {
+    const q = ($('vendorSearch').value || '').trim().toLowerCase();
+    const list = DATA.vendors.filter(v => !q || (v.name + ' ' + v.city + ' ' + v.contact + ' ' + v.phone).toLowerCase().includes(q));
+    $('vendorRows').innerHTML = list.length ? list.map(v =>
+      '<tr class="click" onclick="editVendor(\'' + esc(v.id) + '\')"><td><b>' + esc(v.name) + '</b>' + (v.city ? '<div class="muted">' + esc(v.city) + '</div>' : '') + '</td>' +
+      '<td data-l="Contact">' + esc(v.contact) + '</td><td data-l="Phone">' + esc(v.phone) + '</td>' +
+      '<td class="r" data-l="Products">' + v.products.length + '</td>' +
+      '<td><button class="link" onclick="event.stopPropagation();newPoFor(\'' + esc(v.id) + '\')">New PO</button></td></tr>').join('')
+      : '<tr><td colspan="5" class="muted">No vendors yet. Add one here, or with your first PO.</td></tr>';
+  }
+
+  function editVendor(id) {
+    veId = id;
+    const v = DATA.vendors.find(x => x.id === id);
+    $('veTitle').textContent = v ? v.name : 'New vendor';
+    VFIELDS.forEach(f => $('ve_' + f[0]).value = v ? (v[f[0]] || '') : '');
+    $('veProducts').innerHTML = '';
+    (v ? v.products : []).forEach(p => addVeProduct(p));
+    if (!v || !v.products.length) addVeProduct();
+    $('vendorListCard').classList.add('hidden');
+    $('vendorEditor').classList.remove('hidden');
+    window.scrollTo(0, 0);
+  }
+
+  function addVeProduct(p) {
+    const el = document.createElement('div');
+    el.className = 'line prod';
+    el.innerHTML =
+      '<div data-l="Item #"><input class="item" placeholder="Item #"></div>' +
+      '<div data-l="Description"><input class="descr" placeholder="Description"></div>' +
+      '<div data-l="Rate"><input class="price r" type="number" step="any" min="0" inputmode="decimal" placeholder="0.00"></div>' +
+      '<div><button class="del" title="Remove">×</button></div>';
+    if (p) {
+      el.querySelector('.item').value = p.item;
+      el.querySelector('.descr').value = p.description;
+      el.querySelector('.price').value = p.rate;
+    }
+    el.querySelector('.del').addEventListener('click', () => el.remove());
+    $('veProducts').appendChild(el);
+    if (!p && $('veProducts').children.length > 1) el.querySelector('.item').focus();
+  }
+
+  function closeVendorEditor() {
+    $('vendorEditor').classList.add('hidden');
+    $('vendorListCard').classList.remove('hidden');
+  }
+
+  function saveVendorScreen(thenOrder) {
+    const vendor = { id: veId };
+    VFIELDS.forEach(f => vendor[f[0]] = $('ve_' + f[0]).value.trim());
+    if (!vendor.name) return showMsg('Enter the vendor name.', 'err');
+    const products = [...$('veProducts').children].map(el => ({
+      item: el.querySelector('.item').value.trim(),
+      description: el.querySelector('.descr').value.trim(),
+      rate: el.querySelector('.price').value,
+    })).filter(p => p.item || p.description);
+    showMsg('Saving…', 'ok');
+    google.script.run.withSuccessHandler(r => {
+      applyData(r.init);
+      showMsg('Vendor “' + esc(vendor.name) + '” saved with ' + products.length + ' product(s).', 'ok');
+      if (thenOrder) newPoFor(r.vendorId); else closeVendorEditor();
+    }).withFailureHandler(fail).saveVendor({ vendor: vendor, products: products });
+  }
+
+  function newPoFor(id) {
+    resetForm();
+    $('vendorSel').value = id;
+    onVendorChange();
+    showTab('new');
   }
 
   load();

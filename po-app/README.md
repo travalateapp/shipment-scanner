@@ -4,9 +4,14 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
 
 - **Enter only the basic details:** PO # (filled in automatically), date, vendor, items, quantity and price.
 - **Vendors are remembered.** The first time, choose **➕ Add new vendor…** and enter the full details (name, contact person, address, city, phone, email, GSTIN). After that, pick the vendor from the list and all details fill in automatically. Use **Edit vendor details** to change a saved vendor. The change is saved with the next PO.
-- **Items are remembered too.** Type or pick an Item # you have used before and the description fills in. The last unit price paid **to that vendor** also fills in.
+- **Products and rates are mapped to each vendor.** When you pick a vendor, all of that vendor's products appear with their current rate. **Type the quantity for what you need and save.** Products left at 0 are not ordered.
+  - New items you add on a PO are added to that vendor's list automatically.
+  - If you change a rate on a PO, it becomes the vendor's new rate for next time.
+  - **↻ Repeat last order** copies the quantities of the vendor's previous PO at the current rates. **Repeat** in History does the same for any PO.
+- **Vendors screen:** add or edit vendors and their product and rate list before ordering, then tap **Save & new PO**.
+- **Works on phone and desktop.** On a computer the order summary stays on the right while you scroll. On a phone each item becomes a card, and the total and **Save** button stay at the bottom of the screen.
 - **The PDF is saved in Google Drive** (folder *Purchase Orders (PDF)*), with **Open** and **Download** links. Every PO and item is also logged in the Sheet.
-- **History tab:** recent POs with their PDF links. **Remake** creates the PDF again, for example after you change company details in Settings.
+- **History tab:** recent POs with their PDF links. **Remake PDF** creates the PDF again, for example after you change company details in Settings.
 
 ## Install (about 5 minutes)
 
@@ -17,7 +22,7 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
    - Click **+ → HTML**, name the file **`Index`** (without `.html`), and paste the contents of [`Index.html`](Index.html).
 4. Open **Project Settings ⚙** and set the same **Time zone**.
 5. Select the function **`setup`** and click **Run**. Allow the permissions when asked (Sheets and Drive).
-   This creates the tabs **Settings, Vendors, Purchase Orders, PO Items** and the Drive folder for PDFs.
+   This creates the tabs **Settings, Vendors, Vendor Products, Purchase Orders, PO Items** and the Drive folder for PDFs.
 6. Open the **Settings** tab and check the values (see below). Make sure **Next PO Number** is correct.
 7. Deploy: **Deploy → New deployment → ⚙ → Web app**
    - **Execute as:** `Me`
@@ -41,8 +46,11 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
 ## Sheet tabs
 
 - **Vendors**: one row per vendor (ID `V001`, `V002`, …). You can also add or edit vendors directly here.
+- **Vendor Products**: one row per vendor + item with its current **Rate** and when it was last ordered. You can also edit rates directly here.
 - **Purchase Orders**: one row per PO with totals and the PDF link.
-- **PO Items**: one row per item line. Item auto-fill reads from this tab.
+- **PO Items**: one row per item line of every PO (the full order history).
+
+> **Updating from the first version:** paste both files, run `setup` once more (it adds the Vendor Products tab and fills it from your earlier POs), then deploy a new version.
 
 ## Notes
 
