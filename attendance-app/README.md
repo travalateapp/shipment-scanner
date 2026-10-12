@@ -90,6 +90,16 @@ Inside the app:
 
 The signing key is in `android/app/release.keystore`. Every APK must be signed with the same key, or phones refuse to install it as an update. For extra safety you can use your own key instead: add repository secrets `ANDROID_KEYSTORE_BASE64` (the keystore file in base64) and `ANDROID_KEYSTORE_PASSWORD`. Then employees must uninstall the old app once and install the new one.
 
+### iPhone employees (no APK needed)
+The APK works only on Android. iPhone users install the same app from Safari, and it then opens full-screen with its own **Attendance** icon:
+1. Send them the GitHub Pages link with `?id=…`, the same one Android users get in the APK.
+2. Open it in **Safari**. The login screen shows a blue tip.
+3. Tap the **Share** button ⬆ → **Add to Home Screen** → **Add**.
+4. From now on, open the app from the **Attendance** icon. **Log in once inside the icon**, because the icon keeps its own login, separate from Safari.
+5. Allow **Location** and **Camera** when asked. If they were refused, go to iPhone **Settings → Privacy & Security → Location Services → Safari Websites → While Using**, and **Settings → Safari → Camera → Allow**.
+
+Changes to the app reach iPhones automatically too.
+
 ## 2. Fill the Sheet
 
 ### Settings tab

@@ -54,6 +54,12 @@ jobs:
             echo "::error::This does not look like the app link or a deployment ID: $link"
             exit 1
           fi
+          # Apps Script deployment IDs are 72 characters (AKfycb + 66). A shorter one was cut off while copying.
+          id="$(echo "$url" | sed -n 's/.*[?&]id=\([A-Za-z0-9_-]*\).*/\1/p')"
+          if [ -n "$id" ] && [ "${#id}" -lt 72 ]; then
+            echo "::error::The deployment ID has only ${#id} characters, but Apps Script deployment IDs have 72. It was probably cut off while copying. In Apps Script open Deploy → Manage deployments, tap the copy icon next to the Deployment ID, and run this again with the whole ID."
+            exit 1
+          fi
           echo "App link: $url"
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
