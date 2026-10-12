@@ -102,7 +102,11 @@ Inside the app:
 - **Print** opens Android's print screen, which can also save as PDF.
 - The phone's **Back** button closes a pop-up first, then goes back to the previous screen. On the first screen, press **Back twice** to leave the app.
 
-The signing key is in `android/app/release.keystore`. Every APK must be signed with the same key, or phones refuse to install it as an update. For extra safety you can use your own key instead: add repository secrets `ANDROID_KEYSTORE_BASE64` (the keystore file in base64) and `ANDROID_KEYSTORE_PASSWORD`. Then employees must uninstall the old app once and install the new one.
+**Signing key (private):** every APK must be signed with the same key, or phones refuse to install it as an update.
+- The key is **not** in this public repository. It lives only in the repository secrets **ANDROID_KEYSTORE_BASE64** (the keystore file in base64) and **ANDROID_KEYSTORE_PASSWORD**, under GitHub → Settings → Secrets and variables → Actions.
+- Building the app for employees stops with a clear message if they are missing.
+- **Keep a copy of the keystore file and its password somewhere safe** (e.g. a password manager). Without them no update can be installed over the app, and everyone would have to reinstall.
+- Apps signed with the old public key (1.10 and earlier) can't update to the new key. Those employees **uninstall the app once** and install it again from the link, then log in again.
 
 ### iPhone employees (no APK needed)
 The APK works only on Android. iPhone users install the same app from Safari, and it then opens full-screen with its own **Attendance** icon:
@@ -340,6 +344,17 @@ Employees see an **English | हिंदी** switch at the top of the Attendan
 - In Hindi, all of the employee's screens are in Hindi: Attendance, My Month, Requests, the PIN screen and the error messages (for example "too far from the office").
 - Numbers, amounts, times and dates stay in English digits (₹4,355 · 09:30 · 10 अक्टूबर 2026).
 - The phone remembers the choice. The login screen, the payslip and all admin and super-admin screens stay in English. Admins and super admins don't see the switch.
+
+### Payroll, PF Setup, attendance register
+- **Search:** Payroll and PF Setup have a search box (name or ID). All employee lists are A–Z.
+- **⬇ Attendance register** (on Payroll and Monthly Summary) downloads the month's muster roll as Excel.
+  - One row per employee and one column per day: **P** present, **HD** half day, **A** absent, **L** paid leave, **WO** weekly off, **H** holiday, **WOP** worked on a weekly off / holiday, **-** not employed, `*` = late.
+  - Totals are at the end of each row. Locked months use the final data.
+
+### Check-in photos are kept 2 months
+- Once a day, photos older than **Keep Selfies (days)** (Settings, default **60**) are moved to the Google Drive trash. Google deletes them for good after 30 more days.
+- Attendance records stay. Opening such a photo says it was deleted automatically.
+- Set the setting to 0 to keep all photos.
 
 ### Admin → Today
 - **Choose the day:** ‹ › go to the previous or next day, and the date box opens a calendar for any past date. **Today** jumps back.
