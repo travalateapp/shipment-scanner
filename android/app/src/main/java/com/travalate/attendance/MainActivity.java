@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.SystemClock;
 import android.print.PrintAttributes;
 import android.print.PrintManager;
 import android.provider.MediaStore;
@@ -25,6 +26,8 @@ import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
 import android.widget.Toast;
+
+import org.json.JSONArray;
 
 import java.io.File;
 import java.io.FileOutputStream;
@@ -51,6 +54,7 @@ public class MainActivity extends Activity {
     private ValueCallback<Uri[]> fileCallback;
     private PendingFile pendingFile;
     private WebView printView; // kept so it is not garbage-collected while printing
+    private long lastBackAt; // for "press Back twice to exit"
 
     private static class PendingFile {
         final byte[] data; final String name; final String mime;
@@ -189,14 +193,25 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
     }
 
-    /** Back closes an open pop-up first, then goes back, then leaves the app. */
+    /**
+     * Back: the page closes a pop-up or returns to the previous screen (appBack() in the page). When there is
+     * nothing to go back to, Back must be pressed twice within 2 seconds to leave the app.
+     */
     @Override
     public void onBackPressed() {
-        web.evaluateJavascript("(function(){var m=document.getElementById('modal');"
-                + "if(m&&!m.classList.contains('hidden')&&typeof closeModal==='function'){closeModal();return 1;}return 0;})()", value -> {
-            if ("1".equals(value)) return;
-            if (web.canGoBack()) web.goBack();
-            else finish();
+        web.evaluateJavascript("(function(){try{return typeof appBack==='function'?appBack():'';}catch(e){return '';}})()", value -> {
+            String result = "";
+            try { result = new JSONArray("[" + value + "]").optString(0, ""); } catch (Exception ignored) { }
+            if ("handled".equals(result)) return;
+            if (web.canGoBack()) { web.goBack(); return; }
+            long now = SystemClock.elapsedRealtime();
+            if (now - lastBackAt < 2000) {
+                finish();
+            } else {
+                lastBackAt = now;
+                Toast.makeText(this, result.isEmpty() || "null".equals(result) ? "Press back again to exit" : result,
+                        Toast.LENGTH_SHORT).show();
+            }
         });
     }
 
