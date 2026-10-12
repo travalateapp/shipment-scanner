@@ -883,7 +883,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261018;
+  var NEEDS_SERVER = 20261019;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1781,7 +1781,8 @@
       '<button onclick="loadSummary(\'' + ymShift(ym, -1) + '\')">‹</button><h2>' + esc(r.label) + '</h2>' +
       '<button onclick="loadSummary(\'' + ymShift(ym, 1) + '\')">›</button></div>' +
       '<p class="center muted small" style="margin:8px 0 0">' + t.employees + ' employees · ' + t.pfEmployees + ' with PF' +
-      (r.locked ? ' · <span class="chip s-LOCK">🔒 Final</span>' : (ym === ymNow() ? ' · <span class="chip s-WORKING">Month in progress</span>' : ' · <span class="chip s-PENDING">Not locked</span>')) + '</p></div>';
+      (r.locked ? ' · <span class="chip s-LOCK">🔒 Final</span>' : (ym === ymNow() ? ' · <span class="chip s-WORKING">Month in progress</span>' : ' · <span class="chip s-PENDING">Not locked</span>')) + '</p>' +
+      '<button class="btn ghost" id="regBtn" onclick="downloadRegister(\'' + ym + '\')">⬇ Attendance register (Excel)</button><div id="regMsg"></div></div>';
 
     // Payment
     html += '<div class="card"><h2>💰 Payment to be made</h2>' +
@@ -1873,11 +1874,12 @@
       (r.canLock ? '<button class="btn" onclick="lockMonth(\'' + ym + '\')">🔒 Lock month</button>' : '') +
       (r.canUnlock ? '<button class="btn soft-red" onclick="unlockMonth(\'' + ym + '\')">Unlock</button>' : '') +
       (can('exportPayroll') ? '<button class="btn ghost" id="exportBtn" onclick="exportPayroll(\'' + ym + '\')">⬇ Download Excel</button>' : '') +
-      '</div><div id="exportMsg"></div></div>';
-    html += '<div class="card"><h2>Employees</h2>';
+      '<button class="btn ghost" id="regBtn" onclick="downloadRegister(\'' + ym + '\')">⬇ Attendance register</button>' +
+      '</div><div id="exportMsg"></div><div id="regMsg"></div></div>';
+    html += '<div class="card"><h2>Employees</h2>' + searchBox();
     r.rows.forEach(function (e) {
       total += e.net;
-      html += '<div class="list-item" onclick="openEmployee(\'' + esc(e.id) + '\',\'' + ym + '\')" style="cursor:pointer">' +
+      html += '<div class="list-item" data-q="' + esc((e.name + ' ' + e.id).toLowerCase()) + '" onclick="openEmployee(\'' + esc(e.id) + '\',\'' + ym + '\')" style="cursor:pointer">' +
         '<div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
         '<div class="sub">P ' + e.present + ' · ½ ' + e.halfDay + ' · A ' + (e.absent + e.notJoined) + ' · Late ' + e.late + ' · OT ' + mins(e.otMin) + (e.pf ? ' · <span class="chip s-PF">PF</span>' : '') + '</div>' +
         (e.advance ? '<div class="sub">Advance − ' + money(e.advance, cur) + '</div>' : '') +
@@ -1902,6 +1904,39 @@
   }
 
   /** Builds the payroll as an Excel file in the browser and downloads it. */
+  /** Search box that hides the rows / cards (data-q = "name id") on the current admin screen that don't match. */
+  function searchBox() {
+    return '<input class="inp" style="margin-bottom:6px" placeholder="🔍 Search name or ID" oninput="filterRows(this.value)">';
+  }
+  function filterRows(q) {
+    q = String(q || '').toLowerCase().trim();
+    Array.prototype.forEach.call(document.querySelectorAll('#adminBody [data-q]'), function (el) {
+      el.classList.toggle('hidden', !!q && el.getAttribute('data-q').indexOf(q) < 0);
+    });
+  }
+
+  /** Muster roll: one row per employee, one column per day (P / HD / A / L / WO / H …), totals at the end. */
+  function downloadRegister(ym) {
+    var btn = $('regBtn'), label = btn.innerHTML;
+    btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Preparing register…';
+    $('regMsg').innerHTML = '';
+    Promise.all([api('adminAttendanceRegister', S.token, ym), loadXlsx()]).then(function (res) {
+      var r = res[0];
+      var aoa = [[r.title], [r.status], [r.legend], [], r.header].concat(r.rows);
+      var ws = XLSX.utils.aoa_to_sheet(aoa);
+      ws['!cols'] = r.header.map(function (h, i) { return { wch: i === 1 ? 24 : (i === 0 ? 8 : (/^\d/.test(h) ? 5 : 11)) }; });
+      ws['!freeze'] = { xSplit: 2, ySplit: 5 };
+      ws['!views'] = [{ state: 'frozen', xSplit: 2, ySplit: 5 }];
+      var wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, 'Register ' + ym);
+      if (NATIVE) NATIVE.saveFile(XLSX.write(wb, { bookType: 'xlsx', type: 'base64' }), r.fileName,
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+      else XLSX.writeFile(wb, r.fileName);
+      $('regMsg').innerHTML = '<div class="msg ok">Downloaded <b>' + esc(r.fileName) + '</b> (' + r.rows.length + ' employees).</div>';
+    }).catch(function (e) { $('regMsg').innerHTML = errBox(e); })
+      .then(function () { var b = $('regBtn'); if (b) { b.disabled = false; b.innerHTML = label; } });
+  }
+
   function exportPayroll(ym) {
     var btn = $('exportBtn');
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Preparing Excel…';
@@ -2451,9 +2486,10 @@
     var html = '<div class="card"><p class="muted" style="margin:0;font-size:13px">Turn PF on/off for each employee and set the amounts. ' +
       'Leave a box blank to use the default (' + d.bank + '% of salary for Basic Salary, ' + d.employee + '% / ' + d.employer +
       '% of Basic Salary for PF). You can also type a % like <b>12%</b>.' +
-      (r.showSplit ? '<br><b>In Bank</b> = Basic Salary − PF Employee. <b>In Cash</b> = Salary − Basic Salary.' : '') + '</p></div>';
+      (r.showSplit ? '<br><b>In Bank</b> = Basic Salary − PF Employee. <b>In Cash</b> = Salary − Basic Salary.' : '') + '</p>' +
+      '<div style="margin-top:10px">' + searchBox() + '</div></div>';
     r.list.forEach(function (e, i) {
-      html += '<div class="card"><div class="row"><div><div class="name"><b>' + esc(e.name) + '</b> <span class="muted">' + esc(e.id) + '</span></div>' +
+      html += '<div class="card" data-q="' + esc((e.name + ' ' + e.id).toLowerCase()) + '"><div class="row"><div><div class="name"><b>' + esc(e.name) + '</b> <span class="muted">' + esc(e.id) + '</span></div>' +
         '<div class="sub muted" style="font-size:13px">Salary ' + money(e.salary, cur) + '</div></div>' +
         '<label class="switch"><input type="checkbox" id="pfOn-' + i + '"' + (e.pfActive ? ' checked' : '') + ' onchange="togglePfFields(' + i + ')"><span></span></label></div>' +
         '<div id="pfFields-' + i + '" class="' + (e.pfActive ? '' : 'hidden') + '"><div class="pf-grid">' +

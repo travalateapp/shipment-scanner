@@ -63,28 +63,39 @@ jobs:
           echo "App link: $url"
           echo "url=$url" >> "$GITHUB_OUTPUT"
 
-      - name: Use the signing key from repository secrets (optional)
+      # The signing key is private: it lives only in the repository secrets ANDROID_KEYSTORE_BASE64 (the
+      # keystore file in base64) and ANDROID_KEYSTORE_PASSWORD. Apps for employees are always signed with it,
+      # so updates install over the old app. Test builds of branches without the secrets use a throwaway key.
+      - name: Signing key
         env:
           KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
           KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_B64" ]; then
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ]; then
             echo "$KEYSTORE_B64" | base64 -d > android/app/secret.keystore
-            {
-              echo "SIGN_ARGS=-PstoreFile=secret.keystore -PstorePassword=$KEYSTORE_PASSWORD -PkeyPassword=$KEYSTORE_PASSWORD"
-            } >> "$GITHUB_ENV"
-            echo "Signing with the key from repository secrets."
+            echo "Signing with the private key from the repository secrets."
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "::error::The signing key is missing. Add the repository secrets ANDROID_KEYSTORE_BASE64 and ANDROID_KEYSTORE_PASSWORD (Settings → Secrets and variables → Actions → New repository secret), then run this again."
+            exit 1
+          else
+            keytool -genkeypair -keystore android/app/secret.keystore -storetype PKCS12 -alias attendance -keyalg RSA \
+              -keysize 2048 -validity 2 -storepass test-build-only -keypass test-build-only -dname "CN=Test build only" >/dev/null 2>&1
+            echo "Test build: signed with a throwaway key (not for employees)."
           fi
 
       - name: Build the APK
         working-directory: android
+        env:
+          # Read by Gradle as project properties (kept off the command line).
+          ORG_GRADLE_PROJECT_storeFile: secret.keystore
+          ORG_GRADLE_PROJECT_storePassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'test-build-only' }}
+          ORG_GRADLE_PROJECT_keyPassword: ${{ secrets.ANDROID_KEYSTORE_PASSWORD || 'test-build-only' }}
         run: |
           gradle --no-daemon assembleRelease \
             -PappUrl="${{ steps.link.outputs.url }}" \
             -PversionCode=${{ github.run_number }} \
             -PversionName=1.${{ github.run_number }} \
-            -PupdateRepo="${GITHUB_REPOSITORY}" \
-            $SIGN_ARGS
+            -PupdateRepo="${GITHUB_REPOSITORY}"
           cp app/build/outputs/apk/release/app-release.apk ../Attendance.apk
           ls -l ../Attendance.apk
 

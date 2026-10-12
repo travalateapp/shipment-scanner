@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261018;
+const SERVER_VERSION = 20261019;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -126,6 +126,7 @@ const DEFAULT_SETTINGS = [
   ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
   ['Selfie Folder ID', '', 'Filled automatically'],
+  ['Keep Selfies (days)', 60, 'Check-in photos older than this are moved to the Drive trash once a day (0 = keep all)'],
 ];
 
 /** Per-execution cache so each request reads every tab at most once. */
@@ -209,6 +210,7 @@ const API_FUNCTIONS = {
   adminToday, adminSummary, adminMonth, adminEmployeeMonth, adminEntryOptions, adminGetEntry, adminSaveEntry,
   adminDeleteEntry, adminBulkEntry, adminRequests, adminDecideRequest, adminDecideOt, adminClearMissed,
   adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminSaveAdvance,
+  adminAttendanceRegister,
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
   superListAdmins, superSavePermissions, superSetRole, superAuditLog,
@@ -1277,11 +1279,14 @@ function adminEmployees(token) {
     showSplit: !!ctx.perms.viewSplit,
     defaults: { bank: s.pfBankPct, employee: s.pfEmployeePct, employer: s.pfEmployerPct },
     list: getEmployees_().filter(e => e.active && canEditEmployee_(ctx, e.id)).map(e => {
-      const pf = pfAmounts_(e, s);
+      // Current salary (with increments); percentage defaults rounded like the payroll.
+      const now = Object.assign({}, e, { salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: baseSalary_(e) });
+      const pf = pfAmounts_(now, s);
+      const R = s.roundRupee ? Math.round : round2_;
       return {
-        id: e.id, name: e.name, salary: e.salary, pfActive: e.pf.active,
+        id: e.id, name: e.name, salary: now.salary, pfActive: e.pf.active,
         bankSalaryRaw: String(e.pf.bankSalary), employeeRaw: String(e.pf.employee), employerRaw: String(e.pf.employer),
-        bankSalary: round2_(pf.bankSalary), employee: round2_(pf.employee), employer: round2_(pf.employer),
+        bankSalary: R(pf.bankSalary), employee: R(pf.employee), employer: R(pf.employer),
       };
     }),
   };
@@ -1472,6 +1477,33 @@ function adminSetAdvanceStatus(token, id, status) {
  */
 function autoCheckout() {
   sweepOpenEntries_(true);
+  try { cleanupSelfies_(); } catch (e) { Logger.log('Selfie clean-up: ' + e); }
+}
+
+/**
+ * Once a day (from the hourly trigger): check-in photos older than "Keep Selfies (days)" (default 60) are
+ * moved to the Drive trash, where Google keeps them 30 more days before deleting them. Attendance records
+ * are not touched; only the photo is gone.
+ */
+function cleanupSelfies_() {
+  const s = getSettings_();
+  if (!(s.keepSelfieDays > 0) || !s.selfieFolderId) return 0;
+  const props = PropertiesService.getScriptProperties();
+  const today = todayStr_();
+  if (props.getProperty('selfieCleanupDay') === today) return 0;
+  props.setProperty('selfieCleanupDay', today);
+  let folder;
+  try { folder = DriveApp.getFolderById(s.selfieFolderId); } catch (e) { return 0; }
+  const cutoff = Date.now() - s.keepSelfieDays * 86400000;
+  const started = Date.now();
+  const files = folder.getFiles();
+  let n = 0;
+  while (files.hasNext() && Date.now() - started < 240000) { // stay well inside the 6-minute limit; the rest goes tomorrow
+    const f = files.next();
+    if (f.getDateCreated().getTime() < cutoff) { f.setTrashed(true); n++; }
+  }
+  if (n) audit_({ id: 'AUTO', name: 'Clean-up' }, 'DELETE_OLD_SELFIES', '', today, n + ' photo(s) older than ' + s.keepSelfieDays + ' days moved to the Drive trash');
+  return n;
 }
 
 /** Closes forgotten check-outs. Also called when the app is opened, in case the trigger is missing. */
@@ -1657,8 +1689,50 @@ function adminGetSelfie(token, row) {
   const url = String(vals[COL.SELFIE]);
   const m = /\/d\/([\w-]+)/.exec(url) || /id=([\w-]+)/.exec(url);
   if (!m) throw new Error('No selfie for this entry.');
-  const blob = DriveApp.getFileById(m[1]).getBlob();
+  const keep = getSettings_().keepSelfieDays;
+  const gone = 'This photo was deleted automatically' + (keep > 0 ? ' (photos are kept for ' + keep + ' days)' : '') + '.';
+  let file;
+  try { file = DriveApp.getFileById(m[1]); } catch (e) { throw new Error(gone); }
+  if (file.isTrashed()) throw new Error(gone);
+  const blob = file.getBlob();
   return 'data:' + blob.getContentType() + ';base64,' + Utilities.base64Encode(blob.getBytes());
+}
+
+/**
+ * Attendance register (muster roll) for a month: one row per employee, one column per day with a code,
+ * then the totals. The page turns it into an Excel file. Locked months use the frozen snapshot.
+ */
+function adminAttendanceRegister(token, ym) {
+  const ctx = authAdmin_(token, ['exportPayroll', 'viewPayroll', 'viewSummary']);
+  ym = validYm_(ym);
+  const s = getSettings_();
+  const withRecords = {};
+  readAttendance_().forEach(r => { if (r.date.indexOf(ym) === 0) withRecords[r.empId] = true; });
+  const y = Number(ym.slice(0, 4)), mo = Number(ym.slice(5, 7)), dim = new Date(y, mo, 0).getDate();
+  const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  const CODE = { PRESENT: 'P', WORKING: 'P', HALF_DAY: 'HD', ABSENT: 'A', LEAVE: 'L', WEEK_OFF: 'WO', HOLIDAY: 'H',
+    OFF_WORK: 'WOP', NOT_JOINED: '-', INACTIVE: '-', NOT_MARKED: '', UPCOMING: '' };
+  const days = [];
+  for (let d = 1; d <= dim; d++) days.push(d + ' ' + DOW[new Date(y, mo - 1, d).getDay()]);
+  const header = ['Emp ID', 'Name'].concat(days).concat(['Present', 'Half Days', 'Absent', 'Paid Leave', 'Week Off',
+    'Holidays', 'Worked on Off-Day', 'Late']);
+  const rows = getEmployees_().filter(e => (employedInMonth_(e, ym) || withRecords[e.id]) && canManage_(ctx, e.id)).map(e => {
+    const m = buildMonth_(e, ym), t = m.totals;
+    const cells = (m.days || []).map(d => {
+      let c = d.planned && d.status !== 'LEAVE' ? '' : (CODE[d.status] !== undefined ? CODE[d.status] : d.status);
+      if (d.late && (c === 'P' || c === 'HD')) c += '*';
+      return c;
+    });
+    return [e.id, e.name].concat(cells).concat([t.present, t.halfDay, t.absent, t.leave, t.weekOff, t.holiday, t.offWork, t.late]);
+  });
+  return {
+    fileName: 'Attendance_Register_' + ym + '.xlsx',
+    title: s.company + ' – Attendance register – ' + ymLabel_(ym),
+    legend: 'P = present, HD = half day, A = absent, L = paid leave, WO = weekly off, H = holiday, ' +
+      'WOP = worked on a weekly off / holiday, - = not employed, * = late, blank = not yet',
+    status: isLocked_(ym) ? 'Final (locked)' : (ym === todayStr_().slice(0, 7) ? 'Month in progress (up to today)' : 'Not locked'),
+    header: header, rows: rows,
+  };
 }
 
 /**
@@ -2578,6 +2652,7 @@ function getSettings_() {
       minAppVersion: num('Min Android App Version', 0),
       appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
+      keepSelfieDays: num('Keep Selfies (days)', 60),
     };
   });
 }
@@ -2596,7 +2671,9 @@ function setSetting_(key, value) {
  * mark attendance for others and have no attendance, salary or requests of their own.
  */
 function getEmployees_() {
-  return getPeople_().filter(e => e.role !== 'GUARD');
+  // A–Z by name everywhere (payroll, summary, export, PF, advances, entries, pickers).
+  return getPeople_().filter(e => e.role !== 'GUARD')
+    .sort((a, b) => a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id));
 }
 
 /** Every row of the Employees tab, guards included (login, PINs, the Employees screen). */

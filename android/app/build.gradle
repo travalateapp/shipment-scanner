@@ -26,12 +26,14 @@ android {
     }
 
     // Every APK must be signed with the same key, or phones refuse to install an update over the old app.
+    // The key is private (repository secrets); the workflow writes it to app/secret.keystore and passes the
+    // password as the Gradle properties storePassword / keyPassword. It is never committed.
     signingConfigs {
         release {
-            storeFile file(prop('storeFile', 'release.keystore'))
-            storePassword prop('storePassword', 'travalate-attendance')
+            storeFile file(prop('storeFile', 'secret.keystore'))
+            storePassword prop('storePassword', '')
             keyAlias prop('keyAlias', 'attendance')
-            keyPassword prop('keyPassword', 'travalate-attendance')
+            keyPassword prop('keyPassword', '')
         }
     }
 
