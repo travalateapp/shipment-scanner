@@ -4,6 +4,7 @@ plugins {
 
 // Passed in by the "Build Android APK" workflow (-PappUrl=… -PversionCode=… -PversionName=…).
 def appUrl = (project.findProperty('appUrl') ?: '').toString().replace('"', '')
+def updateRepo = (project.findProperty('updateRepo') ?: '').toString().replace('"', '') // owner/repo with the APK releases
 def prop = { String name, String fallback -> (project.findProperty(name) ?: fallback).toString() }
 
 android {
@@ -17,6 +18,7 @@ android {
         versionCode prop('versionCode', '1').toInteger()
         versionName prop('versionName', '1.0')
         buildConfigField 'String', 'APP_URL', '"' + appUrl + '"'
+        buildConfigField 'String', 'UPDATE_REPO', '"' + updateRepo + '"'
     }
 
     buildFeatures {

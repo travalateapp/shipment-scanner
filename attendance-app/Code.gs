@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261015;
+const SERVER_VERSION = 20261016;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -55,7 +55,7 @@ const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
 const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
-  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT'];
+  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT'];
 const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type'];
 const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
 
@@ -1173,7 +1173,7 @@ function adminStaff(token) {
     canSetRole: ctx.perms.superAdmin,
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
-      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt,
+      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt,
     })),
   };
 }
@@ -1216,7 +1216,7 @@ function adminSaveStaff(token, data) {
       row[5] = 'Yes'; row[6] = "'" + joinDate; row[7] = phone;
       if (h['PF Active'] !== undefined) row[h['PF Active']] = 'No';
       row[anyCol - 1] = anywhere ? 'Yes' : 'No';
-      if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; }
+      if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3]; }
       sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
       forget_('employees');
       audit_(ctx.emp, 'ADD_EMPLOYEE', id, joinDate, name + ', salary ' + salary);
@@ -1236,10 +1236,11 @@ function adminSaveStaff(token, data) {
         sh.getRange(row, hh['Shift Start'] + 1).setValue(timing[0]);
         sh.getRange(row, hh['Shift End'] + 1).setValue(timing[1]);
         sh.getRange(row, hh['Hourly OT'] + 1).setValue(timing[2]);
-        if ((emp.shiftStart || '') + '-' + (emp.shiftEnd || '') + '-' + emp.hourlyOt !==
-          String(timing[0]).replace("'", '') + '-' + String(timing[1]).replace("'", '') + '-' + (timing[2] === 'Yes')) {
+        sh.getRange(row, hh['Morning OT'] + 1).setValue(timing[3]);
+        if ((emp.shiftStart || '') + '-' + (emp.shiftEnd || '') + '-' + emp.hourlyOt + '-' + emp.morningOt !==
+          String(timing[0]).replace("'", '') + '-' + String(timing[1]).replace("'", '') + '-' + (timing[2] === 'Yes') + '-' + (timing[3] === 'Yes')) {
           audit_(ctx.emp, 'EDIT_TIMING', emp.id, '', (timing[0] ? String(timing[0]).replace("'", '') + '–' + String(timing[1]).replace("'", '') : 'company shift') +
-            ', hourly OT ' + timing[2]);
+            ', hourly OT ' + timing[2] + ', morning OT ' + timing[3]);
         }
       }
       forget_('employees');
@@ -1974,7 +1975,7 @@ function buildMonth_(emp, ym) {
   m.rules = {
     shiftStart: minutesToStr_(es.shiftStartMin), shiftEnd: minutesToStr_((es.shiftStartMin + Math.round(es.standardHours * 60)) % 1440),
     lateGrace: s.lateGrace, standardHours: es.standardHours, fullDayHours: es.fullDayHours, halfDayHours: es.halfDayHours,
-    hourlyOt: es.hourlyOt !== false,
+    hourlyOt: es.hourlyOt !== false, morningOt: es.morningOt !== false,
     otMultiplier: s.otMultiplier, latesPerHalfDay: s.latesPerHalfDay, salaryDays: s.salaryDays,
     lateReducesOt: s.lateReducesOt, earlyReducesOt: s.earlyReducesOt, adjustIn: s.adjustIn, otApproval: s.otApproval,
     noCheckoutStatus: s.noCheckoutStatus,
@@ -2042,7 +2043,10 @@ function evaluateDay_(rec, s, offType, isToday) {
       otMin = workedMin - inside;
     }
   } else if (d.status !== 'ABSENT' && d.status !== 'LEAVE') {
-    otMin = offType ? (s.offDayOt ? workedMin : 0) : (s.hourlyOt === false ? 0 : Math.max(0, workedMin - s.standardHours * 60));
+    otMin = offType ? (s.offDayOt ? workedMin : 0)
+      : s.hourlyOt === false ? 0
+      : s.morningOt === false ? Math.max(0, outMin - shiftEnd) // evening OT only: coming early does not count
+      : Math.max(0, workedMin - s.standardHours * 60);
   }
   if (s.otBlock > 0) otMin = Math.floor(otMin / s.otBlock) * s.otBlock;
   if (s.maxOtPerDay > 0) otMin = Math.min(otMin, s.maxOtPerDay);
@@ -2611,6 +2615,7 @@ function getPeople_() {
           shiftStart: toTimeStr_(get(r, 'Shift Start')),
           shiftEnd: toTimeStr_(get(r, 'Shift End')),
           hourlyOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Hourly OT')).trim()),
+          morningOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Morning OT')).trim()),
           pf: {
             active: /^(y|yes|true|1|on)$/i.test(String(get(r, 'PF Active')).trim()),
             bankSalary: get(r, 'PF Bank Salary'),
@@ -2688,7 +2693,7 @@ function empSettings_(emp, s) {
   const start = toMinutes_(emp.shiftStart), end = toMinutes_(emp.shiftEnd);
   const own = start != null && end != null && start !== end;
   let o = s;
-  if (own || emp.hourlyOt === false) {
+  if (own || emp.hourlyOt === false || emp.morningOt === false) {
     o = Object.assign({}, s);
     if (own) {
       const hours = ((end - start + 1440) % 1440) / 60;
@@ -2699,6 +2704,7 @@ function empSettings_(emp, s) {
       o.halfDayHours = round2_(s.halfDayHours * k);
     }
     if (emp.hourlyOt === false) o.hourlyOt = false;
+    if (emp.morningOt === false) o.morningOt = false;
   }
   emp._sBase = s; emp._s = o;
   return o;
@@ -2709,7 +2715,7 @@ function shiftFields_(data) {
   const a = toTimeStr_(data.shiftStart), b = toTimeStr_(data.shiftEnd);
   if (!!a !== !!b) throw new Error('Enter both the shift start and end time, or leave both empty for the company shift.');
   if (a && a === b) throw new Error('Shift start and end cannot be the same time.');
-  return [a ? "'" + a : '', b ? "'" + b : '', data.hourlyOt === false ? 'No' : 'Yes'];
+  return [a ? "'" + a : '', b ? "'" + b : '', data.hourlyOt === false ? 'No' : 'Yes', data.morningOt === false ? 'No' : 'Yes'];
 }
 
 function readAttendance_() {
