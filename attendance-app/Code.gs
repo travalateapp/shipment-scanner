@@ -27,7 +27,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261012;
+const SERVER_VERSION = 20261013;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -101,7 +101,11 @@ const DEFAULT_SETTINGS = [
   ['Late Minutes Reduce OT', 'Yes', 'Monthly OT minutes − total late minutes (minutes after Shift Start on late days)'],
   ['Early Leaving Reduces OT', 'Yes', 'Monthly OT minutes − minutes left before shift end (on present days)'],
   ['Weekly Off', 'Sunday', 'Comma separated, e.g. Sunday  or  Saturday,Sunday'],
-  ['Off-Day Work Is OT', 'Yes', 'All hours worked on a weekly off / holiday count as OT'],
+  ['Off-Day Work Is OT', 'Yes', 'Holidays (and weekly offs when "Week-Off Full Day Hours" is 0): all hours worked count as OT'],
+  ['Week-Off Shift Start', '09:30', 'Working on the weekly off (e.g. Sunday): day hours start (24-hour HH:mm)'],
+  ['Week-Off Shift End', '17:00', 'Working on the weekly off: day hours end. Time before the start or after the end is OT'],
+  ['Week-Off Half Day Hours', 3, 'Hours inside the week-off shift that earn half a day\'s extra pay'],
+  ['Week-Off Full Day Hours', 6, 'Hours inside the week-off shift that earn a full day\'s extra pay (0 = old rule: all hours are OT)'],
   ['Lates Per Half-Day Cut', 0, 'Every N late marks in a month deduct half a day (0 = no deduction)'],
   ['Phone Time Tolerance (min)', 3, 'Check-in is blocked if the phone clock differs from real time by more than this'],
   ['Default PF Bank Salary %', 90, 'Used when an employee\'s "PF Bank Salary" is blank (e.g. 90% of 15000 = 13500)'],
@@ -851,7 +855,8 @@ function adminSummary(token, ym) {
   const pfRows = rows.filter(r => r.pf);
   const totals = {
     employees: rows.length, pfEmployees: pfRows.length,
-    monthlySalary: sum(rows, 'salary'), earned: sum(rows, 'earned'), prorated: rows.some(r => r.prorated), otPay: sum(rows, 'otPay'), leaveDed: sum(rows, 'leaveDed'),
+    monthlySalary: sum(rows, 'salary'), earned: sum(rows, 'earned'), prorated: rows.some(r => r.prorated), otPay: sum(rows, 'otPay'),
+    offDayPay: sum(rows, 'offDayPay'), offWorkCredit: sum(rows, 'offWorkCredit'), leaveDed: sum(rows, 'leaveDed'),
     halfDayDed: sum(rows, 'halfDayDed'), lateCutDed: sum(rows, 'lateCutDed'), advance: sum(rows, 'advance'),
     total: sum(rows, 'net'),
     present: sum(rows, 'present'), absent: rows.reduce((a, r) => a + r.absent + r.notJoined, 0), halfDay: sum(rows, 'halfDay'),
@@ -1631,14 +1636,14 @@ function adminExportPayroll(token, ym) {
   const header = ['Emp ID', 'Name', 'Monthly Salary', 'Days Counted', 'Salary Earned', 'Present', 'Half Days',
     'Absent (Leaves)', 'Paid Leave', 'Week Off', 'Holidays', 'Worked on Off-Day', 'Late Marks', 'Late Mins',
     'Early Leaving Mins', 'OT Mins (gross)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
-    'OT Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Advance Deduction', 'Gross Payable',
+    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Advance Deduction', 'Gross Payable',
     'PF', 'Basic Salary (PF)', 'PF Employee', 'PF Employer']
     .concat(split ? ['In Bank', 'In Cash'] : []).concat(['Total Salary']);
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
     (r.elapsedDays === undefined ? r.daysInMonth : r.elapsedDays) + ' / ' + r.daysInMonth,
     r.earned === undefined ? r.salary : r.earned, r.present, r.halfDay, r.absent + r.notJoined, r.leave,
     r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, r.otMinGross, r.otMin, r.otHours, r.perDay,
-    r.hourly, r.perMin, r.otPay, r.leaveDed, r.halfDayDed, r.lateCutDed, r.advance || 0, r.gross,
+    r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.advance || 0, r.gross,
     r.pf ? 'Yes' : 'No', r.pf ? r.pfBankSalary : '', r.pf ? r.pfEmployee : '', r.pf ? r.pfEmployer : '',
   ].concat(split ? [r.pf ? r.bank : '', r.pf ? r.cash : ''] : []).concat([r.net]));
   const status = data.locked ? 'Final (locked by ' + data.locked.by + ' on ' + data.locked.at + ')'
@@ -1939,6 +1944,7 @@ function buildMonth_(emp, ym) {
     otMultiplier: s.otMultiplier, latesPerHalfDay: s.latesPerHalfDay, salaryDays: s.salaryDays,
     lateReducesOt: s.lateReducesOt, earlyReducesOt: s.earlyReducesOt, adjustIn: s.adjustIn, otApproval: s.otApproval,
     noCheckoutStatus: s.noCheckoutStatus,
+    weekOff: s.woFullHours > 0 ? { start: minutesToStr_(s.woStartMin), end: minutesToStr_(s.woEndMin), half: s.woHalfHours, full: s.woFullHours } : null,
   };
   return m;
 }
@@ -1990,7 +1996,16 @@ function evaluateDay_(rec, s, offType, isToday) {
   if (!cleared && !offType && d.status === 'PRESENT' && outMin != null && outMin < shiftEnd) d.earlyMin = shiftEnd - outMin;
 
   let otMin = 0;
-  if (d.status !== 'ABSENT' && d.status !== 'LEAVE') {
+  if (offType === 'WEEK_OFF' && s.woFullHours > 0 && !rec.override) {
+    // Working on the weekly off: hours inside the week-off shift earn a half / full day's extra pay,
+    // time before its start or after its end is OT. Nothing is counted until the check-out.
+    if (workedMin > 0) {
+      const inside = Math.max(0, Math.min(outMin, s.woEndMin) - Math.max(inMin, s.woStartMin));
+      d.offInsideMin = inside;
+      d.offCredit = inside >= s.woFullHours * 60 ? 1 : (inside >= s.woHalfHours * 60 ? 0.5 : 0);
+      otMin = workedMin - inside;
+    }
+  } else if (d.status !== 'ABSENT' && d.status !== 'LEAVE') {
     otMin = offType ? (s.offDayOt ? workedMin : 0) : Math.max(0, workedMin - s.standardHours * 60);
   }
   if (s.otBlock > 0) otMin = Math.floor(otMin / s.otBlock) * s.otBlock;
@@ -2011,7 +2026,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
   const dim = new Date(y, m, 0).getDate();
   const today = todayStr_();
   const t = {
-    daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0,
+    daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0, offWorkCredit: 0,
     notJoined: 0, late: 0, lateMin: 0, earlyMin: 0, workedHours: 0, otMinGross: 0, otMin: 0, otHours: 0,
     otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
   };
@@ -2046,7 +2061,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
       case 'LEAVE': t.leave++; break;
       case 'WEEK_OFF': t.weekOff++; break;
       case 'HOLIDAY': t.holiday++; break;
-      case 'OFF_WORK': t.offWork++; break;
+      case 'OFF_WORK': t.offWork++; t.offWorkCredit += d.offCredit || 0; break;
       case 'NOT_JOINED': t.notJoined++; t.deductDays += 1; break;
     }
     if (d.late) { t.late++; t.lateMin += d.lateMin || 0; }
@@ -2082,7 +2097,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
  * Salary for the month.
  *   Per day = salary ÷ Salary Days Basis (30), per hour = per day ÷ Standard Hours, per minute = per hour ÷ 60.
  *   Earned  = salary × days passed ÷ days in month (the full salary once the month is over).
- *   Gross   = earned + OT pay − leave − half-day − late-cut deductions.
+ *   Gross   = earned + OT pay + week-off work pay − leave − half-day − late-cut deductions.
  *   Net     = Gross − advance instalment (− PF employee for PF employees).
  * PF employees: Bank = PF Bank Salary − PF Employee, Cash = Salary − PF Bank Salary, and OT/deductions/advance
  * are applied to Cash (or Bank, per the "OT & Deductions Paid In" setting).
@@ -2102,13 +2117,14 @@ function calcPay_(emp, s, t, dim, advanceWanted) {
   const lateCutDed = R(t.lateCutDays * perDay);
   const deduction = Math.min(earned, leaveDed + halfDayDed + lateCutDed);
   const otPay = R(t.otMin * perMin * s.otMultiplier);
-  const gross = round2_(earned - deduction + otPay);
+  const offDayPay = R((t.offWorkCredit || 0) * perDay); // extra pay for working on the weekly off
+  const gross = round2_(earned - deduction + otPay + offDayPay);
 
   const pay = {
     salary: round2_(emp.salary), earned: earned, prorated: ratio < 1, elapsedDays: t.elapsedDays, daysInMonth: dim,
     perDay: round2_(perDay), hourly: round2_(perHour), perMin: round2_(perMin),
     leaveDed: leaveDed, halfDayDed: halfDayDed, lateCutDed: lateCutDed, deduction: round2_(deduction),
-    otPay: otPay, gross: gross, advance: 0,
+    otPay: otPay, offDayPay: offDayPay, gross: gross, advance: 0,
     pf: false, pfBankSalary: 0, pfEmployee: 0, pfEmployer: 0, bank: 0, cash: 0, net: gross,
   };
 
@@ -2305,7 +2321,8 @@ function payslipHtml_(emp, m) {
 
   let earn = row('Monthly Salary', money(p.salary)) +
     (p.prorated ? row('Salary earned (' + p.elapsedDays + ' of ' + p.daysInMonth + ' days)', money(p.earned)) : '') +
-    row('OT (' + mins(t.otMin) + ')', money(p.otPay));
+    row('OT (' + mins(t.otMin) + ')', money(p.otPay)) +
+    (p.offDayPay ? row('Week-off work (' + t.offWorkCredit + ' day' + (t.offWorkCredit === 1 ? '' : 's') + ')', money(p.offDayPay)) : '');
   let ded = row('Leaves (' + (t.absent + t.notJoined) + ' days)', money(p.leaveDed)) +
     row('Half Days (' + t.halfDay + ')', money(p.halfDayDed));
   if (p.lateCutDed) ded += row('Late marks', money(p.lateCutDed));
@@ -2499,6 +2516,10 @@ function getSettings_() {
       roundRupee: yes('Round To Rupee', true),
       weeklyOff: weeklyOff,
       offDayOt: yes('Off-Day Work Is OT', true),
+      woStartMin: toMinutes_(raw['Week-Off Shift Start']) != null ? toMinutes_(raw['Week-Off Shift Start']) : 570,
+      woEndMin: toMinutes_(raw['Week-Off Shift End']) != null ? toMinutes_(raw['Week-Off Shift End']) : 1020,
+      woHalfHours: num('Week-Off Half Day Hours', 3),
+      woFullHours: num('Week-Off Full Day Hours', 6),
       latesPerHalfDay: num('Lates Per Half-Day Cut', 0),
       backDateDays: num('Admin Back-Date Limit (days)', 45),
       requestBackDays: num('Request Back-Date Limit (days)', 7),

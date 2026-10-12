@@ -129,7 +129,11 @@ Changes to the app reach iPhones automatically too.
 | Late Minutes Reduce OT | Yes | Net OT = OT − late minutes |
 | Early Leaving Reduces OT | Yes | Net OT = OT − minutes left before shift end |
 | Weekly Off | Sunday | For example `Sunday` or `Saturday,Sunday` |
-| Off-Day Work Is OT | Yes | All hours worked on a weekly off or holiday count as OT |
+| Off-Day Work Is OT | Yes | Holidays (and weekly offs when *Week-Off Full Day Hours* = 0): all hours worked count as OT |
+| Week-Off Shift Start | 09:30 | Working on the weekly off (Sunday): start of the day hours |
+| Week-Off Shift End | 17:00 | End of the day hours. Time before the start or after the end is OT |
+| Week-Off Half Day Hours | 3 | Hours inside 09:30–17:00 that earn **half a day's extra pay** |
+| Week-Off Full Day Hours | 6 | Hours inside 09:30–17:00 that earn **a full day's extra pay** (0 = old rule: all hours are OT) |
 | Lates Per Half-Day Cut | 0 | Optional extra penalty: every N late marks deduct half a day (`0` = off) |
 | Phone Time Tolerance (min) | 3 | Check-in is blocked if the phone clock is off by more than this |
 | Default PF Bank Salary % / Employee % / Employer % | 90 / 12 / 13 | Used when the PF boxes are blank |
@@ -229,6 +233,25 @@ At month end, check **Admin → Payroll** and tap **🔒 Lock month**. After tha
 - **Change monthly** changes the instalment from now on. Locked months keep what was actually deducted.
 
 ---
+
+### Working on the weekly off (Sunday)
+The weekly off is already paid as part of the monthly salary, so working on it earns **extra** pay:
+- Hours **inside 09:30–17:00**:
+  - 6 h or more = **+1 day's pay** (salary ÷ 30).
+  - 3 h or more = **+½ day's pay**.
+  - Less than 3 h = no day pay.
+- Time **before 09:30 or after 17:00** is **OT**, paid as on other days: multiplier, approval, blocks and the monthly late / early adjustment all apply.
+- Examples (₹30,000 salary → ₹1,000/day):
+
+  | Hours worked | Pay |
+  |---|---|
+  | 09:30–17:00 | +₹1,000 |
+  | 09:30–19:00 | +₹1,000 + 2 h OT |
+  | 10:00–15:00 | +₹500 |
+  | 18:00–21:00 | 3 h OT only |
+- The salary card, payslip, Monthly Summary and Excel export show it as **Week-off work**.
+- Holidays still follow *Off-Day Work Is OT*.
+- The four *Week-Off* settings appear in the Settings tab after you run **Attendance App → Run setup / repair sheets**. Until then the defaults above apply.
 
 ## 4. Roles, permissions and requests
 
