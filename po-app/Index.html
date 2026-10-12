@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html>
+<head>
+<base target="_top">
+<meta charset="utf-8">
+<style>
+  :root { --blue:#3b4e87; --line:#d5d9e3; --bg:#f4f6fa; --muted:#667085; --ok:#137a3a; --err:#b42318; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif; background:var(--bg); color:#1d2433; font-size:15px; }
+  header { background:var(--blue); color:#fff; padding:14px 16px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  header h1 { font-size:18px; margin:0; }
+  .tabs button { background:transparent; color:#cfd7ee; border:0; font-size:15px; padding:6px 10px; cursor:pointer; border-radius:6px; }
+  .tabs button.on { background:rgba(255,255,255,.18); color:#fff; }
+  main { max-width:960px; margin:0 auto; padding:16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:10px; padding:16px; margin-bottom:14px; }
+  .card h2 { font-size:14px; text-transform:uppercase; letter-spacing:.04em; color:var(--blue); margin:0 0 12px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(200px, 1fr)); gap:10px 14px; }
+  label { display:block; font-size:12px; color:var(--muted); margin-bottom:4px; }
+  input, select, textarea { width:100%; padding:9px 10px; border:1px solid var(--line); border-radius:7px; font:inherit; background:#fff; }
+  input:focus, select:focus, textarea:focus { outline:2px solid #9fb0e0; border-color:#9fb0e0; }
+  textarea { min-height:60px; resize:vertical; }
+  .vsum { background:var(--bg); border-radius:8px; padding:10px 12px; line-height:1.5; margin-top:10px; }
+  .link { background:none; border:0; color:var(--blue); text-decoration:underline; cursor:pointer; padding:0; font:inherit; }
+  table.items { width:100%; border-collapse:collapse; }
+  table.items th { text-align:left; font-size:12px; color:var(--muted); font-weight:600; padding:0 6px 6px 0; }
+  table.items td { padding:0 6px 6px 0; vertical-align:top; }
+  table.items td.amt { text-align:right; padding-top:10px; white-space:nowrap; }
+  .del { background:none; border:0; color:var(--err); font-size:20px; cursor:pointer; line-height:1; padding:6px; }
+  .btn { background:var(--blue); color:#fff; border:0; border-radius:8px; padding:11px 18px; font:inherit; font-weight:600; cursor:pointer; }
+  .btn.ghost { background:#fff; color:var(--blue); border:1px solid var(--blue); }
+  .btn:disabled { opacity:.6; cursor:wait; }
+  .totals { margin-left:auto; max-width:320px; }
+  .totals div { display:flex; justify-content:space-between; align-items:center; padding:4px 0; gap:10px; }
+  .totals input { width:110px; text-align:right; }
+  .totals .grand { border-top:2px solid #1d2433; margin-top:6px; padding-top:8px; font-weight:700; font-size:17px; }
+  .msg { padding:12px 14px; border-radius:8px; margin-bottom:14px; }
+  .msg.ok { background:#e7f6ec; color:var(--ok); }
+  .msg.err { background:#fdecea; color:var(--err); }
+  .msg a { color:inherit; font-weight:600; margin-right:14px; }
+  .list { width:100%; border-collapse:collapse; }
+  .list th, .list td { text-align:left; padding:9px 8px; border-bottom:1px solid var(--line); font-size:14px; }
+  .list td.r, .list th.r { text-align:right; }
+  .list a { color:var(--blue); margin-right:10px; }
+  .actions { display:flex; gap:10px; justify-content:flex-end; flex-wrap:wrap; }
+  .hidden { display:none !important; }
+  .muted { color:var(--muted); font-size:13px; }
+  @media (max-width:640px) {
+    table.items thead { display:none; }
+    table.items tr { display:grid; grid-template-columns:1fr 1fr; gap:6px; border-bottom:1px solid var(--line); padding:8px 0; }
+    table.items td { padding:0; }
+    table.items td.desc { grid-column:1 / -1; }
+    table.items td.amt { text-align:left; padding-top:9px; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><?= company ?> · Purchase Orders</h1>
+  <nav class="tabs">
+    <button id="tabNew" class="on" onclick="showTab('new')">New PO</button>
+    <button id="tabHist" onclick="showTab('hist')">History</button>
+  </nav>
+</header>
+
+<main>
+  <div id="msg"></div>
+
+  <!-- ============================== NEW PO ============================== -->
+  <section id="viewNew">
+    <div class="card">
+      <h2>Basic details</h2>
+      <div class="grid">
+        <div><label>PO #</label><input id="poNumber" inputmode="numeric"></div>
+        <div><label>Date</label><input id="date" type="date"></div>
+        <div><label>Requisitioner</label><input id="requisitioner"></div>
+        <div><label>Ship Via</label><input id="shipVia" placeholder="e.g. Transport / By hand"></div>
+        <div><label>F.O.B.</label><input id="fob"></div>
+        <div><label>Shipping Terms</label><input id="terms"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Vendor</h2>
+      <label>Select vendor</label>
+      <select id="vendorSel" onchange="onVendorChange()"></select>
+
+      <div id="vendorSummary" class="vsum hidden"></div>
+      <div id="vendorEditLink" class="hidden" style="margin-top:6px">
+        <button class="link" onclick="openVendorForm()">Edit vendor details</button>
+      </div>
+
+      <div id="vendorForm" class="hidden" style="margin-top:12px">
+        <div class="grid">
+          <div><label>Vendor name *</label><input id="vName"></div>
+          <div><label>Contact person</label><input id="vContact"></div>
+          <div><label>Address</label><input id="vAddress"></div>
+          <div><label>City / State</label><input id="vCity"></div>
+          <div><label>Phone</label><input id="vPhone" inputmode="tel"></div>
+          <div><label>Email</label><input id="vEmail" type="email"></div>
+          <div><label>GSTIN</label><input id="vGstin"></div>
+        </div>
+        <p class="muted" id="vendorNote"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Items</h2>
+      <table class="items">
+        <thead><tr><th style="width:20%">Item #</th><th>Description</th><th style="width:11%">Qty</th><th style="width:14%">Unit price</th><th style="width:13%;text-align:right">Total</th><th style="width:30px"></th></tr></thead>
+        <tbody id="itemRows"></tbody>
+      </table>
+      <datalist id="itemList"></datalist>
+      <button class="btn ghost" onclick="addRow()">+ Add item</button>
+    </div>
+
+    <div class="card">
+      <div class="grid" style="align-items:start">
+        <div>
+          <label>Comments or special instructions</label>
+          <textarea id="comments"></textarea>
+        </div>
+        <div class="totals">
+          <div><span>Subtotal</span><b id="subtotal">0.00</b></div>
+          <div><span>Tax %</span><input id="taxPct" type="number" step="0.01" min="0" oninput="recalc()"></div>
+          <div><span>Tax</span><span id="tax">0.00</span></div>
+          <div><span>Shipping</span><input id="shipping" type="number" step="0.01" min="0" oninput="recalc()"></div>
+          <div><span>Other</span><input id="other" type="number" step="0.01" min="0" oninput="recalc()"></div>
+          <div class="grand"><span>Total</span><span id="total">0.00</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button class="btn ghost" onclick="resetForm()">Clear</button>
+      <button class="btn" id="saveBtn" onclick="save()">Save &amp; create PDF</button>
+    </div>
+  </section>
+
+  <!-- ============================== HISTORY ============================== -->
+  <section id="viewHist" class="hidden">
+    <div class="card">
+      <h2>Recent purchase orders</h2>
+      <table class="list">
+        <thead><tr><th>PO #</th><th>Date</th><th>Vendor</th><th class="r">Total</th><th>PDF</th></tr></thead>
+        <tbody id="histRows"></tbody>
+      </table>
+    </div>
+  </section>
+</main>
+
+<script>
+  let DATA = null;          // from getInitData()
+  let editingVendor = false; // true when the vendor form is open for a saved vendor
+
+  const $ = id => document.getElementById(id);
+  const esc = t => String(t == null ? '' : t).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  const num = v => Number(v) || 0;
+  function money(n) {
+    const p = Math.abs(Math.round(num(n) * 100) / 100).toFixed(2).split('.');
+    let x = p[0];
+    if (x.length > 3) x = x.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ',') + ',' + x.slice(-3);
+    return (n < 0 ? '-' : '') + x + '.' + p[1];
+  }
+
+  function showMsg(html, kind) { $('msg').innerHTML = html ? '<div class="msg ' + kind + '">' + html + '</div>' : ''; if (html) window.scrollTo(0, 0); }
+
+  function showTab(t) {
+    $('viewNew').classList.toggle('hidden', t !== 'new');
+    $('viewHist').classList.toggle('hidden', t !== 'hist');
+    $('tabNew').classList.toggle('on', t === 'new');
+    $('tabHist').classList.toggle('on', t === 'hist');
+  }
+
+  // ---------------------------------------------------------------- load
+
+  function load() {
+    google.script.run.withSuccessHandler(d => { applyData(d); resetForm(); })
+      .withFailureHandler(e => showMsg(esc(e.message), 'err')).getInitData();
+  }
+
+  function applyData(d) {
+    DATA = d;
+    const sel = $('vendorSel');
+    sel.innerHTML = '<option value="">— Select vendor —</option>' +
+      d.vendors.map(v => '<option value="' + esc(v.id) + '">' + esc(v.name) + (v.city ? ' (' + esc(v.city) + ')' : '') + '</option>').join('') +
+      '<option value="__new">➕ Add new vendor…</option>';
+    const names = {};
+    d.items.forEach(i => { names[i.item] = i.description; });
+    $('itemList').innerHTML = Object.keys(names).sort().map(n => '<option value="' + esc(n) + '">' + esc(names[n]) + '</option>').join('');
+    $('histRows').innerHTML = d.recent.length ? d.recent.map(p =>
+      '<tr><td>' + esc(p.poNumber) + '</td><td>' + esc(p.date) + '</td><td>' + esc(p.vendor) + '</td>' +
+      '<td class="r">' + money(p.total) + '</td><td>' +
+      (p.url ? '<a href="' + esc(p.url) + '" target="_blank">Open</a>' : '') +
+      (p.downloadUrl ? '<a href="' + esc(p.downloadUrl) + '" target="_blank">Download</a>' : '') +
+      '<button class="link" onclick="regen(\'' + esc(p.poNumber) + '\')">Remake</button></td></tr>').join('')
+      : '<tr><td colspan="5" class="muted">No purchase orders yet.</td></tr>';
+  }
+
+  function resetForm() {
+    $('poNumber').value = DATA.nextPoNumber;
+    $('date').value = DATA.today;
+    ['requisitioner', 'shipVia', 'fob', 'terms', 'shipping', 'other'].forEach(id => $(id).value = '');
+    $('taxPct').value = DATA.taxPct;
+    $('comments').value = DATA.comments;
+    $('vendorSel').value = '';
+    onVendorChange();
+    $('itemRows').innerHTML = '';
+    addRow();
+    recalc();
+  }
+
+  // ---------------------------------------------------------------- vendor
+
+  const VFIELDS = { name: 'vName', contact: 'vContact', address: 'vAddress', city: 'vCity', phone: 'vPhone', email: 'vEmail', gstin: 'vGstin' };
+
+  function currentVendor() { return DATA.vendors.find(v => v.id === $('vendorSel').value); }
+
+  function onVendorChange() {
+    const val = $('vendorSel').value;
+    const v = currentVendor();
+    editingVendor = false;
+    $('vendorSummary').classList.toggle('hidden', !v);
+    $('vendorEditLink').classList.toggle('hidden', !v);
+    $('vendorForm').classList.toggle('hidden', val !== '__new');
+    Object.keys(VFIELDS).forEach(k => $(VFIELDS[k]).value = v ? (v[k] || '') : '');
+    if (v) {
+      $('vendorSummary').innerHTML = [v.name, v.contact, v.address, v.city, v.phone && 'Phone: ' + v.phone,
+        v.email, v.gstin && 'GSTIN: ' + v.gstin].filter(Boolean).map(esc).join('<br>');
+    }
+    if (val === '__new') {
+      $('vendorNote').textContent = 'These details are saved with the PO. Next time just pick this vendor from the list.';
+      $('vName').focus();
+    }
+    // Refill item prices from this vendor's last order where possible.
+    document.querySelectorAll('#itemRows tr').forEach(tr => { if (!tr.querySelector('.price').value) fillItem(tr); });
+  }
+
+  function openVendorForm() {
+    editingVendor = true;
+    $('vendorForm').classList.remove('hidden');
+    $('vendorSummary').classList.add('hidden');
+    $('vendorEditLink').classList.add('hidden');
+    $('vendorNote').textContent = 'Changes are saved to this vendor when you save the PO.';
+  }
+
+  function vendorPayload() {
+    const val = $('vendorSel').value;
+    if (!val) return null;
+    const v = currentVendor();
+    if (v && !editingVendor) return v;
+    const out = { id: v ? v.id : '' };
+    Object.keys(VFIELDS).forEach(k => out[k] = $(VFIELDS[k]).value.trim());
+    return out;
+  }
+
+  // ---------------------------------------------------------------- items
+
+  function addRow() {
+    const tr = document.createElement('tr');
+    tr.innerHTML =
+      '<td><input class="item" list="itemList" placeholder="Item #"></td>' +
+      '<td class="desc"><input class="descr" placeholder="Description"></td>' +
+      '<td><input class="qty" type="number" step="any" min="0" placeholder="Qty"></td>' +
+      '<td><input class="price" type="number" step="any" min="0" placeholder="Price"></td>' +
+      '<td class="amt">0.00</td>' +
+      '<td><button class="del" title="Remove">×</button></td>';
+    tr.querySelector('.item').addEventListener('change', () => fillItem(tr));
+    tr.querySelectorAll('.qty,.price').forEach(i => i.addEventListener('input', recalc));
+    tr.querySelector('.del').addEventListener('click', () => { tr.remove(); if (!$('itemRows').children.length) addRow(); recalc(); });
+    $('itemRows').appendChild(tr);
+    return tr;
+  }
+
+  /** Item # typed or picked → description and the last price paid (this vendor first). */
+  function fillItem(tr) {
+    const name = tr.querySelector('.item').value.trim().toLowerCase();
+    if (!name) return;
+    const vid = $('vendorSel').value;
+    const hits = DATA.items.filter(i => i.item.toLowerCase() === name);
+    const hit = hits.find(i => i.vendorId === vid) || hits[hits.length - 1];
+    if (!hit) return;
+    if (!tr.querySelector('.descr').value) tr.querySelector('.descr').value = hit.description;
+    if (!tr.querySelector('.price').value && hit.vendorId === vid) tr.querySelector('.price').value = hit.price;
+    recalc();
+  }
+
+  function readItems() {
+    return [...document.querySelectorAll('#itemRows tr')].map(tr => ({
+      item: tr.querySelector('.item').value.trim(),
+      description: tr.querySelector('.descr').value.trim(),
+      qty: tr.querySelector('.qty').value,
+      price: tr.querySelector('.price').value,
+    }));
+  }
+
+  function recalc() {
+    let sub = 0;
+    document.querySelectorAll('#itemRows tr').forEach(tr => {
+      const t = Math.round(num(tr.querySelector('.qty').value) * num(tr.querySelector('.price').value) * 100) / 100;
+      tr.querySelector('.amt').textContent = money(t);
+      sub += t;
+    });
+    sub = Math.round(sub * 100) / 100;
+    const tax = Math.round(sub * num($('taxPct').value)) / 100;
+    $('subtotal').textContent = money(sub);
+    $('tax').textContent = money(tax);
+    $('total').textContent = money(sub + tax + num($('shipping').value) + num($('other').value));
+  }
+
+  // ---------------------------------------------------------------- save
+
+  function save() {
+    const vendor = vendorPayload();
+    if (!vendor) return showMsg('Select a vendor, or choose “Add new vendor”.', 'err');
+    if (!vendor.name) return showMsg('Enter the vendor name.', 'err');
+    const items = readItems().filter(i => i.item || i.description);
+    if (!items.length) return showMsg('Add at least one item.', 'err');
+    if (items.some(i => !num(i.qty))) return showMsg('Every item needs a quantity.', 'err');
+
+    const po = {
+      poNumber: $('poNumber').value.trim(), date: $('date').value,
+      requisitioner: $('requisitioner').value, shipVia: $('shipVia').value, fob: $('fob').value, terms: $('terms').value,
+      vendor: vendor, items: items,
+      taxPct: $('taxPct').value, shipping: $('shipping').value, other: $('other').value, comments: $('comments').value,
+    };
+    $('saveBtn').disabled = true;
+    $('saveBtn').textContent = 'Creating PDF…';
+    showMsg('', '');
+    google.script.run
+      .withSuccessHandler(r => {
+        $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save & create PDF';
+        applyData(r.init); resetForm();
+        showMsg('PO # ' + esc(r.poNumber) + ' saved (total ' + money(r.total) + '). ' +
+          '<a href="' + esc(r.url) + '" target="_blank">Open PDF</a>' +
+          '<a href="' + esc(r.downloadUrl) + '" target="_blank">Download PDF</a>', 'ok');
+      })
+      .withFailureHandler(e => {
+        $('saveBtn').disabled = false; $('saveBtn').textContent = 'Save & create PDF';
+        showMsg(esc(e.message), 'err');
+      })
+      .savePO(po);
+  }
+
+  function regen(poNumber) {
+    showMsg('Re-creating the PDF for PO # ' + esc(poNumber) + '…', 'ok');
+    google.script.run
+      .withSuccessHandler(r => {
+        showMsg('New PDF for PO # ' + esc(poNumber) + ': <a href="' + esc(r.url) + '" target="_blank">Open PDF</a>' +
+          '<a href="' + esc(r.downloadUrl) + '" target="_blank">Download PDF</a>', 'ok');
+        google.script.run.withSuccessHandler(applyData).getInitData();
+      })
+      .withFailureHandler(e => showMsg(esc(e.message), 'err'))
+      .regeneratePdf(poNumber);
+  }
+
+  load();
+</script>
+</body>
+</html>
