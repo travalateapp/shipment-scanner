@@ -152,14 +152,34 @@ Changes to the app reach iPhones automatically too.
 - You can add employees here or in the app (**Admin → Employees**).
 - **PINs are encrypted (hashed) automatically.** A PIN typed into the sheet works once, and is replaced by a code like `sha256$…` after that employee's first login. To reset a PIN, use **Admin → Employees → Edit → Reset PIN**, or type a new plain PIN into the sheet.
 - Role is `EMPLOYEE`, `ADMIN`, `SUPER_ADMIN` or `GUARD` (see section 4). A guard's salary can be left empty.
-- When someone leaves, untick **Active**. Their history is kept.
+- **Someone leaves:** untick **Active** and enter their **last working day**.
+  - From the next day they are gone from **Mark Attendance**, **Today** and the payroll / summary / export of months they didn't work.
+  - The month they left shows with salary only up to that day. Earlier months are unchanged.
+  - They can't log in.
+- **Someone comes back:** tick **Active** and enter the date they **start again**. Salary and attendance count from that day, and the days in between are *Inactive* (not paid).
+- Every period is kept in the **Employment History** tab (`Emp ID | From | To`) and shown in the employee's edit form.
+- **Salary increment:** don't change Monthly Salary. Open the employee and use **Salary increment**: the amount (minus for a decrease), the **month it starts**, and an optional note.
+  - From that month the salary is the original + all increments up to then. **Earlier months are not affected**, and a locked month can't get an increment.
+  - Increments are kept in the **Salary Increments** tab. *Monthly Salary* in the Employees tab stays the original salary.
+  - Remove a wrong increment with **Remove**, as long as its month isn't locked.
 - **Mark From Anywhere** (the last column, added automatically): `Yes` lets an employee who works **outstation** check in and out from anywhere. Set it in the app under **Admin → Employees → (employee) → "Can mark from anywhere (outstation)"**.
   - Their **GPS location is still required and saved** with every check-in and check-out, and the selfie rules are the same. Only the office distance and GPS-accuracy limits are skipped.
   - When they are away from the office, the entry gets a 📍 *Checked in / out outside office* tag, and Admin → Today shows the distance (e.g. "1146.9 km"). These entries are not counted as suspicious.
   - Turn it off again when they are back at the office. Guards marking for others must still be at the office.
 
-### Holidays tab
-Add one row per paid holiday: `2026-10-20 | Diwali`.
+### Own work timing / no hourly OT (per employee)
+Go to **Admin → Employees → (employee) → Work timing**. These are saved in the *Shift Start*, *Shift End* and *Hourly OT* columns:
+- **Shift start / end** (e.g. 11:00–19:00): late marks, early leaving and OT use this person's times instead of the company shift. Leave both empty for the company shift.
+  - Their **hourly rate** = per-day ÷ their shift hours.
+  - The **full / half-day minimums** scale with the shift length. With the company 9 h shift and 8 h / 4 h minimums, an 8 h shift needs 7.1 h / 3.6 h.
+- **Hourly OT** unticked: no OT for extra hours on working days. **Sunday / week-off work is still paid** (day pay plus OT outside 09:30–17:00), and holidays still follow *Off-Day Work Is OT*.
+
+### Holidays (national / festival)
+- **Who:** admins with the **Manage Holidays** permission (super admins always) add holidays in **Admin → Holidays**. Each has a date, a name and a type: National, Festival or Company.
+- **Effect:** on a holiday nobody is marked absent and the day is paid. Anyone who works gets the holiday OT rule. Past dates can be added too, and the months are recalculated, except locked months.
+- **Edit / delete:** from the list. Deleting a holiday makes days without attendance count as absent again.
+- **Employees** see the next holidays (45 days ahead) on their home screen, and holiday names in their calendar.
+- **In the sheet:** the **Holidays** tab (`Date | Holiday Name | Type`) can still be edited by hand.
 
 ---
 
@@ -274,6 +294,7 @@ Permissions the super admin can give each admin (**Super Admin → Admins**):
 - Export Payroll (download the Excel file)
 - Lock Payroll
 - Mark Attendance for Others (no phone / forgot phone). Guards have this automatically and don't need an admin permission
+- Manage Holidays (add / edit / delete national and festival holidays)
 - View Bank / Cash Split
 - View Monthly Summary (the bank/cash totals on it also need *View Bank / Cash Split*)
 - Edit Own Entries
