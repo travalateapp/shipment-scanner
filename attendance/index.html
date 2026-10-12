@@ -5,6 +5,13 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
   <meta name="company" content="<?= company ?>">
+  <!-- iPhone: "Add to Home Screen" opens it full-screen with its own icon (GitHub Pages copy). -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Attendance">
+  <meta name="theme-color" content="#2f5fe3">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
   <style>
     :root {
       --bg: #f3f5fa; --card: #ffffff; --text: #1b2333; --muted: #6b7486; --line: #e3e7ef;
@@ -227,6 +234,7 @@
       <button class="btn" id="loginBtn" type="submit">Login</button>
       <div id="loginMsg"></div>
     </form>
+    <div id="iosTip"></div>
   </div>
 </div>
 
@@ -433,6 +441,7 @@
     'Check in {n} now?': '{n} का चेक-इन अभी करें?', 'Check out {n} now?': '{n} का चेक-आउट अभी करें?',
     '{n} checked in at {t}': '{n} का चेक-इन {t} बजे हो गया', '{n} checked out at {t} · {w}': '{n} का चेक-आउट {t} बजे हो गया · {w}',
     'Office location is not set yet.': 'ऑफिस की लोकेशन अभी सेट नहीं है।',
+    'ios.tip': '📱 <b>iPhone पर ऐप जोड़ें:</b> Safari में <b>शेयर</b> बटन <b>⬆</b> दबाएँ, फिर <b>"Add to Home Screen"</b> → <b>Add</b>। उसके बाद नए <b>Attendance</b> आइकन से ऐप खोलें।',
     'Photo of {n}': '{n} की फ़ोटो', '📸 Take Photo': '📸 फ़ोटो लें', '🔄 Switch camera': '🔄 कैमरा बदलें',
     'Check In {n}': '{n} का चेक-इन करें', 'proxy.photo': 'चेक-इन के लिए कर्मचारी की फ़ोटो ज़रूरी है। चेहरा साफ़ दिखना चाहिए।',
     'A photo is required to check in.': 'चेक-इन के लिए फ़ोटो ज़रूरी है।',
@@ -459,6 +468,7 @@
     'prorated.note': 'Salary, PF and Basic Salary are shown only for the days passed so far. They grow every day until the month ends.',
     'day.missed': '⚠ No check-out. Auto-closed at midnight — waiting for an admin to clear it. Send a correction from Requests.',
     'Attendance (summary)': 'Attendance',
+    'ios.tip': '📱 <b>Install on iPhone:</b> in Safari tap the <b>Share</b> button <b>⬆</b>, then <b>"Add to Home Screen"</b> → <b>Add</b>. Then open the app from the new <b>Attendance</b> icon.',
     'proxy.info': 'For employees without a smartphone or who forgot their phone. This phone must be at the office. A photo of the employee is taken at check-in. Each entry records your name.',
     'proxy.photo': 'A photo of the employee is required to check in. Their face must be clearly visible.',
     'proxy.badtime': '⚠ This phone\'s time is not correct. Turn ON "Automatic date &amp; time" and reload.'
@@ -538,6 +548,15 @@
     return HI_DAYS[d.getDay()] + ', ' + (+p[2]) + ' ' + HI_MONTHS[+p[1] - 1] + ' ' + p[0];
   }
 
+  /** iPhone / iPad in Safari (not yet opened from the home screen): how to install the app. */
+  function iosTipHtml() {
+    var ios = /iPhone|iPad|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+    if (!ios || navigator.standalone || IN_APPS_SCRIPT || load('att_ios_tip') === 'off') return '';
+    return '<div class="msg info" style="position:relative;padding-right:34px">' + t('ios.tip') +
+      '<button class="link" style="position:absolute;top:8px;right:10px;font-size:18px" onclick="store(\'att_ios_tip\',\'off\');' +
+      'this.parentNode.remove()" aria-label="Close">×</button></div>';
+  }
+
   /** English | हिंदी switch (employees only). */
   function langSwitch() {
     if (!S.profile || (S.profile.role !== 'EMPLOYEE' && S.profile.role !== 'GUARD')) return '';
@@ -577,7 +596,14 @@
   function serverUrl() {
     var id = null;
     try { id = new URLSearchParams(location.search).get('id'); } catch (e) {}
-    if (id) store('att_api', id); else id = load('att_api') || API_URL;
+    if (id) store('att_api', id); else {
+      id = load('att_api') || API_URL;
+      // Keep the id in the address: an iPhone home-screen icon opens the address it was added from, with its
+      // own empty storage, so it must carry the id.
+      if (id && !IN_APPS_SCRIPT && window.history && history.replaceState) {
+        try { history.replaceState(null, '', location.pathname + '?id=' + encodeURIComponent(id) + location.hash); } catch (e) {}
+      }
+    }
     if (!id) return null;
     return /^https?:/.test(id) ? id : 'https://script.google.com/macros/s/' + id + '/exec';
   }
@@ -669,6 +695,7 @@
     $('appView').classList.add('hidden'); $('loadingView').classList.add('hidden');
     $('loginView').classList.remove('hidden');
     $('empId').value = load('att_emp') || '';
+    $('iosTip').innerHTML = iosTipHtml();
     $('pin').value = '';
   }
 
@@ -835,6 +862,7 @@
     html += '<div class="card"><p class="muted" style="margin:0;font-size:13px">' + (h.anywhere ? t('home.anywhere') : t('home.info', { r: esc(h.office.radius) })) +
       (h.selfieRequired ? t('home.selfie') : '') + t('home.forgot') + '</p></div>';
 
+    html += iosTipHtml();
     $('content').innerHTML = html;
     tickClock();
     clearInterval(clockTimer); clockTimer = setInterval(tickClock, 1000);
