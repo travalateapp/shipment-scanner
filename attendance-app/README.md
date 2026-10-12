@@ -152,7 +152,16 @@ Changes to the app reach iPhones automatically too.
 - You can add employees here or in the app (**Admin → Employees**).
 - **PINs are encrypted (hashed) automatically.** A PIN typed into the sheet works once, and is replaced by a code like `sha256$…` after that employee's first login. To reset a PIN, use **Admin → Employees → Edit → Reset PIN**, or type a new plain PIN into the sheet.
 - Role is `EMPLOYEE`, `ADMIN`, `SUPER_ADMIN` or `GUARD` (see section 4). A guard's salary can be left empty.
-- When someone leaves, untick **Active**. Their history is kept.
+- **Someone leaves:** untick **Active** and enter their **last working day**.
+  - From the next day they are gone from **Mark Attendance**, **Today** and the payroll / summary / export of months they didn't work.
+  - The month they left shows with salary only up to that day. Earlier months are unchanged.
+  - They can't log in.
+- **Someone comes back:** tick **Active** and enter the date they **start again**. Salary and attendance count from that day, and the days in between are *Inactive* (not paid).
+- Every period is kept in the **Employment History** tab (`Emp ID | From | To`) and shown in the employee's edit form.
+- **Salary increment:** don't change Monthly Salary. Open the employee and use **Salary increment**: the amount (minus for a decrease), the **month it starts**, and an optional note.
+  - From that month the salary is the original + all increments up to then. **Earlier months are not affected**, and a locked month can't get an increment.
+  - Increments are kept in the **Salary Increments** tab. *Monthly Salary* in the Employees tab stays the original salary.
+  - Remove a wrong increment with **Remove**, as long as its month isn't locked.
 - **Mark From Anywhere** (the last column, added automatically): `Yes` lets an employee who works **outstation** check in and out from anywhere. Set it in the app under **Admin → Employees → (employee) → "Can mark from anywhere (outstation)"**.
   - Their **GPS location is still required and saved** with every check-in and check-out, and the selfie rules are the same. Only the office distance and GPS-accuracy limits are skipped.
   - When they are away from the office, the entry gets a 📍 *Checked in / out outside office* tag, and Admin → Today shows the distance (e.g. "1146.9 km"). These entries are not counted as suspicious.
