@@ -9,6 +9,7 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
   - If you change a rate on a PO, it becomes the vendor's new rate for next time.
   - **↻ Repeat last order** copies the quantities of the vendor's previous PO at the current rates. **Repeat** in History does the same for any PO.
 - **Vendors screen:** add or edit vendors and their product and rate list before ordering, then tap **Save & new PO**.
+- **Our contact person can change.** *Our contact person* and *Contact phone* (in PO details) are printed in the PDF footer. They start with the person used on the last PO. Pick someone used before and their phone fills in, or type a new name and phone. New people are remembered automatically.
 - **Works on phone and desktop.** On a computer the order summary stays on the right while you scroll. On a phone each item becomes a card, and the total and **Save** button stay at the bottom of the screen.
 - **The PDF is saved in Google Drive** (folder *Purchase Orders (PDF)*), with **Open** and **Download** links. Every PO and item is also logged in the Sheet.
 - **History tab:** recent POs with their PDF links. **Remake PDF** creates the PDF again, for example after you change company details in Settings.
@@ -37,7 +38,7 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
 |---|---|
 | Company Name / Address / City / State / Phone / GSTIN | Top-left block of the PO. GSTIN is printed only when filled in. |
 | Ship To Name / Contact / Address / City / State / Phone | The **SHIP TO** block |
-| Questions Contact | Footer line: "If you have any questions… please contact …" |
+| Contact Person / Contact Phone | Default person for the footer line "If you have any questions… please contact **Name - Phone**". You can change the person on each PO (see below). |
 | Default Comments | Prefilled comment (e.g. *Thank you for your business.*) |
 | Default Tax % | Prefilled tax rate (5 % gives 4,650 on 93,000, as in the sample PO) |
 | Next PO Number | Suggested PO # for the next order. It moves up automatically, and you can still type another number on the form. Duplicate numbers are rejected. |

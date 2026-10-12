@@ -78,6 +78,7 @@
   @media (max-width:640px) {
     body { font-size:15px; }
     main { padding:10px 10px 96px; }
+    header { position:static; }
     .bar { padding:8px 10px; }
     .tabs { width:100%; }
     .tabs button { flex:1; }
@@ -150,12 +151,15 @@
           </div>
           <div class="lines" id="extraLines"></div>
           <datalist id="itemList"></datalist>
+          <datalist id="contactList"></datalist>
           <div style="margin-top:10px"><button class="btn ghost small" onclick="addExtra()">+ Add item</button></div>
         </div>
 
         <div class="card">
           <h2>PO details</h2>
           <div class="grid">
+            <div><label>Our contact person (printed on PO)</label><input id="contactName" list="contactList" autocomplete="off" onchange="onContactChange()"></div>
+            <div><label>Contact phone</label><input id="contactPhone" type="tel" inputmode="tel"></div>
             <div><label>PO #</label><input id="poNumber" inputmode="numeric"></div>
             <div><label>Date</label><input id="date" type="date"></div>
             <div><label>Requisitioner</label><input id="requisitioner"></div>
@@ -295,6 +299,8 @@
     d.vendors.forEach(v => v.products.forEach(p => { all[p.item] = p.description; }));
     $('itemList').innerHTML = Object.keys(all).sort().map(n => '<option value="' + esc(n) + '">' + esc(all[n]) + '</option>').join('');
 
+    $('contactList').innerHTML = (d.contacts || []).map(c => '<option value="' + esc(c.name) + '">' + esc(c.phone) + '</option>').join('');
+
     renderVendorList();
     $('histRows').innerHTML = d.recent.length ? d.recent.map(p =>
       '<tr><td data-l="PO #"><b>' + esc(p.poNumber) + '</b></td><td data-l="Date">' + esc(p.date) + '</td>' +
@@ -312,6 +318,9 @@
     ['requisitioner', 'shipVia', 'fob', 'terms', 'shipping', 'other'].forEach(id => $(id).value = '');
     $('taxPct').value = DATA.taxPct;
     $('comments').value = DATA.comments;
+    const c = (DATA.contacts || [])[0] || { name: '', phone: '' }; // person on the latest PO
+    $('contactName').value = c.name;
+    $('contactPhone').value = c.phone;
     $('vendorSel').value = '';
     onVendorChange();
   }
@@ -357,6 +366,14 @@
     const out = { id: v ? v.id : '' };
     VFIELDS.forEach(f => out[f[0]] = $('v_' + f[0]).value.trim());
     return out;
+  }
+
+  /** Picked a saved person → their phone fills in. A new name keeps the phone box for typing. */
+  function onContactChange() {
+    const name = $('contactName').value.trim().toLowerCase();
+    const c = (DATA.contacts || []).find(x => x.name.toLowerCase() === name);
+    $('contactPhone').value = c ? c.phone : '';
+    if (!c) $('contactPhone').focus();
   }
 
   // ---------------------------------------------------------------- item lines
@@ -517,9 +534,11 @@
     if (!items.length) return showMsg('Enter a quantity for at least one item.', 'err');
     const bad = items.find(i => !num(i.qty));
     if (bad) return showMsg('Enter the quantity for “' + esc(bad.item || bad.description) + '”.', 'err');
+    if (!$('contactName').value.trim()) return showMsg('Enter our contact person for this PO.', 'err');
 
     const po = {
       poNumber: $('poNumber').value.trim(), date: $('date').value,
+      contactName: $('contactName').value.trim(), contactPhone: $('contactPhone').value.trim(),
       requisitioner: $('requisitioner').value, shipVia: $('shipVia').value, fob: $('fob').value, terms: $('terms').value,
       vendor: vendor, items: items,
       taxPct: $('taxPct').value, shipping: $('shipping').value, other: $('other').value, comments: $('comments').value,

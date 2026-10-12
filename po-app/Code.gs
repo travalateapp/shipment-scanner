@@ -23,7 +23,7 @@ const VENDOR_HEADERS = ['Vendor ID', 'Vendor Name', 'Contact Person', 'Address',
   'Email', 'GSTIN', 'Created At', 'Updated At'];
 const PO_HEADERS = ['PO #', 'Date', 'Vendor ID', 'Vendor Name', 'Requisitioner', 'Ship Via', 'F.O.B.',
   'Shipping Terms', 'Subtotal', 'Tax %', 'Tax', 'Shipping', 'Other', 'Total', 'Comments', 'PDF Link',
-  'PDF File ID', 'Created By', 'Created At'];
+  'PDF File ID', 'Created By', 'Created At', 'Our Contact Name', 'Our Contact Phone'];
 const ITEM_HEADERS = ['PO #', 'Vendor ID', 'Item #', 'Description', 'Qty', 'Unit Price', 'Total'];
 /** Each vendor's products and current rate. Updated by every PO and by the Vendors screen. */
 const PRODUCT_HEADERS = ['Vendor ID', 'Item #', 'Description', 'Rate', 'Last Ordered', 'Updated At'];
@@ -40,7 +40,9 @@ const SETTING_DEFAULTS = [
   ['Ship To Address', 'H-1177, Sitapura Industrial Area'],
   ['Ship To City / State', 'Jaipur, Rajasthan'],
   ['Ship To Phone', '9660598669'],
-  ['Questions Contact', 'Pramil - 9660598669'],
+  // Default "please contact" person. Each PO can use another person; the form remembers the last one used.
+  ['Contact Person', 'Pramil'],
+  ['Contact Phone', '9660598669'],
   ['Default Comments', 'Thank you for your business.'],
   ['Default Tax %', 5],
   ['Next PO Number', 211],
@@ -96,6 +98,7 @@ function getInitData() {
     shipTo: shipTo_(s),
     vendors: getVendors_(),
     recent: getRecentPos_(25),
+    contacts: getContacts_(s),
     today: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy-MM-dd'),
   };
 }
@@ -143,6 +146,8 @@ function savePO(po) {
       dateText: Utilities.formatDate(date, tz, 'dd/MM/yyyy'),
       vendor: vendor,
       shipTo: shipTo_(s),
+      contactName: String(po.contactName || '').trim(),
+      contactPhone: String(po.contactPhone || '').trim(),
       requisitioner: String(po.requisitioner || '').trim(),
       shipVia: String(po.shipVia || '').trim(),
       fob: String(po.fob || '').trim(),
@@ -159,7 +164,7 @@ function savePO(po) {
     ss.getSheetByName(SHEET.POS).appendRow([
       "'" + poNumber, date, vendor.id, vendor.name, data.requisitioner, data.shipVia, data.fob, data.terms,
       subtotal, taxPct, tax, shipping, other, total, data.comments, file.getUrl(), file.getId(),
-      userEmail_(), now,
+      userEmail_(), now, data.contactName, "'" + data.contactPhone,
     ]);
     const itemSheet = ss.getSheetByName(SHEET.ITEMS);
     const rows = items.map(it => ["'" + poNumber, vendor.id, it.item, it.description, it.qty, it.price, it.total]);
@@ -202,7 +207,7 @@ function regeneratePdf(poNumber) {
     vendor: vendor, shipTo: shipTo_(s),
     requisitioner: r[4], shipVia: r[5], fob: r[6], terms: r[7], items: items,
     subtotal: r[8], taxPct: r[9], tax: r[10], shipping: r[11], other: r[12], total: r[13],
-    comments: r[14], settings: s,
+    comments: r[14], contactName: String(r[19] || ''), contactPhone: String(r[20] || ''), settings: s,
   });
   const oldId = String(r[16] || '');
   if (oldId) { try { DriveApp.getFileById(oldId).setTrashed(true); } catch (e) { /* already gone */ } }
@@ -327,6 +332,38 @@ function upsertVendor_(v) {
 }
 
 // ---------------------------------------------------------------- history
+
+/**
+ * Company people who can be the PO contact: the Settings default plus everyone used on earlier POs
+ * (latest phone per name). The first entry is the person used on the most recent PO.
+ */
+function getContacts_(s) {
+  const out = [];
+  const add = (name, phone) => {
+    name = String(name || '').trim(); phone = String(phone || '').trim();
+    if (!name && !phone) return;
+    const i = out.findIndex(c => c.name.toLowerCase() === name.toLowerCase());
+    if (i >= 0) out.splice(i, 1);
+    out.unshift({ name: name, phone: phone });
+  };
+  add(s['Contact Person'], s['Contact Phone']);
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.POS);
+  if (sh && sh.getLastRow() > 1) {
+    sh.getRange(2, 20, sh.getLastRow() - 1, 2).getValues().forEach(r => add(r[0], r[1]));
+  }
+  return out;
+}
+
+/** "Name - Phone" for the PDF footer; old POs without a contact use the Settings default. */
+function contactLine_(d, s) {
+  let name = d.contactName, phone = d.contactPhone;
+  if (!name && !phone) {
+    name = String(s['Contact Person'] || '').trim();
+    phone = String(s['Contact Phone'] || '').trim();
+    if (!name && !phone) return String(s['Questions Contact'] || '');
+  }
+  return [name, phone].filter(Boolean).join(' - ');
+}
 
 function getProducts_() {
   const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.PRODUCTS);
@@ -499,7 +536,7 @@ function poHtml_(d) {
 
     // Footer
     '<div style="text-align:center;margin-top:24px;line-height:1.5">' +
-    'If you have any questions about this purchase order, please contact<br>' + e(s['Questions Contact']) + '</div>' +
+    'If you have any questions about this purchase order, please contact<br>' + e(contactLine_(d, s)) + '</div>' +
     '</body></html>';
 }
 
