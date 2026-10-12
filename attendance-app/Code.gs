@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261017;
+const SERVER_VERSION = 20261018;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2156,7 +2156,11 @@ function calcPay_(emp, s, t, dim, advanceWanted) {
   const perHour = s.standardHours > 0 ? perDay / s.standardHours : 0;
   const perMin = perHour / 60;
 
-  const ratio = t.elapsedDays === undefined ? 1 : Math.min(1, t.elapsedDays / dim);
+  // Month in progress: days passed × the day rate (salary ÷ Salary Days Basis), so 11 days of ₹90,000 = ₹33,000
+  // in any month. A finished month is always the full salary (no extra pay in 31-day months, nothing missing in
+  // February). PF / Basic Salary use the same share.
+  const elapsed = t.elapsedDays === undefined ? dim : t.elapsedDays;
+  const ratio = elapsed >= dim || !(emp.salary > 0) ? 1 : Math.min(1, elapsed * perDay / emp.salary);
   const earned = R(emp.salary * ratio);
 
   const leaveDed = R((t.absent + t.notJoined) * perDay);
