@@ -79,7 +79,10 @@
     .msg.warn { background: var(--amber-soft); color: var(--amber); }
 
     .kv { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .kv div { background: var(--bg); border-radius: 12px; padding: 10px; text-align: center; }
+    .kv div, .kv .tile { background: var(--bg); border-radius: 12px; padding: 10px; text-align: center; }
+    .kv .tile { border: 2px solid transparent; color: var(--text); }
+    .kv .tile.sel { background: var(--green-soft); border-color: var(--green); }
+    .kv .tile.sel b, .kv .tile.sel span { color: var(--green); }
     .kv b { display: block; font-size: 18px; }
     .kv span { font-size: 12px; color: var(--muted); }
 
@@ -839,6 +842,16 @@
     return m ? Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5], +m[6]) : NaN;
   }
 
+  /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
+  var NEEDS_SERVER = 20261012;
+  function serverOldHtml() {
+    var h = S.home;
+    if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
+    return '<div class="card alert"><h2>⚠ Update the server code</h2><p class="small" style="margin:0">Apps Script is running an older Code.gs than this app needs, so some features ' +
+      '(e.g. guard photos) don\'t work yet. Paste the latest <b>Code.gs</b> from GitHub into Apps Script, then <b>Deploy → Manage deployments → ✏ Edit → ' +
+      'New version → Deploy</b>.</p></div>';
+  }
+
   function renderHome() {
     var h = S.home, r = h.record, d = h.day, prev = h.openPrevious;
     var checkedIn = !!(r && r.in);
@@ -853,6 +866,7 @@
       }).join('') + '<p class="small" style="margin:8px 0 0">' + t(h.missedCheckouts.length > 1 ? 'missed.many' : 'missed.one') + '</p>' +
         '<button class="btn red" onclick="go(\'requests\')">' + t('Send correction') + '</button></div>';
     }
+    html += serverOldHtml();
     if (h.adminMissed) {
       html += '<div class="card"><div class="row"><span>⚠ <b>' + h.adminMissed + '</b> missed check-out(s) to clear.</span><button class="link" onclick="S.admin.tab=\'today\';go(\'admin\')">Open</button></div></div>';
     }
@@ -1370,7 +1384,7 @@
     if (!tabs.some(function (t) { return t.key === a.tab; })) a.tab = tabs[0].key;
     var html = '<div class="tabs">' + tabs.map(function (tb) {
       return '<button class="' + (a.tab === tb.key ? 'on' : '') + '" onclick="adminTab(\'' + tb.key + '\')">' + t(tb.label) + '</button>';
-    }).join('') + '</div><div id="adminBody"></div>';
+    }).join('') + '</div>' + serverOldHtml() + '<div id="adminBody"></div>';
     $('content').innerHTML = html;
     var on = document.querySelector('.tabs .on');
     if (on && on.scrollIntoView) on.scrollIntoView({ inline: 'center', block: 'nearest' });
@@ -1535,32 +1549,79 @@
   }
 
   /* ---------- Today ---------- */
-  function loadAdminToday() {
+  /* Today: any day (‹ › and a calendar), tap a tile to filter, search, tap a person for their month. */
+  function loadAdminToday(date) {
+    S.todayView = S.todayView || { date: '', filter: 'ALL', q: '' };
+    if (date !== undefined) S.todayView.date = date > todayLocal() ? todayLocal() : date;
     adminLoading();
-    api('adminToday', S.token).then(renderAdminToday).catch(adminErr);
+    api('adminToday', S.token, S.todayView.date || null).then(renderAdminToday).catch(adminErr);
   }
+  function todayShift(days) { loadAdminToday(addDaysLocal(S.todayView.date || todayLocal(), days)); }
 
   function renderAdminToday(r) {
-      var c = r.counts;
+      var c = r.counts, v = S.todayView;
+      v.date = r.date;
+      S.adminTodayData = r;
+      var isToday = r.isToday !== undefined ? r.isToday : true;
+      var tile = function (key, cls, value, label) {
+        return '<button class="tile ' + cls + (v.filter === key ? ' sel' : '') + '" onclick="todayFilter(\'' + key + '\')"><b>' + value + '</b><span>' + label + '</span></button>';
+      };
       var html = missedCard(r);
-      html += '<div class="card"><div class="row"><h2 style="margin:0">' + esc(fmtDate(r.date)) + '</h2>' + (r.offType ? chip(r.offType) : '') +
-        '<button class="btn small ghost" onclick="loadAdminToday()">↻</button></div>' +
+      html += '<div class="card"><div class="month-nav">' +
+        '<button onclick="todayShift(-1)" aria-label="Previous day">‹</button>' +
+        '<input type="date" class="month-select" value="' + esc(r.date) + '" max="' + esc(r.today || todayLocal()) + '" onchange="if(this.value)loadAdminToday(this.value)">' +
+        '<button onclick="todayShift(1)" aria-label="Next day"' + (isToday ? ' disabled style="opacity:.35"' : '') + '>›</button></div>' +
+        '<div class="row" style="margin-top:8px"><span><b>' + esc(fmtDate(r.date)) + '</b>' + (isToday ? ' <span class="muted small">(today)</span>' : '') + ' ' + (r.offType ? chip(r.offType) : '') + '</span>' +
+        '<span>' + (isToday ? '' : '<button class="btn small ghost" onclick="loadAdminToday(todayLocal())">Today</button> ') +
+        '<button class="btn small ghost" onclick="loadAdminToday()" aria-label="Refresh">↻</button></span></div>' +
         '<div class="kv" style="margin-top:12px">' +
-        '<div><b>' + c.in + '/' + c.total + '</b><span>Checked in</span></div>' +
-        '<div class="k-orange"><b>' + c.late + '</b><span>Late</span></div>' +
-        '<div><b>' + c.notMarked + '</b><span>Not marked</span></div></div>' +
+        tile('ALL', '', c.in + '/' + c.total, 'Checked in') +
+        tile('LATE', 'k-orange', c.late, 'Late') +
+        tile('NOT', '', c.notMarked, isToday ? 'Not marked' : 'Not marked / absent') + '</div>' +
         (c.flagged ? '<div class="msg err">⚠ ' + c.flagged + ' check-in(s) look suspicious. Check their selfies.</div>' : '') + '</div>';
-      html += '<div class="card"><h2>Employees</h2>';
-      S.adminToday = r.list;
-      r.list.forEach(function (e, i) {
-        html += '<div class="list-item"><div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
-          '<div class="sub">' + (e.in ? esc(e.in) + ' → ' + esc(e.out || '—') + (e.distance !== '' ? ' · ' + esc(dist(e.distance)) : '') + (e.accuracy !== '' ? ' · ±' + esc(e.accuracy) + ' m' : '') : 'No check-in yet') + '</div>' +
-          (e.flags.length ? '<div>' + flagChips(e.flags, e.markedBy) + '</div>' : '') +
-          (e.hasSelfie ? '<button class="link" onclick="viewSelfie(' + i + ')">View selfie</button>' : '') +
-          '</div><div class="right">' + chip(e.status) + lateChip(e.late) + '</div></div>';
-      });
-      html += '</div><p class="muted small center">⚠ flags: weak GPS, the exact same GPS point as another day or another person (typical of fake-GPS apps), or a missing selfie.</p>';
+      html += '<div class="card"><div class="row"><h2 style="margin:0">Employees</h2><span class="muted small" id="todayCount"></span></div>' +
+        '<input class="inp" id="todaySearch" style="margin-top:10px" placeholder="🔍 Search name or ID" value="' + esc(v.q) + '" oninput="S.todayView.q=this.value;renderTodayList()">' +
+        '<div id="todayList"></div></div>' +
+        '<p class="muted small center">⚠ flags: weak GPS, the exact same GPS point as another day or another person (typical of fake-GPS apps), or a missing selfie.</p>';
       adminBody(html);
+      renderTodayList();
+  }
+
+  function todayFilter(f) {
+    S.todayView.filter = f;
+    Array.prototype.forEach.call(document.querySelectorAll('.tile'), function (b) { b.classList.remove('sel'); });
+    var keys = ['ALL', 'LATE', 'NOT'], tiles = document.querySelectorAll('.tile');
+    if (tiles[keys.indexOf(f)]) tiles[keys.indexOf(f)].classList.add('sel');
+    renderTodayList();
+  }
+
+  function renderTodayList() {
+    var r = S.adminTodayData, v = S.todayView, q = (v.q || '').toLowerCase().trim();
+    var canOpen = can(['viewPayroll', 'viewSummary', 'editAttendance', 'approveRequests']);
+    S.adminToday = r.list;
+    var html = '', shown = 0;
+    r.list.forEach(function (e, i) {
+      if (v.filter === 'LATE' && !e.late) return;
+      if (v.filter === 'NOT' && e.in) return;
+      if (q && e.name.toLowerCase().indexOf(q) < 0 && e.id.toLowerCase().indexOf(q) < 0) return;
+      shown++;
+      var proxyNoPhoto = !e.hasSelfie && e.flags.indexOf('PROXY') >= 0;
+      html += '<div class="list-item"' + (canOpen ? ' style="cursor:pointer" onclick="todayOpen(' + i + ')"' : '') + '><div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
+        '<div class="sub">' + (e.in ? esc(e.in) + ' → ' + esc(e.out || '—') + (e.distance !== '' ? ' · ' + esc(dist(e.distance)) : '') + (e.accuracy !== '' ? ' · ±' + esc(e.accuracy) + ' m' : '') : 'No check-in') + '</div>' +
+        (e.flags.length ? '<div>' + flagChips(e.flags, e.markedBy) + '</div>' : '') +
+        (e.hasSelfie ? '<button class="link" onclick="event.stopPropagation();viewSelfie(' + i + ')">📷 View ' + (e.flags.indexOf('PROXY') >= 0 ? 'photo' : 'selfie') + '</button>' : '') +
+        (proxyNoPhoto ? '<div class="sub">No photo saved (marked before photos were required)</div>' : '') +
+        '</div><div class="right">' + chip(e.status) + lateChip(e.late) + (canOpen ? '<div class="muted small" style="margin-top:4px">Month ›</div>' : '') + '</div></div>';
+    });
+    $('todayList').innerHTML = html || '<p class="muted">No employees match.</p>';
+    var cnt = $('todayCount'); if (cnt) cnt.textContent = shown + ' shown';
+  }
+
+  /** Opens the employee's month (calendar, summary, salary) for the month of the day being viewed. */
+  function todayOpen(i) {
+    var e = S.adminToday[i];
+    navPush();
+    openEmployee(e.id, (S.todayView.date || todayLocal()).slice(0, 7));
   }
 
   /** Missed check-outs stay on top until an admin clears each one. */

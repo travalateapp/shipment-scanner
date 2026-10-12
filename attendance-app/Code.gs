@@ -25,6 +25,10 @@ const SHEET = {
 
 const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
+// Raised with every change to this file. The page compares it with the version it needs and tells the
+// super admin to deploy the new Code.gs when Apps Script still runs an older copy.
+const SERVER_VERSION = 20261012;
+
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
   { key: 'viewToday', label: 'View Today', help: "Today's live attendance, selfies and flags" },
@@ -410,6 +414,7 @@ function getHome(token) {
     missedCheckouts: readAttendance_().filter(r => r.empId === emp.id && r.review === 'PENDING')
       .map(r => ({ date: r.date, in: r.in })),
     adminMissed: adminMissedCount_(emp),
+    serverVersion: SERVER_VERSION,
   };
 }
 
@@ -769,19 +774,23 @@ function proxyTarget_(ctx, empId) {
   return emp;
 }
 
-function adminToday(token) {
+/** The day's attendance of every employee this admin manages. date = 'yyyy-MM-dd' (default today, never future). */
+function adminToday(token, date) {
   const ctx = authAdmin_(token, 'viewToday');
   sweepOpenEntries_();
   const s = getSettings_();
   const today = todayStr_();
-  const offType = offType_(today, s, getHolidays_());
+  let day = toDateStr_(date) || today;
+  if (day > today) day = today;
+  const isToday = day === today;
+  const offType = offType_(day, s, getHolidays_());
   const recs = {};
-  readAttendance_().forEach(r => { if (r.date === today && !recs[r.empId]) recs[r.empId] = r; });
+  readAttendance_().forEach(r => { if (r.date === day && !recs[r.empId]) recs[r.empId] = r; });
 
   const counts = { total: 0, in: 0, late: 0, out: 0, notMarked: 0, flagged: 0 };
-  const list = getEmployees_().filter(e => e.active && canManage_(ctx, e.id)).map(e => {
+  const list = getEmployees_().filter(e => e.active && canManage_(ctx, e.id) && !(e.joinDate && e.joinDate > day)).map(e => {
     const r = recs[e.id];
-    const d = r ? evaluateDay_(r, s, offType, true) : { status: offType || 'NOT_MARKED' };
+    const d = r ? evaluateDay_(r, s, offType, isToday) : { status: offType || (isToday ? 'NOT_MARKED' : 'ABSENT') };
     const flags = r && r.flags ? r.flags.split(/\s+/).filter(String) : [];
     if (r && r.in && s.selfieRequired && !r.selfie && !/PROXY/.test(r.flags) && !/replaced|Entered by|marked by/i.test(String(r.note))) flags.push('NO_SELFIE');
     counts.total++;
@@ -799,7 +808,7 @@ function adminToday(token) {
   list.sort((a, b) => (b.flags.length ? 1 : 0) - (a.flags.length ? 1 : 0) ||
     (a.in ? 0 : 1) - (b.in ? 0 : 1) || a.name.localeCompare(b.name));
   return {
-    date: today, offType: offType, counts: counts, list: list,
+    date: day, today: today, isToday: isToday, offType: offType, counts: counts, list: list,
     missed: missedFor_(ctx), canClear: !!(ctx.perms.editAttendance || ctx.perms.approveRequests),
   };
 }
