@@ -282,6 +282,14 @@ Employees see an **English | हिंदी** switch at the top of the Attendan
 - Numbers, amounts, times and dates stay in English digits (₹4,355 · 09:30 · 10 अक्टूबर 2026).
 - The phone remembers the choice. The login screen, the payslip and all admin and super-admin screens stay in English. Admins and super admins don't see the switch.
 
+### Admin → Today
+- **Choose the day:** ‹ › go to the previous or next day, and the date box opens a calendar for any past date. **Today** jumps back.
+- **Filter with the tiles:** tap **Late** or **Not marked** to list only those people, or **Checked in** (e.g. 32/52) for everyone. The selected tile is green.
+- **Search** by name or ID.
+- **Open a month:** tap an employee to open their month (calendar, attendance summary and salary) for the day you are viewing. Back returns to the same day.
+- **Photos:** 📷 *View selfie* / *View photo* shows the check-in selfie, or the photo a guard or admin took.
+- **Out-of-date server warning:** a super admin sees *"Update the server code"* when Apps Script still runs an older Code.gs than the app needs.
+
 ## 5. Things to know
 
 - **30 m is tight.** Indoor GPS is often only accurate to 10–40 m. If genuine employees get "too far" errors, raise the radius to 50 m or raise *Max GPS Accuracy*. Test from different corners of the office first.
