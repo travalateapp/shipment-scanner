@@ -158,8 +158,19 @@ Changes to the app reach iPhones automatically too.
   - When they are away from the office, the entry gets a 📍 *Checked in / out outside office* tag, and Admin → Today shows the distance (e.g. "1146.9 km"). These entries are not counted as suspicious.
   - Turn it off again when they are back at the office. Guards marking for others must still be at the office.
 
-### Holidays tab
-Add one row per paid holiday: `2026-10-20 | Diwali`.
+### Own work timing / no hourly OT (per employee)
+Go to **Admin → Employees → (employee) → Work timing**. These are saved in the *Shift Start*, *Shift End* and *Hourly OT* columns:
+- **Shift start / end** (e.g. 11:00–19:00): late marks, early leaving and OT use this person's times instead of the company shift. Leave both empty for the company shift.
+  - Their **hourly rate** = per-day ÷ their shift hours.
+  - The **full / half-day minimums** scale with the shift length. With the company 9 h shift and 8 h / 4 h minimums, an 8 h shift needs 7.1 h / 3.6 h.
+- **Hourly OT** unticked: no OT for extra hours on working days. **Sunday / week-off work is still paid** (day pay plus OT outside 09:30–17:00), and holidays still follow *Off-Day Work Is OT*.
+
+### Holidays (national / festival)
+- **Who:** admins with the **Manage Holidays** permission (super admins always) add holidays in **Admin → Holidays**. Each has a date, a name and a type: National, Festival or Company.
+- **Effect:** on a holiday nobody is marked absent and the day is paid. Anyone who works gets the holiday OT rule. Past dates can be added too, and the months are recalculated, except locked months.
+- **Edit / delete:** from the list. Deleting a holiday makes days without attendance count as absent again.
+- **Employees** see the next holidays (45 days ahead) on their home screen, and holiday names in their calendar.
+- **In the sheet:** the **Holidays** tab (`Date | Holiday Name | Type`) can still be edited by hand.
 
 ---
 
@@ -274,6 +285,7 @@ Permissions the super admin can give each admin (**Super Admin → Admins**):
 - Export Payroll (download the Excel file)
 - Lock Payroll
 - Mark Attendance for Others (no phone / forgot phone). Guards have this automatically and don't need an admin permission
+- Manage Holidays (add / edit / delete national and festival holidays)
 - View Bank / Cash Split
 - View Monthly Summary (the bank/cash totals on it also need *View Bank / Cash Split*)
 - Edit Own Entries

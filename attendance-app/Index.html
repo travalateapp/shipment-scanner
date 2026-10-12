@@ -449,6 +449,7 @@
     'wo.full': 'छुट्टी के दिन काम: पूरा दिन (+1 दिन का वेतन)', 'wo.half': 'छुट्टी के दिन काम: आधा दिन (+½ दिन का वेतन)',
     'wo.none': 'छुट्टी के दिन काम: {s}–{e} के बीच {h} घंटे से कम, इसलिए दिन का वेतन नहीं',
     'wo.rule': 'छुट्टी के दिन {s}–{e}: {f} घंटे = पूरा दिन, {h} घंटे = आधा दिन; इसके पहले/बाद का समय ओवरटाइम।',
+    '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'Press back again to exit': 'ऐप बंद करने के लिए फिर से Back दबाएँ',
     'ios.tip': '📱 <b>iPhone पर ऐप जोड़ें:</b> Safari में <b>शेयर</b> बटन <b>⬆</b> दबाएँ, फिर <b>"Add to Home Screen"</b> → <b>Add</b>। उसके बाद नए <b>Attendance</b> आइकन से ऐप खोलें।',
     'Photo of {n}': '{n} की फ़ोटो', '📸 Take Photo': '📸 फ़ोटो लें', '🔄 Switch camera': '🔄 कैमरा बदलें',
@@ -851,7 +852,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261013;
+  var NEEDS_SERVER = 20261014;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -904,6 +905,11 @@
       '<button class="btn" onclick="loadHome()">' + t('Reload') + '</button>';
     html += '</div><div id="flow"></div>';
 
+    if (h.upcomingHolidays && h.upcomingHolidays.length) {
+      html += '<div class="card"><h2>' + t('🎉 Upcoming holidays') + '</h2>' + h.upcomingHolidays.map(function (x) {
+        return '<div class="row small" style="padding:4px 0"><span>' + esc(x.name) + ' <span class="muted">· ' + esc(t(x.type)) + '</span></span><b>' + esc(fmtDate(x.date)) + '</b></div>';
+      }).join('') + '</div>';
+    }
     if (h.pendingRequests) html += '<div class="card"><div class="row"><span>' + t('pending.requests', { n: h.pendingRequests }) + '</span><button class="link" onclick="go(\'requests\')">' + t('View') + '</button></div></div>';
     html += '<div class="card"><p class="muted" style="margin:0;font-size:13px">' + (h.anywhere ? t('home.anywhere') : t('home.info', { r: esc(h.office.radius) })) +
       (h.selfieRequired ? t('home.selfie') : '') + t('home.forgot') + '</p></div>';
@@ -1384,6 +1390,7 @@
     { key: 'entries', label: 'Entries', perm: 'editAttendance', load: function () { loadEntries(); } },
     { key: 'staff', label: 'Employees', perm: 'manageEmployees', load: function () { loadStaff(); } },
     { key: 'advances', label: 'Advances', perm: 'manageAdvances', load: function () { loadAdvances(); } },
+    { key: 'holidays', label: 'Holidays', perm: 'manageHolidays', load: function () { loadHolidays(S.admin.holYear || ymNow().slice(0, 4)); } },
     { key: 'pf', label: 'PF Setup', perm: 'editPf', load: function () { loadAdminPf(); } },
     { key: 'admins', label: 'Admins', perm: 'superAdmin', load: function () { loadAdmins(); } },
     { key: 'log', label: 'Activity', perm: 'superAdmin', load: function () { loadAudit(); } }
@@ -1678,6 +1685,53 @@
     }).catch(function (err) {
       openModal(errBox(err) + '<button class="btn ghost" onclick="closeModal()">Close</button>');
     });
+  }
+
+  /* ---------- Holidays (national / festival): no absent is marked on these days ---------- */
+  function loadHolidays(year) {
+    S.admin.holYear = String(year);
+    adminLoading();
+    api('adminHolidays', S.token, String(year)).then(renderHolidays).catch(adminErr);
+  }
+
+  function renderHolidays(r) {
+    S.holidays = r;
+    var y = +r.year, typeOpts = r.types.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
+    var html = '<div class="card"><h2>Add holiday</h2>' +
+      '<p class="muted small" style="margin:-6px 0 0">Employees are not marked absent on a holiday, and the day is paid. Anyone who works on it gets the holiday OT rule.</p>' +
+      '<div class="grid2"><div class="field"><label>Date</label><input id="hoDate" class="inp" type="date" value="' + todayLocal() + '"></div>' +
+      '<div class="field"><label>Type</label><select id="hoType" class="inp">' + typeOpts + '</select></div></div>' +
+      '<div class="field"><label>Name</label><input id="hoName" class="inp" placeholder="e.g. Diwali, Republic Day"></div>' +
+      '<button class="btn" id="hoBtn" onclick="saveHoliday()">Add holiday</button><div id="hoMsg"></div></div>';
+    html += '<div class="card"><div class="month-nav"><button onclick="loadHolidays(' + (y - 1) + ')">‹</button><h2>Holidays ' + y + '</h2>' +
+      '<button onclick="loadHolidays(' + (y + 1) + ')">›</button></div>';
+    if (!r.list.length) html += '<p class="muted">No holidays added for ' + y + ' yet.</p>';
+    r.list.forEach(function (x, i) {
+      var past = x.date < todayLocal();
+      html += '<div class="list-item"' + (past ? ' style="opacity:.6"' : '') + '><div><div class="name">' + esc(x.name) + '</div>' +
+        '<div class="sub">' + esc(fmtDate(x.date)) + ' · ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(x.date + 'T00:00:00').getDay()] + '</div></div>' +
+        '<div class="right"><span class="chip s-HOLIDAY">' + esc(x.type) + '</span>' +
+        '<div><button class="link" onclick="editHoliday(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteHoliday(' + i + ')">Delete</button></div></div></div>';
+    });
+    adminBody(html + '</div>');
+  }
+
+  function saveHoliday() {
+    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value };
+    $('hoBtn').disabled = true;
+    api('adminSaveHoliday', S.token, h).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday saved: ' + h.name); })
+      .catch(function (e) { $('hoBtn').disabled = false; $('hoMsg').innerHTML = errBox(e); });
+  }
+  function editHoliday(i) {
+    var x = S.holidays.list[i];
+    $('hoDate').value = x.date; $('hoName').value = x.name; $('hoType').value = x.type;
+    $('hoBtn').textContent = 'Save holiday';
+    $('hoName').focus(); window.scrollTo(0, 0);
+  }
+  function deleteHoliday(i) {
+    var x = S.holidays.list[i];
+    if (!confirm('Delete the holiday "' + x.name + '" on ' + fmtDate(x.date) + '? Employees without attendance that day will be marked absent.')) return;
+    api('adminDeleteHoliday', S.token, x.date).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday deleted'); }).catch(function (e) { toast(e.message); });
   }
 
   /* ---------- Monthly summary ---------- */
@@ -2058,7 +2112,9 @@
     var html = '<button class="btn" style="margin:0 0 14px" onclick="openStaffForm(-1)">＋ Add employee</button><div class="card"><h2>Employees</h2>';
     r.list.forEach(function (e, i) {
       html += '<div class="list-item"><div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
-        '<div class="sub">' + money(e.salary, '₹') + '/month · joined ' + esc(fmtDate(e.joinDate)) + (e.phone ? ' · ' + esc(e.phone) : '') + '</div></div>' +
+        '<div class="sub">' + money(e.salary, '₹') + '/month · joined ' + esc(fmtDate(e.joinDate)) + (e.phone ? ' · ' + esc(e.phone) : '') + '</div>' +
+        (e.shiftStart || e.hourlyOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
+          e.hourlyOt === false ? 'no hourly OT' : '', e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
         '<div><button class="link" onclick="openStaffForm(' + i + ')">Edit</button></div></div></div>';
     });
@@ -2076,6 +2132,11 @@
       '<div class="field"><label>Phone</label><input id="sfPhone" class="inp" inputmode="tel" value="' + esc(e.phone) + '"></div>' +
       (isNew ? '<div class="field"><label>PIN (4–6 digits)</label><input id="sfPin" class="inp" inputmode="numeric"></div>' : '') +
       (S.staff.canSetRole && e.role !== 'SUPER_ADMIN' ? '<div class="field"><label>Role</label><select id="sfRole" class="inp"><option value="EMPLOYEE"' + (e.role === 'EMPLOYEE' ? ' selected' : '') + '>Employee</option><option value="ADMIN"' + (e.role === 'ADMIN' ? ' selected' : '') + '>Admin</option><option value="GUARD"' + (e.role === 'GUARD' ? ' selected' : '') + '>Guard (only marks others)</option></select></div>' : '') +
+      (e.role === 'GUARD' ? '' : '<div class="card" style="background:var(--bg);margin:14px 0 0;padding:12px"><b>Work timing</b>' +
+        '<p class="muted small" style="margin:4px 0 0">Leave empty for the company shift. With an own shift, late marks, early leaving and OT use these times.</p>' +
+        '<div class="grid2"><div class="field"><label>Shift start</label><input id="sfShiftStart" class="inp" type="time" value="' + esc(e.shiftStart || '') + '"></div>' +
+        '<div class="field"><label>Shift end</label><input id="sfShiftEnd" class="inp" type="time" value="' + esc(e.shiftEnd || '') + '"></div></div>' +
+        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + '> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label></div>') +
       (e.role === 'GUARD' ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfAnywhere"' + (e.anywhere ? ' checked' : '') + '> Can mark from anywhere (outstation): no office distance check, location still recorded</label>') +
       (isNew ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfActive"' + (e.active ? ' checked' : '') + '> Active (untick when someone leaves the company)</label>') +
       '<button class="btn" id="sfSave" onclick="saveStaff(' + i + ')">Save</button>' +
@@ -2090,6 +2151,7 @@
       joinDate: $('sfJoin').value, phone: $('sfPhone').value };
     if (isNew) data.pin = $('sfPin').value; else data.active = $('sfActive').checked;
     if ($('sfAnywhere')) data.anywhere = $('sfAnywhere').checked;
+    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;
     api('adminSaveStaff', S.token, data).then(function (r) {
