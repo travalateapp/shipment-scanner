@@ -2142,6 +2142,8 @@
   }
 
   function renderStaff(r) {
+    // Alphabetical by name (the form opens by position in this sorted list).
+    (r.list || []).sort(function (a, b) { return a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id); });
     S.staff = r;
     var html = '<button class="btn" style="margin:0 0 14px" onclick="openStaffForm(-1)">＋ Add employee</button><div class="card"><h2>Employees</h2>';
     r.list.forEach(function (e, i) {
