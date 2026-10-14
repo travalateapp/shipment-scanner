@@ -2176,7 +2176,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0, offWorkCredit: 0,
     notJoined: 0, late: 0, lateMin: 0, earlyMin: 0, workedHours: 0, otMinGross: 0, otMin: 0, otHours: 0,
     otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
-    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0,
+    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0,
   };
   const days = [];
   const es = empSettings_(emp, s); // own shift length / hourly OT / morning OT
@@ -2219,22 +2219,30 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     t.workedHours += d.worked || 0;
 
     // Monthly OT (see below): each full working day counts Standard Hours; today only once checked out.
-    // Absent and half days are left out: their salary is already cut, so they must not cut OT as well.
+    // Absent days are left out: their salary is already cut, so they must not cut OT as well. A half day is
+    // paid for half the shift: time beyond that adds to OT, time short of it cuts nothing.
     // Paid leave and days without a check-out (until an admin fixes them) are left out too.
     // Weekly offs / holidays have their own rule.
     if (off) { t.offDayOtMin += d.otMin || 0; t.otPendingMin += d.otPending || 0; }
-    else if ((d.status === 'PRESENT' || d.status === 'WORKING') && !d.autoOut && rec && (ds < today || rec.out)) {
-      t.workDays++;
-      t.targetMin += Math.round(es.standardHours * 60);
-      t.workedMin += dayWorkedMin_(rec, es);
+    else if (!d.autoOut && rec && (ds < today || rec.out)) {
+      const shift = Math.round(es.standardHours * 60);
+      if (d.status === 'PRESENT' || d.status === 'WORKING') {
+        t.workDays++;
+        t.targetMin += shift;
+        t.workedMin += dayWorkedMin_(rec, es);
+      } else if (d.status === 'HALF_DAY') {
+        const w = dayWorkedMin_(rec, es);
+        t.halfDayExtraMin += Math.max(0, w - Math.round(shift / 2));
+      }
     }
   }
 
-  // OT for the month = total minutes worked on full days − (full days × Standard Hours × 60), plus OT
+  // OT for the month = total minutes worked on full days − (full days × Standard Hours × 60), plus time
+  // beyond half the shift on half days, plus OT
   // from weekly-off / holiday work. Coming late or leaving early is already inside the worked minutes.
   // No hourly OT for this employee → only the weekly-off / holiday part.
   const weekdayOt = es.hourlyOt === false ? 0 : Math.max(0, t.workedMin - t.targetMin);
-  t.otMinGross = weekdayOt + t.offDayOtMin;
+  t.otMinGross = weekdayOt + (es.hourlyOt === false ? 0 : t.halfDayExtraMin) + t.offDayOtMin;
   t.otMin = t.otMinGross;
   t.otHours = round2_(t.otMin / 60);
   t.workedHours = round2_(t.workedHours);
