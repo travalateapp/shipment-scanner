@@ -215,6 +215,12 @@
     .modal .sheet { background: #fff; width: 100%; max-width: 520px; border-radius: 20px 20px 0 0; padding: 20px 16px 28px;
       max-height: 90vh; overflow: auto; }
     .modal img { width: 100%; border-radius: 14px; }
+    .x-btn { border: 0; background: var(--bg); width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; flex: none; }
+    .day-nav { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 2px; }
+    .day-nav b { font-size: 17px; }
+    .day-arrow { border: 0; background: var(--brand-soft); color: var(--brand); width: 44px; height: 38px; border-radius: 10px; font-size: 20px; cursor: pointer; }
+    .day-arrow:disabled { opacity: .35; cursor: default; }
+    .emp-pick { max-width: 320px; margin: 0 auto; font-weight: 700; text-align: center; }
     .slip { width: 100%; height: 60vh; border: 1px solid var(--line); border-radius: 12px; }
 
     .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1b2333; color: #fff;
@@ -892,7 +898,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261022;
+  var NEEDS_SERVER = 20261023;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1234,8 +1240,12 @@
       '<button onclick="' + call(ymShift(m.ym, -1)) + '">‹</button>' +
       '<select class="month-select" onchange="' + callSel + '">' + opts + '</select>' +
       '<button onclick="' + call(ymShift(m.ym, 1)) + '">›</button></div>';
-    if (navArg) html += '<p class="center" style="margin:8px 0 0"><b>' + esc(m.employee.name) + '</b> <span class="muted">' + esc(m.employee.id) + '</span>' +
-      (m.locked ? ' <span class="chip s-LOCK">🔒 Locked</span>' : '') + '</p>' +
+    if (navArg) html += '<div class="center" style="margin:8px 0 0">' + (m.employeeList && m.employeeList.length > 1
+        ? '<select class="inp emp-pick" onchange="openEmployee(this.value, \'' + m.ym + '\')">' + m.employeeList.map(function (e) {
+            return '<option value="' + esc(e.id) + '"' + (e.id === m.employee.id ? ' selected' : '') + '>' + esc(e.name) + ' (' + esc(e.id) + ')</option>';
+          }).join('') + '</select>'
+        : '<b>' + esc(m.employee.name) + '</b> <span class="muted">' + esc(m.employee.id) + '</span>') +
+      (m.locked ? ' <span class="chip s-LOCK">🔒 Locked</span>' : '') + '</div>' +
       (m.canEdit ? '<p class="center muted small" style="margin:4px 0 0">' + t('Tap any day to add or change its entry') + '</p>' : '');
 
     var f = S.calFilter || 'ALL';
@@ -2077,11 +2087,17 @@
 
   function openEmployee(id, ym) {
     adminLoading();
-    api('adminEmployeeMonth', S.token, id, ym).then(function (m) {
-      S.reloadAfterEntry = function () { openEmployee(id, ym); };
-      adminBody('<button class="btn small ghost" style="margin-bottom:12px" onclick="renderAdmin()">‹ Back</button>' +
-        monthHtml(m, 'openEmployee', id));
-    }).catch(adminErr);
+    api('adminEmployeeMonth', S.token, id, ym).then(showEmployeeMonth).catch(adminErr);
+  }
+
+  /** Draws an employee's month. quiet = after saving an entry: no spinner, the page keeps its scroll position. */
+  function showEmployeeMonth(m, quiet) {
+    var y = window.scrollY;
+    S.empMonth = { id: m.employee.id, ym: m.ym };
+    S.reloadAfterEntry = function () { openEmployee(m.employee.id, m.ym); };
+    adminBody('<button class="btn small ghost" style="margin-bottom:12px" onclick="renderAdmin()">‹ Back</button>' +
+      monthHtml(m, 'openEmployee', m.employee.id));
+    if (quiet) window.scrollTo(0, y);
   }
 
   /* ---------- Requests & OT approvals ---------- */
@@ -2228,15 +2244,26 @@
 
   function openEntryEditor(empId, date) {
     if (!date) return toast('Choose a date');
-    openModal('<div class="center"><div class="spinner"></div></div>');
-    api('adminGetEntry', S.token, empId, date).then(renderEntryEditor)
-      .catch(function (e) { openModal(errBox(e) + '<button class="btn ghost" onclick="closeModal()">Close</button>'); });
+    var name = S.entry && S.entry.empId === empId ? S.entry.name : '';
+    openModal(entryHead(empId, name, date) + '<div class="center" style="padding:30px 0"><div class="spinner"></div></div>');
+    api('adminGetEntry', S.token, empId, date).then(function (en) { renderEntryEditor(en); })
+      .catch(function (e) { openModal(entryHead(empId, name, date) + errBox(e)); });
   }
 
-  function renderEntryEditor(en) {
+  /** Name, ‹ date › arrows to move to the previous / next day, and ✕ to close. */
+  function entryHead(empId, name, date) {
+    var prev = addDaysLocal(date, -1), next = addDaysLocal(date, 1), today = todayLocal();
+    var min = S.viewMonth && S.viewMonth.minDate || '';
+    var go = function (d, on) { return '<button class="day-arrow"' + (on ? ' onclick="openEntryEditor(\'' + esc(empId) + '\',\'' + d + '\')"' : ' disabled') + '>' + (d < date ? '‹' : '›') + '</button>'; };
+    return '<div class="row" style="align-items:flex-start"><h2 style="margin:0">' + esc(name) + ' <span class="muted" style="font-weight:400">' + esc(empId) + '</span></h2>' +
+      '<button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<div class="day-nav">' + go(prev, !min || prev >= min) + '<b>' + esc(fmtDate(date)) + '</b>' + go(next, next <= today) + '</div>';
+  }
+
+  function renderEntryEditor(en, msg) {
     S.entry = en;
-    var html = '<h2 style="margin:0">' + esc(en.name) + ' <span class="muted" style="font-weight:400">' + esc(en.empId) + '</span></h2>' +
-      '<p style="margin:4px 0 0">' + esc(fmtDate(en.date)) + ' ' + (en.offType ? chip(en.offType) : '') + ' ' +
+    var html = entryHead(en.empId, en.name, en.date) +
+      '<p style="margin:4px 0 0">' + (en.offType ? chip(en.offType) : '') + ' ' +
       (en.exists ? (chip(en.day.status) + lateChip(en.day.late)) : '<span class="chip s-NOT_MARKED">No entry yet</span>') + '</p>' +
       (en.flags ? '<p>' + flagChips(en.flags, en.markedBy) + '</p>' : '') +
       (en.hasSelfie ? '<p class="muted small">This day was marked from the app (has selfie &amp; location). Changes keep them.</p>' : '') +
@@ -2248,27 +2275,44 @@
         [['', 'Not decided'], ['YES', 'Approved'], ['NO', 'Rejected']].map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === en.otApproved ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select></div>' : '') +
       '<div class="field"><label>Note</label><input id="edNote" class="inp" value="' + esc(en.note) + '" placeholder="Reason (optional)"></div>' +
       '<button class="btn" id="edSave" onclick="saveEntry()">Save</button>' +
-      (en.exists ? '<button class="btn soft-red" onclick="deleteEntry()">Delete entry</button>' : '') +
-      '<button class="btn ghost" onclick="closeModal()">Cancel</button><div id="edMsg"></div>';
+      (en.exists ? '<button class="btn soft-red" id="edDel" onclick="deleteEntry()">Delete entry</button>' : '') +
+      '<div id="edMsg">' + (msg ? '<div class="msg ok">' + msg + '</div>' : '') + '</div>';
     openModal(html);
+  }
+
+  /** The calendar this entry belongs to, if it is open behind the popup. */
+  function entryMonth(en) {
+    return S.empMonth && S.empMonth.id === en.empId && document.querySelector('#adminBody #cal') ? S.empMonth.ym : null;
+  }
+
+  /** After saving / deleting: the popup stays open; the calendar behind it is redrawn in place. */
+  function afterEntryChange(en, r, msg) {
+    var ym = entryMonth(en);
+    if (ym && r && r.month) { renderEntryEditor(r.entry, msg); showEmployeeMonth(r.month, true); return; }
+    renderEntryEditor(r && r.entry ? r.entry : r, msg);
+    if (S.reloadAfterEntry) S.reloadAfterEntry();
   }
 
   function saveEntry() {
     var en = S.entry;
-    $('edSave').disabled = true;
+    $('edSave').disabled = true; $('edSave').innerHTML = '<span class="spinner"></span> Saving…';
     var data = { empId: en.empId, date: en.date, in: $('edIn').value, out: $('edOut').value, override: $('edStatus').value, note: $('edNote').value };
     if ($('edOt')) data.otApproved = $('edOt').value;
-    api('adminSaveEntry', S.token, data)
-      .then(function () { closeModal(); toast('Saved ' + en.name + ' · ' + fmtDate(en.date)); if (S.reloadAfterEntry) S.reloadAfterEntry(); })
-      .catch(function (e) { $('edSave').disabled = false; $('edMsg').innerHTML = errBox(e); });
+    api('adminSaveEntry', S.token, data, entryMonth(en))
+      .then(function (r) { afterEntryChange(en, r, '✓ Saved ' + esc(fmtDate(en.date))); })
+      .catch(function (e) { $('edSave').disabled = false; $('edSave').innerHTML = 'Save'; $('edMsg').innerHTML = errBox(e); });
   }
 
   function deleteEntry() {
     var en = S.entry;
     if (!confirm('Delete the entry of ' + en.name + ' for ' + fmtDate(en.date) + '?')) return;
-    api('adminDeleteEntry', S.token, en.empId, en.date)
-      .then(function () { closeModal(); toast('Entry deleted'); if (S.reloadAfterEntry) S.reloadAfterEntry(); })
-      .catch(function (e) { $('edMsg').innerHTML = errBox(e); });
+    $('edDel').disabled = true;
+    api('adminDeleteEntry', S.token, en.empId, en.date, entryMonth(en))
+      .then(function (r) {
+        if (r === true) return api('adminGetEntry', S.token, en.empId, en.date).then(function (e2) { afterEntryChange(en, e2, '✓ Entry deleted'); });
+        afterEntryChange(en, r, '✓ Entry deleted');
+      })
+      .catch(function (e) { $('edDel').disabled = false; $('edMsg').innerHTML = errBox(e); });
   }
 
   /* ---------- Employees ---------- */
