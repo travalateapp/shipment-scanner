@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261022;
+const SERVER_VERSION = 20261023;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -1029,6 +1029,9 @@ function adminEmployeeMonth(token, empId, ym) {
   m.canManageAdvance = !!ctx.perms.manageAdvances && canEditEmployee_(ctx, emp.id) && !m.locked;
   hideSplit_(m, ctx.perms.viewSplit);
   m.minDate = ctx.minDate;
+  // For the employee picker on the calendar: everyone this admin may see who worked in this month.
+  m.employeeList = getEmployees_().filter(e => canManage_(ctx, e.id) && (e.id === emp.id || employedInMonth_(e, m.ym)))
+    .map(e => ({ id: e.id, name: e.name }));
   return m;
 }
 
@@ -1069,8 +1072,9 @@ function adminGetEntry(token, empId, date) {
 /**
  * Adds or updates a (back-dated) entry.
  * entry = { empId, date, in: 'HH:mm', out: 'HH:mm', override: '' | PRESENT | HALF_DAY | ABSENT | LEAVE, note, otApproved }
+ * With ym (the calendar's month) the answer is { entry, month }, so the page needs no second call.
  */
-function adminSaveEntry(token, entry) {
+function adminSaveEntry(token, entry, ym) {
   const ctx = authAdmin_(token, 'editAttendance');
   const emp = managedEmployee_(ctx, entry && entry.empId, true);
   const date = checkEntryDate_(ctx, entry.date);
@@ -1082,13 +1086,14 @@ function adminSaveEntry(token, entry) {
     const result = upsertEntry_(data, emp, date, e, ctx.emp, true);
     flushNewRows_(data);
     audit_(ctx.emp, result.created ? 'ADD_ENTRY' : 'EDIT_ENTRY', emp.id, date, result.before + ' → ' + entryText_(e));
-    return adminGetEntry(token, emp.id, date);
   } finally {
     lock.releaseLock();
   }
+  const en = adminGetEntry(token, emp.id, date);
+  return ym ? { entry: en, month: adminEmployeeMonth(token, emp.id, ym) } : en;
 }
 
-function adminDeleteEntry(token, empId, date) {
+function adminDeleteEntry(token, empId, date, ym) {
   const ctx = authAdmin_(token, 'editAttendance');
   const emp = managedEmployee_(ctx, empId, true);
   date = checkEntryDate_(ctx, date);
@@ -1101,10 +1106,10 @@ function adminDeleteEntry(token, empId, date) {
     sheet_(SHEET.ATTENDANCE).deleteRow(rec.row);
     forget_('att');
     audit_(ctx.emp, 'DELETE_ENTRY', emp.id, date, entryText_(rec));
-    return true;
   } finally {
     lock.releaseLock();
   }
+  return ym ? { entry: adminGetEntry(token, emp.id, date), month: adminEmployeeMonth(token, emp.id, ym) } : true;
 }
 
 /**
