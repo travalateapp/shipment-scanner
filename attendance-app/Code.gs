@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261024;
+const SERVER_VERSION = 20261025;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2372,7 +2372,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0, offWorkCredit: 0,
     notJoined: 0, late: 0, lateMin: 0, earlyMin: 0, workedHours: 0, otMinGross: 0, otMin: 0, otHours: 0,
     otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
-    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0,
+    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0, absentWorkMin: 0,
   };
   const days = [];
   const es = empSettings_(emp, s); // own shift length / hourly OT / morning OT
@@ -2416,7 +2416,9 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
 
     // Monthly OT (see below): each full working day counts Standard Hours; today only once checked out.
     // Absent days are left out: their salary is already cut, so they must not cut OT as well. A half day is
-    // paid for half the shift: time beyond that adds to OT, time short of it cuts nothing.
+    // paid for half the shift: time beyond that adds to OT, time short of it cuts nothing. A day that is
+    // Absent because too few hours were worked: those hours are paid as OT (the day's salary is still cut).
+    // An Absent / Leave set by an admin counts no hours.
     // Paid leave and days without a check-out (until an admin fixes them) are left out too.
     // Weekly offs / holidays have their own rule.
     if (off) { t.offDayOtMin += d.otMin || 0; t.otPendingMin += d.otPending || 0; }
@@ -2429,16 +2431,18 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
       } else if (d.status === 'HALF_DAY') {
         const w = dayWorkedMin_(rec, es);
         t.halfDayExtraMin += Math.max(0, w - Math.round(shift / 2));
+      } else if (d.status === 'ABSENT') {
+        t.absentWorkMin += dayWorkedMin_(rec, es);
       }
     }
   }
 
   // OT for the month = total minutes worked on full days − (full days × Standard Hours × 60), plus time
-  // beyond half the shift on half days, plus OT
+  // beyond half the shift on half days, plus the hours of days counted Absent (too few hours), plus OT
   // from weekly-off / holiday work. Coming late or leaving early is already inside the worked minutes.
   // No hourly OT for this employee → only the weekly-off / holiday part.
   const weekdayOt = es.hourlyOt === false ? 0 : Math.max(0, t.workedMin - t.targetMin);
-  t.otMinGross = weekdayOt + (es.hourlyOt === false ? 0 : t.halfDayExtraMin) + t.offDayOtMin;
+  t.otMinGross = weekdayOt + (es.hourlyOt === false ? 0 : t.halfDayExtraMin + t.absentWorkMin) + t.offDayOtMin;
   t.otMin = t.otMinGross;
   t.otHours = round2_(t.otMin / 60);
   t.workedHours = round2_(t.workedHours);

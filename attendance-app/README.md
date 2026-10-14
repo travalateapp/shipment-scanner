@@ -222,6 +222,8 @@ Working time  = full days × Standard Hours × 60     (full day = Present on a w
 Time worked   = check-out − check-in on those days  (Morning OT off: counted from Shift Start)
 OT mins       = Time worked − Working time (never below 0)
               + on half days: time beyond half the shift (a 6 h half day adds 1.5 h; less than 4.5 h adds 0)
+              + on days counted Absent because of too few hours: all the time worked (e.g. 3h 39m),
+                while the day's salary is still cut. An Absent / Leave set by an admin adds nothing
               + weekly-off / holiday OT
 OT pay        = OT mins × Per minute × OT Multiplier
 
