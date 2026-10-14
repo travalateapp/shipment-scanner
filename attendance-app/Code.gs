@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261023;
+const SERVER_VERSION = 20261024;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -141,6 +141,7 @@ function memo_(key, fn) {
 function forget_() {
   for (let i = 0; i < arguments.length; i++) {
     delete MEMO[arguments[i]];
+    if (arguments[i] === 'att') newAttVersion_();
     if (arguments[i] === 'employees') delete MEMO.periods; // periods depend on Join Date / Active
     if (CACHED_SHEETS[arguments[i]]) dropSheetCache_(CACHED_SHEETS[arguments[i]]);
   }
@@ -180,7 +181,63 @@ function dropSheetCache_(name) {
 
 /** Simple trigger: clears the cache of a tab when it is edited by hand. */
 function onEdit(e) {
-  try { dropSheetCache_(e.range.getSheet().getName()); } catch (err) { /* ignore */ }
+  try {
+    const name = e.range.getSheet().getName();
+    if (name === SHEET.ATTENDANCE) newAttVersion_(); else dropSheetCache_(name);
+  } catch (err) { /* ignore */ }
+}
+
+/*
+ * The Attendance tab is read by almost every screen and grows every day, so a parsed copy is kept in the
+ * script cache (split into pieces of < 100 KB). Every write calls forget_('att'), which starts a new
+ * "version": copies made before it are never used again. A copy is also ignored when the number of rows
+ * in the tab changed (rows added or deleted by hand).
+ */
+const ATT_CACHE_PIECE = 90000;
+
+function newAttVersion_() {
+  try {
+    SpreadsheetApp.flush(); // writes are in the tab before anyone can cache it again
+    CacheService.getScriptCache().put('attv', Utilities.getUuid().slice(0, 8), 21600);
+  } catch (e) { /* ignore */ }
+}
+
+function cachedAttendance_(lastRow) {
+  try {
+    const cache = CacheService.getScriptCache();
+    const v = cache.get('attv');
+    if (!v) return { version: null };
+    const meta = JSON.parse(cache.get('attm_' + v) || 'null');
+    if (!meta || meta.lastRow !== lastRow) return { version: v };
+    const keys = [];
+    for (let i = 0; i < meta.pieces; i++) keys.push('attp_' + v + '_' + i);
+    const got = cache.getAll(keys);
+    let json = '';
+    for (let i = 0; i < keys.length; i++) {
+      if (got[keys[i]] == null) return { version: v };
+      json += got[keys[i]];
+    }
+    return { version: v, rows: JSON.parse(json) };
+  } catch (e) {
+    return { version: null };
+  }
+}
+
+function storeAttendance_(version, lastRow, rows) {
+  try {
+    const cache = CacheService.getScriptCache();
+    if (!version) {
+      version = Utilities.getUuid().slice(0, 8);
+      cache.put('attv', version, 21600);
+    }
+    const json = JSON.stringify(rows);
+    const pieces = {};
+    let n = 0;
+    for (let i = 0; i < json.length; i += ATT_CACHE_PIECE) pieces['attp_' + version + '_' + (n++)] = json.slice(i, i + ATT_CACHE_PIECE);
+    if (n > 200) return; // very large tab: just read it each time
+    cache.putAll(pieces, 21600);
+    cache.put('attm_' + version, JSON.stringify({ lastRow: lastRow, pieces: n }), 21600);
+  } catch (e) { /* cache full or unavailable: read the tab next time */ }
 }
 
 /* ------------------------------------------------------------------ */
@@ -1293,6 +1350,7 @@ function adminDecideOt(token, empId, date, approve) {
   const emp = managedEmployee_(ctx, empId, true);
   date = toDateStr_(date);
   assertUnlocked_(date);
+  forget_('att'); // the row number must come from the tab itself
   const rec = byDate_(readAttendance_(), emp.id)[date];
   if (!rec) throw new Error('Entry not found.');
   sheet_(SHEET.ATTENDANCE).getRange(rec.row, COL.OT_APPROVED + 1).setValue(approve ? 'YES' : 'NO');
@@ -3001,7 +3059,9 @@ function readAttendance_() {
     const sh = sheet_(SHEET.ATTENDANCE);
     const last = sh.getLastRow();
     if (last < 2) return [];
-    return sh.getRange(2, 1, last - 1, ATT_HEADERS.length).getValues().map((r, i) => {
+    const c = cachedAttendance_(last);
+    if (c.rows) return c.rows.map(attFromCache_);
+    const rows = sh.getRange(2, 1, last - 1, ATT_HEADERS.length).getValues().map((r, i) => {
       const ov = String(r[COL.OVERRIDE]).trim().toUpperCase().replace(/[\s-]+/g, '_');
       const ota = String(r[COL.OT_APPROVED] || '').trim().toUpperCase();
       return {
@@ -3020,7 +3080,18 @@ function readAttendance_() {
         review: reviewState_(r[COL.REVIEW]),
       };
     }).filter(a => a.date && a.empId);
+    storeAttendance_(c.version, last, rows.map(attToCache_));
+    return rows;
   });
+}
+
+const ATT_CACHE_FIELDS = ['row', 'date', 'empId', 'in', 'out', 'inLat', 'inLng', 'inDist', 'inAcc', 'selfie', 'override',
+  'note', 'otApproved', 'flags', 'review'];
+function attToCache_(a) { return ATT_CACHE_FIELDS.map(k => a[k]); }
+function attFromCache_(x) {
+  const a = {};
+  ATT_CACHE_FIELDS.forEach((k, i) => { a[k] = x[i]; });
+  return a;
 }
 
 /** First row per date for one employee (a row with a check-in wins over one without). */
