@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261021;
+const SERVER_VERSION = 20261022;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -125,6 +125,7 @@ const DEFAULT_SETTINGS = [
   ['Admin Back-Date Limit (days)', 45, 'Admins can add/change entries up to this many days back (super admin: no limit; 0 = no limit)'],
   ['Request Back-Date Limit (days)', 7, 'Employees can request corrections / leave up to this many days back'],
   ['Currency', '₹', ''],
+  ['Stay Logged In (days)', 30, 'People stay logged in this many days after they last used the app (then they enter the PIN again)'],
   ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
   ['Selfie Folder ID', '', 'Filled automatically'],
@@ -346,15 +347,65 @@ function login(empId, pin) {
   cache.remove(failKey);
   if (!isHashed_(emp.pin)) writePin_(emp, pin); // PINs typed into the sheet are hashed on first login
   const token = Utilities.getUuid();
-  cache.put('tok_' + token, emp.id, 21600); // 6 hours (CacheService maximum)
+  saveSession_(token, emp.id);
+  if (Math.random() < 0.05) cleanSessions_();
   const out = { token: token, profile: profile_(emp) };
   try { out.home = getHome(token); } catch (e) { /* the page will load it separately */ }
   return out;
 }
 
 function logout(token) {
-  if (token) CacheService.getScriptCache().remove('tok_' + token);
+  if (token) {
+    CacheService.getScriptCache().remove('tok_' + token);
+    try { PropertiesService.getScriptProperties().deleteProperty('tok_' + token); } catch (e) { /* ignore */ }
+  }
   return true;
+}
+
+/*
+ * Sessions: kept in the script properties for "Stay Logged In (days)" after the last use (the cache only
+ * keeps them 6 hours), with the cache in front so most calls don't read the properties.
+ */
+function saveSession_(token, empId) {
+  CacheService.getScriptCache().put('tok_' + token, empId, 21600); // 6 hours (CacheService maximum)
+  const days = getSettings_().sessionDays;
+  if (!(days > 0)) return;
+  try {
+    PropertiesService.getScriptProperties().setProperty('tok_' + token,
+      JSON.stringify({ e: empId, x: Date.now() + days * 86400000 }));
+  } catch (e) { /* properties full: the session still lasts 6 hours */ }
+}
+
+function sessionEmpId_(token) {
+  if (!token) return null;
+  const cached = CacheService.getScriptCache().get('tok_' + token);
+  if (cached) return cached;
+  let v = null;
+  try { v = JSON.parse(PropertiesService.getScriptProperties().getProperty('tok_' + token) || 'null'); } catch (e) { v = null; }
+  if (!v || !v.e) return null;
+  if (!(v.x > Date.now())) {
+    try { PropertiesService.getScriptProperties().deleteProperty('tok_' + token); } catch (e) { /* ignore */ }
+    return null;
+  }
+  saveSession_(token, v.e); // used again: the days start over
+  return v.e;
+}
+
+/** Removes expired sessions, or all sessions of one employee (PIN reset by an admin). */
+function cleanSessions_(empId) {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const all = props.getProperties(), now = Date.now(), cache = CacheService.getScriptCache();
+    Object.keys(all).forEach(k => {
+      if (k.indexOf('tok_') !== 0) return;
+      let v = null;
+      try { v = JSON.parse(all[k]); } catch (e) { v = null; }
+      if (!v || !(v.x > now) || (empId && v.e === empId)) {
+        props.deleteProperty(k);
+        if (empId) cache.remove(k);
+      }
+    });
+  } catch (e) { /* ignore */ }
 }
 
 function changePin(token, oldPin, newPin) {
@@ -694,7 +745,7 @@ function getPayslip(token, ym, empId, asPdf) {
 /* Employee: requests (leave / correction)                             */
 /* ------------------------------------------------------------------ */
 
-/** req = { type: 'LEAVE', from, to, leaveType: 'PAID'|'UNPAID', reason } or { type: 'CORRECTION', from, in, out, reason } */
+/** req = { type: 'LEAVE', from, to, reason } or { type: 'CORRECTION', from, in, out, reason } */
 function submitRequest(token, req) {
   const emp = auth_(token);
   const s = getSettings_();
@@ -714,7 +765,7 @@ function submitRequest(token, req) {
   if (type === 'LEAVE') {
     if (to < from) throw new Error('"To" date must be on or after "From" date.');
     if (to > addDays_(today, 90)) throw new Error('Leave can be requested at most 90 days ahead.');
-    leaveType = String(req.leaveType || 'PAID').toUpperCase() === 'UNPAID' ? 'UNPAID' : 'PAID';
+    // Paid or unpaid is decided by the admin when approving.
   } else if (type === 'CORRECTION') {
     if (from > today) throw new Error('Corrections are only for past days or today.');
     inT = toTimeStr_(req.in);
@@ -1112,6 +1163,12 @@ function adminRequests(token) {
   const ym = todayStr_().slice(0, 7);
   const out = {
     pending: reqs.filter(r => r.status === 'PENDING').map(r => {
+      if (r.type === 'LEAVE') {
+        // Days in the leave on which the employee already checked in (they stay as worked).
+        const mine = byDate_(readAttendance_(), r.empId), worked = [];
+        for (let d = r.from; d <= r.to && worked.length < 31; d = addDays_(d, 1)) if (mine[d] && mine[d].in) worked.push(d);
+        return Object.assign({}, r, { worked: worked });
+      }
       if (r.type !== 'ADVANCE') return r;
       // Running advances of this employee, so the admin can add the new amount to one of them.
       const running = readAdvances_().filter(a => a.empId === r.empId && a.status !== 'CLOSED').map(a => {
@@ -1183,19 +1240,26 @@ function adminDecideRequest(token, id, approve, remark, leaveType, adv) {
       const data = entryContext_();
       const s = data.s;
       if (r.type === 'LEAVE') {
-        const paid = String(leaveType || r.leaveType || 'PAID').toUpperCase() !== 'UNPAID';
+        const lt = String(leaveType || r.leaveType || '').toUpperCase();
+        if (lt !== 'PAID' && lt !== 'UNPAID') throw new Error('Choose Paid or Unpaid leave.');
+        const paid = lt === 'PAID';
         let n = 0;
+        const worked = [];
         for (let d = r.from; d <= r.to; d = addDays_(d, 1)) {
           assertUnlocked_(d);
           if (offType_(d, s, data.holidays)) continue;
           const rec = data.map[emp.id + '|' + d];
+          // A day the employee already checked in on is kept as worked, never turned into leave.
+          if (rec && rec.in) { worked.push(d); continue; }
           upsertEntry_(data, emp, d, {
             in: rec && rec.in ? rec.in : '', out: rec && rec.out ? rec.out : '',
             override: paid ? 'LEAVE' : 'ABSENT', note: (paid ? 'Paid' : 'Unpaid') + ' leave: ' + r.reason,
           }, ctx.emp, true);
           n++;
         }
-        summary = (paid ? 'Paid' : 'Unpaid') + ' leave, ' + n + ' working day(s)';
+        summary = (paid ? 'Paid' : 'Unpaid') + ' leave, ' + n + ' working day(s)' +
+          (worked.length ? ', kept as worked: ' + worked.join(', ') : '');
+        sheet_(SHEET.REQUESTS).getRange(r.row, 10).setValue(lt);
       } else {
         checkEntryDate_(ctx, r.from);
         const rec = data.map[emp.id + '|' + r.from];
@@ -1332,6 +1396,7 @@ function adminResetPin(token, empId, newPin) {
   const ctx = authAdmin_(token, 'manageEmployees');
   const emp = managedEmployee_(ctx, empId, true);
   writePin_(emp, validPin_(newPin));
+  cleanSessions_(emp.id); // logged out on their phones: they log in with the new PIN
   audit_(ctx.emp, 'RESET_PIN', emp.id, '', 'PIN reset');
   return true;
 }
@@ -2606,7 +2671,7 @@ function payslipHtml_(emp, m) {
 
 /** The logged-in person. Guards are refused unless allowGuard (they only use Mark Attendance and their PIN). */
 function auth_(token, allowGuard) {
-  const empId = token ? CacheService.getScriptCache().get('tok_' + token) : null;
+  const empId = sessionEmpId_(token);
   if (!empId) throw new Error('SESSION_EXPIRED');
   const emp = findEmployee_(empId);
   if (!emp || !emp.active) throw new Error('SESSION_EXPIRED');
@@ -2769,6 +2834,7 @@ function getSettings_() {
       requestBackDays: num('Request Back-Date Limit (days)', 7),
       currency: str('Currency', '₹'),
       minAppVersion: num('Min Android App Version', 0),
+      sessionDays: num('Stay Logged In (days)', 30),
       appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
       keepSelfieDays: num('Keep Selfies (days)', 60),

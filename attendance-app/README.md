@@ -6,7 +6,7 @@ A mobile-friendly web app that runs on a Google Sheet. It lets employees:
 - **Take a selfie at check-in** with the live front camera. Photos are saved to a Google Drive folder.
 - **See their month**: pick any month and see a colour-coded calendar (Absent, Half Day, OT, Late). The month view also shows late and early-leaving minutes, net OT, advance recovery and the salary breakdown with PF and one **Total Salary** figure. The In Bank / In Cash split is shown only to admins who have permission to see it.
 - **Download a payslip** (PDF or print) for any month.
-- **Send requests:** leave (paid or unpaid) and attendance corrections (forgot to check in or out).
+- **Send requests:** leave and attendance corrections (forgot to check in or out). The admin decides whether a leave is paid or unpaid.
 - **Change their own PIN.**
 - **Use the app only to check in and to check out.** Nothing runs in the background and there is no tracking during the day. Location is checked only at the moment of check-in and check-out.
 - **Keep the phone clock on automatic.** If the phone's time or time zone is wrong, the app blocks check-in/out. Recorded times always come from Google's server, not the phone.
@@ -159,6 +159,7 @@ Changes to the app reach iPhones automatically too.
 | Round To Rupee | Yes | Salary amounts in whole rupees |
 | Admin Back-Date Limit (days) | 45 | How far back admins can change entries (super admin: no limit) |
 | Request Back-Date Limit (days) | 7 | How far back employees can request corrections or leave |
+| Stay Logged In (days) | 30 | People stay logged in this long after they last used the app. Resetting someone's PIN logs them out |
 
 ### Employees tab
 
@@ -336,7 +337,10 @@ Permissions the super admin can give each admin (**Super Admin → Admins**):
 Each admin also gets a scope: **All employees** or **Only selected**.
 
 **Requests** (employee → admin):
-- **Leave:** a date range, paid or unpaid. The admin can change paid/unpaid when approving. Approved leave appears in the calendar and is counted when the day arrives.
+- **Leave:** a date range (the form shows "Leave for N day(s): …" and asks before sending). The employee doesn't choose the type.
+  - The admin must pick **Paid leave** (no salary cut) or **Unpaid leave** (salary cut, counted as absent) when approving.
+  - Days in the range on which the employee **already checked in stay as worked**; the leave is only put on the other days. The request shows a warning for them.
+  - Approved leave appears in the calendar and is counted when the day arrives.
 - **Correction:** the right check-in and/or check-out time for a day. Approving it updates that day.
 
 **Back-dated entries** (**Admin → Entries**):
