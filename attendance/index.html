@@ -215,6 +215,9 @@
     .modal .sheet { background: #fff; width: 100%; max-width: 520px; border-radius: 20px 20px 0 0; padding: 20px 16px 28px;
       max-height: 90vh; overflow: auto; }
     .modal img { width: 100%; border-radius: 14px; }
+    .upd-pill { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 60; background: #1b2333; color: #fff;
+      font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 4px 14px rgba(0,0,0,.2); display: flex; gap: 6px; align-items: center; }
+    .upd-pill .spinner { width: 14px; height: 14px; border-width: 2px; }
     .x-btn { border: 0; background: var(--bg); width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; flex: none; }
     .day-nav { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 2px; }
     .day-nav b { font-size: 17px; }
@@ -279,6 +282,7 @@
 <div id="loadingView" class="login"><div class="spinner"></div></div>
 
 <input type="file" id="selfieInput" accept="image/*" capture="user" class="hidden">
+<div id="updPill" class="upd-pill hidden"><span class="spinner"></span> Updating…</div>
 <div id="modal" class="modal hidden" onclick="if (event.target === this) closeModal()"><div class="sheet" id="modalBody"></div></div>
 
 <script>
@@ -643,8 +647,12 @@
   }
 
   /** Calls a server function and returns a Promise. Handles expired sessions centrally. */
+  /** Calls that only read. Any other call changes data, so screens kept in memory are forgotten. */
+  var READ_ONLY = /^(get[A-Z]|my[A-Z]|publicInfo$|proxyList$|admin(Today|Holidays|Summary|Month|EmployeeMonth|Requests|Staff|Advances|Employees|EntryOptions|GetEntry|GetSelfie|ExportPayroll|AttendanceRegister|Payslip)$|super(ListAdmins|AuditLog)$)/;
+
   function api(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
+    if (!READ_ONLY.test(fn)) { S.viewCache = {}; S.monthCache = {}; S.reqCache = null; }
     var fail = function (err) {
       var msg = (err && err.message) || String(err);
       if (msg.indexOf('SESSION_EXPIRED') >= 0) { toast('Session expired. Please login again.'); showLogin(); }
@@ -723,7 +731,7 @@
 
   /* ---------------- Login & PIN ---------------- */
   function showLogin() {
-    S.token = null; store('att_token', null);
+    S.token = null; store('att_token', null); store('att_home', null); S.home = null; S.viewCache = {}; S.monthCache = {}; S.reqCache = null;
     S.profile = null; store('att_role', null); applyLang(); // the login screen is always English
     S.home = null; S.monthCache = {}; S.prefetchedHome = null; S.navStack = [];
     $('appView').classList.add('hidden'); $('loadingView').classList.add('hidden');
@@ -826,6 +834,14 @@
   function loadHome() {
     var sentAt = Date.now();
     if (S.prefetchedHome) { var pre = S.prefetchedHome; S.prefetchedHome = null; return showHome(pre, sentAt); }
+    if (!S.home) {
+      // App just opened: draw the last home screen saved on the phone (buttons wait for the server).
+      var saved = null;
+      try { saved = JSON.parse(load('att_home') || 'null'); } catch (e) { saved = null; }
+      if (saved && saved.t === S.token && saved.h && saved.h.today === todayLocal()) {
+        saved.h.fromPhone = true; S.tab === 'home' && showHome(saved.h, sentAt);
+      }
+    }
     // Show the last screen at once (buttons wait), then refresh from the server.
     if (S.home && S.home.today === todayLocal()) { S.homeStale = true; renderHome(); } else setLoading();
     api('getHome', S.token).then(function (h) { showHome(h, sentAt); })
@@ -835,6 +851,7 @@
   function showHome(h, sentAt) {
       S.homeStale = false;
       S.home = h; S.profile = h.profile;
+      if (!h.fromPhone) store('att_home', JSON.stringify({ t: S.token, h: h }));
       checkAppVersion(h);
       store('att_role', h.profile.role);
       applyLang();
@@ -898,7 +915,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261023;
+  var NEEDS_SERVER = 20261024;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1432,8 +1449,15 @@
 
   /* ---------------- Employee requests ---------------- */
   function loadMyRequests() {
-    setLoading();
-    api('myRequests', S.token).then(renderMyRequests).catch(function (e) { setError(e, 'loadMyRequests()'); });
+    var cached = S.reqCache;
+    if (cached) { renderMyRequests(JSON.parse(cached)); updating(true); } else setLoading();
+    api('myRequests', S.token).then(function (list) {
+      updating(false);
+      var json = JSON.stringify(list);
+      if (S.tab !== 'requests' || json === cached) return;
+      S.reqCache = json;
+      renderMyRequests(list);
+    }).catch(function (e) { updating(false); if (cached) toast(e.message); else setError(e, 'loadMyRequests()'); });
   }
 
   function renderMyRequests(list) {
@@ -1542,6 +1566,31 @@
   }
   function adminTab(tb) { if (S.admin.tab !== tb) navPush(); S.admin.tab = tb; renderAdmin(); }
   function adminBody(html) { var el = $('adminBody'); if (el) el.innerHTML = html; }
+
+  /**
+   * Loads an admin screen. A screen seen before is drawn at once from the last answer, then quietly
+   * replaced when the server answers (only if something changed). An answer for a screen the admin has
+   * already left is dropped.
+   */
+  function adminFetch(key, fn, args, render) {
+    S.viewCache = S.viewCache || {};
+    var seq = S.adminSeq = (S.adminSeq || 0) + 1, cached = S.viewCache[key];
+    if (cached) { render(JSON.parse(cached)); updating(true); } else adminLoading();
+    api.apply(null, [fn, S.token].concat(args)).then(function (r) {
+      if (seq !== S.adminSeq) return;
+      updating(false);
+      var json = JSON.stringify(r);
+      if (json === cached) return;
+      S.viewCache[key] = json;
+      render(r);
+    }).catch(function (e) {
+      if (seq !== S.adminSeq) return;
+      updating(false);
+      if (cached) toast(e.message); else adminErr(e);
+    });
+  }
+  /** Small "Updating…" note while a screen drawn from memory is being refreshed. */
+  function updating(on) { var el = $('updPill'); if (el) el.classList.toggle('hidden', !on); }
   function adminLoading() { adminBody('<div class="card center"><div class="spinner"></div></div>'); }
   function adminErr(e) { adminBody('<div class="card">' + errBox(e) + '</div>'); }
 
@@ -1702,8 +1751,7 @@
   function loadAdminToday(date) {
     S.todayView = S.todayView || { date: '', filter: 'ALL', q: '' };
     if (date !== undefined) S.todayView.date = date > todayLocal() ? todayLocal() : date;
-    adminLoading();
-    api('adminToday', S.token, S.todayView.date || null).then(renderAdminToday).catch(adminErr);
+    adminFetch('today|' + (S.todayView.date || ''), 'adminToday', [S.todayView.date || null], renderAdminToday);
   }
   function todayShift(days) { loadAdminToday(addDaysLocal(S.todayView.date || todayLocal(), days)); }
 
@@ -1816,8 +1864,7 @@
   /* ---------- Holidays (national / festival): no absent is marked on these days ---------- */
   function loadHolidays(year) {
     S.admin.holYear = String(year);
-    adminLoading();
-    api('adminHolidays', S.token, String(year)).then(renderHolidays).catch(adminErr);
+    adminFetch('hol|' + year, 'adminHolidays', [String(year)], renderHolidays);
   }
 
   function renderHolidays(r) {
@@ -1863,8 +1910,7 @@
   /* ---------- Monthly summary ---------- */
   function loadSummary(ym) {
     S.admin.sumYm = ym;
-    adminLoading();
-    api('adminSummary', S.token, ym).then(renderSummary).catch(adminErr);
+    adminFetch('sum|' + ym, 'adminSummary', [ym], renderSummary);
   }
 
   function renderSummary(r) {
@@ -1952,8 +1998,7 @@
   /* ---------- Payroll ---------- */
   function loadAdminMonth(ym) {
     S.admin.ym = ym;
-    adminLoading();
-    api('adminMonth', S.token, ym).then(renderAdminMonth).catch(adminErr);
+    adminFetch('pay|' + ym, 'adminMonth', [ym], renderAdminMonth);
   }
 
   function renderAdminMonth(r) {
@@ -2086,8 +2131,7 @@
   }
 
   function openEmployee(id, ym) {
-    adminLoading();
-    api('adminEmployeeMonth', S.token, id, ym).then(showEmployeeMonth).catch(adminErr);
+    adminFetch('emp|' + id + '|' + ym, 'adminEmployeeMonth', [id, ym], function (m) { showEmployeeMonth(m); });
   }
 
   /** Draws an employee's month. quiet = after saving an entry: no spinner, the page keeps its scroll position. */
@@ -2102,8 +2146,7 @@
 
   /* ---------- Requests & OT approvals ---------- */
   function loadAdminRequests() {
-    adminLoading();
-    api('adminRequests', S.token).then(renderAdminRequests).catch(adminErr);
+    adminFetch('req', 'adminRequests', [], renderAdminRequests);
   }
 
   function renderAdminRequests(r) {
@@ -2317,8 +2360,7 @@
 
   /* ---------- Employees ---------- */
   function loadStaff() {
-    adminLoading();
-    api('adminStaff', S.token).then(renderStaff).catch(adminErr);
+    adminFetch('staff', 'adminStaff', [], renderStaff);
   }
 
   function renderStaff(r) {
@@ -2471,8 +2513,7 @@
 
   /* ---------- Advances ---------- */
   function loadAdvances() {
-    adminLoading();
-    api('adminAdvances', S.token).then(renderAdvances).catch(adminErr);
+    adminFetch('adv', 'adminAdvances', [], renderAdvances);
   }
 
   function renderAdvances(r) {
@@ -2625,8 +2666,7 @@
 
   /* ---------- PF ---------- */
   function loadAdminPf() {
-    adminLoading();
-    api('adminEmployees', S.token).then(renderAdminPf).catch(adminErr);
+    adminFetch('pf', 'adminEmployees', [], renderAdminPf);
   }
 
   function renderAdminPf(r) {
@@ -2665,8 +2705,7 @@
 
   /* ---------- Super admin: admins & permissions ---------- */
   function loadAdmins() {
-    adminLoading();
-    api('superListAdmins', S.token).then(renderAdmins).catch(adminErr);
+    adminFetch('admins', 'superListAdmins', [], renderAdmins);
   }
 
   function renderAdmins(r) {
@@ -2742,8 +2781,9 @@
   (function boot() {
     var setName = function (n) { $('coName').textContent = n; document.title = n + ' – Attendance'; };
     if (COMPANY && COMPANY.charAt(0) !== '<') setName(COMPANY); // '<' = not filled in (hosted page)
-    else api('publicInfo').then(function (r) { setName(r.company); checkAppVersion(r); }).catch(function (e) { setName('Attendance'); $('loginMsg').innerHTML = errBox(e); });
     S.token = load('att_token');
+    // Logged in: the home screen brings the company name, so skip this extra call.
+    if (!(COMPANY && COMPANY.charAt(0) !== '<') && !S.token) api('publicInfo').then(function (r) { setName(r.company); checkAppVersion(r); }).catch(function (e) { setName('Attendance'); $('loginMsg').innerHTML = errBox(e); });
     if (S.token) startApp(); else showLogin();
   })();
 </script>
