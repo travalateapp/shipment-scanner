@@ -211,8 +211,8 @@ Per minute = Per hour ÷ 60
 
 Late minutes  = check-in − Shift Start         (only on days marked Late)
 Early minutes = shift end − check-out          (on present days)
-Working time  = working days × Standard Hours × 60   (working day = not a weekly off / holiday / paid leave;
-                                                      days passed so far, absent days included)
+Working time  = full days × Standard Hours × 60     (full day = Present on a working day; absent days,
+                                                      half days, paid leave and days without check-out are left out)
 Time worked   = check-out − check-in on those days  (Morning OT off: counted from Shift Start)
 OT mins       = Time worked − Working time (never below 0)  + weekly-off / holiday OT
 OT pay        = OT mins × Per minute × OT Multiplier
@@ -223,9 +223,9 @@ Gross      = Total Salary + OT pay − Leaves − Half Days
 Net        = Gross − advance instalment (− PF Employee for PF employees)
 ```
 
-**OT example (October: 31 days − 4 Sundays = 27 working days, 9 h shift):** working time = 27 × 9 h = 243 h.
+**OT example (October: 27 working days, all present, 9 h shift):** working time = 27 × 9 h = 243 h.
 Worked 250 h on those days → OT = 7 h. Late coming and early leaving are already inside the 250 h, so they are not cut again.
-An absent day still counts in the 243 h. Work on a Sunday / holiday is paid by its own rule (+1 or +½ day) and the time
+Absent and half days are left out of both sides: their salary is already cut, so they do not cut OT too. Work on a Sunday / holiday is paid by its own rule (+1 or +½ day) and the time
 outside 09:30–17:00 is added to the OT. Employees with *Hourly OT* off get only the Sunday / holiday OT.
 
 **Current month:** the salary is shown only for the days that have passed: Monthly Salary × days passed ÷ days in the month. Today counts once the employee has checked in. PF and Basic Salary are counted for the same days. The amount grows every day, and once the month is over it is the full month's salary. The Monthly Summary and payslips work the same way.

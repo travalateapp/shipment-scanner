@@ -1739,7 +1739,7 @@ function adminAttendanceRegister(token, ym) {
     title: s.company + ' – Attendance register – ' + ymLabel_(ym),
     legend: 'Times = check-in (In row) and check-out (Out row). A = absent, L = paid leave, WO = weekly off, H = holiday, ' +
       'P / HD = present / half day set by an admin without times, - = not employed, blank = not yet. ' +
-      'Week Off counts weekly offs and holidays. OT = minutes worked − working time of the month, plus weekly-off / holiday OT.',
+      'Week Off counts weekly offs and holidays. OT = time worked on full days − (full days × shift hours), plus weekly-off / holiday OT.',
     status: isLocked_(ym) ? 'Final (locked)' : (ym === todayStr_().slice(0, 7) ? 'Month in progress (up to today)' : 'Not locked'),
     header: header, rows: rows, rowsPerEmployee: 2, totalCols: 7,
   };
@@ -2218,18 +2218,19 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     t.earlyMin += d.earlyMin || 0;
     t.workedHours += d.worked || 0;
 
-    // Monthly OT (see below): every working day that has passed counts Standard Hours; today only once
-    // checked out. Paid leave days are left out. Weekly offs / holidays have their own rule.
+    // Monthly OT (see below): each full working day counts Standard Hours; today only once checked out.
+    // Absent and half days are left out: their salary is already cut, so they must not cut OT as well.
+    // Paid leave and days without a check-out (until an admin fixes them) are left out too.
+    // Weekly offs / holidays have their own rule.
     if (off) { t.offDayOtMin += d.otMin || 0; t.otPendingMin += d.otPending || 0; }
-    else if (d.status !== 'NOT_JOINED' && d.status !== 'INACTIVE' && d.status !== 'LEAVE' &&
-      (ds < today || (rec && rec.out))) {
+    else if ((d.status === 'PRESENT' || d.status === 'WORKING') && !d.autoOut && rec && (ds < today || rec.out)) {
       t.workDays++;
       t.targetMin += Math.round(es.standardHours * 60);
-      if (rec) t.workedMin += dayWorkedMin_(rec, es);
+      t.workedMin += dayWorkedMin_(rec, es);
     }
   }
 
-  // OT for the month = total minutes worked on working days − (working days × Standard Hours × 60), plus OT
+  // OT for the month = total minutes worked on full days − (full days × Standard Hours × 60), plus OT
   // from weekly-off / holiday work. Coming late or leaving early is already inside the worked minutes.
   // No hourly OT for this employee → only the weekly-off / holiday part.
   const weekdayOt = es.hourlyOt === false ? 0 : Math.max(0, t.workedMin - t.targetMin);
