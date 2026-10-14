@@ -410,7 +410,7 @@
     'missed.days.note': 'आधी रात को अपने-आप बंद किया गया और एडमिन के ठीक करने तक {status} गिना जाएगा। कैलेंडर में इन्हें लाल घेरे से दिखाया गया है।',
     'Absent (Leaves)': 'अनुपस्थित', 'Half Days': 'आधे दिन', 'Late · {m}': 'देर से · {m}', 'Early leaving': 'जल्दी गए',
     'Total OT': 'कुल ओवरटाइम', 'Paid Leave': 'सवेतन छुट्टी', 'Week Off / Holiday': 'साप्ताहिक छुट्टी / अवकाश',
-    'ot.month': 'ओवरटाइम = पूरे दिनों में काम का समय {w} − कामकाजी समय ({n} पूरे दिन × {h} घंटे) = {x}. गैरहाज़िर और आधे दिन ओवरटाइम नहीं काटते (उनकी तनख्वाह पहले ही कटती है)।', 'ot.halfday': '+ आधे दिनों में आधी शिफ्ट से ज़्यादा काम {o}.', 'ot.offday': '+ साप्ताहिक छुट्टी / अवकाश का ओवरटाइम {o}.',
+    'ot.month': 'ओवरटाइम = पूरे दिनों में काम का समय {w} − कामकाजी समय ({n} पूरे दिन × {h} घंटे) = {x}. गैरहाज़िर और आधे दिन ओवरटाइम नहीं काटते (उनकी तनख्वाह पहले ही कटती है)।', 'ot.halfday': '+ आधे दिनों में आधी शिफ्ट से ज़्यादा काम {o}.', 'ot.absentwork': '+ गैरहाज़िर गिने गए दिनों (कम घंटे) में किया काम {o}.', 'ot.offday': '+ साप्ताहिक छुट्टी / अवकाश का ओवरटाइम {o}.',
     'No hourly OT for this employee.': 'इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है।', 'Total OT = <b>{n}</b>': 'कुल ओवरटाइम = <b>{n}</b>', 'Late {m}': 'देर {m}', 'Early {m}': 'जल्दी {m}',
     'ot.pending': '{m} ओवरटाइम एडमिन की मंज़ूरी का इंतज़ार कर रहा है (अभी गिना नहीं गया)।',
     'Salary': 'वेतन', '🔒 Final': '🔒 अंतिम', 'Month in progress': 'महीना जारी है', 'Monthly Salary': 'मासिक वेतन',
@@ -494,7 +494,7 @@
     'home.selfie': ' A selfie is required at check-in.',
     'home.forgot': ' Forgot to check in or out? Use <b>Requests</b>.',
     'missed.days': '⚠ {n} day(s) without check-out',
-    'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
+    'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.absentwork': '+ time worked on days counted absent (too few hours) {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
     'missed.days.note': 'Auto-closed at midnight and counted as {status} until an admin clears them. They have a red outline in the calendar.',
     'missed.day.note': 'Auto-closed at midnight and counted as {status} until an admin clears it. It has a red outline in the calendar.',
     'ot.pending': '{m} OT is waiting for admin approval (not counted yet).',
@@ -915,7 +915,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261024;
+  var NEEDS_SERVER = 20261025;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1306,6 +1306,7 @@
         ? t('ot.month', { w: mins(tt.workedMin), n: tt.workDays, h: num(m.rules.standardHours), x: mins(Math.max(0, tt.workedMin - tt.targetMin)) })
         : t('No hourly OT for this employee.');
       if (m.rules.hourlyOt && tt.halfDayExtraMin) otTxt += ' ' + t('ot.halfday', { o: mins(tt.halfDayExtraMin) });
+      if (m.rules.hourlyOt && tt.absentWorkMin) otTxt += ' ' + t('ot.absentwork', { o: mins(tt.absentWorkMin) });
       if (tt.offDayOtMin) otTxt += ' ' + t('ot.offday', { o: mins(tt.offDayOtMin) });
       html += '<p class="muted small" style="margin:10px 0 0">' + otTxt + ' ' + t('Total OT = <b>{n}</b>', { n: mins(tt.otMin) }) + '</p>';
     }
