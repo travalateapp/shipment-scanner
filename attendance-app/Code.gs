@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261020;
+const SERVER_VERSION = 20261021;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -55,7 +55,7 @@ const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
 const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
-  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT'];
+  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender'];
 const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type'];
 const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
 
@@ -429,6 +429,7 @@ function getHome(token) {
     shiftStart: minutesToStr_(empSettings_(emp, s).shiftStartMin),
     standardHours: empSettings_(emp, s).standardHours,
     upcomingHolidays: upcomingHolidays_(today, 45, 3),
+    leaders: homeLeaders_(emp, today),
     server: serverClock_(),
     clockTolerance: s.clockTolerance,
     pendingRequests: readRequests_().filter(r => r.empId === emp.id && r.status === 'PENDING').length,
@@ -437,6 +438,54 @@ function getHome(token) {
     adminMissed: adminMissedCount_(emp),
     serverVersion: SERVER_VERSION,
     minAppVersion: s.minAppVersion, appLink: s.appLink,
+  };
+}
+
+/** 'M', 'F' or '' from a Gender cell / form value. */
+function parseGender_(v) {
+  const g = String(v || '').trim().toLowerCase();
+  return /^(m|male|man|boy|पुरुष)$/.test(g) ? 'M' : /^(f|female|woman|girl|महिला)$/.test(g) ? 'F' : '';
+}
+
+/**
+ * Hours leaderboard for one gender in a month: every employee (not guards) employed that month, ranked by
+ * the time between check-in and check-out on all days (weekly offs and holidays too). Days an admin set as
+ * Absent / Leave and days without a check-out are not counted.
+ */
+function hoursLeaders_(gender, ym) {
+  const s = getSettings_();
+  const people = {};
+  getEmployees_().forEach(e => { if (e.gender === gender && employedInMonth_(e, ym)) people[e.id] = { e: e, per: periods_(e), min: 0 }; });
+  readAttendance_().forEach(r => {
+    const p = people[r.empId];
+    if (!p || r.date.indexOf(ym) !== 0 || r.override === 'ABSENT' || r.override === 'LEAVE') return;
+    const a = toMinutes_(r.in);
+    let b = toMinutes_(r.out);
+    if (a == null || b == null || !employedOn_(p.e, r.date, p.per)) return;
+    if (b <= a && s.overnight) b += 1440;
+    if (b > a) p.min += b - a;
+  });
+  return Object.keys(people).map(id => people[id]).filter(p => p.min > 0)
+    .sort((x, y) => y.min - x.min || x.e.name.localeCompare(y.e.name, 'en', { sensitivity: 'base' }))
+    .map(p => ({ id: p.e.id, name: p.e.name, min: p.min }));
+}
+
+/**
+ * Leaders card on the home screen: men see the men's board, women the women's (nothing without a Gender).
+ * Days 1–5 of a month show only last month's winner (with fireworks on the page); after that the top 3 so far.
+ */
+function homeLeaders_(emp, today) {
+  if (!emp.gender) return null;
+  const ym = today.slice(0, 7);
+  const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+  const prev = m === 1 ? (y - 1) + '-12' : y + '-' + pad2_(m - 1);
+  if (Number(today.slice(8, 10)) <= 5) {
+    const w = hoursLeaders_(emp.gender, prev)[0];
+    return { gender: emp.gender, winner: w ? { name: w.name, me: w.id === emp.id } : null, month: prev, monthLabel: ymLabel_(prev) };
+  }
+  return {
+    gender: emp.gender, month: ym, monthLabel: ymLabel_(ym),
+    top: hoursLeaders_(emp.gender, ym).slice(0, 3).map(x => ({ name: x.name, min: x.min, me: x.id === emp.id })),
   };
 }
 
@@ -1179,7 +1228,7 @@ function adminStaff(token) {
     canSetRole: ctx.perms.superAdmin,
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
-      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt,
+      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender,
     })),
   };
 }
@@ -1187,7 +1236,7 @@ function adminStaff(token) {
 /**
  * data = { isNew, id, name, pin (new only), salary (new only; later changes are increments), joinDate, phone,
  *          active + leftOn (when deactivating) / activeFrom (when activating again), anywhere,
- *          shiftStart, shiftEnd (blank = company shift), hourlyOt, role (super admin only) }
+ *          shiftStart, shiftEnd (blank = company shift), hourlyOt, gender ('M' / 'F' / ''), role (super admin only) }
  */
 function adminSaveStaff(token, data) {
   const ctx = authAdmin_(token, 'manageEmployees');
@@ -1204,6 +1253,8 @@ function adminSaveStaff(token, data) {
 
   const anywhere = data.anywhere === undefined ? null : !!data.anywhere;
   const timing = data.shiftStart === undefined ? null : shiftFields_(data);
+  const gender = data.gender === undefined ? null : parseGender_(data.gender);
+  const genderCell = g => (g === 'M' ? 'Male' : g === 'F' ? 'Female' : '');
   const sh = sheet_(SHEET.EMPLOYEES);
   ensureHeaders_(sh, EMP_HEADERS);
   const anyCol = headerIndex_(sh)['Mark From Anywhere'] + 1;
@@ -1223,6 +1274,7 @@ function adminSaveStaff(token, data) {
       if (h['PF Active'] !== undefined) row[h['PF Active']] = 'No';
       row[anyCol - 1] = anywhere ? 'Yes' : 'No';
       if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3]; }
+      if (gender !== null) row[h['Gender']] = genderCell(gender);
       sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
       forget_('employees');
       audit_(ctx.emp, 'ADD_EMPLOYEE', id, joinDate, name + ', salary ' + salary);
@@ -1237,6 +1289,10 @@ function adminSaveStaff(token, data) {
       if (role && emp.role !== 'SUPER_ADMIN') sh.getRange(row, 5).setValue(role);
       sh.getRange(row, 6, 1, 3).setValues([[active ? 'Yes' : 'No', "'" + joinDate, phone]]);
       if (anywhere !== null) sh.getRange(row, anyCol).setValue(anywhere ? 'Yes' : 'No');
+      if (gender !== null && gender !== emp.gender) {
+        sh.getRange(row, headerIndex_(sh)['Gender'] + 1).setValue(genderCell(gender));
+        audit_(ctx.emp, 'EDIT_GENDER', emp.id, '', (genderCell(emp.gender) || '-') + ' → ' + (genderCell(gender) || '-'));
+      }
       if (timing) {
         const hh = headerIndex_(sh);
         sh.getRange(row, hh['Shift Start'] + 1).setValue(timing[0]);
@@ -2754,6 +2810,7 @@ function getPeople_() {
           shiftEnd: toTimeStr_(get(r, 'Shift End')),
           hourlyOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Hourly OT')).trim()),
           morningOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Morning OT')).trim()),
+          gender: parseGender_(get(r, 'Gender')),
           pf: {
             active: /^(y|yes|true|1|on)$/i.test(String(get(r, 'PF Active')).trim()),
             bankSalary: get(r, 'PF Bank Salary'),

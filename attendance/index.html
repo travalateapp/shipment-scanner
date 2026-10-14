@@ -113,6 +113,8 @@
     .spinner { width: 18px; height: 18px; border: 3px solid var(--brand-soft); border-top-color: var(--brand);
       border-radius: 50%; animation: spin .8s linear infinite; display: inline-block; vertical-align: middle; }
     @keyframes spin { to { transform: rotate(360deg); } }
+    .champ { background: linear-gradient(135deg, #fff6d6, #ffe1ec); border: 1px solid #f3c74e; }
+    .champ-name { font-size: 26px; font-weight: 800; margin: 6px 0; color: #9a5b00; }
 
     /* Month */
     .month-nav { display: flex; align-items: center; justify-content: space-between; }
@@ -450,6 +452,10 @@
     'wo.full': 'छुट्टी के दिन काम: पूरा दिन (+1 दिन का वेतन)', 'wo.half': 'छुट्टी के दिन काम: आधा दिन (+½ दिन का वेतन)',
     'wo.none': 'छुट्टी के दिन काम: {s}–{e} के बीच {h} घंटे से कम, इसलिए दिन का वेतन नहीं',
     'wo.rule': 'छुट्टी के दिन {s}–{e}: {f} घंटे = पूरा दिन, {h} घंटे = आधा दिन; इसके पहले/बाद का समय ओवरटाइम।',
+    '🏆 Top hours this month · Men': '🏆 इस महीने सबसे ज़्यादा घंटे · पुरुष', '🏆 Top hours this month · Women': '🏆 इस महीने सबसे ज़्यादा घंटे · महिलाएँ',
+    '🎆 Champion of {month}': '🎆 {month} के चैंपियन', 'You!': 'आप!', 'Most hours worked among men': 'पुरुषों में सबसे ज़्यादा घंटे काम',
+    'Most hours worked among women': 'महिलाओं में सबसे ज़्यादा घंटे काम', 'No hours yet this month.': 'इस महीने अभी कोई घंटे नहीं।',
+    'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
@@ -885,7 +891,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261020;
+  var NEEDS_SERVER = 20261021;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -937,6 +943,7 @@
     if (state === 'badtime') html += '<div class="msg err">' + t('badtime') + '</div>' +
       '<button class="btn" onclick="loadHome()">' + t('Reload') + '</button>';
     html += '</div><div id="flow"></div>';
+    html += leadersHtml(h.leaders);
 
     if (h.upcomingHolidays && h.upcomingHolidays.length) {
       html += '<div class="card"><h2>' + t('🎉 Upcoming holidays') + '</h2>' + h.upcomingHolidays.map(function (x) {
@@ -954,6 +961,63 @@
     $('content').innerHTML = html;
     tickClock();
     clearInterval(clockTimer); clockTimer = setInterval(tickClock, 1000);
+    if (h.leaders && h.leaders.winner && !S.fireworksDone) { S.fireworksDone = true; fireworks(); }
+  }
+
+  /** Top 3 by hours this month (same gender), or on days 1–5 last month's champion. */
+  function leadersHtml(L) {
+    if (!L) return '';
+    if (L.winner !== undefined) {
+      if (!L.winner) return '';
+      return '<div class="card champ center"><div class="muted small">' + t('🎆 Champion of {month}', { month: esc(monthName(L.month)) }) + '</div>' +
+        '<div class="champ-name">🏆 ' + esc(L.winner.name) + '</div>' +
+        '<div class="muted small">' + (L.winner.me ? t('Congratulations! You are the champion.') : t(L.gender === 'F' ? 'Most hours worked among women' : 'Most hours worked among men')) + '</div></div>';
+    }
+    var medals = ['🥇', '🥈', '🥉'];
+    var html = '<div class="card"><h2>' + t(L.gender === 'F' ? '🏆 Top hours this month · Women' : '🏆 Top hours this month · Men') + '</h2>';
+    if (!L.top || !L.top.length) return html + '<p class="muted small" style="margin:0">' + t('No hours yet this month.') + '</p></div>';
+    return html + L.top.map(function (x, i) {
+      return '<div class="row" style="padding:6px 0' + (x.me ? ';font-weight:700;color:var(--green)' : '') + '"><span>' + medals[i] + ' ' + esc(x.name) +
+        (x.me ? ' <span class="chip s-PRESENT">' + t('You!') + '</span>' : '') + '</span><b>' + mins(x.min) + '</b></div>';
+    }).join('') + '</div>';
+  }
+
+  /** A few seconds of fireworks over the page (not with "reduce motion" on). */
+  function fireworks() {
+    try { if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch (e) { return; }
+    var c = document.createElement('canvas'), ctx = c.getContext && c.getContext('2d');
+    if (!ctx) return;
+    c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:999';
+    document.body.appendChild(c);
+    var W, H, dpr = window.devicePixelRatio || 1, parts = [], rockets = [], start = Date.now(), last = 0;
+    function size() { W = innerWidth; H = innerHeight; c.width = W * dpr; c.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
+    size(); addEventListener('resize', size);
+    var COLORS = ['#ff4d4d', '#ffb31a', '#ffe14d', '#4dd97a', '#4db8ff', '#b84dff', '#ff66c4'];
+    function launch() { rockets.push({ x: W * (0.15 + Math.random() * 0.7), y: H, vy: -(H * 0.012 + Math.random() * 3), tY: H * (0.15 + Math.random() * 0.3), col: COLORS[Math.random() * COLORS.length | 0] }); }
+    function burst(x, y, col) {
+      for (var i = 0; i < 60; i++) {
+        var a = Math.random() * Math.PI * 2, v = 1 + Math.random() * 4;
+        parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col: Math.random() < 0.3 ? '#fff' : col });
+      }
+    }
+    (function frame() {
+      var now = Date.now(), t = now - start;
+      if (t < 5000 && now - last > 450) { last = now; launch(); if (Math.random() < 0.5) launch(); }
+      ctx.clearRect(0, 0, W, H);
+      rockets = rockets.filter(function (r) {
+        r.y += r.vy; ctx.fillStyle = r.col; ctx.fillRect(r.x - 1.5, r.y, 3, 8);
+        if (r.y <= r.tY) { burst(r.x, r.y, r.col); return false; }
+        return true;
+      });
+      parts = parts.filter(function (p) {
+        p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.vx *= 0.985; p.life -= 0.012;
+        ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, 6.283); ctx.fill();
+        return p.life > 0;
+      });
+      ctx.globalAlpha = 1;
+      if (t < 5000 || parts.length || rockets.length) requestAnimationFrame(frame);
+      else { removeEventListener('resize', size); c.remove(); }
+    })();
   }
 
   document.addEventListener('visibilitychange', function () {
@@ -2203,11 +2267,12 @@
     var html = '<button class="btn" style="margin:0 0 14px" onclick="openStaffForm(-1)">＋ Add employee</button><div class="card"><h2>Employees</h2>';
     r.list.forEach(function (e, i) {
       html += '<div class="list-item"><div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
-        '<div class="sub">' + money(e.salary, '₹') + '/month' + (function () {
+        '<div class="sub">' + (e.gender ? (e.gender === 'F' ? '♀ Female · ' : '♂ Male · ') : '') + money(e.salary, '₹') + '/month' + (function () {
           var next = (e.increments || []).filter(function (x) { return x.month > ymNow(); })[0];
           return next ? ' → ' + money(next.newSalary, '₹') + ' from ' + esc(monthName(next.month)) : '';
         })() + ' · joined ' + esc(fmtDate(e.joinDate)) + (e.phone ? ' · ' + esc(e.phone) : '') + '</div>' +
         (!e.active && e.periods && e.periods.length && e.periods[e.periods.length - 1].to ? '<div class="sub">Left on ' + esc(fmtDate(e.periods[e.periods.length - 1].to)) + '</div>' : '') +
+        (e.gender ? '' : (e.role === 'GUARD' ? '' : '<div class="sub" style="color:var(--orange)">Gender not set</div>')) +
         (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
           e.hourlyOt === false ? 'no hourly OT' : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
@@ -2225,7 +2290,9 @@
       '<div class="grid2"><div class="field"><label>' + (isNew ? 'Monthly salary' : 'Current salary') + '</label><input id="sfSalary" class="inp" inputmode="decimal" value="' + esc(e.salary) + '"' +
         (isNew ? '' : ' readonly style="background:var(--bg)"') + '></div>' +
       '<div class="field"><label>Join date</label><input id="sfJoin" class="inp" type="date" value="' + esc(e.joinDate) + '"></div></div>' +
-      '<div class="field"><label>Phone</label><input id="sfPhone" class="inp" inputmode="tel" value="' + esc(e.phone) + '"></div>' +
+      '<div class="grid2"><div class="field"><label>Phone</label><input id="sfPhone" class="inp" inputmode="tel" value="' + esc(e.phone) + '"></div>' +
+      '<div class="field"><label>Gender</label><select id="sfGender" class="inp"><option value="">— Not set —</option>' +
+        '<option value="M"' + (e.gender === 'M' ? ' selected' : '') + '>Male</option><option value="F"' + (e.gender === 'F' ? ' selected' : '') + '>Female</option></select></div></div>' +
       (isNew ? '<div class="field"><label>PIN (4–6 digits)</label><input id="sfPin" class="inp" inputmode="numeric"></div>' : '') +
       (S.staff.canSetRole && e.role !== 'SUPER_ADMIN' ? '<div class="field"><label>Role</label><select id="sfRole" class="inp"><option value="EMPLOYEE"' + (e.role === 'EMPLOYEE' ? ' selected' : '') + '>Employee</option><option value="ADMIN"' + (e.role === 'ADMIN' ? ' selected' : '') + '>Admin</option><option value="GUARD"' + (e.role === 'GUARD' ? ' selected' : '') + '>Guard (only marks others)</option></select></div>' : '') +
       (e.role === 'GUARD' ? '' : '<div class="card" style="background:var(--bg);margin:14px 0 0;padding:12px"><b>Work timing</b>' +
@@ -2316,6 +2383,7 @@
       }
     }
     if ($('sfAnywhere')) data.anywhere = $('sfAnywhere').checked;
+    if ($('sfGender')) data.gender = $('sfGender').value;
     if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;
