@@ -140,12 +140,12 @@ Changes to the app reach iPhones automatically too.
 | Allow Overnight Shift | No | `Yes` = a check-out after midnight closes the previous day |
 | Max Shift Hours | 16 | Longest shift allowed with overnight on |
 | Salary Days Basis | **30** | Per day = salary ÷ 30, per hour = per day ÷ 9, per minute = per hour ÷ 60 |
-| OT Multiplier | **1.5** | OT pay = net OT minutes × per-minute rate × 1.5. **Set `1` for the normal rate** |
-| OT Block (min) | 0 | `0` counts every minute. `30` counts each day's OT only in full 30-minute blocks |
-| Max OT Per Day (min) | 0 | Cap on OT per day (`0` = no cap) |
-| OT Needs Approval | No | `Yes` = OT counts only after an admin approves it |
-| Late Minutes Reduce OT | Yes | Net OT = OT − late minutes |
-| Early Leaving Reduces OT | Yes | Net OT = OT − minutes left before shift end |
+| OT Multiplier | **1.5** | OT pay = OT minutes × per-minute rate × 1.5. **Set `1` for the normal rate** |
+| OT Block (min) | 0 | Only for weekly-off / holiday OT. `0` counts every minute, `30` full 30-minute blocks |
+| Max OT Per Day (min) | 0 | Only for weekly-off / holiday OT. Cap per day (`0` = no cap) |
+| OT Needs Approval | No | Only for weekly-off / holiday OT: `Yes` = it counts after an admin approves it |
+| Late Minutes Reduce OT | Yes | Not used any more: coming late already lowers the time worked in the month |
+| Early Leaving Reduces OT | Yes | Not used any more: leaving early already lowers the time worked in the month |
 | Weekly Off | Sunday | For example `Sunday` or `Saturday,Sunday` |
 | Off-Day Work Is OT | Yes | Holidays (and weekly offs when *Week-Off Full Day Hours* = 0): all hours worked count as OT |
 | Week-Off Shift Start | 09:30 | Working on the weekly off (Sunday): start of the day hours |
@@ -211,14 +211,22 @@ Per minute = Per hour ÷ 60
 
 Late minutes  = check-in − Shift Start         (only on days marked Late)
 Early minutes = shift end − check-out          (on present days)
-Net OT mins   = OT minutes − late minutes − early minutes   (never below 0)
-OT pay        = Net OT mins × Per minute × OT Multiplier
+Working time  = working days × Standard Hours × 60   (working day = not a weekly off / holiday / paid leave;
+                                                      days passed so far, absent days included)
+Time worked   = check-out − check-in on those days  (Morning OT off: counted from Shift Start)
+OT mins       = Time worked − Working time (never below 0)  + weekly-off / holiday OT
+OT pay        = OT mins × Per minute × OT Multiplier
 
 Leaves     = Absent days × Per day
 Half Days  = Half days × ½ × Per day
 Gross      = Total Salary + OT pay − Leaves − Half Days
 Net        = Gross − advance instalment (− PF Employee for PF employees)
 ```
+
+**OT example (October: 31 days − 4 Sundays = 27 working days, 9 h shift):** working time = 27 × 9 h = 243 h.
+Worked 250 h on those days → OT = 7 h. Late coming and early leaving are already inside the 250 h, so they are not cut again.
+An absent day still counts in the 243 h. Work on a Sunday / holiday is paid by its own rule (+1 or +½ day) and the time
+outside 09:30–17:00 is added to the OT. Employees with *Hourly OT* off get only the Sunday / holiday OT.
 
 **Current month:** the salary is shown only for the days that have passed: Monthly Salary × days passed ÷ days in the month. Today counts once the employee has checked in. PF and Basic Salary are counted for the same days. The amount grows every day, and once the month is over it is the full month's salary. The Monthly Summary and payslips work the same way.
 
@@ -348,8 +356,8 @@ Employees see an **English | हिंदी** switch at the top of the Attendan
 ### Payroll, PF Setup, attendance register
 - **Search:** Payroll and PF Setup have a search box (name or ID). All employee lists are A–Z.
 - **⬇ Attendance register** (on Payroll and Monthly Summary) downloads the month's muster roll as Excel.
-  - One row per employee and one column per day: **P** present, **HD** half day, **A** absent, **L** paid leave, **WO** weekly off, **H** holiday, **WOP** worked on a weekly off / holiday, **-** not employed, `*` = late.
-  - Totals are at the end of each row. Locked months use the final data.
+  - Two rows per employee (**In** time and **Out** time) and one column per day. Days without times show **A** absent, **L** paid leave, **WO** weekly off, **H** holiday, **-** not employed (P / HD only when an admin set the status without times).
+  - Totals at the end: Present, Half Days, Absent, Paid Leave, Week Off (weekly offs + holidays), OT (h m), Late (h m). Locked months use the final data.
 
 ### Check-in photos are kept 2 months
 - Once a day, photos older than **Keep Selfies (days)** (Settings, default **60**) are moved to the Google Drive trash. Google deletes them for good after 30 more days.

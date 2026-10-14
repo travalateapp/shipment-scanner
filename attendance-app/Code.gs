@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261019;
+const SERVER_VERSION = 20261020;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -1699,8 +1699,9 @@ function adminGetSelfie(token, row) {
 }
 
 /**
- * Attendance register (muster roll) for a month: one row per employee, one column per day with a code,
- * then the totals. The page turns it into an Excel file. Locked months use the frozen snapshot.
+ * Attendance register (muster roll) for a month: two rows per employee (In time, Out time), one column per
+ * day, then the totals. Days without times show a code (A, WO, H, L …). The page turns it into an Excel
+ * file and merges the two rows where they hold the same thing. Locked months use the frozen snapshot.
  */
 function adminAttendanceRegister(token, ym) {
   const ctx = authAdmin_(token, ['exportPayroll', 'viewPayroll', 'viewSummary']);
@@ -1710,28 +1711,37 @@ function adminAttendanceRegister(token, ym) {
   readAttendance_().forEach(r => { if (r.date.indexOf(ym) === 0) withRecords[r.empId] = true; });
   const y = Number(ym.slice(0, 4)), mo = Number(ym.slice(5, 7)), dim = new Date(y, mo, 0).getDate();
   const DOW = ['Su', 'Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa'];
+  // Used when a day has no check-in time (Present / Half Day only when an admin set it without times).
   const CODE = { PRESENT: 'P', WORKING: 'P', HALF_DAY: 'HD', ABSENT: 'A', LEAVE: 'L', WEEK_OFF: 'WO', HOLIDAY: 'H',
-    OFF_WORK: 'WOP', NOT_JOINED: '-', INACTIVE: '-', NOT_MARKED: '', UPCOMING: '' };
+    OFF_WORK: 'WO', NOT_JOINED: '-', INACTIVE: '-', NOT_MARKED: '', UPCOMING: '' };
+  const hm = n => { n = Math.round(n || 0); return Math.floor(n / 60) + 'h ' + pad2_(n % 60) + 'm'; };
   const days = [];
   for (let d = 1; d <= dim; d++) days.push(d + ' ' + DOW[new Date(y, mo - 1, d).getDay()]);
-  const header = ['Emp ID', 'Name'].concat(days).concat(['Present', 'Half Days', 'Absent', 'Paid Leave', 'Week Off',
-    'Holidays', 'Worked on Off-Day', 'Late']);
-  const rows = getEmployees_().filter(e => (employedInMonth_(e, ym) || withRecords[e.id]) && canManage_(ctx, e.id)).map(e => {
+  const header = ['Emp ID', 'Name', ''].concat(days).concat(['Present', 'Half Days', 'Absent', 'Paid Leave', 'Week Off',
+    'OT (h m)', 'Late (h m)']);
+  const rows = [];
+  getEmployees_().filter(e => (employedInMonth_(e, ym) || withRecords[e.id]) && canManage_(ctx, e.id)).forEach(e => {
     const m = buildMonth_(e, ym), t = m.totals;
-    const cells = (m.days || []).map(d => {
-      let c = d.planned && d.status !== 'LEAVE' ? '' : (CODE[d.status] !== undefined ? CODE[d.status] : d.status);
-      if (d.late && (c === 'P' || c === 'HD')) c += '*';
-      return c;
+    const ins = [], outs = [];
+    (m.days || []).forEach(d => {
+      const code = d.planned && d.status !== 'LEAVE' ? '' : (CODE[d.status] !== undefined ? CODE[d.status] : d.status);
+      const cleared = d.status === 'ABSENT' || d.status === 'LEAVE' || d.status === 'NOT_JOINED' || d.status === 'INACTIVE';
+      if (d.in && !cleared) { ins.push(d.in); outs.push(d.out || (d.autoOut ? 'No out' : '')); }
+      else { ins.push(code); outs.push(code); }
     });
-    return [e.id, e.name].concat(cells).concat([t.present, t.halfDay, t.absent, t.leave, t.weekOff, t.holiday, t.offWork, t.late]);
+    const tot = [t.present, t.halfDay, t.absent + (t.notJoined || 0), t.leave, t.weekOff + t.holiday + t.offWork,
+      hm(t.otMin), hm(t.lateMin)];
+    rows.push([e.id, e.name, 'In'].concat(ins).concat(tot));
+    rows.push([e.id, e.name, 'Out'].concat(outs).concat(tot));
   });
   return {
     fileName: 'Attendance_Register_' + ym + '.xlsx',
     title: s.company + ' – Attendance register – ' + ymLabel_(ym),
-    legend: 'P = present, HD = half day, A = absent, L = paid leave, WO = weekly off, H = holiday, ' +
-      'WOP = worked on a weekly off / holiday, - = not employed, * = late, blank = not yet',
+    legend: 'Times = check-in (In row) and check-out (Out row). A = absent, L = paid leave, WO = weekly off, H = holiday, ' +
+      'P / HD = present / half day set by an admin without times, - = not employed, blank = not yet. ' +
+      'Week Off counts weekly offs and holidays. OT = minutes worked − working time of the month, plus weekly-off / holiday OT.',
     status: isLocked_(ym) ? 'Final (locked)' : (ym === todayStr_().slice(0, 7) ? 'Month in progress (up to today)' : 'Not locked'),
-    header: header, rows: rows,
+    header: header, rows: rows, rowsPerEmployee: 2, totalCols: 7,
   };
 }
 
@@ -2053,7 +2063,7 @@ function buildMonth_(emp, ym) {
   m.rules = {
     shiftStart: minutesToStr_(es.shiftStartMin), shiftEnd: minutesToStr_((es.shiftStartMin + Math.round(es.standardHours * 60)) % 1440),
     lateGrace: s.lateGrace, standardHours: es.standardHours, fullDayHours: es.fullDayHours, halfDayHours: es.halfDayHours,
-    hourlyOt: es.hourlyOt !== false, morningOt: es.morningOt !== false,
+    hourlyOt: es.hourlyOt !== false, morningOt: es.morningOt !== false, monthlyOt: true,
     otMultiplier: s.otMultiplier, latesPerHalfDay: s.latesPerHalfDay, salaryDays: s.salaryDays,
     lateReducesOt: s.lateReducesOt, earlyReducesOt: s.earlyReducesOt, adjustIn: s.adjustIn, otApproval: s.otApproval,
     noCheckoutStatus: s.noCheckoutStatus,
@@ -2077,6 +2087,25 @@ function computeMonth_(emp, ym) {
   });
   m.advances = adv.items;
   return m;
+}
+
+/**
+ * Minutes worked on a working day for the monthly OT. An admin status without times counts as the full
+ * (Present) or half (Half Day) shift. "Morning OT" off: time before the shift start does not count.
+ */
+function dayWorkedMin_(rec, es) {
+  const inMin = toMinutes_(rec.in);
+  let outMin = toMinutes_(rec.out);
+  const shift = Math.round(es.standardHours * 60);
+  if (rec.override === 'ABSENT' || rec.override === 'LEAVE') return 0;
+  if (inMin == null || outMin == null) {
+    if (rec.override === 'PRESENT') return shift;
+    if (rec.override === 'HALF_DAY') return Math.round(shift / 2);
+    return 0;
+  }
+  if (outMin <= inMin && es.overnight) outMin += 1440;
+  const from = es.morningOt === false ? Math.max(inMin, es.shiftStartMin) : inMin;
+  return Math.max(0, outMin - from);
 }
 
 /**
@@ -2147,9 +2176,10 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0, offWorkCredit: 0,
     notJoined: 0, late: 0, lateMin: 0, earlyMin: 0, workedHours: 0, otMinGross: 0, otMin: 0, otHours: 0,
     otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
+    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0,
   };
   const days = [];
-
+  const es = empSettings_(emp, s); // own shift length / hourly OT / morning OT
   const per = periods_(emp);
   const firstJoin = (per[0] || {}).from || '';
   for (let day = 1; day <= dim; day++) {
@@ -2187,12 +2217,24 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     if (d.late) { t.late++; t.lateMin += d.lateMin || 0; }
     t.earlyMin += d.earlyMin || 0;
     t.workedHours += d.worked || 0;
-    t.otMinGross += d.otMin || 0;
-    t.otPendingMin += d.otPending || 0;
+
+    // Monthly OT (see below): every working day that has passed counts Standard Hours; today only once
+    // checked out. Paid leave days are left out. Weekly offs / holidays have their own rule.
+    if (off) { t.offDayOtMin += d.otMin || 0; t.otPendingMin += d.otPending || 0; }
+    else if (d.status !== 'NOT_JOINED' && d.status !== 'INACTIVE' && d.status !== 'LEAVE' &&
+      (ds < today || (rec && rec.out))) {
+      t.workDays++;
+      t.targetMin += Math.round(es.standardHours * 60);
+      if (rec) t.workedMin += dayWorkedMin_(rec, es);
+    }
   }
 
-  // Net OT = all OT minutes − late minutes − early-leaving minutes (never below zero).
-  t.otMin = Math.max(0, t.otMinGross - (s.lateReducesOt ? t.lateMin : 0) - (s.earlyReducesOt ? t.earlyMin : 0));
+  // OT for the month = total minutes worked on working days − (working days × Standard Hours × 60), plus OT
+  // from weekly-off / holiday work. Coming late or leaving early is already inside the worked minutes.
+  // No hourly OT for this employee → only the weekly-off / holiday part.
+  const weekdayOt = es.hourlyOt === false ? 0 : Math.max(0, t.workedMin - t.targetMin);
+  t.otMinGross = weekdayOt + t.offDayOtMin;
+  t.otMin = t.otMinGross;
   t.otHours = round2_(t.otMin / 60);
   t.workedHours = round2_(t.workedHours);
   t.lateCutDays = s.latesPerHalfDay > 0 ? Math.floor(t.late / s.latesPerHalfDay) * 0.5 : 0;
@@ -2469,7 +2511,7 @@ function payslipHtml_(emp, m) {
     '<h2>Attendance</h2><div>' +
     ['Present ' + t.present, 'Half days ' + t.halfDay, 'Absent ' + (t.absent + t.notJoined), 'Paid leave ' + t.leave,
       'Week off ' + t.weekOff, 'Holidays ' + t.holiday, 'Late ' + t.late + ' (' + mins(t.lateMin) + ')',
-      'Net OT ' + mins(t.otMin)].map(x => '<span class="box">' + x + '</span>').join('') + '</div>' +
+      'OT ' + mins(t.otMin)].map(x => '<span class="box">' + x + '</span>').join('') + '</div>' +
     '<h2>Earnings</h2><table>' + earn + '</table>' +
     '<h2>Deductions</h2><table>' + ded + '<tr class="tot"><td>Total deductions</td><td class="r">' + money(totalDed) + '</td></tr></table>' +
     (p.pf ? '<h2>PF</h2><table>' + row('PF Employer contribution (paid by company)', money(p.pfEmployer)) + '</table>' : '') +
