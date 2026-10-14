@@ -453,7 +453,7 @@
     'wo.none': 'छुट्टी के दिन काम: {s}–{e} के बीच {h} घंटे से कम, इसलिए दिन का वेतन नहीं',
     'wo.rule': 'छुट्टी के दिन {s}–{e}: {f} घंटे = पूरा दिन, {h} घंटे = आधा दिन; इसके पहले/बाद का समय ओवरटाइम।',
     '🏆 Top hours this month · Men': '🏆 इस महीने सबसे ज़्यादा घंटे · पुरुष', '🏆 Top hours this month · Women': '🏆 इस महीने सबसे ज़्यादा घंटे · महिलाएँ',
-    '🎆 Champion of {month}': '🎆 {month} के चैंपियन', 'You!': 'आप!', 'Most hours worked among men': 'पुरुषों में सबसे ज़्यादा घंटे काम',
+    '🎆 Men\'s champion of {month}': '🎆 {month} के चैंपियन · पुरुष', '🎆 Women\'s champion of {month}': '🎆 {month} की चैंपियन · महिलाएँ', 'You!': 'आप!', 'Most hours worked among men': 'पुरुषों में सबसे ज़्यादा घंटे काम',
     'Most hours worked among women': 'महिलाओं में सबसे ज़्यादा घंटे काम', 'No hours yet this month.': 'इस महीने अभी कोई घंटे नहीं।',
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
@@ -943,7 +943,7 @@
     if (state === 'badtime') html += '<div class="msg err">' + t('badtime') + '</div>' +
       '<button class="btn" onclick="loadHome()">' + t('Reload') + '</button>';
     html += '</div><div id="flow"></div>';
-    html += leadersHtml(h.leaders);
+    (h.leaders || []).forEach(function (L) { html += leadersHtml(L); });
 
     if (h.upcomingHolidays && h.upcomingHolidays.length) {
       html += '<div class="card"><h2>' + t('🎉 Upcoming holidays') + '</h2>' + h.upcomingHolidays.map(function (x) {
@@ -961,15 +961,14 @@
     $('content').innerHTML = html;
     tickClock();
     clearInterval(clockTimer); clockTimer = setInterval(tickClock, 1000);
-    if (h.leaders && h.leaders.winner && !S.fireworksDone) { S.fireworksDone = true; fireworks(); }
+    if ((h.leaders || []).some(function (L) { return L.winner; }) && !S.fireworksDone) { S.fireworksDone = true; fireworks(); }
   }
 
   /** Top 3 by hours this month (same gender), or on days 1–5 last month's champion. */
   function leadersHtml(L) {
-    if (!L) return '';
     if (L.winner !== undefined) {
       if (!L.winner) return '';
-      return '<div class="card champ center"><div class="muted small">' + t('🎆 Champion of {month}', { month: esc(monthName(L.month)) }) + '</div>' +
+      return '<div class="card champ center"><div class="muted small">' + t(L.gender === 'F' ? '🎆 Women\'s champion of {month}' : '🎆 Men\'s champion of {month}', { month: esc(monthName(L.month)) }) + '</div>' +
         '<div class="champ-name">🏆 ' + esc(L.winner.name) + '</div>' +
         '<div class="muted small">' + (L.winner.me ? t('Congratulations! You are the champion.') : t(L.gender === 'F' ? 'Most hours worked among women' : 'Most hours worked among men')) + '</div></div>';
     }

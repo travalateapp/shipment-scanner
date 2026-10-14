@@ -196,6 +196,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - Men see the men's top 3 and women the women's top 3: the most hours between check-in and check-out this month, Sundays and holidays included. Days set to Absent / Leave and days without a check-out don't count.
   - On the **1st–5th of each month** the card shows only **last month's champion** (the name, with fireworks), then the new month's top 3 again.
   - Employees without a gender (shown as *Gender not set* in the Employees list) don't see the card and are not ranked.
+  - **Admins:** the super admin ticks *Men's Leaders Card* and / or *Women's Leaders Card* for each admin (Admin → Admins). Both unticked = only the card of their own gender. Super admins see both.
 
 ### Holidays (national / festival)
 - **Who:** admins with the **Manage Holidays** permission (super admins always) add holidays in **Admin → Holidays**. Each has a date, a name and a type: National, Festival or Company.

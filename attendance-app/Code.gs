@@ -48,6 +48,8 @@ const PERMISSIONS = [
   { key: 'lockPayroll', label: 'Lock Payroll', help: 'Lock a finished month so nothing can change it' },
   { key: 'markOthers', label: 'Mark Attendance for Others', help: 'Check employees in/out from this phone (no smartphone / forgot phone). Location is checked and a photo of the employee is required at check-in' },
   { key: 'manageHolidays', label: 'Manage Holidays', help: 'Add or remove national / festival holidays (no absent is marked on them)' },
+  { key: 'seeMenLeaders', label: "Men's Leaders Card", help: "Home screen shows the men's top hours (both unticked = only the card of their own gender)" },
+  { key: 'seeWomenLeaders', label: "Women's Leaders Card", help: "Home screen shows the women's top hours (both unticked = only the card of their own gender)" },
   { key: 'editOwn', label: 'Edit Own Entries', help: 'Change their own attendance / PF / salary (normally off)' },
 ];
 const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
@@ -471,22 +473,32 @@ function hoursLeaders_(gender, ym) {
 }
 
 /**
- * Leaders card on the home screen: men see the men's board, women the women's (nothing without a Gender).
+ * Leaders cards on the home screen: men see the men's board, women the women's (nothing without a Gender).
+ * Admins see the boards the super admin ticked for them (Men's / Women's Leaders Card); with none ticked,
+ * only the one of their own gender. Super admins see both.
  * Days 1–5 of a month show only last month's winner (with fireworks on the page); after that the top 3 so far.
  */
 function homeLeaders_(emp, today) {
-  if (!emp.gender) return null;
+  const p = permsFor_(emp);
+  let genders = [];
+  if (p.seeMenLeaders) genders.push('M');
+  if (p.seeWomenLeaders) genders.push('F');
+  if (!genders.length && emp.gender) genders = [emp.gender];
+  if (emp.gender === 'F' && genders.length === 2) genders.reverse(); // own board first
   const ym = today.slice(0, 7);
   const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
   const prev = m === 1 ? (y - 1) + '-12' : y + '-' + pad2_(m - 1);
-  if (Number(today.slice(8, 10)) <= 5) {
-    const w = hoursLeaders_(emp.gender, prev)[0];
-    return { gender: emp.gender, winner: w ? { name: w.name, me: w.id === emp.id } : null, month: prev, monthLabel: ymLabel_(prev) };
-  }
-  return {
-    gender: emp.gender, month: ym, monthLabel: ymLabel_(ym),
-    top: hoursLeaders_(emp.gender, ym).slice(0, 3).map(x => ({ name: x.name, min: x.min, me: x.id === emp.id })),
-  };
+  const early = Number(today.slice(8, 10)) <= 5;
+  return genders.map(g => {
+    if (early) {
+      const w = hoursLeaders_(g, prev)[0];
+      return { gender: g, winner: w ? { name: w.name, me: w.id === emp.id } : null, month: prev, monthLabel: ymLabel_(prev) };
+    }
+    return {
+      gender: g, month: ym, monthLabel: ymLabel_(ym),
+      top: hoursLeaders_(g, ym).slice(0, 3).map(x => ({ name: x.name, min: x.min, me: x.id === emp.id })),
+    };
+  });
 }
 
 function checkIn(token, lat, lng, accuracy, selfieDataUrl, phoneClock) {
@@ -1942,7 +1954,7 @@ function permsFor_(emp, saved) {
     // No super admin set up yet → admins keep full access (as before this feature).
     if (!getEmployees_().some(e => e.role === 'SUPER_ADMIN' && e.active)) {
       const legacy = { superAdmin: false, employees: 'ALL' };
-      PERMISSIONS.forEach(p => { legacy[p.key] = p.key !== 'editOwn'; });
+      PERMISSIONS.forEach(p => { legacy[p.key] = p.key !== 'editOwn' && !/Leaders$/.test(p.key); });
       return legacy;
     }
     return Object.assign(none, { viewToday: true, employees: 'ALL' }); // safe default
