@@ -432,7 +432,8 @@
     'Reason': 'कारण', 'Why?': 'क्यों?', 'Send request': 'अनुरोध भेजें', 'My requests': 'मेरे अनुरोध', 'No requests yet.': 'अभी कोई अनुरोध नहीं।',
     'Admin: {r}': 'एडमिन: {r}', 'Request sent': 'अनुरोध भेज दिया गया', 'Cancel this request?': 'यह अनुरोध रद्द करें?',
     'Salary advance {amt}{mon}': 'वेतन एडवांस {amt}{mon}', '/month': '/महीना',
-    'Paid leave · {d}': 'सवेतन छुट्टी · {d}', 'Unpaid leave · {d}': 'बिना वेतन छुट्टी · {d}', 'Correction · {d} · {i} → {o}': 'सुधार · {d} · {i} → {o}',
+    'Paid leave · {d}': 'सवेतन छुट्टी · {d}', 'Leave · {d}': 'छुट्टी · {d}', 'Leave for <b>{n} day(s)</b>: {d}': '<b>{n} दिन</b> की छुट्टी: {d}',
+    'Send this leave request?': 'यह छुट्टी का अनुरोध भेजें?', 'Unpaid leave · {d}': 'बिना वेतन छुट्टी · {d}', 'Correction · {d} · {i} → {o}': 'सुधार · {d} · {i} → {o}',
     'today': 'आज', 'Leaves': 'छुट्टियाँ', '{n} days': '{n} दिन', 'Late marks cut': 'देर से आने की कटौती',
     'PF Employee': 'PF कर्मचारी', 'PF Employer': 'PF नियोक्ता', 'Basic Salary {b}': 'बेसिक वेतन {b}', 'company contribution': 'कंपनी का योगदान',
     // guard: Mark Attendance
@@ -891,7 +892,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261021;
+  var NEEDS_SERVER = 20261022;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1433,9 +1434,9 @@
       '<option value="ADVANCE">' + t('Salary advance') + '</option></select></div>' +
       '<div id="rqAdv" class="hidden"><div class="grid2"><div class="field"><label>' + t('Amount needed') + '</label><input id="rqAmt" class="inp" inputmode="decimal" placeholder="' + t('e.g. 10000') + '"></div>' +
       '<div class="field"><label>' + t('Deduct per month (suggested)') + '</label><input id="rqMon" class="inp" inputmode="decimal" placeholder="' + t('e.g. 2000') + '"></div></div></div>' +
-      '<div id="rqLeave"><div class="grid2"><div class="field"><label>' + t('From') + '</label><input id="rqFrom" class="inp" type="date" value="' + today + '"></div>' +
-      '<div class="field"><label>' + t('To') + '</label><input id="rqTo" class="inp" type="date" value="' + today + '"></div></div>' +
-      '<div class="field"><label>' + t('Leave type') + '</label><select id="rqLeaveType" class="inp"><option value="PAID">' + t('Paid leave') + '</option><option value="UNPAID">' + t('Unpaid leave') + '</option></select></div></div>' +
+      '<div id="rqLeave"><div class="grid2"><div class="field"><label>' + t('From') + '</label><input id="rqFrom" class="inp" type="date" value="' + today + '" onchange="leaveDatesChanged(true)"></div>' +
+      '<div class="field"><label>' + t('To') + '</label><input id="rqTo" class="inp" type="date" value="' + today + '" onchange="leaveDatesChanged(false)"></div></div>' +
+      '<div id="rqDays" class="msg info" style="margin-top:8px"></div></div>' +
       '<div id="rqCorr" class="hidden"><div class="field"><label>' + t('Date') + '</label><input id="rqDate" class="inp" type="date" max="' + today + '" value="' + today + '"></div>' +
       '<div class="grid2"><div class="field"><label>' + t('Correct check-in') + '</label><input id="rqIn" class="inp" type="time"></div>' +
       '<div class="field"><label>' + t('Correct check-out') + '</label><input id="rqOut" class="inp" type="time"></div></div>' +
@@ -1454,11 +1455,22 @@
     });
     html += '</div>';
     $('content').innerHTML = html;
+    leaveDatesChanged(false);
+  }
+
+  /** Keeps "To" on or after "From" and shows which days the leave covers. */
+  function leaveDatesChanged(fromChanged) {
+    var f = $('rqFrom'), to = $('rqTo');
+    if (!f || !to) return;
+    if (f.value && (!to.value || to.value < f.value)) to.value = f.value;
+    to.min = f.value;
+    var n = f.value && to.value ? Math.round((new Date(to.value) - new Date(f.value)) / 86400000) + 1 : 0;
+    $('rqDays').innerHTML = n > 0 ? t('Leave for <b>{n} day(s)</b>: {d}', { n: n, d: esc(fmtDate(f.value)) + (n > 1 ? ' – ' + esc(fmtDate(to.value)) : '') }) : '';
   }
 
   function reqTitle(r) {
     if (r.type === 'ADVANCE') return t('Salary advance {amt}{mon}', { amt: money(r.amount, '₹'), mon: r.monthly ? ' · ' + money(r.monthly, '₹') + t('/month') : '' });
-    if (r.type === 'LEAVE') return t(r.leaveType === 'UNPAID' ? 'Unpaid leave · {d}' : 'Paid leave · {d}', { d: esc(fmtDate(r.from)) + (r.to !== r.from ? ' – ' + esc(fmtDate(r.to)) : '') });
+    if (r.type === 'LEAVE') return t(r.leaveType === 'UNPAID' ? 'Unpaid leave · {d}' : r.leaveType === 'PAID' ? 'Paid leave · {d}' : 'Leave · {d}', { d: esc(fmtDate(r.from)) + (r.to !== r.from ? ' – ' + esc(fmtDate(r.to)) : '') });
     return t('Correction · {d} · {i} → {o}', { d: esc(fmtDate(r.from)), i: esc(r.in || '—'), o: esc(r.out || '—') });
   }
   function toggleReqType() {
@@ -1468,12 +1480,13 @@
     $('rqAdv').classList.toggle('hidden', t !== 'ADVANCE');
   }
   function sendRequest() {
-    var t = $('rqType').value;
-    var req = t === 'LEAVE'
-      ? { type: 'LEAVE', from: $('rqFrom').value, to: $('rqTo').value, leaveType: $('rqLeaveType').value, reason: $('rqReason').value }
-      : t === 'ADVANCE'
+    var type = $('rqType').value;
+    var req = type === 'LEAVE'
+      ? { type: 'LEAVE', from: $('rqFrom').value, to: $('rqTo').value, reason: $('rqReason').value }
+      : type === 'ADVANCE'
         ? { type: 'ADVANCE', amount: $('rqAmt').value, monthly: $('rqMon').value, reason: $('rqReason').value }
         : { type: 'CORRECTION', from: $('rqDate').value, in: $('rqIn').value, out: $('rqOut').value, reason: $('rqReason').value };
+    if (type === 'LEAVE' && req.from && req.to && !confirm($('rqDays').textContent + '. ' + t('Send this leave request?'))) return;
     $('rqBtn').disabled = true;
     api('submitRequest', S.token, req).then(function (list) { renderMyRequests(list); toast(t('Request sent')); })
       .catch(function (e) { $('rqBtn').disabled = false; $('rqMsg').innerHTML = errBox(e); });
@@ -2085,7 +2098,11 @@
       html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(q.name) + ' <span class="muted" style="font-weight:400">' + esc(q.empId) + '</span></div>' + chip('PENDING') + '</div>' +
         '<div style="margin-top:4px">' + reqTitle(q) + '</div><div class="sub">' + esc(q.reason) + ' · sent ' + esc(q.created) + '</div>' +
  (q.type === 'ADVANCE' ? advApprovalFields(q, i, r) : '') +
-        (q.type === 'LEAVE' ? '<select id="aqLt-' + i + '" class="inp" style="margin-top:8px"><option value="PAID"' + (q.leaveType !== 'UNPAID' ? ' selected' : '') + '>Approve as Paid leave</option><option value="UNPAID"' + (q.leaveType === 'UNPAID' ? ' selected' : '') + '>Approve as Unpaid leave</option></select>' : '') +
+        (q.type === 'LEAVE' && q.worked && q.worked.length ? '<div class="msg warn">⚠ ' + esc(q.name) + ' already worked on ' + q.worked.map(function (d) { return esc(fmtDate(d)); }).join(', ') +
+          '. ' + (q.worked.length > 1 ? 'These days stay' : 'This day stays') + ' as worked; the leave is only put on the other days.</div>' : '') +
+        (q.type === 'LEAVE' ? '<select id="aqLt-' + i + '" class="inp" style="margin-top:8px"><option value="">— Paid or Unpaid? —</option>' +
+          '<option value="PAID"' + (q.leaveType === 'PAID' ? ' selected' : '') + '>Paid leave (no salary cut)</option>' +
+          '<option value="UNPAID"' + (q.leaveType === 'UNPAID' ? ' selected' : '') + '>Unpaid leave (salary cut, counted as absent)</option></select>' : '') +
         '<input id="aqRm-' + i + '" class="inp" style="margin-top:8px" placeholder="Remark (optional)">' +
         '<div class="btns"><button class="btn green" onclick="decideRequest(' + i + ',true,this)">Approve</button>' +
         '<button class="btn soft-red" onclick="decideRequest(' + i + ',false,this)">Reject</button></div></div>';
@@ -2131,8 +2148,9 @@
   function decideRequest(i, approve, btn) {
     var q = S.adminReqs.pending[i];
     if (!approve && !confirm('Reject this request?')) return;
-    btn.disabled = true;
     var lt = $('aqLt-' + i) ? $('aqLt-' + i).value : null;
+    if (approve && q.type === 'LEAVE' && !lt) { toast('Choose Paid or Unpaid leave first.'); $('aqLt-' + i).focus(); return; }
+    btn.disabled = true;
     var adv = null;
     if (q.type === 'ADVANCE') {
       var mode = $('aqMode-' + i).value;
