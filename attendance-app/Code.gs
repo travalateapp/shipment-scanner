@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261025;
+const SERVER_VERSION = 20261026;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2421,18 +2421,25 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     // An Absent / Leave set by an admin counts no hours.
     // Paid leave and days without a check-out (until an admin fixes them) are left out too.
     // Weekly offs / holidays have their own rule.
-    if (off) { t.offDayOtMin += d.otMin || 0; t.otPendingMin += d.otPending || 0; }
+    // d.dayOtMin = what this day adds to (or, when short, takes from) the month's OT, for the day pop-up.
+    const hourly = es.hourlyOt !== false;
+    if (off) { t.offDayOtMin += d.otMin || 0; t.otPendingMin += d.otPending || 0; d.dayOtMin = d.otMin || 0; }
     else if (!d.autoOut && rec && (ds < today || rec.out)) {
       const shift = Math.round(es.standardHours * 60);
       if (d.status === 'PRESENT' || d.status === 'WORKING') {
+        const w = dayWorkedMin_(rec, es);
         t.workDays++;
         t.targetMin += shift;
-        t.workedMin += dayWorkedMin_(rec, es);
+        t.workedMin += w;
+        d.dayOtMin = hourly ? w - shift : 0;
       } else if (d.status === 'HALF_DAY') {
         const w = dayWorkedMin_(rec, es);
         t.halfDayExtraMin += Math.max(0, w - Math.round(shift / 2));
+        d.dayOtMin = hourly ? Math.max(0, w - Math.round(shift / 2)) : 0;
       } else if (d.status === 'ABSENT') {
-        t.absentWorkMin += dayWorkedMin_(rec, es);
+        const w = dayWorkedMin_(rec, es);
+        t.absentWorkMin += w;
+        d.dayOtMin = hourly ? w : 0;
       }
     }
   }
