@@ -1426,7 +1426,10 @@
 
   function showDay(i) {
     var m = S.viewMonth, d = m.days[i];
-    var html = '<h2 style="margin-top:0">' + esc(fmtDate(d.date)) + '</h2><p>' + (chip(d.status) || '<span class="muted">' + t('No record') + '</span>') + lateChip(d.late) +
+    // ‹ date › to step through the month's days without closing; ✕ closes.
+    var step = function (j, ch) { return '<button class="day-arrow"' + (j >= 0 && j < m.days.length ? ' onclick="showDay(' + j + ')"' : ' disabled') + '>' + ch + '</button>'; };
+    var html = '<div class="row" style="justify-content:flex-end;margin:-4px 0 -6px"><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<div class="day-nav" style="margin-top:0">' + step(i - 1, '‹') + '<b style="font-size:20px">' + esc(fmtDate(d.date)) + '</b>' + step(i + 1, '›') + '</div><p>' + (chip(d.status) || '<span class="muted">' + t('No record') + '</span>') + lateChip(d.late) +
       (d.planned ? ' <span class="muted small">' + t('(approved, upcoming)') + '</span>' : '') + '</p>';
     if (d.holidayName) html += '<p>🎉 ' + esc(d.holidayName) + '</p>';
     if (d.in) html += '<div class="kv"><div><b>' + esc(d.in) + '</b><span>' + t('In') + '</span></div><div><b>' + esc(d.out || '—') + (d.overnight ? '<small> +1</small>' : '') + '</b><span>' + t('Out') + '</span></div><div><b>' + hrs(d.worked) + '</b><span>' + t('Worked') + '</span></div></div>' +
@@ -1449,7 +1452,6 @@
     if (m.canEdit && d.date <= todayLocal() && d.date >= m.minDate) {
       html += '<button class="btn" onclick="openEntryEditor(\'' + esc(m.employee.id) + '\',\'' + d.date + '\')">✏️ ' + (d.in || d.status === 'LEAVE' ? 'Edit' : 'Add') + ' entry</button>';
     }
-    html += '<button class="btn ghost" onclick="closeModal()">' + t('Close') + '</button>';
     openModal(html);
   }
 
