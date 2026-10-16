@@ -463,9 +463,9 @@
     'wo.full': 'छुट्टी के दिन काम: पूरा दिन (+1 दिन का वेतन)', 'wo.half': 'छुट्टी के दिन काम: आधा दिन (+½ दिन का वेतन)',
     'wo.none': 'छुट्टी के दिन काम: {s}–{e} के बीच {h} घंटे से कम, इसलिए दिन का वेतन नहीं',
     'wo.rule': 'छुट्टी के दिन {s}–{e}: {f} घंटे = पूरा दिन, {h} घंटे = आधा दिन; इसके पहले/बाद का समय ओवरटाइम।',
-    '🏆 Top hours this month · Men': '🏆 इस महीने सबसे ज़्यादा घंटे · पुरुष', '🏆 Top hours this month · Women': '🏆 इस महीने सबसे ज़्यादा घंटे · महिलाएँ',
-    '🎆 Men\'s champion of {month}': '🎆 {month} के चैंपियन · पुरुष', '🎆 Women\'s champion of {month}': '🎆 {month} की चैंपियन · महिलाएँ', 'You!': 'आप!', 'Most hours worked among men': 'पुरुषों में सबसे ज़्यादा घंटे काम',
-    'Most hours worked among women': 'महिलाओं में सबसे ज़्यादा घंटे काम', 'No hours yet this month.': 'इस महीने अभी कोई घंटे नहीं।',
+    '🏆 Top OT hours this month · Men': '🏆 इस महीने सबसे ज़्यादा ओवरटाइम · पुरुष', '🏆 Top OT hours this month · Women': '🏆 इस महीने सबसे ज़्यादा ओवरटाइम · महिलाएँ',
+    '🎆 Men\'s champion of {month}': '🎆 {month} के चैंपियन · पुरुष', '🎆 Women\'s champion of {month}': '🎆 {month} की चैंपियन · महिलाएँ', 'You!': 'आप!', 'Most OT hours among men': 'पुरुषों में सबसे ज़्यादा ओवरटाइम',
+    'Most OT hours among women': 'महिलाओं में सबसे ज़्यादा ओवरटाइम', 'No OT yet this month.': 'इस महीने अभी कोई ओवरटाइम नहीं।',
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
     'day.short': 'शिफ्ट से {m} कम काम। यह महीने के बाकी दिनों के ओवरटाइम से कटता है (शून्य से कम नहीं)।',
@@ -921,7 +921,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261026;
+  var NEEDS_SERVER = 20261027;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1000,11 +1000,11 @@
       if (!L.winner) return '';
       return '<div class="card champ center"><div class="muted small">' + t(L.gender === 'F' ? '🎆 Women\'s champion of {month}' : '🎆 Men\'s champion of {month}', { month: esc(monthName(L.month)) }) + '</div>' +
         '<div class="champ-name">🏆 ' + esc(L.winner.name) + '</div>' +
-        '<div class="muted small">' + (L.winner.me ? t('Congratulations! You are the champion.') : t(L.gender === 'F' ? 'Most hours worked among women' : 'Most hours worked among men')) + '</div></div>';
+        '<div class="muted small">' + (L.winner.me ? t('Congratulations! You are the champion.') : t(L.gender === 'F' ? 'Most OT hours among women' : 'Most OT hours among men')) + '</div></div>';
     }
     var medals = ['🥇', '🥈', '🥉'];
-    var html = '<div class="card"><h2>' + t(L.gender === 'F' ? '🏆 Top hours this month · Women' : '🏆 Top hours this month · Men') + '</h2>';
-    if (!L.top || !L.top.length) return html + '<p class="muted small" style="margin:0">' + t('No hours yet this month.') + '</p></div>';
+    var html = '<div class="card"><h2>' + t(L.gender === 'F' ? '🏆 Top OT hours this month · Women' : '🏆 Top OT hours this month · Men') + '</h2>';
+    if (!L.top || !L.top.length) return html + '<p class="muted small" style="margin:0">' + t('No OT yet this month.') + '</p></div>';
     return html + L.top.map(function (x, i) {
       return '<div class="row" style="padding:6px 0' + (x.me ? ';font-weight:700;color:var(--green)' : '') + '"><span>' + medals[i] + ' ' + esc(x.name) +
         (x.me ? ' <span class="chip s-PRESENT">' + t('You!') + '</span>' : '') + '</span><b>' + mins(x.min) + '</b></div>';
@@ -2408,7 +2408,9 @@
     // Alphabetical by name (the form opens by position in this sorted list).
     (r.list || []).sort(function (a, b) { return a.name.localeCompare(b.name, 'en', { sensitivity: 'base' }) || a.id.localeCompare(b.id); });
     S.staff = r;
-    var html = '<button class="btn" style="margin:0 0 14px" onclick="openStaffForm(-1)">＋ Add employee</button><div class="card"><h2>Employees</h2>';
+    var html = '<button class="btn" style="margin:0 0 14px" onclick="openStaffForm(-1)">＋ Add employee</button>' +
+      (r.canSetRole ? '<button class="btn ghost" style="margin:0 0 14px" onclick="openLeaderboardPicker()">🏆 Choose OT leaderboard employees</button>' : '') +
+      '<div class="card"><h2>Employees</h2>';
     r.list.forEach(function (e, i) {
       html += '<div class="list-item"><div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
         '<div class="sub">' + (e.gender ? (e.gender === 'F' ? '♀ Female · ' : '♂ Male · ') : '') + money(e.salary, '₹') + '/month' + (function () {
@@ -2417,6 +2419,7 @@
         })() + ' · joined ' + esc(fmtDate(e.joinDate)) + (e.phone ? ' · ' + esc(e.phone) : '') + '</div>' +
         (!e.active && e.periods && e.periods.length && e.periods[e.periods.length - 1].to ? '<div class="sub">Left on ' + esc(fmtDate(e.periods[e.periods.length - 1].to)) + '</div>' : '') +
         (e.gender ? '' : (e.role === 'GUARD' ? '' : '<div class="sub" style="color:var(--orange)">Gender not set</div>')) +
+        (e.leaderboard === false && e.role !== 'GUARD' ? '<div class="sub">🏆 Not in the OT leaderboard</div>' : '') +
         (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
           e.hourlyOt === false ? 'no hourly OT' : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
@@ -2424,6 +2427,34 @@
     });
     html += '</div>';
     adminBody(html);
+  }
+
+  /** Super admin: tick the employees who take part in the OT leaderboard (men's and women's boards). */
+  function openLeaderboardPicker() {
+    var list = (S.staff.list || []).filter(function (e) { return e.role !== 'GUARD' && e.active; });
+    var group = function (title, g) {
+      var people = list.filter(function (e) { return (e.gender || '') === g; });
+      if (!people.length) return '';
+      return '<div style="margin-top:12px"><div class="row"><b>' + title + ' (' + people.length + ')</b>' +
+        (g ? '<span><button class="link" onclick="lbAll(\'' + g + '\',true)">All</button> · <button class="link" onclick="lbAll(\'' + g + '\',false)">None</button></span>' : '') + '</div>' +
+        '<div class="checklist">' + people.map(function (e) {
+          return '<label><input type="checkbox" class="lb-pick lb-' + (g || 'X') + '" value="' + esc(e.id) + '"' + (e.leaderboard !== false ? ' checked' : '') + (g ? '' : ' disabled') + '> ' +
+            esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>';
+        }).join('') + '</div>' + (g ? '' : '<p class="muted small" style="margin:4px 0 0">Set their gender in Edit to place them on a board.</p>') + '</div>';
+    };
+    openModal('<div class="row"><h2 style="margin:0">🏆 OT leaderboard</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small">Ticked employees are ranked by their net OT this month (late and early leaving already taken off). Unticked ones are not ranked but still see the board.</p>' +
+      group('♂ Men', 'M') + group('♀ Women', 'F') + group('Gender not set', '') +
+      '<button class="btn" id="lbSave" style="margin-top:14px" onclick="saveLeaderboardPicker()">Save</button><div id="lbMsg"></div>');
+  }
+  function lbAll(g, on) { Array.prototype.forEach.call(document.querySelectorAll('.lb-' + g), function (c) { c.checked = on; }); }
+  function saveLeaderboardPicker() {
+    var ids = Array.prototype.filter.call(document.querySelectorAll('.lb-pick'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+    // Inactive employees are not listed: keep their current choice.
+    (S.staff.list || []).forEach(function (e) { if (!e.active && e.leaderboard !== false) ids.push(e.id); });
+    $('lbSave').disabled = true;
+    api('superSetLeaderboard', S.token, ids).then(function (r) { renderStaff(r); closeModal(); toast('Leaderboard saved'); })
+      .catch(function (e) { $('lbSave').disabled = false; $('lbMsg').innerHTML = errBox(e); });
   }
 
   function openStaffForm(i) {

@@ -193,9 +193,10 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - The **full / half-day minimums** scale with the shift length. With the company 9 h shift and 8 h / 4 h minimums, an 8 h shift needs 7.1 h / 3.6 h.
 - **Morning OT** unticked: coming before the shift start doesn't count as OT; only time **after the shift end** does (evening OT).
 - **Hourly OT** unticked: no OT for extra hours on working days. **Sunday / week-off work is still paid** (day pay plus OT outside 09:30–17:00), and holidays still follow *Off-Day Work Is OT*.
-- **Gender** (Male / Female, the *Gender* column): used for the **top hours leaders** on the home screen.
-  - Men see the men's top 3 and women the women's top 3: the most hours between check-in and check-out this month, Sundays and holidays included. Days set to Absent / Leave and days without a check-out don't count.
+- **Gender** (Male / Female, the *Gender* column): used for the **top OT leaders** on the home screen.
+  - Men see the men's top 3 and women the women's top 3, ranked by **net OT this month**: the same OT the salary pays (time worked beyond the shift, with late coming and early leaving already taken off, plus Sunday / holiday OT). It refreshes every 15 minutes.
   - On the **1st–5th of each month** the card shows only **last month's champion** (the name, with fireworks), then the new month's top 3 again.
+  - **Super admins choose who is ranked:** Employees → *🏆 Choose OT leaderboard employees* (the *In Leaderboard* column; blank = Yes). Employees left out still see the board.
   - Employees without a gender (shown as *Gender not set* in the Employees list) don't see the card and are not ranked.
   - **Admins:** the super admin ticks *Men's Leaders Card* and / or *Women's Leaders Card* for each admin (Admin → Admins). Both unticked = only the card of their own gender. Super admins see both.
 
