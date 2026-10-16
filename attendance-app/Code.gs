@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261026;
+const SERVER_VERSION = 20261027;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -57,7 +57,7 @@ const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
 const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
-  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender'];
+  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard'];
 const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type'];
 const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
 
@@ -142,6 +142,7 @@ function forget_() {
   for (let i = 0; i < arguments.length; i++) {
     delete MEMO[arguments[i]];
     if (arguments[i] === 'att') newAttVersion_();
+    else if (CACHED_SHEETS[arguments[i]]) newLeaderVersion_(); // employees, settings, holidays … change the OT ranking
     if (arguments[i] === 'employees') delete MEMO.periods; // periods depend on Join Date / Active
     if (CACHED_SHEETS[arguments[i]]) dropSheetCache_(CACHED_SHEETS[arguments[i]]);
   }
@@ -273,7 +274,7 @@ const API_FUNCTIONS = {
   adminAttendanceRegister,
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
-  superListAdmins, superSavePermissions, superSetRole, superAuditLog,
+  superListAdmins, superSavePermissions, superSetRole, superAuditLog, superSetLeaderboard,
 };
 
 function doPost(e) {
@@ -558,26 +559,71 @@ function parseGender_(v) {
 }
 
 /**
- * Hours leaderboard for one gender in a month: every employee (not guards) employed that month, ranked by
- * the time between check-in and check-out on all days (weekly offs and holidays too). Days an admin set as
- * Absent / Leave and days without a check-out are not counted.
+ * OT leaderboard for one gender in a month: employees (not guards) employed that month and kept in the
+ * leaderboard by the super admin, ranked by the month's net OT — the same OT the salary pays: time worked
+ * beyond the shift, with late coming and early leaving already taken off, plus weekly-off / holiday OT.
+ * Kept in the script cache for up to 15 minutes.
  */
-function hoursLeaders_(gender, ym) {
-  const s = getSettings_();
-  const people = {};
-  getEmployees_().forEach(e => { if (e.gender === gender && employedInMonth_(e, ym)) people[e.id] = { e: e, per: periods_(e), min: 0 }; });
-  readAttendance_().forEach(r => {
-    const p = people[r.empId];
-    if (!p || r.date.indexOf(ym) !== 0 || r.override === 'ABSENT' || r.override === 'LEAVE') return;
-    const a = toMinutes_(r.in);
-    let b = toMinutes_(r.out);
-    if (a == null || b == null || !employedOn_(p.e, r.date, p.per)) return;
-    if (b <= a && s.overnight) b += 1440;
-    if (b > a) p.min += b - a;
-  });
-  return Object.keys(people).map(id => people[id]).filter(p => p.min > 0)
-    .sort((x, y) => y.min - x.min || x.e.name.localeCompare(y.e.name, 'en', { sensitivity: 'base' }))
-    .map(p => ({ id: p.e.id, name: p.e.name, min: p.min }));
+function otLeaders_(gender, ym) {
+  const cache = CacheService.getScriptCache();
+  let key = null;
+  try {
+    // Refreshed every 15 minutes (not on every check-in, so the morning rush stays fast), and at once when
+    // employees / settings / the leaderboard choice change.
+    key = 'ldr_' + Math.floor(Date.now() / 900000) + '_' + (cache.get('ldrv') || '-') + '_' + gender + '_' + ym;
+    const hit = cache.get(key);
+    if (hit) return JSON.parse(hit);
+  } catch (e) { key = null; }
+  const s = getSettings_(), holidays = getHolidays_();
+  const locked = !!getLocks_()[ym];
+  const att = locked ? null : readAttendance_().filter(r => r.date.indexOf(ym) === 0);
+  const list = getEmployees_().filter(e => e.gender === gender && e.leaderboard !== false && employedInMonth_(e, ym)).map(e => {
+    let min = 0;
+    if (locked) {
+      const snap = getSnapshot_(ym, e.id);
+      min = snap && snap.totals ? snap.totals.otMin || 0 : 0;
+    } else {
+      const emp = Object.assign({}, e, { salary: salaryFor_(e, ym), baseSalary: baseSalary_(e) });
+      min = monthSummary_(emp, ym, s, byDate_(att, e.id), holidays, 0).totals.otMin || 0;
+    }
+    return { id: e.id, name: e.name, min: Math.round(min) };
+  }).filter(x => x.min > 0)
+    .sort((x, y) => y.min - x.min || x.name.localeCompare(y.name, 'en', { sensitivity: 'base' }));
+  if (key) { try { cache.put(key, JSON.stringify(list), 21600); } catch (e) { /* ignore */ } }
+  return list;
+}
+
+function newLeaderVersion_() {
+  try { CacheService.getScriptCache().put('ldrv', Utilities.getUuid().slice(0, 8), 21600); } catch (e) { /* ignore */ }
+}
+
+/** Super admin: which employees take part in the OT leaderboard (ids = the ones kept in it). */
+function superSetLeaderboard(token, ids) {
+  const ctx = authAdmin_(token, 'superAdmin');
+  const keep = {};
+  (ids || []).forEach(id => { keep[String(id).trim().toUpperCase()] = true; });
+  const sh = sheet_(SHEET.EMPLOYEES);
+  ensureHeaders_(sh, EMP_HEADERS);
+  const col = headerIndex_(sh)['In Leaderboard'] + 1;
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const last = sh.getLastRow();
+    if (last < 2) return adminStaff(token);
+    const idsCol = sh.getRange(2, 1, last - 1, 1).getValues();
+    const cur = sh.getRange(2, col, last - 1, 1).getValues();
+    const out = idsCol.map((r, i) => {
+      const id = String(r[0]).trim().toUpperCase();
+      return [id ? (keep[id] ? 'Yes' : 'No') : cur[i][0]];
+    });
+    sh.getRange(2, col, out.length, 1).setValues(out);
+    forget_('employees');
+    const off = getEmployees_().filter(e => !e.leaderboard).map(e => e.id);
+    audit_(ctx.emp, 'SET_LEADERBOARD', '', '', 'Not in leaderboard: ' + (off.join(', ') || 'none'));
+  } finally {
+    lock.releaseLock();
+  }
+  return adminStaff(token);
 }
 
 /**
@@ -599,12 +645,12 @@ function homeLeaders_(emp, today) {
   const early = Number(today.slice(8, 10)) <= 5;
   return genders.map(g => {
     if (early) {
-      const w = hoursLeaders_(g, prev)[0];
+      const w = otLeaders_(g, prev)[0];
       return { gender: g, winner: w ? { name: w.name, me: w.id === emp.id } : null, month: prev, monthLabel: ymLabel_(prev) };
     }
     return {
       gender: g, month: ym, monthLabel: ymLabel_(ym),
-      top: hoursLeaders_(g, ym).slice(0, 3).map(x => ({ name: x.name, min: x.min, me: x.id === emp.id })),
+      top: otLeaders_(g, ym).slice(0, 3).map(x => ({ name: x.name, min: x.min, me: x.id === emp.id })),
     };
   });
 }
@@ -1367,7 +1413,7 @@ function adminStaff(token) {
     canSetRole: ctx.perms.superAdmin,
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
-      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender,
+      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard,
     })),
   };
 }
@@ -2963,6 +3009,7 @@ function getPeople_() {
           hourlyOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Hourly OT')).trim()),
           morningOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Morning OT')).trim()),
           gender: parseGender_(get(r, 'Gender')),
+          leaderboard: !/^(n|no|false|0|off)$/i.test(String(get(r, 'In Leaderboard')).trim()), // blank = Yes
           pf: {
             active: /^(y|yes|true|1|on)$/i.test(String(get(r, 'PF Active')).trim()),
             bankSalary: get(r, 'PF Bank Salary'),
