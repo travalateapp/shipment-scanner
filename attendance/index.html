@@ -468,7 +468,8 @@
     'Most hours worked among women': 'महिलाओं में सबसे ज़्यादा घंटे काम', 'No hours yet this month.': 'इस महीने अभी कोई घंटे नहीं।',
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
-    'day.short': 'शिफ्ट से {m} कम काम: यह महीने के ओवरटाइम से कटता है।',
+    'day.short': 'शिफ्ट से {m} कम काम। यह महीने के बाकी दिनों के ओवरटाइम से कटता है (शून्य से कम नहीं)।',
+    'Late + early leaving': 'देर + जल्दी जाना', 'Early leaving': 'जल्दी जाना', 'Short time': 'कम समय',
     'day.absentot': 'आधे दिन के लिए घंटे कम: दिन की तनख्वाह कटती है, किया गया काम ओवरटाइम में मिलता है।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
@@ -497,7 +498,7 @@
     'home.selfie': ' A selfie is required at check-in.',
     'home.forgot': ' Forgot to check in or out? Use <b>Requests</b>.',
     'missed.days': '⚠ {n} day(s) without check-out',
-    'day.short': 'Worked {m} less than the shift: this is taken from the month\'s OT.',
+    'day.short': 'Worked {m} less than the shift. This is cut from the OT of other days in the month (never below zero).',
     'day.absentot': 'Too few hours for a half day: the day\'s salary is cut, the time worked is paid as OT.',
     'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.absentwork': '+ time worked on days counted absent (too few hours) {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
     'missed.days.note': 'Auto-closed at midnight and counted as {status} until an admin clears them. They have a red outline in the calendar.',
@@ -1395,7 +1396,12 @@
   /** OT minutes this day adds to the month (minus when the day was short of the shift). */
   function dayOtText(d) {
     if (d.dayOtMin === undefined) return mins(d.otMin);
-    return d.dayOtMin < 0 ? '−' + mins(-d.dayOtMin) : mins(d.dayOtMin);
+    return mins(Math.max(0, d.dayOtMin)); // a short day has no OT: its cut is shown as Late / Early below
+  }
+
+  /** Why a full day was short of the shift. */
+  function shortLabel(d) {
+    return d.late && d.earlyMin ? 'Late + early leaving' : d.earlyMin ? 'Early leaving' : d.late ? 'Late' : 'Short time';
   }
 
   /** Salary, OT amount and total for one day (only where the month's pay is shown). */
@@ -1410,7 +1416,8 @@
     var sign = function (n) { return (n < 0 ? '−' : '') + money(Math.abs(n), cur); };
     var html = '<div class="kv" style="margin-top:10px">' +
       '<div><b>' + money(salary, cur) + '</b><span>' + t('Salary for the day') + '</span></div>' +
-      '<div class="k-ot"><b' + (ot < 0 ? ' style="color:var(--red)"' : '') + '>' + sign(ot) + '</b><span>' + t('OT amount') + '</span></div>' +
+      (ot < 0 ? '<div><b style="color:var(--red)">' + sign(ot) + '</b><span>' + t(shortLabel(d)) + ' (' + mins(-otMin) + ')</span></div>'
+        : '<div class="k-ot"><b>' + sign(ot) + '</b><span>' + t('OT amount') + '</span></div>') +
       '<div><b style="color:var(' + (salary + ot < 0 ? '--red' : '--green') + ')">' + sign(salary + ot) + '</b><span>' + t('Total for the day') + '</span></div></div>';
     if (otMin < 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.short', { m: mins(-otMin) }) + '</p>';
     else if (d.status === 'ABSENT' && otMin > 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.absentot') + '</p>';
