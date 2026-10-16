@@ -467,6 +467,9 @@
     '🎆 Men\'s champion of {month}': '🎆 {month} के चैंपियन · पुरुष', '🎆 Women\'s champion of {month}': '🎆 {month} की चैंपियन · महिलाएँ', 'You!': 'आप!', 'Most hours worked among men': 'पुरुषों में सबसे ज़्यादा घंटे काम',
     'Most hours worked among women': 'महिलाओं में सबसे ज़्यादा घंटे काम', 'No hours yet this month.': 'इस महीने अभी कोई घंटे नहीं।',
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
+    'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
+    'day.short': 'शिफ्ट से {m} कम काम: यह महीने के ओवरटाइम से कटता है।',
+    'day.absentot': 'आधे दिन के लिए घंटे कम: दिन की तनख्वाह कटती है, किया गया काम ओवरटाइम में मिलता है।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
@@ -494,6 +497,8 @@
     'home.selfie': ' A selfie is required at check-in.',
     'home.forgot': ' Forgot to check in or out? Use <b>Requests</b>.',
     'missed.days': '⚠ {n} day(s) without check-out',
+    'day.short': 'Worked {m} less than the shift: this is taken from the month\'s OT.',
+    'day.absentot': 'Too few hours for a half day: the day\'s salary is cut, the time worked is paid as OT.',
     'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.absentwork': '+ time worked on days counted absent (too few hours) {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
     'missed.days.note': 'Auto-closed at midnight and counted as {status} until an admin clears them. They have a red outline in the calendar.',
     'missed.day.note': 'Auto-closed at midnight and counted as {status} until an admin clears it. It has a red outline in the calendar.',
@@ -915,7 +920,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261025;
+  var NEEDS_SERVER = 20261026;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1387,13 +1392,39 @@
     Array.prototype.forEach.call(document.querySelectorAll('.fchip'), function (b) { b.classList.toggle('on', b.classList.contains('fc-' + f)); });
   }
 
+  /** OT minutes this day adds to the month (minus when the day was short of the shift). */
+  function dayOtText(d) {
+    if (d.dayOtMin === undefined) return mins(d.otMin);
+    return d.dayOtMin < 0 ? '−' + mins(-d.dayOtMin) : mins(d.dayOtMin);
+  }
+
+  /** Salary, OT amount and total for one day (only where the month's pay is shown). */
+  function dayMoneyHtml(m, d) {
+    var p = m.pay;
+    if (!p || !p.perDay || d.planned || ['UPCOMING', 'NOT_MARKED'].indexOf(d.status) >= 0) return '';
+    var share = { PRESENT: 1, WORKING: 1, HALF_DAY: 0.5, LEAVE: 1, WEEK_OFF: 1, HOLIDAY: 1, OFF_WORK: 1 + (d.offCredit || 0) }[d.status] || 0;
+    var cur = m.currency || '₹';
+    var salary = Math.round(p.perDay * share);
+    var otMin = d.dayOtMin !== undefined ? d.dayOtMin : (d.otMin || 0);
+    var ot = Math.round(otMin * (p.hourly || 0) / 60 * ((m.rules && m.rules.otMultiplier) || 1));
+    var sign = function (n) { return (n < 0 ? '−' : '') + money(Math.abs(n), cur); };
+    var html = '<div class="kv" style="margin-top:10px">' +
+      '<div><b>' + money(salary, cur) + '</b><span>' + t('Salary for the day') + '</span></div>' +
+      '<div class="k-ot"><b' + (ot < 0 ? ' style="color:var(--red)"' : '') + '>' + sign(ot) + '</b><span>' + t('OT amount') + '</span></div>' +
+      '<div><b style="color:var(' + (salary + ot < 0 ? '--red' : '--green') + ')">' + sign(salary + ot) + '</b><span>' + t('Total for the day') + '</span></div></div>';
+    if (otMin < 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.short', { m: mins(-otMin) }) + '</p>';
+    else if (d.status === 'ABSENT' && otMin > 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.absentot') + '</p>';
+    return html;
+  }
+
   function showDay(i) {
     var m = S.viewMonth, d = m.days[i];
     var html = '<h2 style="margin-top:0">' + esc(fmtDate(d.date)) + '</h2><p>' + (chip(d.status) || '<span class="muted">' + t('No record') + '</span>') + lateChip(d.late) +
       (d.planned ? ' <span class="muted small">' + t('(approved, upcoming)') + '</span>' : '') + '</p>';
     if (d.holidayName) html += '<p>🎉 ' + esc(d.holidayName) + '</p>';
     if (d.in) html += '<div class="kv"><div><b>' + esc(d.in) + '</b><span>' + t('In') + '</span></div><div><b>' + esc(d.out || '—') + (d.overnight ? '<small> +1</small>' : '') + '</b><span>' + t('Out') + '</span></div><div><b>' + hrs(d.worked) + '</b><span>' + t('Worked') + '</span></div></div>' +
-      '<div class="kv" style="margin-top:10px"><div class="k-orange"><b>' + mins(d.lateMin) + '</b><span>' + t('Late') + '</span></div><div class="k-orange"><b>' + mins(d.earlyMin) + '</b><span>' + t('Early') + '</span></div><div class="k-ot"><b>' + mins(d.otMin) + '</b><span>' + t('OT') + '</span></div></div>';
+      '<div class="kv" style="margin-top:10px"><div class="k-orange"><b>' + mins(d.lateMin) + '</b><span>' + t('Late') + '</span></div><div class="k-orange"><b>' + mins(d.earlyMin) + '</b><span>' + t('Early') + '</span></div><div class="k-ot"><b>' + dayOtText(d) + '</b><span>' + t('OT') + '</span></div></div>';
+    html += dayMoneyHtml(m, d);
     if (d.autoOut) html += '<div class="msg err">' + (S.viewMonthAdmin ? '⚠ No check-out. Auto-closed at midnight — waiting for an admin to clear it.' : t('day.missed')) + '</div>';
     if (d.offCredit !== undefined) {
       var wo = m.rules.weekOff || {};
