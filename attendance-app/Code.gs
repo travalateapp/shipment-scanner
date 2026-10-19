@@ -34,7 +34,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261032;
+const SERVER_VERSION = 20261033;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2854,7 +2854,7 @@ function advancesForMonth_(empId, ym) {
   readAdvances_().filter(a => a.empId === empId && a.startMonth <= ym).forEach(a => {
     const st = advanceState_(a, ym);
     if (st.thisMonth > 0 || st.balanceBefore > 0) {
-      items.push({ id: a.id, amount: a.amount, monthly: a.monthly, note: a.note, status: a.status,
+      items.push({ id: a.id, amount: a.amount, monthly: a.monthly, note: a.note, status: a.status, given: a.given,
         wanted: st.thisMonth, balanceBefore: st.balanceBefore, changed: st.changed, changeNote: st.changeNote,
         startMonth: a.startMonth });
       total += st.thisMonth;
@@ -2882,8 +2882,22 @@ function readAdvances_() {
       startMonth: toYm_(r[6]), status: String(r[7] || 'ACTIVE').trim().toUpperCase(), note: String(r[8] || ''),
       createdBy: String(r[9] || ''),
       topUps: String(r[11] || '').split('\n').map(x => x.trim()).filter(String),
-    })).filter(a => a.id && a.empId && a.startMonth);
+    })).filter(a => a.id && a.empId && a.startMonth).map(a => Object.assign(a, { given: advanceGiven_(a) }));
   });
+}
+
+/**
+ * Each payment of an advance as its own line: the first amount (date given) and every "Add more"
+ * ({ date, amount, note, by }), oldest first. The sheet keeps the total in Amount and the extra
+ * payments as lines like '2026-10-19 +5000 (Rent) by Owner' in Top-ups.
+ */
+function advanceGiven_(a) {
+  const extra = a.topUps.map(line => {
+    const m = line.match(/^(\d{4}-\d{2}-\d{2}) \+(-?[\d.]+)(?: \((.*)\))? by (.*)$/);
+    return m ? { date: m[1], amount: Number(m[2]), note: m[3] || '', by: m[4] } : null;
+  }).filter(Boolean);
+  const first = { date: a.dateGiven, amount: round2_(a.amount - extra.reduce((n, x) => n + x.amount, 0)), note: a.note, by: a.createdBy };
+  return [first].concat(extra).sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0));
 }
 
 /* ------------------------- Locks & snapshots ----------------------- */
