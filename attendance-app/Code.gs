@@ -34,7 +34,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261033;
+const SERVER_VERSION = 20261034;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -61,7 +61,9 @@ const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
   'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut'];
-const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type'];
+const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type', 'Close At'];
+// Type 'Short Day' + Close At (e.g. 16:30): a working day on which the office closes early (see shortenDay_).
+const SHORT_DAY = 'Short Day';
 const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
 
 const ATT_HEADERS = ['Date', 'Emp ID', 'Name', 'Check In', 'Check Out', 'Worked Hrs', 'Status', 'Late',
@@ -545,6 +547,7 @@ function getHome(token) {
     checkoutLocation: s.checkoutLocation,
     anywhere: !!emp.anywhere,
     shiftStart: minutesToStr_(empSettings_(emp, s).shiftStartMin),
+    closeEarly: shortDays_()[today] || null, // office closes early today
     standardHours: empSettings_(emp, s).standardHours,
     upcomingHolidays: upcomingHolidays_(today, 45, 3),
     face: readFaces_()[emp.id] ? readFaces_()[emp.id].d : null, // registered face: check in / out by face
@@ -1999,7 +2002,7 @@ function adminClearMissed(token, empId, date, outTime, note) {
     if (out) {
       const e = cleanEntry_({ in: rec.in, out: out, override: rec.override });
       const s = getSettings_();
-      const d = evaluateDay_({ empId: emp.id, in: e.in, out: e.out, override: e.override, otApproved: rec.otApproved }, s,
+      const d = evaluateDay_({ empId: emp.id, date: date, in: e.in, out: e.out, override: e.override, breaks: rec.breaks, otApproved: rec.otApproved }, s,
         offType_(date, s, getHolidays_()), false);
       sh.getRange(rec.row, COL.OUT + 1, 1, 5).setValues([["'" + out, d.worked, d.status, d.late ? 'Yes' : '', d.ot]]);
       detail = 'check-out set to ' + out + ' → ' + d.status;
@@ -2430,7 +2433,7 @@ function upsertEntry_(data, emp, date, e, byEmp, overwrite) {
   assertUnlocked_(date);
 
   const breaks = e.breaks !== undefined ? e.breaks : (rec ? rec.breaks || '' : '');
-  const calc = evaluateDay_({ empId: emp.id, in: e.in, out: e.out, override: e.override, breaks: breaks, otApproved: e.otApproved || (rec ? rec.otApproved : '') },
+  const calc = evaluateDay_({ empId: emp.id, date: date, in: e.in, out: e.out, override: e.override, breaks: breaks, otApproved: e.otApproved || (rec ? rec.otApproved : '') },
     data.s, offType_(date, data.s, data.holidays), date === todayStr_());
   const note = e.note || ('Entered by ' + byEmp.name);
   const status = [e.in ? "'" + e.in : '', e.out ? "'" + e.out : '', calc.worked, calc.status, calc.late ? 'Yes' : '', calc.ot];
@@ -2539,6 +2542,7 @@ function dayWorkedMin_(rec, es) {
  */
 function evaluateDay_(rec, s, offType, isToday) {
   if (rec.empId) s = empSettings_(findEmployee_(rec.empId), s); // own shift timing / no hourly OT
+  if (rec.date) s = shortenDay_(s, rec.date); // office closing early that day
   const inMin = toMinutes_(rec.in);
   let outMin = toMinutes_(rec.out);
   if (inMin != null && outMin != null && outMin <= inMin && s.overnight) outMin += 1440; // next-day check-out
@@ -2654,11 +2658,13 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     // Weekly offs / holidays have their own rule.
     // d.dayOtMin = what this day adds to (or, when short, takes from) the month's OT, for the day pop-up.
     const hourly = es.hourlyOt !== false;
+    const esD = shortenDay_(es, ds); // short day: the shift ends when the office closes
+    if (esD.shortDay) d.closeAt = esD.shortDay.closeAt;
     if (off) { t.offDayOtMin += d.otMin || 0; t.otPendingMin += d.otPending || 0; d.dayOtMin = d.otMin || 0; }
     else if (!d.autoOut && rec && (ds < today || rec.out)) {
-      const shift = Math.round(es.standardHours * 60);
+      const shift = Math.round(esD.standardHours * 60);
       if (d.status === 'PRESENT' || d.status === 'WORKING') {
-        const w = dayWorkedMin_(rec, es);
+        const w = dayWorkedMin_(rec, esD);
         t.workDays++;
         t.targetMin += shift;
         t.workedMin += w;
@@ -2667,11 +2673,11 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
         // is cut from the salary by the minute (unless "Late Cut" is off for this employee).
         if (!hourly && es.lateCut !== false && w < shift) { t.shortMin += shift - w; d.shortCutMin = shift - w; }
       } else if (d.status === 'HALF_DAY') {
-        const w = dayWorkedMin_(rec, es);
+        const w = dayWorkedMin_(rec, esD);
         t.halfDayExtraMin += Math.max(0, w - Math.round(shift / 2));
         d.dayOtMin = hourly ? Math.max(0, w - Math.round(shift / 2)) : 0;
       } else if (d.status === 'ABSENT') {
-        const w = dayWorkedMin_(rec, es);
+        const w = dayWorkedMin_(rec, esD);
         t.absentWorkMin += w;
         d.dayOtMin = hourly ? w : 0;
       }
@@ -3431,17 +3437,44 @@ function readRequests_() {
 function getHolidays_() {
   return memo_('holidays', () => {
     const map = {};
-    holidayList_().forEach(x => { map[x.date] = x.name; });
+    holidayList_().forEach(x => { if (!x.closeAt) map[x.date] = x.name; }); // short days are working days
     return map;
   });
+}
+
+/** { date: { closeMin, closeAt, name } } of the days the office closes early. */
+function shortDays_() {
+  return memo_('shortDays', () => {
+    const map = {};
+    holidayList_().forEach(x => { if (x.closeAt) map[x.date] = { closeMin: toMinutes_(x.closeAt), closeAt: x.closeAt, name: x.name }; });
+    return map;
+  });
+}
+
+/**
+ * Settings for one day: on a short day the shift ends at the closing time, so Standard Hours shrink and the
+ * full / half-day minimums shrink in proportion (e.g. 09:30–18:30 closing 16:30 → 7 h shift, full day from
+ * 6.2 h). Everything else (early leaving, OT after closing, monthly OT, late cut) then follows from them.
+ */
+function shortenDay_(es, date) {
+  const sd = date ? shortDays_()[date] : null;
+  if (!sd || es.overnight) return es;
+  const start = es.shiftStartMin, end = start + es.standardHours * 60;
+  if (!(sd.closeMin > start && sd.closeMin < end)) return es;
+  const hours = (sd.closeMin - start) / 60, k = hours / es.standardHours;
+  return Object.assign({}, es, { standardHours: round2_(hours), fullDayHours: round2_(es.fullDayHours * k),
+    halfDayHours: round2_(es.halfDayHours * k), shortDay: sd });
 }
 
 /** [{ date, name, type, row }] from the Holidays tab, sorted by date. */
 function holidayList_() {
   return memo_('holidayList', () => {
     const values = sheetValues_(SHEET.HOLIDAYS) || [];
-    return values.slice(1).map((r, i) => ({ date: toDateStr_(r[0]), name: String(r[1] || 'Holiday').trim(),
-      type: String(r[2] || '').trim() || 'Festival', row: i + 2 })).filter(x => x.date)
+    return values.slice(1).map((r, i) => {
+      const closeAt = toTimeStr_(r[3]);
+      return { date: toDateStr_(r[0]), name: String(r[1] || 'Holiday').trim(), closeAt: closeAt,
+        type: closeAt ? SHORT_DAY : (String(r[2] || '').trim() || 'Festival'), row: i + 2 };
+    }).filter(x => x.date)
       .sort((a, b) => (a.date < b.date ? -1 : 1));
   });
 }
@@ -3449,7 +3482,7 @@ function holidayList_() {
 function upcomingHolidays_(from, days, max) {
   const to = addDays_(from, days);
   return holidayList_().filter(x => x.date >= from && x.date <= to).slice(0, max)
-    .map(x => ({ date: x.date, name: x.name, type: x.type }));
+    .map(x => ({ date: x.date, name: x.name, type: x.type, closeAt: x.closeAt }));
 }
 
 /* ----------------------- Employment periods ------------------------ */
@@ -3618,16 +3651,18 @@ function adminHolidays(token, year) {
   authAdmin_(token, 'manageHolidays');
   year = /^\d{4}$/.test(String(year)) ? String(year) : todayStr_().slice(0, 4);
   return { year: year, types: HOLIDAY_TYPES,
-    list: holidayList_().filter(x => x.date.slice(0, 4) === year).map(x => ({ date: x.date, name: x.name, type: x.type })) };
+    list: holidayList_().filter(x => x.date.slice(0, 4) === year).map(x => ({ date: x.date, name: x.name, type: x.type, closeAt: x.closeAt })) };
 }
 
-/** h = { date, name, type }. Adds the holiday or renames it if the date already has one. */
+/** h = { date, name, type, closeAt }. closeAt (HH:mm) makes it a short day: a working day closing early. */
 function adminSaveHoliday(token, h) {
   const ctx = authAdmin_(token, 'manageHolidays');
   h = h || {};
   const date = toDateStr_(h.date);
   const name = String(h.name || '').trim().slice(0, 80);
-  const type = HOLIDAY_TYPES.indexOf(h.type) >= 0 ? h.type : 'Festival';
+  const closeAt = h.type === SHORT_DAY ? toTimeStr_(h.closeAt) : '';
+  if (h.type === SHORT_DAY && !closeAt) throw new Error('Enter the time the office closes.');
+  const type = closeAt ? SHORT_DAY : (HOLIDAY_TYPES.indexOf(h.type) >= 0 ? h.type : 'Festival');
   if (!date) throw new Error('Choose the date.');
   if (!name) throw new Error('Enter the holiday name.');
   assertUnlocked_(date);
@@ -3636,12 +3671,13 @@ function adminSaveHoliday(token, h) {
   try {
     const sh = sheetOrCreate_(SHEET.HOLIDAYS, HOLIDAY_HEADERS);
     ensureHeaders_(sh, HOLIDAY_HEADERS);
-    forget_('holidays', 'holidayList');
+    forget_('holidays', 'holidayList', 'shortDays');
     const old = holidayList_().filter(x => x.date === date)[0];
-    if (old) sh.getRange(old.row, 1, 1, 3).setValues([["'" + date, name, type]]);
-    else sh.appendRow(["'" + date, name, type]);
-    forget_('holidays', 'holidayList');
-    audit_(ctx.emp, old ? 'EDIT_HOLIDAY' : 'ADD_HOLIDAY', '', date, (old ? old.name + ' → ' : '') + name + ' (' + type + ')');
+    const row = ["'" + date, name, type, closeAt ? "'" + closeAt : ''];
+    if (old) sh.getRange(old.row, 1, 1, 4).setValues([row]);
+    else sh.appendRow(row);
+    forget_('holidays', 'holidayList', 'shortDays');
+    audit_(ctx.emp, old ? 'EDIT_HOLIDAY' : 'ADD_HOLIDAY', '', date, (old ? old.name + ' → ' : '') + name + ' (' + type + (closeAt ? ', closes ' + closeAt : '') + ')');
   } finally {
     lock.releaseLock();
   }
@@ -3655,11 +3691,11 @@ function adminDeleteHoliday(token, date) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    forget_('holidays', 'holidayList');
+    forget_('holidays', 'holidayList', 'shortDays');
     const old = holidayList_().filter(x => x.date === date)[0];
     if (!old) throw new Error('No holiday on this date.');
     sheet_(SHEET.HOLIDAYS).deleteRow(old.row);
-    forget_('holidays', 'holidayList');
+    forget_('holidays', 'holidayList', 'shortDays');
     audit_(ctx.emp, 'DELETE_HOLIDAY', '', date, old.name);
   } finally {
     lock.releaseLock();

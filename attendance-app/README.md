@@ -268,6 +268,8 @@ Employees, and admins without the *View Bank / Cash Split* permission, see only 
 
 If the deductions are more than the cash part, the rest comes out of the bank part. (With a ₹2,000 advance instalment: cash 0, bank 11,279.)
 
+- **Short day** (Holidays → Type *Short day – office closes early*, with the closing time, e.g. Dussehra 16:30): a normal working day whose shift ends at the closing time. Leaving at that time is a full day (no early leaving, no cut); the full / half-day minimums shrink in the same proportion; only time after closing is OT, and the month's OT target counts the shorter day. Employees see "🕓 Office closes at 16:30 today" on their home screen.
+
 ### Forgotten check-outs (automatic at midnight)
 `setup` installs an hourly timer (Apps Script trigger) that **checks out automatically after midnight** anyone who checked in but never checked out. Such a day:
 - counts as **No Check-Out Counts As** (Half Day by default), with no OT;

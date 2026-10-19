@@ -223,6 +223,8 @@
     .kiosk-msg.big { font-size: 22px; }
     .kiosk-msg.warn { background: var(--amber-soft); color: var(--amber); }
     .kiosk-msg.err { background: var(--red-soft); color: var(--red); }
+    details.adv-one { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 6px; }
+    details.adv-one summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 13px; padding: 4px 0; }
     table.given { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 13px; }
     table.given th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
     table.given td { padding: 5px 6px; border-bottom: 1px dashed var(--line); }
@@ -500,6 +502,8 @@
     'Face not recognised. Close this and use the list below (with photo).': 'चेहरा नहीं पहचाना गया। इसे बंद करें और नीचे की सूची से (फोटो के साथ) मार्क करें।',
     'No faces are registered yet. Ask the admin to register faces (Employees → Edit).': 'अभी कोई चेहरा रजिस्टर नहीं है। एडमिन से चेहरे रजिस्टर करवाएँ।',
     'Date given': 'दी गई तारीख', 'Amount': 'राशि', 'Note': 'नोट', 'Total': 'कुल',
+    '🕓 Office closes at {t} today ({n}). Leaving then counts as a full day.': '🕓 आज ऑफिस {t} बजे बंद होगा ({n})। तब जाना पूरा दिन गिना जाएगा।',
+    'closes {t}': '{t} बजे बंद', 'Office closed at {t} (short day)': 'ऑफिस {t} बजे बंद हुआ (छोटा दिन)',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
@@ -953,7 +957,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261033;
+  var NEEDS_SERVER = 20261034;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -984,6 +988,7 @@
       '<div class="muted">' + esc(isHi() ? hiDateLabel(h.today) : h.todayLabel) + '</div>' +
       '<div class="clock" id="clock">--:--</div>' +
       '<div>' + (h.offType ? chip(h.offType) + ' ' : '') + t('Shift starts {time}', { time: esc(h.shiftStart) }) + '</div>' +
+      (h.closeEarly ? '<div class="msg info" style="margin:8px 0 0">' + t('🕓 Office closes at {t} today ({n}). Leaving then counts as a full day.', { t: esc(h.closeEarly.closeAt), n: esc(h.closeEarly.name) }) + '</div>' : '') +
       '</div>';
 
     html += '<div class="card"><div class="row"><h2 style="margin:0">' + t('Today') + '</h2><div>' + chip(d.status) + lateChip(d.late) + '</div></div>';
@@ -1011,7 +1016,7 @@
 
     if (h.upcomingHolidays && h.upcomingHolidays.length) {
       html += '<div class="card"><h2>' + t('🎉 Upcoming holidays') + '</h2>' + h.upcomingHolidays.map(function (x) {
-        return '<div class="row small" style="padding:4px 0"><span>' + esc(x.name) + ' <span class="muted">· ' + esc(t(x.type)) + '</span></span><b>' + esc(fmtDate(x.date)) + '</b></div>';
+        return '<div class="row small" style="padding:4px 0"><span>' + esc(x.name) + ' <span class="muted">· ' + (x.closeAt ? t('closes {t}', { t: esc(x.closeAt) }) : esc(t(x.type))) + '</span></span><b>' + esc(fmtDate(x.date)) + '</b></div>';
       }).join('') + '</div>';
     }
     if (h.pendingRequests) html += '<div class="card"><div class="row"><span>' + t('pending.requests', { n: h.pendingRequests }) + '</span><button class="link" onclick="go(\'requests\')">' + t('View') + '</button></div></div>';
@@ -1606,6 +1611,7 @@
       '<div class="day-nav" style="margin-top:0">' + step(i - 1, '‹') + '<b style="font-size:20px">' + esc(fmtDate(d.date)) + '</b>' + step(i + 1, '›') + '</div><p>' + (chip(d.status) || '<span class="muted">' + t('No record') + '</span>') + lateChip(d.late) +
       (d.planned ? ' <span class="muted small">' + t('(approved, upcoming)') + '</span>' : '') + '</p>';
     if (d.holidayName) html += '<p>🎉 ' + esc(d.holidayName) + '</p>';
+    if (d.closeAt) html += '<p>🕓 ' + t('Office closed at {t} (short day)', { t: esc(d.closeAt) }) + '</p>';
     if (d.in) html += '<div class="kv"><div><b>' + esc(d.in) + '</b><span>' + t('In') + '</span></div><div><b>' + esc(d.out || '—') + (d.overnight ? '<small> +1</small>' : '') + '</b><span>' + t('Out') + '</span></div><div><b>' + hrs(d.worked) + '</b><span>' + t('Worked') + '</span></div></div>' +
       '<div class="kv" style="margin-top:10px"><div class="k-orange"><b>' + mins(d.lateMin) + '</b><span>' + t('Late') + '</span></div><div class="k-orange"><b>' + mins(d.earlyMin) + '</b><span>' + t('Early') + '</span></div><div class="k-ot"><b>' + dayOtText(d) + '</b><span>' + t('OT') + '</span></div></div>';
     html += awayHtml(d) + dayMoneyHtml(m, d);
@@ -2172,11 +2178,14 @@
 
   function renderHolidays(r) {
     S.holidays = r;
-    var y = +r.year, typeOpts = r.types.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
-    var html = '<div class="card"><h2>Add holiday</h2>' +
-      '<p class="muted small" style="margin:-6px 0 0">Employees are not marked absent on a holiday, and the day is paid. Anyone who works on it gets the holiday OT rule.</p>' +
+    var y = +r.year, typeOpts = r.types.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') +
+      '<option value="Short Day">Short day – office closes early</option>';
+    var html = '<div class="card"><h2>Add holiday / short day</h2>' +
+      '<p class="muted small" style="margin:-6px 0 0">Holiday: employees are not marked absent, and the day is paid. Anyone who works on it gets the holiday OT rule.<br>' +
+      '<b>Short day</b> (e.g. Dussehra, closing 16:30): a normal working day whose shift ends at the closing time. Leaving at that time is a full day with no early leaving or cut; full / half day hours shrink in the same proportion, and only time after closing is OT.</p>' +
       '<div class="grid2"><div class="field"><label>Date</label><input id="hoDate" class="inp" type="date" value="' + todayLocal() + '"></div>' +
-      '<div class="field"><label>Type</label><select id="hoType" class="inp">' + typeOpts + '</select></div></div>' +
+      '<div class="field"><label>Type</label><select id="hoType" class="inp" onchange="$(\'hoCloseBox\').classList.toggle(\'hidden\', this.value!==\'Short Day\')">' + typeOpts + '</select></div></div>' +
+      '<div class="field hidden" id="hoCloseBox"><label>Office closes at</label><input id="hoClose" class="inp" type="time" value="16:30"></div>' +
       '<div class="field"><label>Name</label><input id="hoName" class="inp" placeholder="e.g. Diwali, Republic Day"></div>' +
       '<button class="btn" id="hoBtn" onclick="saveHoliday()">Add holiday</button><div id="hoMsg"></div></div>';
     html += '<div class="card"><div class="month-nav"><button onclick="loadHolidays(' + (y - 1) + ')">‹</button><h2>Holidays ' + y + '</h2>' +
@@ -2186,14 +2195,14 @@
       var past = x.date < todayLocal();
       html += '<div class="list-item"' + (past ? ' style="opacity:.6"' : '') + '><div><div class="name">' + esc(x.name) + '</div>' +
         '<div class="sub">' + esc(fmtDate(x.date)) + ' · ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(x.date + 'T00:00:00').getDay()] + '</div></div>' +
-        '<div class="right"><span class="chip s-HOLIDAY">' + esc(x.type) + '</span>' +
+        '<div class="right">' + (x.closeAt ? '<span class="chip s-LATE">🕓 Closes ' + esc(x.closeAt) + '</span>' : '<span class="chip s-HOLIDAY">' + esc(x.type) + '</span>') +
         '<div><button class="link" onclick="editHoliday(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteHoliday(' + i + ')">Delete</button></div></div></div>';
     });
     adminBody(html + '</div>');
   }
 
   function saveHoliday() {
-    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value };
+    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value, closeAt: $('hoClose').value };
     $('hoBtn').disabled = true;
     api('adminSaveHoliday', S.token, h).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday saved: ' + h.name); })
       .catch(function (e) { $('hoBtn').disabled = false; $('hoMsg').innerHTML = errBox(e); });
@@ -2201,12 +2210,14 @@
   function editHoliday(i) {
     var x = S.holidays.list[i];
     $('hoDate').value = x.date; $('hoName').value = x.name; $('hoType').value = x.type;
+    $('hoCloseBox').classList.toggle('hidden', x.type !== 'Short Day'); if (x.closeAt) $('hoClose').value = x.closeAt;
     $('hoBtn').textContent = 'Save holiday';
     $('hoName').focus(); window.scrollTo(0, 0);
   }
   function deleteHoliday(i) {
     var x = S.holidays.list[i];
-    if (!confirm('Delete the holiday "' + x.name + '" on ' + fmtDate(x.date) + '? Employees without attendance that day will be marked absent.')) return;
+    if (!confirm(x.closeAt ? 'Delete the short day "' + x.name + '" on ' + fmtDate(x.date) + '? The normal office time applies again.'
+      : 'Delete the holiday "' + x.name + '" on ' + fmtDate(x.date) + '? Employees without attendance that day will be marked absent.')) return;
     api('adminDeleteHoliday', S.token, x.date).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday deleted'); }).catch(function (e) { toast(e.message); });
   }
 
@@ -2975,25 +2986,52 @@
 
     html += '<div class="card"><h2>Advances</h2>';
     if (!r.list.length) html += '<p class="muted">No advances yet.</p>';
+    // One card per employee: every payment as a row, then the combined amounts.
+    var groups = [], byEmp = {};
     r.list.forEach(function (a, i) {
-      var st = a.repaid ? '<span class="chip s-APPROVED">Repaid</span>' : chip(a.status);
-      html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(a.name) + ' <span class="muted" style="font-weight:400">' + esc(a.empId) + '</span></div>' + st + '</div>' +
-        givenHtml(a, cur) +
-        '<div class="sub">' + money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + '</div>' +
-        '<div class="kv" style="margin-top:8px"><div><b>' + money(a.deductedBefore, cur) + '</b><span>Recovered</span></div>' +
-        '<div' + (a.thisMonthChanged ? ' class="k-ot"' : '') + '><b>' + money(a.thisMonth, cur) + '</b><span>This month' + (a.thisMonthChanged ? ' (changed)' : '') + '</span></div>' +
-        '<div class="k-red"><b>' + money(a.balanceAfter, cur) + '</b><span>Balance after</span></div></div>' +
-        (a.changes.length ? '<div style="margin-top:8px">' + a.changes.map(function (c) {
-          return '<div class="row small" style="padding:4px 0"><span>📌 <b>' + esc(monthName(c.month)) + ':</b> ' +
-            (c.amount === 0 ? 'no deduction (skipped)' : 'deduct ' + money(c.amount, cur)) + (c.note ? ' <span class="muted">· ' + esc(c.note) + '</span>' : '') + '</span>' +
-            (c.locked ? '<span class="muted">locked</span>' : '<button class="link" style="color:var(--red)" onclick="clearAdvMonth(' + i + ',\'' + c.month + '\')">Undo</button>') + '</div>';
-        }).join('') + '</div>' : '') +
-        (a.status === 'CLOSED' || (a.repaid && !a.changes.length) ? '<div class="btns"><button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button></div>' : '<div class="btns">' +
-          '<button class="btn small" onclick="openAdvMonth(' + i + ')">Change a month</button>' +
-          '<button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button>' +
-          '<button class="btn small ghost" onclick="editAdvance(' + i + ')">Change monthly</button>' +
-          (a.status === 'ACTIVE' ? '<button class="btn small ghost" onclick="advStatus(' + i + ',\'PAUSED\')">Pause</button>' : '<button class="btn small ghost" onclick="advStatus(' + i + ',\'ACTIVE\')">Resume</button>') +
-          '<button class="btn small soft-red" onclick="advStatus(' + i + ',\'CLOSED\')">Close</button></div>') + '</div>';
+      if (!byEmp[a.empId]) { byEmp[a.empId] = { empId: a.empId, name: a.name, items: [] }; groups.push(byEmp[a.empId]); }
+      byEmp[a.empId].items.push({ a: a, i: i });
+    });
+    groups.forEach(function (g) {
+      var sum = function (k) { return g.items.reduce(function (n, x) { return n + (Number(x.a[k]) || 0); }, 0); };
+      var total = sum('amount'), thisMonth = sum('thisMonth'), after = sum('balanceAfter'), recovered = sum('deductedBefore');
+      var running = g.items.filter(function (x) { return !x.a.repaid && x.a.status !== 'CLOSED'; }).length;
+      var allRepaid = g.items.every(function (x) { return x.a.repaid; });
+      var st = allRepaid ? '<span class="chip s-APPROVED">Repaid</span>' : running ? chip('ACTIVE') : chip(g.items[0].a.status);
+      var rows = [];
+      g.items.forEach(function (x) {
+        (x.a.given && x.a.given.length ? x.a.given : [{ date: x.a.dateGiven, amount: x.a.amount, note: x.a.note }]).forEach(function (p) { rows.push(p); });
+      });
+      rows.sort(function (p, q) { return p.date < q.date ? -1 : p.date > q.date ? 1 : 0; });
+      html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(g.name) + ' <span class="muted" style="font-weight:400">' + esc(g.empId) + '</span></div>' + st + '</div>' +
+        '<table class="given"><tr><th>Date given</th><th class="r">Amount</th><th>Note</th></tr>' +
+        rows.map(function (p) { return '<tr><td>' + esc(fmtDate(p.date)) + '</td><td class="r">' + money(p.amount, cur) + '</td><td class="muted">' + esc(p.note || '') + '</td></tr>'; }).join('') +
+        (rows.length > 1 ? '<tr class="tot"><td>Total given</td><td class="r">' + money(total, cur) + '</td><td></td></tr>' : '') + '</table>' +
+        '<div class="kv" style="margin-top:8px"><div class="k-red"><b>' + money(total - recovered, cur) + '</b><span>Pending</span></div>' +
+        '<div><b>' + money(thisMonth, cur) + '</b><span>This month</span></div>' +
+        '<div class="k-red"><b>' + money(after, cur) + '</b><span>Balance after</span></div></div>' +
+        (recovered ? '<p class="muted small" style="margin:6px 0 0">Recovered so far: ' + money(recovered, cur) + '</p>' : '');
+      // Each advance keeps its own deduction and buttons.
+      g.items.forEach(function (x) {
+        var a = x.a, i = x.i, one = g.items.length === 1;
+        var inner = (one ? '' : '<div class="sub" style="margin:4px 0">' + money(a.amount, cur) + ' given ' + esc(fmtDate(a.dateGiven)) + (a.note ? ' · ' + esc(a.note) : '') +
+            ' · balance ' + money(a.balanceAfter, cur) + ' after this month</div>') +
+          '<div class="sub">' + money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + (a.thisMonthChanged ? ' · <b>this month changed</b>' : '') + '</div>' +
+          (a.changes.length ? '<div style="margin-top:6px">' + a.changes.map(function (c) {
+            return '<div class="row small" style="padding:4px 0"><span>📌 <b>' + esc(monthName(c.month)) + ':</b> ' +
+              (c.amount === 0 ? 'no deduction (skipped)' : 'deduct ' + money(c.amount, cur)) + (c.note ? ' <span class="muted">· ' + esc(c.note) + '</span>' : '') + '</span>' +
+              (c.locked ? '<span class="muted">locked</span>' : '<button class="link" style="color:var(--red)" onclick="clearAdvMonth(' + i + ',\'' + c.month + '\')">Undo</button>') + '</div>';
+          }).join('') + '</div>' : '') +
+          (a.status === 'CLOSED' || (a.repaid && !a.changes.length) ? '<div class="btns"><button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button></div>' : '<div class="btns">' +
+            '<button class="btn small" onclick="openAdvMonth(' + i + ')">Change a month</button>' +
+            '<button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button>' +
+            '<button class="btn small ghost" onclick="editAdvance(' + i + ')">Change monthly</button>' +
+            (a.status === 'ACTIVE' ? '<button class="btn small ghost" onclick="advStatus(' + i + ',\'PAUSED\')">Pause</button>' : '<button class="btn small ghost" onclick="advStatus(' + i + ',\'ACTIVE\')">Resume</button>') +
+            '<button class="btn small soft-red" onclick="advStatus(' + i + ',\'CLOSED\')">Close</button></div>');
+        html += one ? inner : '<details class="adv-one"><summary>Advance of ' + esc(fmtDate(a.dateGiven)) + ' · ' + money(a.amount, cur) + ' · ' +
+          (a.repaid ? 'repaid' : esc(t(STATUS[a.status] || a.status)).toLowerCase()) + ' — manage</summary>' + inner + '</details>';
+      });
+      html += '</div>';
     });
     html += '</div><p class="muted small center"><b>Add more</b> adds a new amount to a running advance (one balance, one deduction). ' +
       'Saving a new advance above instead keeps it separate, with its own deduction (both are deducted each month). <b>Change a month</b> sets a different amount (or no deduction) for one month only; the balance moves to later months. ' +
