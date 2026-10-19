@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261027;
+const SERVER_VERSION = 20261029;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -57,18 +57,19 @@ const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
 const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
-  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard'];
+  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut'];
 const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type'];
 const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
 
 const ATT_HEADERS = ['Date', 'Emp ID', 'Name', 'Check In', 'Check Out', 'Worked Hrs', 'Status', 'Late',
   'OT Hrs', 'In Lat', 'In Lng', 'In Distance (m)', 'In Accuracy (m)', 'Out Lat', 'Out Lng',
-  'Out Distance (m)', 'Selfie', 'Override Status', 'Admin Note', 'Out Accuracy (m)', 'OT Approved', 'Flags', 'Review'];
+  'Out Distance (m)', 'Selfie', 'Override Status', 'Admin Note', 'Out Accuracy (m)', 'OT Approved', 'Flags', 'Review', 'Breaks'];
 
 const COL = {
   DATE: 0, EMP: 1, NAME: 2, IN: 3, OUT: 4, WORKED: 5, STATUS: 6, LATE: 7, OT: 8,
   IN_LAT: 9, IN_LNG: 10, IN_DIST: 11, IN_ACC: 12, OUT_LAT: 13, OUT_LNG: 14, OUT_DIST: 15,
   SELFIE: 16, OVERRIDE: 17, NOTE: 18, OUT_ACC: 19, OT_APPROVED: 20, FLAGS: 21, REVIEW: 22,
+  BREAKS: 23, // time away between a check-out and checking in again, e.g. '13:00-15:30;17:00-17:20'
 };
 
 const REQ_HEADERS = ['ID', 'Created', 'Emp ID', 'Name', 'Type', 'From', 'To', 'In', 'Out', 'Leave Type',
@@ -672,7 +673,9 @@ function checkInCore_(emp, s, loc, selfieDataUrl, byEmp) {
   const today = todayStr_();
   assertUnlocked_(today);
   const existing = () => byDate_(readAttendance_(), emp.id)[today];
-  if (existing() && existing().in) throw new Error(who + ' already checked in today.');
+  const first = existing();
+  if (first && first.in && first.out) return checkInAgain_(emp, s, loc, byEmp, who); // back after going out
+  if (first && first.in) throw new Error(who + ' already checked in today.');
 
   // The selfie is saved before taking the lock so that a morning rush does not queue up on Drive uploads.
   const now = Utilities.formatDate(new Date(), tz_(), 'HH:mm');
@@ -724,6 +727,46 @@ function checkInCore_(emp, s, loc, selfieDataUrl, byEmp) {
     forget_('att');
     if (byEmp) audit_(byEmp, 'MARK_CHECKIN', emp.id, today, now + ' · ' + loc.dist + ' m from office');
     return { time: now, late: late, distance: loc.dist };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Checking in again after a check-out the same day: the time away (last check-out → now) becomes a break,
+ * the check-out is cleared and the day is "Working" again. The first check-in (late mark, selfie) stays.
+ */
+function checkInAgain_(emp, s, loc, byEmp, who) {
+  const today = todayStr_();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    forget_('att');
+    const rec = byDate_(readAttendance_(), emp.id)[today];
+    if (!rec || !rec.in) throw new Error(who + ' not checked in today.');
+    if (!rec.out) throw new Error(who + ' already checked in today.');
+    const now = Utilities.formatDate(new Date(), tz_(), 'HH:mm');
+    const outMin = toMinutes_(rec.out), nowMin = toMinutes_(now);
+    if (outMin <= toMinutes_(rec.in)) throw new Error('The check-out was after midnight. Ask an admin to change the entry.');
+    if (nowMin <= outMin) throw new Error(who + ' just checked out. Try again in a minute.');
+    const breaks = cleanBreaks_([rec.breaks, rec.out + '-' + now].filter(String).join(';'));
+    const sh = sheet_(SHEET.ATTENDANCE);
+    sh.getRange(rec.row, breaksCol_(sh)).setValue(breaks);
+    sh.getRange(rec.row, COL.OUT + 1, 1, 2).setValues([['', '']]); // check-out and worked hours
+    sh.getRange(rec.row, COL.STATUS + 1).setValue('WORKING');
+    sh.getRange(rec.row, COL.OT + 1).setValue('');
+    sh.getRange(rec.row, COL.OUT_LAT + 1, 1, 3).setValues([['', '', '']]);
+    sh.getRange(rec.row, COL.OUT_ACC + 1).setValue('');
+    const flags = rec.flags.split(/\s+/).filter(f => f && f !== 'PROXY_OUT' && f !== 'OUTSIDE_OUT' && f !== 'WEAK_GPS_OUT');
+    if (loc && loc.outside && flags.indexOf('OUTSIDE') < 0) flags.push('OUTSIDE');
+    sh.getRange(rec.row, COL.FLAGS + 1).setValue(flags.join(' '));
+    const line = 'Back in at ' + now + (byEmp ? ' (marked by ' + byEmp.name + ' (' + byEmp.id + '))' : '') +
+      (loc && isFinite(loc.dist) ? ' · ' + loc.dist + ' m from office' : '');
+    sh.getRange(rec.row, COL.NOTE + 1).setValue([rec.note, line].filter(String).join(' · '));
+    SpreadsheetApp.flush();
+    forget_('att');
+    if (byEmp) audit_(byEmp, 'MARK_CHECKIN_AGAIN', emp.id, today, rec.out + '–' + now + ' away');
+    return { time: now, again: true, away: rec.out + '–' + now, distance: loc ? loc.dist : '' };
   } finally {
     lock.releaseLock();
   }
@@ -971,7 +1014,9 @@ function proxyCheckIn(token, empId, lat, lng, accuracy, phoneClock, photoDataUrl
   const emp = proxyTarget_(ctx, empId);
   const s = getSettings_();
   checkPhoneClock_(s, phoneClock);
-  if (!/^data:image\//.test(String(photoDataUrl || ''))) throw new Error('Take a photo of ' + emp.name + ' to check them in.');
+  const cur = byDate_(readAttendance_(), emp.id)[todayStr_()];
+  const again = cur && cur.in && cur.out; // back after going out: the first check-in already has the photo
+  if (!again && !/^data:image\//.test(String(photoDataUrl || ''))) throw new Error('Take a photo of ' + emp.name + ' to check them in.');
   const r = checkInCore_(emp, s, checkLocation_(s, lat, lng, accuracy), photoDataUrl, ctx.emp);
   return Object.assign(r, { list: proxyList(token).list });
 }
@@ -1091,7 +1136,7 @@ function adminSummary(token, ym) {
     employees: rows.length, pfEmployees: pfRows.length,
     monthlySalary: sum(rows, 'salary'), earned: sum(rows, 'earned'), prorated: rows.some(r => r.prorated), otPay: sum(rows, 'otPay'),
     offDayPay: sum(rows, 'offDayPay'), offWorkCredit: sum(rows, 'offWorkCredit'), leaveDed: sum(rows, 'leaveDed'),
-    halfDayDed: sum(rows, 'halfDayDed'), lateCutDed: sum(rows, 'lateCutDed'), advance: sum(rows, 'advance'),
+    halfDayDed: sum(rows, 'halfDayDed'), lateCutDed: sum(rows, 'lateCutDed'), shortCutDed: sum(rows, 'shortCutDed'), advance: sum(rows, 'advance'),
     total: sum(rows, 'net'),
     present: sum(rows, 'present'), absent: rows.reduce((a, r) => a + r.absent + r.notJoined, 0), halfDay: sum(rows, 'halfDay'),
     leave: sum(rows, 'leave'), late: sum(rows, 'late'), lateMin: sum(rows, 'lateMin'), earlyMin: sum(rows, 'earlyMin'),
@@ -1164,7 +1209,7 @@ function adminGetEntry(token, empId, date) {
   return {
     empId: emp.id, name: emp.name, date: date, offType: off,
     exists: !!rec,
-    in: rec ? rec.in : '', out: rec ? rec.out : '', override: rec ? rec.override : '',
+    in: rec ? rec.in : '', out: rec ? rec.out : '', override: rec ? rec.override : '', breaks: rec ? rec.breaks || '' : '',
     note: rec ? String(rec.note || '') : '', hasSelfie: !!(rec && rec.selfie),
     otApproved: rec ? rec.otApproved : '', otNeedsApproval: s.otApproval,
     flags: rec ? rec.flags : '', markedBy: markedBy_(rec),
@@ -1413,7 +1458,7 @@ function adminStaff(token) {
     canSetRole: ctx.perms.superAdmin,
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
-      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard,
+      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard, lateCut: e.lateCut,
     })),
   };
 }
@@ -1439,6 +1484,7 @@ function adminSaveStaff(token, data) {
   const anywhere = data.anywhere === undefined ? null : !!data.anywhere;
   const timing = data.shiftStart === undefined ? null : shiftFields_(data);
   const gender = data.gender === undefined ? null : parseGender_(data.gender);
+  const lateCut = data.lateCut === undefined ? null : data.lateCut !== false;
   const genderCell = g => (g === 'M' ? 'Male' : g === 'F' ? 'Female' : '');
   const sh = sheet_(SHEET.EMPLOYEES);
   ensureHeaders_(sh, EMP_HEADERS);
@@ -1460,6 +1506,7 @@ function adminSaveStaff(token, data) {
       row[anyCol - 1] = anywhere ? 'Yes' : 'No';
       if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3]; }
       if (gender !== null) row[h['Gender']] = genderCell(gender);
+      if (lateCut !== null) row[h['Late Cut']] = lateCut ? 'Yes' : 'No';
       sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
       forget_('employees');
       audit_(ctx.emp, 'ADD_EMPLOYEE', id, joinDate, name + ', salary ' + salary);
@@ -1474,6 +1521,10 @@ function adminSaveStaff(token, data) {
       if (role && emp.role !== 'SUPER_ADMIN') sh.getRange(row, 5).setValue(role);
       sh.getRange(row, 6, 1, 3).setValues([[active ? 'Yes' : 'No', "'" + joinDate, phone]]);
       if (anywhere !== null) sh.getRange(row, anyCol).setValue(anywhere ? 'Yes' : 'No');
+      if (lateCut !== null && lateCut !== emp.lateCut) {
+        sh.getRange(row, headerIndex_(sh)['Late Cut'] + 1).setValue(lateCut ? 'Yes' : 'No');
+        audit_(ctx.emp, 'EDIT_LATE_CUT', emp.id, '', 'Cut late / early from salary (no hourly OT): ' + (lateCut ? 'Yes' : 'No'));
+      }
       if (gender !== null && gender !== emp.gender) {
         sh.getRange(row, headerIndex_(sh)['Gender'] + 1).setValue(genderCell(gender));
         audit_(ctx.emp, 'EDIT_GENDER', emp.id, '', (genderCell(emp.gender) || '-') + ' → ' + (genderCell(gender) || '-'));
@@ -1998,14 +2049,14 @@ function adminExportPayroll(token, ym) {
   const header = ['Emp ID', 'Name', 'Monthly Salary', 'Days Counted', 'Salary Earned', 'Present', 'Half Days',
     'Absent (Leaves)', 'Paid Leave', 'Week Off', 'Holidays', 'Worked on Off-Day', 'Late Marks', 'Late Mins',
     'Early Leaving Mins', 'OT Mins (gross)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
-    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Advance Deduction', 'Gross Payable',
+    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut (no OT)', 'Advance Deduction', 'Gross Payable',
     'PF', 'Basic Salary (PF)', 'PF Employee', 'PF Employer']
     .concat(split ? ['In Bank', 'In Cash'] : []).concat(['Total Salary']);
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
     (r.elapsedDays === undefined ? r.daysInMonth : r.elapsedDays) + ' / ' + r.daysInMonth,
     r.earned === undefined ? r.salary : r.earned, r.present, r.halfDay, r.absent + r.notJoined, r.leave,
     r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, r.otMinGross, r.otMin, r.otHours, r.perDay,
-    r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.advance || 0, r.gross,
+    r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.gross,
     r.pf ? 'Yes' : 'No', r.pf ? r.pfBankSalary : '', r.pf ? r.pfEmployee : '', r.pf ? r.pfEmployer : '',
   ].concat(split ? [r.pf ? r.bank : '', r.pf ? r.cash : ''] : []).concat([r.net]));
   const status = data.locked ? 'Final (locked by ' + data.locked.by + ' on ' + data.locked.at + ')'
@@ -2211,6 +2262,10 @@ function cleanEntry_(e) {
     override: OVERRIDE_VALUES.indexOf(String(e.override || '').toUpperCase()) >= 0 ? String(e.override).toUpperCase() : '',
     note: String(e.note || '').trim().slice(0, 300),
   };
+  if (e.breaks !== undefined) {
+    out.breaks = cleanBreaks_(e.breaks);
+    if (String(e.breaks || '').trim() && !out.breaks) throw new Error('Write the time away like 13:00-15:30 (several with ;).');
+  }
   if (e.otApproved !== undefined) {
     const v = String(e.otApproved || '').toUpperCase();
     out.otApproved = v === 'YES' || v === 'NO' ? v : '';
@@ -2249,7 +2304,8 @@ function upsertEntry_(data, emp, date, e, byEmp, overwrite) {
   if (rec && !overwrite) return { skipped: true };
   assertUnlocked_(date);
 
-  const calc = evaluateDay_({ empId: emp.id, in: e.in, out: e.out, override: e.override, otApproved: e.otApproved || (rec ? rec.otApproved : '') },
+  const breaks = e.breaks !== undefined ? e.breaks : (rec ? rec.breaks || '' : '');
+  const calc = evaluateDay_({ empId: emp.id, in: e.in, out: e.out, override: e.override, breaks: breaks, otApproved: e.otApproved || (rec ? rec.otApproved : '') },
     data.s, offType_(date, data.s, data.holidays), date === todayStr_());
   const note = e.note || ('Entered by ' + byEmp.name);
   const status = [e.in ? "'" + e.in : '', e.out ? "'" + e.out : '', calc.worked, calc.status, calc.late ? 'Yes' : '', calc.ot];
@@ -2258,6 +2314,7 @@ function upsertEntry_(data, emp, date, e, byEmp, overwrite) {
     data.sh.getRange(rec.row, COL.IN + 1, 1, status.length).setValues([status]);
     data.sh.getRange(rec.row, COL.OVERRIDE + 1, 1, 2).setValues([[e.override, note]]);
     if (e.otApproved !== undefined) data.sh.getRange(rec.row, COL.OT_APPROVED + 1).setValue(e.otApproved);
+    if (e.breaks !== undefined && e.breaks !== (rec.breaks || '')) data.sh.getRange(rec.row, breaksCol_(data.sh)).setValue(e.breaks);
     if (rec.review === 'PENDING') data.sh.getRange(rec.row, COL.REVIEW + 1).setValue(clearedText_(byEmp));
     return { created: false, before: entryText_(rec) + (rec.review === 'PENDING' ? ' (missed check-out)' : '') };
   }
@@ -2270,13 +2327,14 @@ function upsertEntry_(data, emp, date, e, byEmp, overwrite) {
   row[COL.OVERRIDE] = e.override;
   row[COL.NOTE] = note;
   row[COL.OT_APPROVED] = e.otApproved || '';
+  if (e.breaks) { row[COL.BREAKS] = e.breaks; breaksCol_(data.sh); }
   data.newRows.push(row);
   data.map[emp.id + '|' + date] = { row: -1 };
   return { created: true, before: '(none)' };
 }
 
 function entryText_(e) {
-  return [e.in ? 'in ' + e.in : '', e.out ? 'out ' + e.out : '', e.override || ''].filter(String).join(' ') || '(empty)';
+  return [e.in ? 'in ' + e.in : '', e.out ? 'out ' + e.out : '', e.breaks ? 'away ' + e.breaks : '', e.override || ''].filter(String).join(' ') || '(empty)';
 }
 
 function audit_(byEmp, action, empId, date, details) {
@@ -2347,7 +2405,7 @@ function dayWorkedMin_(rec, es) {
   }
   if (outMin <= inMin && es.overnight) outMin += 1440;
   const from = es.morningOt === false ? Math.max(inMin, es.shiftStartMin) : inMin;
-  return Math.max(0, outMin - from);
+  return Math.max(0, outMin - from - breakOverlap_(rec.breaks, from, outMin));
 }
 
 /**
@@ -2359,11 +2417,12 @@ function evaluateDay_(rec, s, offType, isToday) {
   const inMin = toMinutes_(rec.in);
   let outMin = toMinutes_(rec.out);
   if (inMin != null && outMin != null && outMin <= inMin && s.overnight) outMin += 1440; // next-day check-out
-  const workedMin = inMin != null && outMin != null && outMin > inMin ? outMin - inMin : 0;
+  const workedMin = inMin != null && outMin != null && outMin > inMin ? outMin - inMin - breakOverlap_(rec.breaks, inMin, outMin) : 0;
   const d = {
     in: rec.in || '', out: rec.out || '', worked: round2_(workedMin / 60), ot: 0, otMin: 0, otPending: 0,
     late: false, lateMin: 0, earlyMin: 0, status: '', overnight: outMin != null && outMin >= 1440,
   };
+  if (rec.breaks) { d.breaks = rec.breaks; d.breakMin = breakTotal_(rec.breaks); }
 
   if (rec.override) d.status = rec.override;
   else if (offType) d.status = inMin != null ? 'OFF_WORK' : offType;
@@ -2386,7 +2445,8 @@ function evaluateDay_(rec, s, offType, isToday) {
     // Working on the weekly off: hours inside the week-off shift earn a half / full day's extra pay,
     // time before its start or after its end is OT. Nothing is counted until the check-out.
     if (workedMin > 0) {
-      const inside = Math.max(0, Math.min(outMin, s.woEndMin) - Math.max(inMin, s.woStartMin));
+      const wa = Math.max(inMin, s.woStartMin), wb = Math.min(outMin, s.woEndMin);
+      const inside = Math.max(0, wb - wa - (wb > wa ? breakOverlap_(rec.breaks, wa, wb) : 0));
       d.offInsideMin = inside;
       d.offCredit = inside >= s.woFullHours * 60 ? 1 : (inside >= s.woHalfHours * 60 ? 0.5 : 0);
       otMin = workedMin - inside;
@@ -2394,7 +2454,7 @@ function evaluateDay_(rec, s, offType, isToday) {
   } else if (d.status !== 'ABSENT' && d.status !== 'LEAVE') {
     otMin = offType ? (s.offDayOt ? workedMin : 0)
       : s.hourlyOt === false ? 0
-      : s.morningOt === false ? Math.max(0, outMin - shiftEnd) // evening OT only: coming early does not count
+      : s.morningOt === false ? Math.max(0, outMin - shiftEnd - breakOverlap_(rec.breaks, shiftEnd, outMin)) // evening OT only
       : Math.max(0, workedMin - s.standardHours * 60);
   }
   if (s.otBlock > 0) otMin = Math.floor(otMin / s.otBlock) * s.otBlock;
@@ -2418,7 +2478,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0, offWorkCredit: 0,
     notJoined: 0, late: 0, lateMin: 0, earlyMin: 0, workedHours: 0, otMinGross: 0, otMin: 0, otHours: 0,
     otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
-    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0, absentWorkMin: 0,
+    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0, absentWorkMin: 0, shortMin: 0,
   };
   const days = [];
   const es = empSettings_(emp, s); // own shift length / hourly OT / morning OT
@@ -2478,6 +2538,9 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
         t.targetMin += shift;
         t.workedMin += w;
         d.dayOtMin = hourly ? w - shift : 0;
+        // No hourly OT: there is no OT to take short time from, so late coming / early leaving on a full day
+        // is cut from the salary by the minute (unless "Late Cut" is off for this employee).
+        if (!hourly && es.lateCut !== false && w < shift) { t.shortMin += shift - w; d.shortCutMin = shift - w; }
       } else if (d.status === 'HALF_DAY') {
         const w = dayWorkedMin_(rec, es);
         t.halfDayExtraMin += Math.max(0, w - Math.round(shift / 2));
@@ -2544,7 +2607,8 @@ function calcPay_(emp, s, t, dim, advanceWanted) {
   const leaveDed = R((t.absent + t.notJoined) * perDay);
   const halfDayDed = R(t.halfDay * 0.5 * perDay);
   const lateCutDed = R(t.lateCutDays * perDay);
-  const deduction = Math.min(earned, leaveDed + halfDayDed + lateCutDed);
+  const shortCutDed = R((t.shortMin || 0) * perMin); // late / early on full days, employees without hourly OT
+  const deduction = Math.min(earned, leaveDed + halfDayDed + lateCutDed + shortCutDed);
   const otPay = R(t.otMin * perMin * s.otMultiplier);
   const offDayPay = R((t.offWorkCredit || 0) * perDay); // extra pay for working on the weekly off
   const gross = round2_(earned - deduction + otPay + offDayPay);
@@ -2552,7 +2616,7 @@ function calcPay_(emp, s, t, dim, advanceWanted) {
   const pay = {
     salary: round2_(emp.salary), earned: earned, prorated: ratio < 1, elapsedDays: t.elapsedDays, daysInMonth: dim,
     perDay: round2_(perDay), hourly: round2_(perHour), perMin: round2_(perMin),
-    leaveDed: leaveDed, halfDayDed: halfDayDed, lateCutDed: lateCutDed, deduction: round2_(deduction),
+    leaveDed: leaveDed, halfDayDed: halfDayDed, lateCutDed: lateCutDed, shortCutDed: shortCutDed, deduction: round2_(deduction),
     otPay: otPay, offDayPay: offDayPay, gross: gross, advance: 0,
     pf: false, pfBankSalary: 0, pfEmployee: 0, pfEmployer: 0, bank: 0, cash: 0, net: gross,
   };
@@ -2755,6 +2819,7 @@ function payslipHtml_(emp, m) {
   let ded = row('Leaves (' + (t.absent + t.notJoined) + ' days)', money(p.leaveDed)) +
     row('Half Days (' + t.halfDay + ')', money(p.halfDayDed));
   if (p.lateCutDed) ded += row('Late marks', money(p.lateCutDed));
+  if (p.shortCutDed) ded += row('Late coming / early leaving (' + mins(t.shortMin) + ')', money(p.shortCutDed));
   if (p.advance) ded += row('Advance recovery', money(p.advance));
   if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + ')', money(p.pfEmployee));
   const totalDed = p.deduction + (p.advance || 0) + (p.pf ? p.pfEmployee : 0);
@@ -3010,6 +3075,7 @@ function getPeople_() {
           morningOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Morning OT')).trim()),
           gender: parseGender_(get(r, 'Gender')),
           leaderboard: !/^(n|no|false|0|off)$/i.test(String(get(r, 'In Leaderboard')).trim()), // blank = Yes
+          lateCut: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Late Cut')).trim()), // blank = Yes
           pf: {
             active: /^(y|yes|true|1|on)$/i.test(String(get(r, 'PF Active')).trim()),
             bankSalary: get(r, 'PF Bank Salary'),
@@ -3087,7 +3153,7 @@ function empSettings_(emp, s) {
   const start = toMinutes_(emp.shiftStart), end = toMinutes_(emp.shiftEnd);
   const own = start != null && end != null && start !== end;
   let o = s;
-  if (own || emp.hourlyOt === false || emp.morningOt === false) {
+  if (own || emp.hourlyOt === false || emp.morningOt === false || emp.lateCut === false) {
     o = Object.assign({}, s);
     if (own) {
       const hours = ((end - start + 1440) % 1440) / 60;
@@ -3099,6 +3165,7 @@ function empSettings_(emp, s) {
     }
     if (emp.hourlyOt === false) o.hourlyOt = false;
     if (emp.morningOt === false) o.morningOt = false;
+    if (emp.lateCut === false) o.lateCut = false;
   }
   emp._sBase = s; emp._s = o;
   return o;
@@ -3119,7 +3186,8 @@ function readAttendance_() {
     if (last < 2) return [];
     const c = cachedAttendance_(last);
     if (c.rows) return c.rows.map(attFromCache_);
-    const rows = sh.getRange(2, 1, last - 1, ATT_HEADERS.length).getValues().map((r, i) => {
+    const width = Math.min(ATT_HEADERS.length, sh.getMaxColumns()); // older sheets may not have the last columns yet
+    const rows = sh.getRange(2, 1, last - 1, width).getValues().map((r, i) => {
       const ov = String(r[COL.OVERRIDE]).trim().toUpperCase().replace(/[\s-]+/g, '_');
       const ota = String(r[COL.OT_APPROVED] || '').trim().toUpperCase();
       return {
@@ -3136,6 +3204,7 @@ function readAttendance_() {
         otApproved: ota === 'YES' || ota === 'NO' ? ota : '',
         flags: String(r[COL.FLAGS] || '').trim(),
         review: reviewState_(r[COL.REVIEW]),
+        breaks: cleanBreaks_(r[COL.BREAKS]),
       };
     }).filter(a => a.date && a.empId);
     storeAttendance_(c.version, last, rows.map(attToCache_));
@@ -3144,12 +3213,51 @@ function readAttendance_() {
 }
 
 const ATT_CACHE_FIELDS = ['row', 'date', 'empId', 'in', 'out', 'inLat', 'inLng', 'inDist', 'inAcc', 'selfie', 'override',
-  'note', 'otApproved', 'flags', 'review'];
+  'note', 'otApproved', 'flags', 'review', 'breaks'];
 function attToCache_(a) { return ATT_CACHE_FIELDS.map(k => a[k]); }
 function attFromCache_(x) {
   const a = {};
   ATT_CACHE_FIELDS.forEach((k, i) => { a[k] = x[i]; });
+  if (a.breaks == null) a.breaks = '';
   return a;
+}
+
+/*
+ * Breaks: someone checks out, leaves the office for a while and checks in again. The day keeps its first
+ * check-in and last check-out; the time away is kept as 'HH:mm-HH:mm' pieces (';' between) and is not
+ * counted as worked time. Late still uses the first check-in and early leaving the last check-out.
+ */
+function cleanBreaks_(v) {
+  if (v instanceof Date) return '';
+  return String(v || '').split(/[;,]\s*/).map(x => {
+    const m = x.trim().match(/^(\d{1,2}:\d{2})\s*[-–]\s*(\d{1,2}:\d{2})$/);
+    if (!m) return '';
+    const a = toTimeStr_(m[1]), b = toTimeStr_(m[2]);
+    return a && b && toMinutes_(b) > toMinutes_(a) ? a + '-' + b : '';
+  }).filter(String).join(';');
+}
+
+/** [[startMin, endMin], …] of a day's breaks. */
+function breakList_(breaks) {
+  return String(breaks || '').split(';').filter(String).map(x => x.split('-').map(toMinutes_))
+    .filter(p => p[0] != null && p[1] != null && p[1] > p[0]);
+}
+
+/** Minutes of the breaks that fall between a and b. */
+function breakOverlap_(breaks, a, b) {
+  return breakList_(breaks).reduce((n, p) => n + Math.max(0, Math.min(b, p[1]) - Math.max(a, p[0])), 0);
+}
+
+function breakTotal_(breaks) {
+  return breakList_(breaks).reduce((n, p) => n + p[1] - p[0], 0);
+}
+
+/** The Breaks column (added to older sheets the first time it is needed). */
+function breaksCol_(sh) {
+  if (String(sh.getRange(1, COL.BREAKS + 1).getValue()).trim() !== 'Breaks') {
+    sh.getRange(1, COL.BREAKS + 1).setValue('Breaks').setFontWeight('bold').setBackground('#e8eefc');
+  }
+  return COL.BREAKS + 1;
 }
 
 /** First row per date for one employee (a row with a check-in wins over one without). */

@@ -467,10 +467,16 @@
     '🎆 Men\'s champion of {month}': '🎆 {month} के चैंपियन · पुरुष', '🎆 Women\'s champion of {month}': '🎆 {month} की चैंपियन · महिलाएँ', 'You!': 'आप!', 'Most OT hours among men': 'पुरुषों में सबसे ज़्यादा ओवरटाइम',
     'Most OT hours among women': 'महिलाओं में सबसे ज़्यादा ओवरटाइम', 'No OT yet this month.': 'इस महीने अभी कोई ओवरटाइम नहीं।',
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
+    'Late coming / early leaving': 'देर से आना / जल्दी जाना',
+    'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
     'day.short': 'शिफ्ट से {m} कम काम। यह महीने के बाकी दिनों के ओवरटाइम से कटता है (शून्य से कम नहीं)।',
     'Late + early leaving': 'देर + जल्दी जाना', 'Early leaving': 'जल्दी जाना', 'Short time': 'कम समय',
     'day.absentot': 'आधे दिन के लिए घंटे कम: दिन की तनख्वाह कटती है, किया गया काम ओवरटाइम में मिलता है।',
+    '↩ Check in again': '↩ फिर से चेक-इन करें', 'Check in again': 'फिर से चेक-इन',
+    'again.info': 'बाहर गए थे और वापस आए? फिर से चेक-इन करें। बाहर का समय काम में नहीं गिना जाता।',
+    'Back in at {time} · away {a}': '{time} पर वापस · बाहर {a}', 'Away {list} ({m}) · not counted as worked': 'बाहर {list} ({m}) · काम में नहीं गिना',
+    'In again': 'फिर से इन', 'away {m}': 'बाहर {m}', '{n} back in at {t}': '{n} {t} पर वापस', '{n} is back in the office? Check in again now.': '{n} ऑफिस वापस आ गए? अभी फिर से चेक-इन करें।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
@@ -498,6 +504,8 @@
     'home.selfie': ' A selfie is required at check-in.',
     'home.forgot': ' Forgot to check in or out? Use <b>Requests</b>.',
     'missed.days': '⚠ {n} day(s) without check-out',
+    'again.info': 'Went out and came back? Check in again. The time away is not counted as worked.',
+    'day.shortcut': 'Worked {m} less than the shift. No hourly OT for this employee, so it is cut from the salary.',
     'day.short': 'Worked {m} less than the shift. This is cut from the OT of other days in the month (never below zero).',
     'day.absentot': 'Too few hours for a half day: the day\'s salary is cut, the time worked is paid as OT.',
     'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.absentwork': '+ time worked on days counted absent (too few hours) {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
@@ -921,7 +929,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261027;
+  var NEEDS_SERVER = 20261029;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -959,7 +967,7 @@
       '<div><b>' + esc(r && r.in || '--:--') + '</b><span>' + t('Check-in') + '</span></div>' +
       '<div><b>' + esc(r && r.out || '--:--') + '</b><span>' + t('Check-out') + '</span></div>' +
       '<div><b>' + (d.worked ? hrs(d.worked) : '–') + '</b><span>' + t('Worked') + (d.ot ? ' · ' + t('OT {m}', { m: hrs(d.ot) }) : '') + '</span></div>' +
-      '</div>';
+      '</div>' + awayHtml(d);
 
     if (r && !checkedIn && r.override && state === 'in') {
       html += '<div class="msg info">' + t('marked.today', { status: esc(t(STATUS[r.override])) }) + '</div>';
@@ -968,7 +976,9 @@
     if (state === 'out') html += '<button class="big-btn" style="background:var(--red)" onclick="startFlow(\'out\')">' + t('CHECK OUT') + '</button>';
     if (state === 'outPrev') html += '<div class="msg info">' + t('open.prev', { date: esc(fmtDate(prev.date)), time: esc(prev.in) }) + '</div>' +
       '<button class="big-btn" style="background:var(--red)" onclick="startFlow(\'out\')">' + t('CHECK OUT (night shift)') + '</button>';
-    if (state === 'done') html += '<div class="msg ok center">' + t('✓ Attendance complete for today') + '</div>';
+    if (state === 'done') html += '<div class="msg ok center">' + t('✓ Attendance complete for today') + '</div>' +
+      (r && r.in && r.out && r.out > r.in ? '<button class="btn ghost" onclick="startFlow(\'again\')">' + t('↩ Check in again') + '</button>' +
+        '<p class="muted small center" style="margin:4px 0 0">' + t('again.info') + '</p>' : '');
     if (state === 'refreshing') html += '<button class="big-btn" style="background:var(--gray)" disabled><span class="spinner"></span> ' + t('Updating…') + '</button>';
     if (state === 'badtime') html += '<div class="msg err">' + t('badtime') + '</div>' +
       '<button class="btn" onclick="loadHome()">' + t('Reload') + '</button>';
@@ -1084,9 +1094,9 @@
 
   function renderFlow() {
     var f = S.flow, el = $('flow'); if (!el || !f) return;
-    var needSelfie = f.mode === 'in' && S.home.selfieRequired;
+    var needSelfie = f.mode === 'in' && S.home.selfieRequired; // not again: the first check-in has the selfie
     var locOk = f.pos && !f.error;
-    var html = '<div class="card"><h2>' + t(f.mode === 'in' ? 'Check In' : 'Check Out') + '</h2>';
+    var html = '<div class="card"><h2>' + t(f.mode === 'in' ? 'Check In' : f.mode === 'again' ? 'Check in again' : 'Check Out') + '</h2>';
 
     html += '<div class="flow-step ' + (locOk ? 'done' : (f.error ? 'fail' : '')) + '"><div class="dot">' + (locOk ? '✓' : (f.error ? '!' : '1')) + '</div><div style="flex:1">' +
       '<b>' + t('Location') + '</b><br>';
@@ -1106,8 +1116,8 @@
     }
 
     var ready = locOk && (!needSelfie || f.selfie);
-    html += '<button class="btn ' + (f.mode === 'in' ? 'green' : 'red') + '" ' + (ready && !f.busy ? '' : 'disabled') + ' onclick="submitFlow()">' +
-      (f.busy ? '<span class="spinner"></span> ' + t('Saving…') : t(f.mode === 'in' ? 'Confirm Check-In' : 'Confirm Check-Out')) + '</button>';
+    html += '<button class="btn ' + (f.mode === 'out' ? 'red' : 'green') + '" ' + (ready && !f.busy ? '' : 'disabled') + ' onclick="submitFlow()">' +
+      (f.busy ? '<span class="spinner"></span> ' + t('Saving…') : t(f.mode === 'out' ? 'Confirm Check-Out' : 'Confirm Check-In')) + '</button>';
     html += '<button class="btn ghost" onclick="cancelFlow()" ' + (f.busy ? 'disabled' : '') + '>' + t('Cancel') + '</button></div>';
     el.innerHTML = html;
   }
@@ -1167,12 +1177,13 @@
     var f = S.flow; if (!f || f.busy) return;
     f.busy = true; renderFlow();
     var p = f.pos;
-    var call = f.mode === 'in'
+    var call = f.mode !== 'out'
       ? api('checkIn', S.token, p.lat, p.lng, p.accuracy, f.selfie, phoneClock())
       : api('checkOut', S.token, p.lat, p.lng, p.accuracy, phoneClock());
     call.then(function (r) {
       S.flow = null; S.monthCache = {};
-      toast(f.mode === 'in'
+      toast(r.again ? t('Back in at {time} · away {a}', { time: r.time, a: r.away })
+        : f.mode !== 'out'
         ? t('Checked in at {time}', { time: r.time }) + (r.late ? t(' (Late)') : '')
         : t('Checked out at {time} · Worked {w}', { time: r.time, w: hrs(r.worked) }) + (r.ot ? ' · ' + t('OT {m}', { m: hrs(r.ot) }) : ''));
       loadHome();
@@ -1335,6 +1346,7 @@
         payLine(t('Leaves') + ' <span class="muted">(' + t('{n} days', { n: tt.absent + tt.notJoined }) + ')</span>', '− ' + money(p.leaveDed, cur), 'red') +
         payLine(t('Half Days') + ' <span class="muted">(' + tt.halfDay + ')</span>', '− ' + money(p.halfDayDed, cur), 'red') +
         (p.lateCutDed ? payLine(t('Late marks cut') + ' <span class="muted">(' + t('{n} days', { n: num(tt.lateCutDays) }) + ')</span>', '− ' + money(p.lateCutDed, cur), 'red') : '') +
+        (p.shortCutDed ? payLine(t('Late coming / early leaving') + ' <span class="muted">(' + mins(tt.shortMin) + ')</span>', '− ' + money(p.shortCutDed, cur), 'red') : '') +
         (p.advance ? payLine(t('Advance recovery'), '− ' + money(p.advance, cur), 'red') : '');
       (m.advances || []).forEach(function (a, ai) {
         if (navArg && m.canManageAdvance) {
@@ -1369,7 +1381,7 @@
       html += '<div class="card"><h2>' + t('Daily log') + '</h2>';
       worked.slice().reverse().forEach(function (d) {
         html += '<div class="list-item"><div><div class="name">' + esc(fmtDate(d.date)) + '</div>' +
-          '<div class="sub">' + esc(d.in) + ' → ' + (d.autoOut ? '<b style="color:var(--red)">' + t('no check-out') + '</b>' : esc(d.out || '—')) + (d.overnight ? t(' (+1 day)') : '') + ' · ' + hrs(d.worked) +
+          '<div class="sub">' + esc(d.in) + ' → ' + (d.autoOut ? '<b style="color:var(--red)">' + t('no check-out') + '</b>' : esc(d.out || '—')) + (d.overnight ? t(' (+1 day)') : '') + (d.breakMin ? ' · ' + t('away {m}', { m: mins(d.breakMin) }) : '') + ' · ' + hrs(d.worked) +
           (d.otMin ? ' · <span style="color:var(--ot)">' + t('OT {m}', { m: mins(d.otMin) }) + '</span>' : '') +
           (d.otPending ? ' · <span style="color:var(--amber)">' + t('OT {m} pending', { m: mins(d.otPending) }) + '</span>' : '') +
           (d.lateMin ? ' · <span style="color:var(--orange)">' + t('Late {m}', { m: mins(d.lateMin) }) + '</span>' : '') +
@@ -1393,6 +1405,13 @@
     Array.prototype.forEach.call(document.querySelectorAll('.fchip'), function (b) { b.classList.toggle('on', b.classList.contains('fc-' + f)); });
   }
 
+  /** Time away between a check-out and checking in again (not counted as worked). */
+  function awayHtml(d) {
+    if (!d || !d.breaks) return '';
+    return '<p class="muted small" style="margin:8px 0 0">' + t('Away {list} ({m}) · not counted as worked', {
+      list: esc(d.breaks.split(';').map(function (b) { return b.replace('-', '–'); }).join(', ')), m: mins(d.breakMin || 0) }) + '</p>';
+  }
+
   /** OT minutes this day adds to the month (minus when the day was short of the shift). */
   function dayOtText(d) {
     if (d.dayOtMin === undefined) return mins(d.otMin);
@@ -1413,13 +1432,15 @@
     var salary = Math.round(p.perDay * share);
     var otMin = d.dayOtMin !== undefined ? d.dayOtMin : (d.otMin || 0);
     var ot = Math.round(otMin * (p.hourly || 0) / 60 * ((m.rules && m.rules.otMultiplier) || 1));
+    if (d.shortCutMin) { otMin = -d.shortCutMin; ot = -Math.round(d.shortCutMin * (p.hourly || 0) / 60); } // cut from salary (no hourly OT)
     var sign = function (n) { return (n < 0 ? '−' : '') + money(Math.abs(n), cur); };
     var html = '<div class="kv" style="margin-top:10px">' +
       '<div><b>' + money(salary, cur) + '</b><span>' + t('Salary for the day') + '</span></div>' +
       (ot < 0 ? '<div><b style="color:var(--red)">' + sign(ot) + '</b><span>' + t(shortLabel(d)) + ' (' + mins(-otMin) + ')</span></div>'
         : '<div class="k-ot"><b>' + sign(ot) + '</b><span>' + t('OT amount') + '</span></div>') +
       '<div><b style="color:var(' + (salary + ot < 0 ? '--red' : '--green') + ')">' + sign(salary + ot) + '</b><span>' + t('Total for the day') + '</span></div></div>';
-    if (otMin < 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.short', { m: mins(-otMin) }) + '</p>';
+    if (d.shortCutMin) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.shortcut', { m: mins(d.shortCutMin) }) + '</p>';
+    else if (otMin < 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.short', { m: mins(-otMin) }) + '</p>';
     else if (d.status === 'ABSENT' && otMin > 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.absentot') + '</p>';
     return html;
   }
@@ -1434,7 +1455,7 @@
     if (d.holidayName) html += '<p>🎉 ' + esc(d.holidayName) + '</p>';
     if (d.in) html += '<div class="kv"><div><b>' + esc(d.in) + '</b><span>' + t('In') + '</span></div><div><b>' + esc(d.out || '—') + (d.overnight ? '<small> +1</small>' : '') + '</b><span>' + t('Out') + '</span></div><div><b>' + hrs(d.worked) + '</b><span>' + t('Worked') + '</span></div></div>' +
       '<div class="kv" style="margin-top:10px"><div class="k-orange"><b>' + mins(d.lateMin) + '</b><span>' + t('Late') + '</span></div><div class="k-orange"><b>' + mins(d.earlyMin) + '</b><span>' + t('Early') + '</span></div><div class="k-ot"><b>' + dayOtText(d) + '</b><span>' + t('OT') + '</span></div></div>';
-    html += dayMoneyHtml(m, d);
+    html += awayHtml(d) + dayMoneyHtml(m, d);
     if (d.autoOut) html += '<div class="msg err">' + (S.viewMonthAdmin ? '⚠ No check-out. Auto-closed at midnight — waiting for an admin to clear it.' : t('day.missed')) + '</div>';
     if (d.offCredit !== undefined) {
       var wo = m.rules.weekOff || {};
@@ -1708,7 +1729,8 @@
       var i = r.list.indexOf(e);
       var btn = !e.in ? '<button class="btn small green" onclick="proxyMark(' + i + ',\'in\',this)">' + t('Check In') + '</button>'
         : !e.out ? '<button class="btn small red" onclick="proxyMark(' + i + ',\'out\',this)">' + t('Check Out') + '</button>'
-        : '<span class="chip s-PRESENT">' + t('✓ Done') + '</span>';
+        : (e.date === r.date && e.out > e.in ? '<button class="btn small ghost" onclick="proxyMark(' + i + ',\'again\',this)">' + t('In again') + '</button>'
+          : '<span class="chip s-PRESENT">' + t('✓ Done') + '</span>');
       html += '<div class="list-item"><div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
         '<div class="sub">' + (e.in ? t('In {t}', { t: esc(e.in) }) + (e.out ? ' · ' + t('Out {t}', { t: esc(e.out) }) : '') + (e.date !== r.date ? ' (' + esc(fmtDate(e.date)) + ')' : '') : t('Not checked in')) +
         (e.byOther ? ' · 👤 ' + proxyByText(e.markedBy) : '') + '</div></div><div class="right">' + btn + '</div></div>';
@@ -1721,6 +1743,10 @@
     if (!proxyTimeOk()) return toast(t('Phone time is not correct. Turn on automatic date & time.'));
     if (!proxyPosFresh()) { proxyLocate(); return toast(t('Checking location… tap again in a moment')); }
     if (mode === 'in') return proxyPhoto(i); // check-in needs a photo of the employee first
+    if (mode === 'again') {
+      if (!confirm(t('{n} is back in the office? Check in again now.', { n: e.name }))) return;
+      return proxySubmit(i, 'again', btn, null);
+    }
     if (!confirm(t('Check out {n} now?', { n: e.name }))) return;
     proxySubmit(i, mode, btn, null);
   }
@@ -1772,18 +1798,19 @@
   function proxySubmit(i, mode, btn, photo) {
     var e = S.proxy.data.list[i];
     if (mode === 'in' && !photo) return toast(t('A photo is required to check in.'));
+    var again = mode === 'again';
     btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>';
     var p = S.proxy.pos;
-    var call = mode === 'in' ? api('proxyCheckIn', S.token, e.id, p.lat, p.lng, p.accuracy, phoneClock(), photo)
+    var call = mode !== 'out' ? api('proxyCheckIn', S.token, e.id, p.lat, p.lng, p.accuracy, phoneClock(), photo)
       : api('proxyCheckOut', S.token, e.id, p.lat, p.lng, p.accuracy, phoneClock());
     call.then(function (r) {
       if (mode === 'in') { S.pxPhoto = null; closeModal(); }
       S.proxy.data.list = r.list;
       renderProxyList();
-      toast(mode === 'in' ? t('{n} checked in at {t}', { n: e.name, t: r.time }) + (r.late ? t(' (Late)') : '')
+      toast(again ? t('{n} back in at {t}', { n: e.name, t: r.time }) : mode === 'in' ? t('{n} checked in at {t}', { n: e.name, t: r.time }) + (r.late ? t(' (Late)') : '')
         : t('{n} checked out at {t} · {w}', { n: e.name, t: r.time, w: hrs(r.worked) }));
     }).catch(function (err) {
-      btn.disabled = false; btn.textContent = mode === 'in' ? t('Check In {n}', { n: e.name }) : t('Check Out'); toast(err.message);
+      btn.disabled = false; btn.textContent = again ? t('In again') : mode === 'in' ? t('Check In {n}', { n: e.name }) : t('Check Out'); toast(err.message);
     });
   }
 
@@ -1979,6 +2006,7 @@
       payLine('Leave deductions', '− ' + money(t.leaveDed, cur), 'red') +
       payLine('Half-day deductions', '− ' + money(t.halfDayDed, cur), 'red') +
       (t.lateCutDed ? payLine('Late-mark deductions', '− ' + money(t.lateCutDed, cur), 'red') : '') +
+      (t.shortCutDed ? payLine('Late / early cut (no hourly OT)', '− ' + money(t.shortCutDed, cur), 'red') : '') +
       (t.advance ? payLine('Advances recovered', '− ' + money(t.advance, cur), 'red') : '') +
       (t.pfEmployee ? payLine('PF employee share', '− ' + money(t.pfEmployee, cur), 'red') : '') +
       '</div></div>';
@@ -2353,6 +2381,7 @@
       (en.hasSelfie ? '<p class="muted small">This day was marked from the app (has selfie &amp; location). Changes keep them.</p>' : '') +
       '<div class="grid2"><div class="field"><label>Check-in</label><input id="edIn" class="inp" type="time" value="' + esc(en.in) + '"></div>' +
       '<div class="field"><label>Check-out</label><input id="edOut" class="inp" type="time" value="' + esc(en.out) + '"></div></div>' +
+      '<div class="field"><label>Time away (went out and came back)</label><input id="edBreaks" class="inp" value="' + esc((en.breaks || '').replace(/;/g, '; ')) + '" placeholder="e.g. 13:00-15:30 (several: 13:00-14:00; 17:00-17:20)"></div>' +
       '<div class="field"><label>Status</label>' + statusSelect('edStatus', en.override) + '</div>' +
       '<p class="muted small" style="margin:6px 0 0">"Auto" works out Present / Half Day / Late / OT from the times. Present / Half Day keep the late mark; Leave / Absent remove it.</p>' +
       (en.otNeedsApproval ? '<div class="field"><label>OT approval</label><select id="edOt" class="inp">' +
@@ -2380,7 +2409,7 @@
   function saveEntry() {
     var en = S.entry;
     $('edSave').disabled = true; $('edSave').innerHTML = '<span class="spinner"></span> Saving…';
-    var data = { empId: en.empId, date: en.date, in: $('edIn').value, out: $('edOut').value, override: $('edStatus').value, note: $('edNote').value };
+    var data = { empId: en.empId, date: en.date, in: $('edIn').value, out: $('edOut').value, override: $('edStatus').value, note: $('edNote').value, breaks: $('edBreaks').value };
     if ($('edOt')) data.otApproved = $('edOt').value;
     api('adminSaveEntry', S.token, data, entryMonth(en))
       .then(function (r) { afterEntryChange(en, r, '✓ Saved ' + esc(fmtDate(en.date))); })
@@ -2421,7 +2450,7 @@
         (e.gender ? '' : (e.role === 'GUARD' ? '' : '<div class="sub" style="color:var(--orange)">Gender not set</div>')) +
         (e.leaderboard === false && e.role !== 'GUARD' ? '<div class="sub">🏆 Not in the OT leaderboard</div>' : '') +
         (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
-          e.hourlyOt === false ? 'no hourly OT' : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
+          e.hourlyOt === false ? 'no hourly OT' + (e.lateCut === false ? ', no late cut' : ', late cut from salary') : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
         '<div><button class="link" onclick="openStaffForm(' + i + ')">Edit</button></div></div></div>';
     });
@@ -2474,8 +2503,9 @@
         '<p class="muted small" style="margin:4px 0 0">Leave empty for the company shift. With an own shift, late marks, early leaving and OT use these times.</p>' +
         '<div class="grid2"><div class="field"><label>Shift start</label><input id="sfShiftStart" class="inp" type="time" value="' + esc(e.shiftStart || '') + '"></div>' +
         '<div class="field"><label>Shift end</label><input id="sfShiftEnd" class="inp" type="time" value="' + esc(e.shiftEnd || '') + '"></div></div>' +
-        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
-        '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + '> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label></div>') +
+        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked;$(\'sfLateCut\').disabled=this.checked"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
+        '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + '> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label>' +
+        '<label class="check"><input type="checkbox" id="sfLateCut"' + (e.lateCut === false ? '' : ' checked') + (e.hourlyOt === false ? '' : ' disabled') + '> Cut late coming / early leaving from salary, by the minute (only without hourly OT; with hourly OT it is taken from the OT)</label></div>') +
       (e.role === 'GUARD' ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfAnywhere"' + (e.anywhere ? ' checked' : '') + '> Can mark from anywhere (outstation): no office distance check, location still recorded</label>') +
       (isNew ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfActive"' + (e.active ? ' checked' : '') + ' onchange="staffActiveChanged(' + i + ')"> Active (untick when someone leaves the company)</label>' +
         '<div id="sfActiveDate" class="field hidden"><label id="sfActiveLabel"></label><input id="sfActiveOn" class="inp" type="date"></div>' +
@@ -2559,7 +2589,7 @@
     }
     if ($('sfAnywhere')) data.anywhere = $('sfAnywhere').checked;
     if ($('sfGender')) data.gender = $('sfGender').value;
-    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; }
+    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; data.lateCut = $('sfLateCut').checked; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;
     api('adminSaveStaff', S.token, data).then(function (r) {
