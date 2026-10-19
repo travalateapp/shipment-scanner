@@ -34,7 +34,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261030;
+const SERVER_VERSION = 20261031;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -569,8 +569,9 @@ function parseGender_(v) {
 
 /**
  * OT leaderboard for one gender in a month: employees (not guards) employed that month and kept in the
- * leaderboard by the super admin, ranked by the month's net OT — the same OT the salary pays: time worked
- * beyond the shift, with late coming and early leaving already taken off, plus weekly-off / holiday OT.
+ * leaderboard by the super admin, ranked by the month's net OT: time worked beyond the shift on full days,
+ * with late coming and early leaving already taken off, plus weekly-off / holiday OT. OT from days the
+ * employee left early (half days, absent days) is not counted here, though the salary pays it.
  * Kept in the script cache for up to 15 minutes.
  */
 function otLeaders_(gender, ym) {
@@ -590,16 +591,25 @@ function otLeaders_(gender, ym) {
     let min = 0;
     if (locked) {
       const snap = getSnapshot_(ym, e.id);
-      min = snap && snap.totals ? snap.totals.otMin || 0 : 0;
+      min = snap && snap.totals ? leaderOtMin_(snap.totals) : 0;
     } else {
       const emp = Object.assign({}, e, { salary: salaryFor_(e, ym), baseSalary: baseSalary_(e) });
-      min = monthSummary_(emp, ym, s, byDate_(att, e.id), holidays, 0).totals.otMin || 0;
+      min = leaderOtMin_(monthSummary_(emp, ym, s, byDate_(att, e.id), holidays, 0).totals);
     }
     return { id: e.id, name: e.name, min: Math.round(min) };
   }).filter(x => x.min > 0)
     .sort((x, y) => y.min - x.min || x.name.localeCompare(y.name, 'en', { sensitivity: 'base' }));
   if (key) { try { cache.put(key, JSON.stringify(list), 21600); } catch (e) { /* ignore */ } }
   return list;
+}
+
+/**
+ * OT that counts for the leaderboard: the month's OT without the time worked on days the employee left early
+ * — the part beyond half the shift on half days, and the hours of days counted Absent. (The salary still
+ * pays that time as OT; only the ranking leaves it out.)
+ */
+function leaderOtMin_(t) {
+  return Math.max(0, (t.otMin || 0) - (t.earlyExitOtMin || 0));
 }
 
 function newLeaderVersion_() {
@@ -2673,7 +2683,8 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
   // from weekly-off / holiday work. Coming late or leaving early is already inside the worked minutes.
   // No hourly OT for this employee → only the weekly-off / holiday part.
   const weekdayOt = es.hourlyOt === false ? 0 : Math.max(0, t.workedMin - t.targetMin);
-  t.otMinGross = weekdayOt + (es.hourlyOt === false ? 0 : t.halfDayExtraMin + t.absentWorkMin) + t.offDayOtMin;
+  t.earlyExitOtMin = es.hourlyOt === false ? 0 : t.halfDayExtraMin + t.absentWorkMin; // left out of the leaderboard
+  t.otMinGross = weekdayOt + t.earlyExitOtMin + t.offDayOtMin;
   t.otMin = t.otMinGross;
   t.otHours = round2_(t.otMin / 60);
   t.workedHours = round2_(t.workedHours);
