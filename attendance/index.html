@@ -500,6 +500,8 @@
     'Face not recognised. Close this and use the list below (with photo).': 'चेहरा नहीं पहचाना गया। इसे बंद करें और नीचे की सूची से (फोटो के साथ) मार्क करें।',
     'No faces are registered yet. Ask the admin to register faces (Employees → Edit).': 'अभी कोई चेहरा रजिस्टर नहीं है। एडमिन से चेहरे रजिस्टर करवाएँ।',
     'Date given': 'दी गई तारीख', 'Amount': 'राशि', 'Note': 'नोट', 'Total': 'कुल',
+    '🕓 Office closes at {t} today ({n}). Leaving then counts as a full day.': '🕓 आज ऑफिस {t} बजे बंद होगा ({n})। तब जाना पूरा दिन गिना जाएगा।',
+    'closes {t}': '{t} बजे बंद', 'Office closed at {t} (short day)': 'ऑफिस {t} बजे बंद हुआ (छोटा दिन)',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
@@ -953,7 +955,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261033;
+  var NEEDS_SERVER = 20261034;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -984,6 +986,7 @@
       '<div class="muted">' + esc(isHi() ? hiDateLabel(h.today) : h.todayLabel) + '</div>' +
       '<div class="clock" id="clock">--:--</div>' +
       '<div>' + (h.offType ? chip(h.offType) + ' ' : '') + t('Shift starts {time}', { time: esc(h.shiftStart) }) + '</div>' +
+      (h.closeEarly ? '<div class="msg info" style="margin:8px 0 0">' + t('🕓 Office closes at {t} today ({n}). Leaving then counts as a full day.', { t: esc(h.closeEarly.closeAt), n: esc(h.closeEarly.name) }) + '</div>' : '') +
       '</div>';
 
     html += '<div class="card"><div class="row"><h2 style="margin:0">' + t('Today') + '</h2><div>' + chip(d.status) + lateChip(d.late) + '</div></div>';
@@ -1011,7 +1014,7 @@
 
     if (h.upcomingHolidays && h.upcomingHolidays.length) {
       html += '<div class="card"><h2>' + t('🎉 Upcoming holidays') + '</h2>' + h.upcomingHolidays.map(function (x) {
-        return '<div class="row small" style="padding:4px 0"><span>' + esc(x.name) + ' <span class="muted">· ' + esc(t(x.type)) + '</span></span><b>' + esc(fmtDate(x.date)) + '</b></div>';
+        return '<div class="row small" style="padding:4px 0"><span>' + esc(x.name) + ' <span class="muted">· ' + (x.closeAt ? t('closes {t}', { t: esc(x.closeAt) }) : esc(t(x.type))) + '</span></span><b>' + esc(fmtDate(x.date)) + '</b></div>';
       }).join('') + '</div>';
     }
     if (h.pendingRequests) html += '<div class="card"><div class="row"><span>' + t('pending.requests', { n: h.pendingRequests }) + '</span><button class="link" onclick="go(\'requests\')">' + t('View') + '</button></div></div>';
@@ -1606,6 +1609,7 @@
       '<div class="day-nav" style="margin-top:0">' + step(i - 1, '‹') + '<b style="font-size:20px">' + esc(fmtDate(d.date)) + '</b>' + step(i + 1, '›') + '</div><p>' + (chip(d.status) || '<span class="muted">' + t('No record') + '</span>') + lateChip(d.late) +
       (d.planned ? ' <span class="muted small">' + t('(approved, upcoming)') + '</span>' : '') + '</p>';
     if (d.holidayName) html += '<p>🎉 ' + esc(d.holidayName) + '</p>';
+    if (d.closeAt) html += '<p>🕓 ' + t('Office closed at {t} (short day)', { t: esc(d.closeAt) }) + '</p>';
     if (d.in) html += '<div class="kv"><div><b>' + esc(d.in) + '</b><span>' + t('In') + '</span></div><div><b>' + esc(d.out || '—') + (d.overnight ? '<small> +1</small>' : '') + '</b><span>' + t('Out') + '</span></div><div><b>' + hrs(d.worked) + '</b><span>' + t('Worked') + '</span></div></div>' +
       '<div class="kv" style="margin-top:10px"><div class="k-orange"><b>' + mins(d.lateMin) + '</b><span>' + t('Late') + '</span></div><div class="k-orange"><b>' + mins(d.earlyMin) + '</b><span>' + t('Early') + '</span></div><div class="k-ot"><b>' + dayOtText(d) + '</b><span>' + t('OT') + '</span></div></div>';
     html += awayHtml(d) + dayMoneyHtml(m, d);
@@ -2172,11 +2176,14 @@
 
   function renderHolidays(r) {
     S.holidays = r;
-    var y = +r.year, typeOpts = r.types.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('');
-    var html = '<div class="card"><h2>Add holiday</h2>' +
-      '<p class="muted small" style="margin:-6px 0 0">Employees are not marked absent on a holiday, and the day is paid. Anyone who works on it gets the holiday OT rule.</p>' +
+    var y = +r.year, typeOpts = r.types.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') +
+      '<option value="Short Day">Short day – office closes early</option>';
+    var html = '<div class="card"><h2>Add holiday / short day</h2>' +
+      '<p class="muted small" style="margin:-6px 0 0">Holiday: employees are not marked absent, and the day is paid. Anyone who works on it gets the holiday OT rule.<br>' +
+      '<b>Short day</b> (e.g. Dussehra, closing 16:30): a normal working day whose shift ends at the closing time. Leaving at that time is a full day with no early leaving or cut; full / half day hours shrink in the same proportion, and only time after closing is OT.</p>' +
       '<div class="grid2"><div class="field"><label>Date</label><input id="hoDate" class="inp" type="date" value="' + todayLocal() + '"></div>' +
-      '<div class="field"><label>Type</label><select id="hoType" class="inp">' + typeOpts + '</select></div></div>' +
+      '<div class="field"><label>Type</label><select id="hoType" class="inp" onchange="$(\'hoCloseBox\').classList.toggle(\'hidden\', this.value!==\'Short Day\')">' + typeOpts + '</select></div></div>' +
+      '<div class="field hidden" id="hoCloseBox"><label>Office closes at</label><input id="hoClose" class="inp" type="time" value="16:30"></div>' +
       '<div class="field"><label>Name</label><input id="hoName" class="inp" placeholder="e.g. Diwali, Republic Day"></div>' +
       '<button class="btn" id="hoBtn" onclick="saveHoliday()">Add holiday</button><div id="hoMsg"></div></div>';
     html += '<div class="card"><div class="month-nav"><button onclick="loadHolidays(' + (y - 1) + ')">‹</button><h2>Holidays ' + y + '</h2>' +
@@ -2186,14 +2193,14 @@
       var past = x.date < todayLocal();
       html += '<div class="list-item"' + (past ? ' style="opacity:.6"' : '') + '><div><div class="name">' + esc(x.name) + '</div>' +
         '<div class="sub">' + esc(fmtDate(x.date)) + ' · ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(x.date + 'T00:00:00').getDay()] + '</div></div>' +
-        '<div class="right"><span class="chip s-HOLIDAY">' + esc(x.type) + '</span>' +
+        '<div class="right">' + (x.closeAt ? '<span class="chip s-LATE">🕓 Closes ' + esc(x.closeAt) + '</span>' : '<span class="chip s-HOLIDAY">' + esc(x.type) + '</span>') +
         '<div><button class="link" onclick="editHoliday(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteHoliday(' + i + ')">Delete</button></div></div></div>';
     });
     adminBody(html + '</div>');
   }
 
   function saveHoliday() {
-    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value };
+    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value, closeAt: $('hoClose').value };
     $('hoBtn').disabled = true;
     api('adminSaveHoliday', S.token, h).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday saved: ' + h.name); })
       .catch(function (e) { $('hoBtn').disabled = false; $('hoMsg').innerHTML = errBox(e); });
@@ -2201,12 +2208,14 @@
   function editHoliday(i) {
     var x = S.holidays.list[i];
     $('hoDate').value = x.date; $('hoName').value = x.name; $('hoType').value = x.type;
+    $('hoCloseBox').classList.toggle('hidden', x.type !== 'Short Day'); if (x.closeAt) $('hoClose').value = x.closeAt;
     $('hoBtn').textContent = 'Save holiday';
     $('hoName').focus(); window.scrollTo(0, 0);
   }
   function deleteHoliday(i) {
     var x = S.holidays.list[i];
-    if (!confirm('Delete the holiday "' + x.name + '" on ' + fmtDate(x.date) + '? Employees without attendance that day will be marked absent.')) return;
+    if (!confirm(x.closeAt ? 'Delete the short day "' + x.name + '" on ' + fmtDate(x.date) + '? The normal office time applies again.'
+      : 'Delete the holiday "' + x.name + '" on ' + fmtDate(x.date) + '? Employees without attendance that day will be marked absent.')) return;
     api('adminDeleteHoliday', S.token, x.date).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday deleted'); }).catch(function (e) { toast(e.message); });
   }
 
