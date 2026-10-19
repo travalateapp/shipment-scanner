@@ -223,8 +223,8 @@
     .kiosk-msg.big { font-size: 22px; }
     .kiosk-msg.warn { background: var(--amber-soft); color: var(--amber); }
     .kiosk-msg.err { background: var(--red-soft); color: var(--red); }
-    details.adv-one { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 6px; }
-    details.adv-one summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 13px; padding: 4px 0; }
+    .adv-st { font-size: 12px; text-align: left; padding: 0; }
+    table.given td:first-child, table.given td.r { white-space: nowrap; }
     table.given { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 13px; }
     table.given th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
     table.given td { padding: 5px 6px; border-bottom: 1px dashed var(--line); }
@@ -3000,40 +3000,24 @@
       var st = allRepaid ? '<span class="chip s-APPROVED">Repaid</span>' : running ? chip('ACTIVE') : chip(g.items[0].a.status);
       var rows = [];
       g.items.forEach(function (x) {
-        (x.a.given && x.a.given.length ? x.a.given : [{ date: x.a.dateGiven, amount: x.a.amount, note: x.a.note }]).forEach(function (p) { rows.push(p); });
+        (x.a.given && x.a.given.length ? x.a.given : [{ date: x.a.dateGiven, amount: x.a.amount, note: x.a.note }]).forEach(function (p) { rows.push({ p: p, x: x }); });
       });
-      rows.sort(function (p, q) { return p.date < q.date ? -1 : p.date > q.date ? 1 : 0; });
+      rows.sort(function (u, v) { return u.p.date < v.p.date ? -1 : u.p.date > v.p.date ? 1 : 0; });
       html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(g.name) + ' <span class="muted" style="font-weight:400">' + esc(g.empId) + '</span></div>' + st + '</div>' +
-        '<table class="given"><tr><th>Date given</th><th class="r">Amount</th><th>Note</th></tr>' +
-        rows.map(function (p) { return '<tr><td>' + esc(fmtDate(p.date)) + '</td><td class="r">' + money(p.amount, cur) + '</td><td class="muted">' + esc(p.note || '') + '</td></tr>'; }).join('') +
-        (rows.length > 1 ? '<tr class="tot"><td>Total given</td><td class="r">' + money(total, cur) + '</td><td></td></tr>' : '') + '</table>' +
+        '<table class="given"><tr><th>Date given</th><th class="r">Amount</th><th>Note</th><th>Status</th></tr>' +
+        rows.map(function (u) {
+          return '<tr><td>' + esc(fmtDate(u.p.date)) + '</td><td class="r">' + money(u.p.amount, cur) + '</td><td class="muted">' + esc(u.p.note || '') + '</td>' +
+            '<td><button class="link adv-st" onclick="advManage(' + u.x.i + ')">' + advStatusText(u.x.a, cur) + ' ›</button></td></tr>';
+        }).join('') +
+        (rows.length > 1 ? '<tr class="tot"><td>Total given</td><td class="r">' + money(total, cur) + '</td><td></td><td></td></tr>' : '') + '</table>' +
         '<div class="kv" style="margin-top:8px"><div class="k-red"><b>' + money(total - recovered, cur) + '</b><span>Pending</span></div>' +
         '<div><b>' + money(thisMonth, cur) + '</b><span>This month</span></div>' +
         '<div class="k-red"><b>' + money(after, cur) + '</b><span>Balance after</span></div></div>' +
-        (recovered ? '<p class="muted small" style="margin:6px 0 0">Recovered so far: ' + money(recovered, cur) + '</p>' : '');
-      // Each advance keeps its own deduction and buttons.
-      g.items.forEach(function (x) {
-        var a = x.a, i = x.i, one = g.items.length === 1;
-        var inner = (one ? '' : '<div class="sub" style="margin:4px 0">' + money(a.amount, cur) + ' given ' + esc(fmtDate(a.dateGiven)) + (a.note ? ' · ' + esc(a.note) : '') +
-            ' · balance ' + money(a.balanceAfter, cur) + ' after this month</div>') +
-          '<div class="sub">' + money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + (a.thisMonthChanged ? ' · <b>this month changed</b>' : '') + '</div>' +
-          (a.changes.length ? '<div style="margin-top:6px">' + a.changes.map(function (c) {
-            return '<div class="row small" style="padding:4px 0"><span>📌 <b>' + esc(monthName(c.month)) + ':</b> ' +
-              (c.amount === 0 ? 'no deduction (skipped)' : 'deduct ' + money(c.amount, cur)) + (c.note ? ' <span class="muted">· ' + esc(c.note) + '</span>' : '') + '</span>' +
-              (c.locked ? '<span class="muted">locked</span>' : '<button class="link" style="color:var(--red)" onclick="clearAdvMonth(' + i + ',\'' + c.month + '\')">Undo</button>') + '</div>';
-          }).join('') + '</div>' : '') +
-          (a.status === 'CLOSED' || (a.repaid && !a.changes.length) ? '<div class="btns"><button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button></div>' : '<div class="btns">' +
-            '<button class="btn small" onclick="openAdvMonth(' + i + ')">Change a month</button>' +
-            '<button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button>' +
-            '<button class="btn small ghost" onclick="editAdvance(' + i + ')">Change monthly</button>' +
-            (a.status === 'ACTIVE' ? '<button class="btn small ghost" onclick="advStatus(' + i + ',\'PAUSED\')">Pause</button>' : '<button class="btn small ghost" onclick="advStatus(' + i + ',\'ACTIVE\')">Resume</button>') +
-            '<button class="btn small soft-red" onclick="advStatus(' + i + ',\'CLOSED\')">Close</button></div>');
-        html += one ? inner : '<details class="adv-one"><summary>Advance of ' + esc(fmtDate(a.dateGiven)) + ' · ' + money(a.amount, cur) + ' · ' +
-          (a.repaid ? 'repaid' : esc(t(STATUS[a.status] || a.status)).toLowerCase()) + ' — manage</summary>' + inner + '</details>';
-      });
+        (recovered ? '<p class="muted small" style="margin:6px 0 0">Recovered so far: ' + money(recovered, cur) + '</p>' : '') +
+        '<div class="btns"><button class="btn small ghost" onclick="advAddMore(\'' + esc(g.empId) + '\')">＋ Add more</button></div>';
       html += '</div>';
     });
-    html += '</div><p class="muted small center"><b>Add more</b> adds a new amount to a running advance (one balance, one deduction). ' +
+    html += '</div><p class="muted small center">Tap a <b>Status</b> to change a month, change the monthly deduction, pause or close that advance. <b>Add more</b> adds a new amount to a running advance (one balance, one deduction). ' +
       'Saving a new advance above instead keeps it separate, with its own deduction (both are deducted each month). <b>Change a month</b> sets a different amount (or no deduction) for one month only; the balance moves to later months. ' +
       'Pause skips every month until resumed. Close stops it for good (e.g. repaid in cash). Locked months keep what was actually deducted.</p>';
     adminBody(html);
@@ -3046,6 +3030,46 @@
     return '<table class="given"><tr><th>' + t('Date given') + '</th><th class="r">' + t('Amount') + '</th><th>' + t('Note') + '</th></tr>' +
       list.map(function (g) { return '<tr><td>' + esc(fmtDate(g.date)) + '</td><td class="r">' + money(g.amount, cur) + '</td><td class="muted">' + esc(g.note || '') + '</td></tr>'; }).join('') +
       (list.length > 1 ? '<tr class="tot"><td>' + t('Total') + '</td><td class="r">' + money(a.amount, cur) + '</td><td></td></tr>' : '') + '</table>';
+  }
+
+  /** Deduction status of one advance: "₹5,000/month from Oct 2026", Paused, Repaid, Closed. */
+  function advStatusText(a, cur) {
+    if (a.repaid) return 'Repaid';
+    if (a.status === 'CLOSED') return 'Closed';
+    if (a.status === 'PAUSED') return '⏸ Paused';
+    return money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + (a.changes && a.changes.length ? ' 📌' : '');
+  }
+  /** Everything that can be done with one advance (tap its Status). */
+  function advManage(i) {
+    var a = S.adv.list[i], cur = S.adv.currency;
+    var html = '<div class="row"><h2 style="margin:0">' + esc(a.name) + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small">Advance of ' + esc(fmtDate(a.dateGiven)) + ' · ' + money(a.amount, cur) + (a.note ? ' · ' + esc(a.note) : '') + '<br>' +
+      advStatusText(a, cur) + ' · recovered ' + money(a.deductedBefore, cur) + ' · this month ' + money(a.thisMonth, cur) + ' · balance after ' + money(a.balanceAfter, cur) + '</p>' +
+      (a.changes.length ? a.changes.map(function (c) {
+        return '<div class="row small" style="padding:4px 0"><span>📌 <b>' + esc(monthName(c.month)) + ':</b> ' +
+          (c.amount === 0 ? 'no deduction (skipped)' : 'deduct ' + money(c.amount, cur)) + (c.note ? ' <span class="muted">· ' + esc(c.note) + '</span>' : '') + '</span>' +
+          (c.locked ? '<span class="muted">locked</span>' : '<button class="link" style="color:var(--red)" onclick="closeModal();clearAdvMonth(' + i + ',\'' + c.month + '\')">Undo</button>') + '</div>';
+      }).join('') : '') +
+      (a.status === 'CLOSED' || (a.repaid && !a.changes.length) ? '<button class="btn" onclick="openTopUp(' + i + ')">＋ Add more to this advance</button>' :
+        '<button class="btn" onclick="openAdvMonth(' + i + ')">Change a month</button>' +
+        '<button class="btn ghost" onclick="editAdvance(' + i + ')">Change monthly deduction</button>' +
+        '<button class="btn ghost" onclick="openTopUp(' + i + ')">＋ Add more to this advance</button>' +
+        (a.status === 'ACTIVE' ? '<button class="btn ghost" onclick="closeModal();advStatus(' + i + ',\'PAUSED\')">⏸ Pause deductions</button>' : '<button class="btn ghost" onclick="closeModal();advStatus(' + i + ',\'ACTIVE\')">▶ Resume deductions</button>') +
+        '<button class="btn soft-red" onclick="closeModal();advStatus(' + i + ',\'CLOSED\')">Close (e.g. repaid in cash)</button>');
+    openModal(html);
+  }
+  /** "＋ Add more" on a card: adds to the employee's running advance (asks which one when there are several). */
+  function advAddMore(empId) {
+    var list = S.adv.list.map(function (a, i) { return { a: a, i: i }; }).filter(function (x) { return x.a.empId === empId; });
+    var running = list.filter(function (x) { return !x.a.repaid && x.a.status !== 'CLOSED'; });
+    var pick = running.length ? running : list;
+    if (pick.length === 1) return openTopUp(pick[0].i);
+    var cur = S.adv.currency;
+    openModal('<div class="row"><h2 style="margin:0">Add more – ' + esc(list[0].a.name) + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small">Add the new amount to which advance? (To keep it completely separate, use "Give an advance" at the top.)</p>' +
+      pick.map(function (x) {
+        return '<button class="btn ghost" onclick="openTopUp(' + x.i + ')">Advance of ' + esc(fmtDate(x.a.dateGiven)) + ' · ' + money(x.a.amount, cur) + ' · ' + advStatusText(x.a, cur) + '</button>';
+      }).join(''));
   }
 
   /** Tells the admin when the selected employee already has an advance running. */
