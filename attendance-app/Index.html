@@ -2723,13 +2723,13 @@
 
   /** Admin registers a face: a few scans in a row are averaged into one fingerprint (+ a small photo). */
   function registerFace(i, facing) {
-    var e = S.staff.list[i], reg = S.faceReg = { i: i, facing: facing || 'user', samples: [], photo: null, active: true };
+    var e = S.staff.list[i], reg = S.faceReg = { i: i, facing: facing || 'user', samples: [], photo: null, active: true, started: 0 };
     openModal('<div class="row"><h2 style="margin:0">🙂 ' + esc(e.name) + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
       '<p class="muted small">Hold the phone at face height. ' + esc(e.name) + ' looks straight at the camera; good light, no mask or sunglasses.</p>' +
       '<video id="regVideo" class="cam" autoplay playsinline muted' + (reg.facing === 'user' ? '' : ' style="transform:none"') + '></video>' +
       '<p class="center" id="regMsg"><span class="spinner"></span> Starting face recognition…</p>' +
       '<button class="btn ghost" onclick="registerFace(' + i + ',\'' + (reg.facing === 'user' ? 'environment' : 'user') + '\')">🔄 Switch camera</button>');
-    Promise.all([loadFace(), openCamera('regVideo', reg.facing)]).then(function () { regLoop(reg); })
+    Promise.all([loadFace(), openCamera('regVideo', reg.facing)]).then(function () { reg.started = Date.now(); regLoop(reg); })
       .catch(function (err) { if (S.faceReg === reg) $('regMsg').innerHTML = errBox(err); });
   }
   function regLoop(reg) {
@@ -2743,6 +2743,12 @@
       }
       $('regMsg').innerHTML = reg.samples.length ? 'Scanning… ' + reg.samples.length + ' / 5' : 'Looking for the face…';
       if (reg.samples.length >= 5) return regSave(reg);
+      if (Date.now() - reg.started > 20000) {
+        reg.active = false; stopCamera();
+        $('regMsg').innerHTML = errBox('Could not get a clear look at the face. Use good light, remove mask / sunglasses, look straight at the camera, and try again.') +
+          '<button class="btn" onclick="registerFace(' + reg.i + ',\'' + reg.facing + '\')">Try again</button>';
+        return;
+      }
       setTimeout(function () { regLoop(reg); }, 250);
     }).catch(function (err) { $('regMsg').innerHTML = errBox(err); });
   }
