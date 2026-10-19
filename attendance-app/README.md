@@ -3,6 +3,7 @@
 A mobile-friendly web app that runs on a Google Sheet. It lets employees:
 
 - **Check in and check out** only when they are within **30 m of the office**, checked by GPS.
+- **Check in again** after checking out (went out for a few hours and came back): the time away is saved in the *Breaks* column (e.g. `13:00-15:30`) and is **not counted as worked**. Late still uses the first check-in, early leaving the last check-out; everything else is calculated as usual. No second selfie; the location is checked again. Guards see **In again** for such people. Admins can correct the time away in the entry editor.
 - **Take a selfie at check-in** with the live front camera. Photos are saved to a Google Drive folder.
 - **See their month**: pick any month and see a colour-coded calendar (Absent, Half Day, OT, Late). The month view also shows late and early-leaving minutes, net OT, advance recovery and the salary breakdown with PF and one **Total Salary** figure. The In Bank / In Cash split is shown only to admins who have permission to see it.
 - **Download a payslip** (PDF or print) for any month.
