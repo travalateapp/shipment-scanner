@@ -208,7 +208,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - Only a 128-number "face fingerprint" is stored (tab **Faces**) plus a small reference photo in the selfie folder. Tell employees and take their consent (India's DPDP Act).
 - **Guard's phone:** Mark Attendance → **🙂 Scan faces**. The camera stays on; every recognised employee is marked at once — Check In, Check Out or In again from their status — with a proof photo. The same person isn't marked again for 2 minutes. Unknown faces: close it and use the list (with photo) as before.
 - **Speed:** the face models (~7 MB) download once per phone from jsDelivr and stay cached; after that a scan takes well under a second on a normal phone.
-- **Setting:** *Face Match Distance* (default 0.5): lower = stricter. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
+- **Setting:** *Face Match Max Distance* (default 0.42): lower = stricter. Same person is usually 0.1–0.35, different people from about 0.48. The guard's scanner also needs the best match to be clearly closer than the next person and to show up in 2 looks in a row. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
 
 ### Holidays (national / festival)
