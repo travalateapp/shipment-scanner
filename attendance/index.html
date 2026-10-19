@@ -2372,6 +2372,28 @@
       '<div class="day-nav">' + go(prev, !min || prev >= min) + '<b>' + esc(fmtDate(date)) + '</b>' + go(next, next <= today) + '</div>';
   }
 
+  /** One "went out → came back" pair of time pickers in the entry editor. */
+  function breakRowHtml(a, b) {
+    return '<div class="grid2 break-row" style="align-items:end;margin-top:6px">' +
+      '<div class="field" style="margin:0"><label>Went out</label><input class="inp br-a" type="time" value="' + esc(a || '') + '"></div>' +
+      '<div class="field" style="margin:0;position:relative"><label>Came back</label><input class="inp br-b" type="time" value="' + esc(b || '') + '">' +
+      '<button type="button" class="link" style="position:absolute;right:0;top:0;color:var(--red)" onclick="this.closest(\'.break-row\').remove()">Remove</button></div></div>';
+  }
+  function addBreakRow() { $('edBreaks').insertAdjacentHTML('beforeend', breakRowHtml('', '')); }
+  /** 'HH:mm-HH:mm;…' from the pickers; null (with a message) when a pair is incomplete or backwards. */
+  function readBreakRows() {
+    var out = [], bad = '';
+    Array.prototype.forEach.call(document.querySelectorAll('#edBreaks .break-row'), function (r) {
+      var a = r.querySelector('.br-a').value, b = r.querySelector('.br-b').value;
+      if (!a && !b) return;
+      if (!a || !b) bad = 'Enter both "Went out" and "Came back" for each time away.';
+      else if (b <= a) bad = '"Came back" must be after "Went out".';
+      else out.push(a + '-' + b);
+    });
+    if (bad) { $('edMsg').innerHTML = errBox(bad); return null; }
+    return out.join(';');
+  }
+
   function renderEntryEditor(en, msg) {
     S.entry = en;
     var html = entryHead(en.empId, en.name, en.date) +
@@ -2381,7 +2403,9 @@
       (en.hasSelfie ? '<p class="muted small">This day was marked from the app (has selfie &amp; location). Changes keep them.</p>' : '') +
       '<div class="grid2"><div class="field"><label>Check-in</label><input id="edIn" class="inp" type="time" value="' + esc(en.in) + '"></div>' +
       '<div class="field"><label>Check-out</label><input id="edOut" class="inp" type="time" value="' + esc(en.out) + '"></div></div>' +
-      '<div class="field"><label>Time away (went out and came back)</label><input id="edBreaks" class="inp" value="' + esc((en.breaks || '').replace(/;/g, '; ')) + '" placeholder="e.g. 13:00-15:30 (several: 13:00-14:00; 17:00-17:20)"></div>' +
+      '<div class="field"><label>Time away (went out and came back)</label><div id="edBreaks">' +
+        (en.breaks ? en.breaks.split(';') : []).map(function (b) { var p = b.split('-'); return breakRowHtml(p[0], p[1]); }).join('') + '</div>' +
+        '<button class="link" type="button" style="margin-top:6px" onclick="addBreakRow()">＋ Add time away</button></div>' +
       '<div class="field"><label>Status</label>' + statusSelect('edStatus', en.override) + '</div>' +
       '<p class="muted small" style="margin:6px 0 0">"Auto" works out Present / Half Day / Late / OT from the times. Present / Half Day keep the late mark; Leave / Absent remove it.</p>' +
       (en.otNeedsApproval ? '<div class="field"><label>OT approval</label><select id="edOt" class="inp">' +
@@ -2409,7 +2433,8 @@
   function saveEntry() {
     var en = S.entry;
     $('edSave').disabled = true; $('edSave').innerHTML = '<span class="spinner"></span> Saving…';
-    var data = { empId: en.empId, date: en.date, in: $('edIn').value, out: $('edOut').value, override: $('edStatus').value, note: $('edNote').value, breaks: $('edBreaks').value };
+    var data = { empId: en.empId, date: en.date, in: $('edIn').value, out: $('edOut').value, override: $('edStatus').value, note: $('edNote').value, breaks: readBreakRows() };
+    if (data.breaks === null) { $('edSave').disabled = false; $('edSave').innerHTML = 'Save'; return; }
     if ($('edOt')) data.otApproved = $('edOt').value;
     api('adminSaveEntry', S.token, data, entryMonth(en))
       .then(function (r) { afterEntryChange(en, r, '✓ Saved ' + esc(fmtDate(en.date))); })
