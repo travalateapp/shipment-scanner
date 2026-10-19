@@ -23,7 +23,10 @@ const SHEET = {
   SNAPSHOTS: 'Payroll Snapshots',
   EMPLOYMENT: 'Employment History',
   INCREMENTS: 'Salary Increments',
+  FACES: 'Faces',
 };
+// Registered faces: a 128-number "face fingerprint" per employee (no photo is needed to recognise them).
+const FACE_HEADERS = ['Emp ID', 'Name', 'Descriptor (do not edit)', 'Photo', 'Registered By', 'Registered At'];
 const EMPLOYMENT_HEADERS = ['Emp ID', 'From', 'To', 'Note', 'By', 'At'];
 const INCREMENT_HEADERS = ['Emp ID', 'Effective Month', 'Increment', 'New Salary', 'Note', 'By', 'At'];
 
@@ -31,7 +34,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261029;
+const SERVER_VERSION = 20261030;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -63,12 +66,13 @@ const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
 
 const ATT_HEADERS = ['Date', 'Emp ID', 'Name', 'Check In', 'Check Out', 'Worked Hrs', 'Status', 'Late',
   'OT Hrs', 'In Lat', 'In Lng', 'In Distance (m)', 'In Accuracy (m)', 'Out Lat', 'Out Lng',
-  'Out Distance (m)', 'Selfie', 'Override Status', 'Admin Note', 'Out Accuracy (m)', 'OT Approved', 'Flags', 'Review', 'Breaks'];
+  'Out Distance (m)', 'Selfie', 'Override Status', 'Admin Note', 'Out Accuracy (m)', 'OT Approved', 'Flags', 'Review', 'Breaks', 'Out Photo'];
 
 const COL = {
   DATE: 0, EMP: 1, NAME: 2, IN: 3, OUT: 4, WORKED: 5, STATUS: 6, LATE: 7, OT: 8,
   IN_LAT: 9, IN_LNG: 10, IN_DIST: 11, IN_ACC: 12, OUT_LAT: 13, OUT_LNG: 14, OUT_DIST: 15,
   SELFIE: 16, OVERRIDE: 17, NOTE: 18, OUT_ACC: 19, OT_APPROVED: 20, FLAGS: 21, REVIEW: 22,
+  OUT_PHOTO: 24, // proof photo of a face check-out
   BREAKS: 23, // time away between a check-out and checking in again, e.g. '13:00-15:30;17:00-17:20'
 };
 
@@ -127,6 +131,7 @@ const DEFAULT_SETTINGS = [
   ['Request Back-Date Limit (days)', 7, 'Employees can request corrections / leave up to this many days back'],
   ['Currency', '₹', ''],
   ['Stay Logged In (days)', 30, 'People stay logged in this many days after they last used the app (then they enter the PIN again)'],
+  ['Face Match Distance', 0.5, 'Face recognition strictness: lower = stricter (0.4 very strict … 0.6 relaxed)'],
   ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
   ['Selfie Folder ID', '', 'Filled automatically'],
@@ -156,7 +161,7 @@ function forget_() {
  */
 const CACHED_SHEETS = {
   settings: 'Settings', employees: 'Employees', holidays: 'Holidays', perms: 'Admin Permissions', locks: 'Payroll Locks',
-  employment: 'Employment History', increments: 'Salary Increments',
+  employment: 'Employment History', increments: 'Salary Increments', faces: 'Faces',
 };
 
 /** All values of a tab (dates as 'yyyy-MM-dd', times as 'HH:mm'); null when the tab does not exist. */
@@ -276,6 +281,7 @@ const API_FUNCTIONS = {
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
   superListAdmins, superSavePermissions, superSetRole, superAuditLog, superSetLeaderboard,
+  adminSaveFace, adminDeleteFace, proxyFaces,
 };
 
 function doPost(e) {
@@ -541,6 +547,8 @@ function getHome(token) {
     shiftStart: minutesToStr_(empSettings_(emp, s).shiftStartMin),
     standardHours: empSettings_(emp, s).standardHours,
     upcomingHolidays: upcomingHolidays_(today, 45, 3),
+    face: readFaces_()[emp.id] ? readFaces_()[emp.id].d : null, // registered face: check in / out by face
+    faceDistance: s.faceDistance,
     leaders: homeLeaders_(emp, today),
     server: serverClock_(),
     clockTolerance: s.clockTolerance,
@@ -656,19 +664,20 @@ function homeLeaders_(emp, today) {
   });
 }
 
-function checkIn(token, lat, lng, accuracy, selfieDataUrl, phoneClock) {
+/** face = { dist } when the check-in was made by face recognition (selfieDataUrl is then the proof photo). */
+function checkIn(token, lat, lng, accuracy, selfieDataUrl, phoneClock, face) {
   const emp = auth_(token);
   const s = getSettings_();
   checkPhoneClock_(s, phoneClock);
   const loc = checkLocation_(s, lat, lng, accuracy, emp.anywhere);
-  return checkInCore_(emp, s, loc, selfieDataUrl, null);
+  return checkInCore_(emp, s, loc, selfieDataUrl, null, face);
 }
 
 /**
  * Check-in for emp. byEmp = the person marking it for them (admin / guard), or null when the employee
  * marks it on their own phone. Marked-for-others check-ins carry the marker's photo of the employee and are flagged PROXY.
  */
-function checkInCore_(emp, s, loc, selfieDataUrl, byEmp) {
+function checkInCore_(emp, s, loc, selfieDataUrl, byEmp, face) {
   const who = byEmp ? emp.name + ' has' : 'You have';
   const today = todayStr_();
   assertUnlocked_(today);
@@ -696,6 +705,7 @@ function checkInCore_(emp, s, loc, selfieDataUrl, byEmp) {
     // One phone marks many people from the same spot, so the "same GPS" checks don't apply to proxy marks.
     const flags = byEmp ? ['PROXY'].concat(isFinite(loc.acc) && loc.acc > s.flagAccuracy ? ['WEAK_GPS'] : [])
       : loc.outside ? ['OUTSIDE'] : gpsFlags_(emp.id, today, loc, s);
+    if (validFace_(face)) flags.push('FACE');
     const byNote = byEmp ? 'Check-in marked by ' + byEmp.name + ' (' + byEmp.id + ')' : '';
     const sh = sheet_(SHEET.ATTENDANCE);
 
@@ -772,16 +782,27 @@ function checkInAgain_(emp, s, loc, byEmp, who) {
   }
 }
 
-function checkOut(token, lat, lng, accuracy, phoneClock) {
+function checkOut(token, lat, lng, accuracy, phoneClock, photo, face) {
   const emp = auth_(token);
   const s = getSettings_();
   checkPhoneClock_(s, phoneClock);
   const loc = s.checkoutLocation || emp.anywhere ? checkLocation_(s, lat, lng, accuracy, emp.anywhere) : null;
-  return checkOutCore_(emp, s, loc, null);
+  return checkOutCore_(emp, s, loc, null, photo, face);
 }
 
-function checkOutCore_(emp, s, loc, byEmp) {
+function validFace_(face) {
+  return !!face && typeof face === 'object' && isFinite(Number(face.dist)) && Number(face.dist) >= 0 && Number(face.dist) < 1;
+}
+
+/** photo / face: proof photo and match of a face check-out (kept in "Out Photo", flag FACE_OUT). */
+function checkOutCore_(emp, s, loc, byEmp, photo, face) {
   const who = byEmp ? emp.name + ' has' : 'You have';
+  let photoUrl = '';
+  if (photo) {
+    try {
+      photoUrl = saveSelfie_(photo, todayStr_() + '_' + emp.id + '_out_' + Utilities.formatDate(new Date(), tz_(), 'HHmm') + '.jpg', s);
+    } catch (e) { photoUrl = ''; } // the check-out matters more than its photo
+  }
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -807,6 +828,8 @@ function checkOutCore_(emp, s, loc, byEmp) {
     if (loc && isFinite(loc.acc) && loc.acc > s.flagAccuracy && flags.indexOf('WEAK_GPS_OUT') < 0) flags.push('WEAK_GPS_OUT');
     if (byEmp && flags.indexOf('PROXY_OUT') < 0) flags.push('PROXY_OUT');
     if (loc && loc.outside && flags.indexOf('OUTSIDE_OUT') < 0) flags.push('OUTSIDE_OUT');
+    if (validFace_(face) && flags.indexOf('FACE_OUT') < 0) flags.push('FACE_OUT');
+    if (photoUrl) sh.getRange(rec.row, COL.OUT_PHOTO + 1).setValue(photoUrl);
     if (flags.join(' ') !== rec.flags) sh.getRange(rec.row, COL.FLAGS + 1).setValue(flags.join(' '));
     if (byEmp) {
       sh.getRange(rec.row, COL.NOTE + 1).setValue([rec.note, 'Check-out marked by ' + byEmp.name + ' (' + byEmp.id + ')'].filter(String).join(' · '));
@@ -999,7 +1022,7 @@ function proxyList(token) {
       return {
         id: e.id, name: e.name, in: r ? r.in : '', out: r ? r.out : '', date: r ? r.date : today,
         status: r ? evaluateDay_(r, s, offType, r.date === today).status : (offType || 'NOT_MARKED'),
-        byOther: !!(r && /PROXY/.test(r.flags)), markedBy: markedBy_(r),
+        byOther: !!(r && /PROXY/.test(r.flags)), markedBy: markedBy_(r), breaks: r ? r.breaks || '' : '',
       };
     }).sort((a, b) => a.name.localeCompare(b.name)),
   };
@@ -1009,7 +1032,7 @@ function proxyList(token) {
  * Check-in for an employee without a phone. The marker's phone must be at the office, and a photo of the
  * employee (taken on the marker's phone) is always required.
  */
-function proxyCheckIn(token, empId, lat, lng, accuracy, phoneClock, photoDataUrl) {
+function proxyCheckIn(token, empId, lat, lng, accuracy, phoneClock, photoDataUrl, face) {
   const ctx = authAdmin_(token, 'markOthers');
   const emp = proxyTarget_(ctx, empId);
   const s = getSettings_();
@@ -1017,17 +1040,17 @@ function proxyCheckIn(token, empId, lat, lng, accuracy, phoneClock, photoDataUrl
   const cur = byDate_(readAttendance_(), emp.id)[todayStr_()];
   const again = cur && cur.in && cur.out; // back after going out: the first check-in already has the photo
   if (!again && !/^data:image\//.test(String(photoDataUrl || ''))) throw new Error('Take a photo of ' + emp.name + ' to check them in.');
-  const r = checkInCore_(emp, s, checkLocation_(s, lat, lng, accuracy), photoDataUrl, ctx.emp);
+  const r = checkInCore_(emp, s, checkLocation_(s, lat, lng, accuracy), photoDataUrl, ctx.emp, face);
   return Object.assign(r, { list: proxyList(token).list });
 }
 
-function proxyCheckOut(token, empId, lat, lng, accuracy, phoneClock) {
+function proxyCheckOut(token, empId, lat, lng, accuracy, phoneClock, photo, face) {
   const ctx = authAdmin_(token, 'markOthers');
   const emp = proxyTarget_(ctx, empId);
   const s = getSettings_();
   checkPhoneClock_(s, phoneClock);
   // Location is always required when marking for someone else.
-  const r = checkOutCore_(emp, s, checkLocation_(s, lat, lng, accuracy), ctx.emp);
+  const r = checkOutCore_(emp, s, checkLocation_(s, lat, lng, accuracy), ctx.emp, photo, face);
   return Object.assign(r, { list: proxyList(token).list });
 }
 
@@ -1046,6 +1069,95 @@ function markedBy_(rec) {
     out[m[1]] = p && p.role === 'GUARD' ? 'Guard (' + name + ')' : name;
   }
   return out;
+}
+
+/* ------------------------------ Faces ------------------------------ */
+
+/** { empId: { d: [128 numbers], at, by } } */
+function readFaces_() {
+  return memo_('faces', () => {
+    const values = sheetValues_(SHEET.FACES);
+    const map = {};
+    (values || []).slice(1).forEach(r => {
+      const id = String(r[0]).trim().toUpperCase();
+      let d = null;
+      try { d = JSON.parse(String(r[2] || '')); } catch (e) { d = null; }
+      if (id && Array.isArray(d) && d.length === 128) map[id] = { d: d, photo: String(r[3] || ''), by: String(r[4] || ''), at: String(r[5] || '') };
+    });
+    return map;
+  });
+}
+
+function faceDistance_(a, b) {
+  let sum = 0;
+  for (let i = 0; i < 128; i++) { const x = a[i] - b[i]; sum += x * x; }
+  return Math.sqrt(sum);
+}
+
+/** Admins register an employee's face: descriptor = average of a few scans; photo = a small picture for reference. */
+function adminSaveFace(token, empId, descriptor, photo) {
+  const ctx = authAdmin_(token, 'manageEmployees');
+  const emp = managedEmployee_(ctx, empId, true);
+  if (emp.role === 'GUARD') throw new Error('Guards do not mark their own attendance.');
+  const d = (Array.isArray(descriptor) ? descriptor : []).map(Number);
+  if (d.length !== 128 || d.some(x => !isFinite(x))) throw new Error('The face scan did not work. Please try again.');
+  const s = getSettings_();
+  // The same face must not belong to two employees.
+  const faces = readFaces_();
+  const other = Object.keys(faces).filter(id => id !== emp.id)
+    .map(id => ({ id: id, dist: faceDistance_(d, faces[id].d) })).sort((a, b) => a.dist - b.dist)[0];
+  if (other && other.dist < s.faceDistance) {
+    const o = findEmployee_(other.id);
+    throw new Error('This face is already registered for ' + (o ? o.name : other.id) + ' (' + other.id + '). Remove that one first if it was a mistake.');
+  }
+  let photoUrl = '';
+  if (photo) { try { photoUrl = saveSelfie_(photo, 'face_' + emp.id + '.jpg', s); } catch (e) { photoUrl = ''; } }
+  const sh = sheetOrCreate_(SHEET.FACES, FACE_HEADERS);
+  const row = [emp.id, emp.name, JSON.stringify(d.map(x => Math.round(x * 10000) / 10000)), photoUrl,
+    ctx.emp.id + ' ' + ctx.emp.name, Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm')];
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const last = sh.getLastRow();
+    const ids = last > 1 ? sh.getRange(2, 1, last - 1, 1).getValues().map(r => String(r[0]).trim().toUpperCase()) : [];
+    const i = ids.indexOf(emp.id);
+    sh.getRange(i >= 0 ? i + 2 : last + 1, 1, 1, row.length).setValues([row]);
+    forget_('faces');
+    audit_(ctx.emp, i >= 0 ? 'FACE_REREGISTERED' : 'FACE_REGISTERED', emp.id, '', 'Face registered');
+  } finally {
+    lock.releaseLock();
+  }
+  return adminStaff(token);
+}
+
+function adminDeleteFace(token, empId) {
+  const ctx = authAdmin_(token, 'manageEmployees');
+  const emp = managedEmployee_(ctx, empId, true);
+  const sh = sheetOrCreate_(SHEET.FACES, FACE_HEADERS);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const last = sh.getLastRow();
+    const ids = last > 1 ? sh.getRange(2, 1, last - 1, 1).getValues().map(r => String(r[0]).trim().toUpperCase()) : [];
+    const i = ids.indexOf(emp.id);
+    if (i >= 0) sh.deleteRow(i + 2);
+    forget_('faces');
+    audit_(ctx.emp, 'FACE_REMOVED', emp.id, '', 'Face removed');
+  } finally {
+    lock.releaseLock();
+  }
+  return adminStaff(token);
+}
+
+/** The registered faces of everyone this guard / admin may mark, for the "Scan faces" screen. */
+function proxyFaces(token) {
+  const ctx = authAdmin_(token, 'markOthers');
+  const faces = readFaces_();
+  return {
+    distance: getSettings_().faceDistance,
+    list: getEmployees_().filter(e => e.active && faces[e.id] && e.id !== ctx.emp.id && canEditEmployee_(ctx, e.id))
+      .map(e => ({ id: e.id, name: e.name, d: faces[e.id].d })),
+  };
 }
 
 function proxyTarget_(ctx, empId) {
@@ -1085,7 +1197,7 @@ function adminToday(token, date) {
     return {
       id: e.id, name: e.name, in: r ? r.in : '', out: r ? r.out : '', status: d.status,
       late: !!d.late, worked: d.worked || 0, distance: r ? r.inDist : '', accuracy: r ? r.inAcc : '',
-      row: r ? r.row : 0, hasSelfie: !!(r && r.selfie), flags: flags, markedBy: markedBy_(r),
+      row: r ? r.row : 0, hasSelfie: !!(r && r.selfie), hasOutPhoto: !!(r && r.outPhoto), flags: flags, markedBy: markedBy_(r),
     };
   });
   list.sort((a, b) => (b.flags.length ? 1 : 0) - (a.flags.length ? 1 : 0) ||
@@ -1459,6 +1571,7 @@ function adminStaff(token) {
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
       joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard, lateCut: e.lateCut,
+      face: readFaces_()[e.id] ? readFaces_()[e.id].at || 'yes' : '',
     })),
   };
 }
@@ -1975,11 +2088,13 @@ function superUnlockMonth(token, ym) {
 /* ---------------------------- Misc admin --------------------------- */
 
 /** Returns the check-in selfie as a data URL so admins can view it inside the app. */
-function adminGetSelfie(token, row) {
+/** which = 'out' for the check-out proof photo (face check-outs); otherwise the check-in selfie / photo. */
+function adminGetSelfie(token, row, which) {
   const ctx = authAdmin_(token, ['viewToday', 'editAttendance']);
-  const vals = sheet_(SHEET.ATTENDANCE).getRange(Number(row), 1, 1, ATT_HEADERS.length).getValues()[0];
+  const sh = sheet_(SHEET.ATTENDANCE);
+  const vals = sh.getRange(Number(row), 1, 1, Math.min(ATT_HEADERS.length, sh.getMaxColumns())).getValues()[0];
   if (!canManage_(ctx, String(vals[COL.EMP]).trim().toUpperCase())) throw new Error('Not allowed.');
-  const url = String(vals[COL.SELFIE]);
+  const url = String((which === 'out' ? vals[COL.OUT_PHOTO] : vals[COL.SELFIE]) || '');
   const m = /\/d\/([\w-]+)/.exec(url) || /id=([\w-]+)/.exec(url);
   if (!m) throw new Error('No selfie for this entry.');
   const keep = getSettings_().keepSelfieDays;
@@ -3020,6 +3135,7 @@ function getSettings_() {
       currency: str('Currency', '₹'),
       minAppVersion: num('Min Android App Version', 0),
       sessionDays: num('Stay Logged In (days)', 30),
+      faceDistance: num('Face Match Distance', 0.5),
       appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
       keepSelfieDays: num('Keep Selfies (days)', 60),
@@ -3199,6 +3315,7 @@ function readAttendance_() {
         inLat: r[COL.IN_LAT], inLng: r[COL.IN_LNG],
         inDist: r[COL.IN_DIST], inAcc: r[COL.IN_ACC],
         selfie: String(r[COL.SELFIE] || ''),
+        outPhoto: String(r[COL.OUT_PHOTO] || ''),
         override: OVERRIDE_VALUES.indexOf(ov) >= 0 ? ov : '',
         note: String(r[COL.NOTE] || ''),
         otApproved: ota === 'YES' || ota === 'NO' ? ota : '',
@@ -3213,12 +3330,13 @@ function readAttendance_() {
 }
 
 const ATT_CACHE_FIELDS = ['row', 'date', 'empId', 'in', 'out', 'inLat', 'inLng', 'inDist', 'inAcc', 'selfie', 'override',
-  'note', 'otApproved', 'flags', 'review', 'breaks'];
+  'note', 'otApproved', 'flags', 'review', 'breaks', 'outPhoto'];
 function attToCache_(a) { return ATT_CACHE_FIELDS.map(k => a[k]); }
 function attFromCache_(x) {
   const a = {};
   ATT_CACHE_FIELDS.forEach((k, i) => { a[k] = x[i]; });
   if (a.breaks == null) a.breaks = '';
+  if (a.outPhoto == null) a.outPhoto = '';
   return a;
 }
 
