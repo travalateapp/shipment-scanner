@@ -2372,26 +2372,43 @@
       '<div class="day-nav">' + go(prev, !min || prev >= min) + '<b>' + esc(fmtDate(date)) + '</b>' + go(next, next <= today) + '</div>';
   }
 
-  /** One "went out → came back" pair of time pickers in the entry editor. */
-  function breakRowHtml(a, b) {
-    return '<div class="grid2 break-row" style="align-items:end;margin-top:6px">' +
-      '<div class="field" style="margin:0"><label>Went out</label><input class="inp br-a" type="time" value="' + esc(a || '') + '"></div>' +
-      '<div class="field" style="margin:0;position:relative"><label>Came back</label><input class="inp br-b" type="time" value="' + esc(b || '') + '">' +
-      '<button type="button" class="link" style="position:absolute;right:0;top:0;color:var(--red)" onclick="this.closest(\'.break-row\').remove()">Remove</button></div></div>';
+  /*
+   * Entry editor times: the first Check-in / Check-out pair, then one "Check in again" / "Check out" pair for
+   * every return to the office. Stored as first check-in, last check-out and the gaps between the pairs
+   * (breaks), so worked time = the sum of all the pairs.
+   */
+  function sessionsOf(en) {
+    var list = [], cur = en.in || '';
+    (en.breaks ? en.breaks.split(';') : []).forEach(function (b) { var p = b.split('-'); list.push([cur, p[0]]); cur = p[1]; });
+    list.push([cur, en.out || '']);
+    return list;
   }
-  function addBreakRow() { $('edBreaks').insertAdjacentHTML('beforeend', breakRowHtml('', '')); }
-  /** 'HH:mm-HH:mm;…' from the pickers; null (with a message) when a pair is incomplete or backwards. */
-  function readBreakRows() {
-    var out = [], bad = '';
-    Array.prototype.forEach.call(document.querySelectorAll('#edBreaks .break-row'), function (r) {
-      var a = r.querySelector('.br-a').value, b = r.querySelector('.br-b').value;
-      if (!a && !b) return;
-      if (!a || !b) bad = 'Enter both "Went out" and "Came back" for each time away.';
-      else if (b <= a) bad = '"Came back" must be after "Went out".';
-      else out.push(a + '-' + b);
+  function sessionRowHtml(a, b) {
+    return '<div class="grid2 sess-row" style="align-items:end;margin-top:6px">' +
+      '<div class="field" style="margin:0"><label>Check in again</label><input class="inp ss-a" type="time" value="' + esc(a || '') + '"></div>' +
+      '<div class="field" style="margin:0;position:relative"><label>Check out</label><input class="inp ss-b" type="time" value="' + esc(b || '') + '">' +
+      '<button type="button" class="link" style="position:absolute;right:0;top:0;color:var(--red)" onclick="this.closest(\'.sess-row\').remove()">Remove</button></div></div>';
+  }
+  function addSessionRow() { $('edSessions').insertAdjacentHTML('beforeend', sessionRowHtml('', '')); }
+  /** { in, out, breaks } from the pairs; null (with a message) when the times don't follow each other. */
+  function readSessions() {
+    var pairs = [[$('edIn').value, $('edOut').value]];
+    Array.prototype.forEach.call(document.querySelectorAll('#edSessions .sess-row'), function (r) {
+      var a = r.querySelector('.ss-a').value, b = r.querySelector('.ss-b').value;
+      if (a || b) pairs.push([a, b]);
     });
+    var bad = '';
+    for (var k = 0; k < pairs.length && !bad; k++) {
+      var a = pairs[k][0], b = pairs[k][1], last = k === pairs.length - 1;
+      if (k > 0 && !a) bad = 'Enter the "Check in again" time.';
+      else if (!b && !last) bad = 'Enter the check-out before checking in again.';
+      else if (k > 0 && a <= pairs[k - 1][1]) bad = '"Check in again" must be after the check-out before it.';
+      else if (b && a && b <= a && pairs.length > 1) bad = 'Each check-out must be after its check-in.';
+    }
     if (bad) { $('edMsg').innerHTML = errBox(bad); return null; }
-    return out.join(';');
+    var breaks = [];
+    for (var n = 1; n < pairs.length; n++) breaks.push(pairs[n - 1][1] + '-' + pairs[n][0]);
+    return { in: pairs[0][0], out: pairs[pairs.length - 1][1], breaks: breaks.join(';') };
   }
 
   function renderEntryEditor(en, msg) {
@@ -2401,11 +2418,14 @@
       (en.exists ? (chip(en.day.status) + lateChip(en.day.late)) : '<span class="chip s-NOT_MARKED">No entry yet</span>') + '</p>' +
       (en.flags ? '<p>' + flagChips(en.flags, en.markedBy) + '</p>' : '') +
       (en.hasSelfie ? '<p class="muted small">This day was marked from the app (has selfie &amp; location). Changes keep them.</p>' : '') +
-      '<div class="grid2"><div class="field"><label>Check-in</label><input id="edIn" class="inp" type="time" value="' + esc(en.in) + '"></div>' +
-      '<div class="field"><label>Check-out</label><input id="edOut" class="inp" type="time" value="' + esc(en.out) + '"></div></div>' +
-      '<div class="field"><label>Time away (went out and came back)</label><div id="edBreaks">' +
-        (en.breaks ? en.breaks.split(';') : []).map(function (b) { var p = b.split('-'); return breakRowHtml(p[0], p[1]); }).join('') + '</div>' +
-        '<button class="link" type="button" style="margin-top:6px" onclick="addBreakRow()">＋ Add time away</button></div>' +
+      (function () {
+        var ss = sessionsOf(en);
+        return '<div class="grid2"><div class="field"><label>Check-in</label><input id="edIn" class="inp" type="time" value="' + esc(ss[0][0]) + '"></div>' +
+          '<div class="field"><label>Check-out</label><input id="edOut" class="inp" type="time" value="' + esc(ss[0][1]) + '"></div></div>' +
+          '<div id="edSessions">' + ss.slice(1).map(function (p) { return sessionRowHtml(p[0], p[1]); }).join('') + '</div>' +
+          '<button class="link" type="button" style="margin-top:6px" onclick="addSessionRow()">＋ Check in again</button>' +
+          '<p class="muted small" style="margin:4px 0 0">Went out and came back? Add "Check in again" with its check-out. Time between a check-out and the next check-in is not counted as worked.</p>';
+      })() +
       '<div class="field"><label>Status</label>' + statusSelect('edStatus', en.override) + '</div>' +
       '<p class="muted small" style="margin:6px 0 0">"Auto" works out Present / Half Day / Late / OT from the times. Present / Half Day keep the late mark; Leave / Absent remove it.</p>' +
       (en.otNeedsApproval ? '<div class="field"><label>OT approval</label><select id="edOt" class="inp">' +
@@ -2433,8 +2453,9 @@
   function saveEntry() {
     var en = S.entry;
     $('edSave').disabled = true; $('edSave').innerHTML = '<span class="spinner"></span> Saving…';
-    var data = { empId: en.empId, date: en.date, in: $('edIn').value, out: $('edOut').value, override: $('edStatus').value, note: $('edNote').value, breaks: readBreakRows() };
-    if (data.breaks === null) { $('edSave').disabled = false; $('edSave').innerHTML = 'Save'; return; }
+    var ses = readSessions();
+    if (!ses) { $('edSave').disabled = false; $('edSave').innerHTML = 'Save'; return; }
+    var data = { empId: en.empId, date: en.date, in: ses.in, out: ses.out, override: $('edStatus').value, note: $('edNote').value, breaks: ses.breaks };
     if ($('edOt')) data.otApproved = $('edOt').value;
     api('adminSaveEntry', S.token, data, entryMonth(en))
       .then(function (r) { afterEntryChange(en, r, '✓ Saved ' + esc(fmtDate(en.date))); })
