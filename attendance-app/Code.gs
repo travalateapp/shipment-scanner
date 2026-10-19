@@ -31,7 +31,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261028;
+const SERVER_VERSION = 20261029;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -57,7 +57,7 @@ const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
 const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
-  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard'];
+  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut'];
 const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type'];
 const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
 
@@ -1136,7 +1136,7 @@ function adminSummary(token, ym) {
     employees: rows.length, pfEmployees: pfRows.length,
     monthlySalary: sum(rows, 'salary'), earned: sum(rows, 'earned'), prorated: rows.some(r => r.prorated), otPay: sum(rows, 'otPay'),
     offDayPay: sum(rows, 'offDayPay'), offWorkCredit: sum(rows, 'offWorkCredit'), leaveDed: sum(rows, 'leaveDed'),
-    halfDayDed: sum(rows, 'halfDayDed'), lateCutDed: sum(rows, 'lateCutDed'), advance: sum(rows, 'advance'),
+    halfDayDed: sum(rows, 'halfDayDed'), lateCutDed: sum(rows, 'lateCutDed'), shortCutDed: sum(rows, 'shortCutDed'), advance: sum(rows, 'advance'),
     total: sum(rows, 'net'),
     present: sum(rows, 'present'), absent: rows.reduce((a, r) => a + r.absent + r.notJoined, 0), halfDay: sum(rows, 'halfDay'),
     leave: sum(rows, 'leave'), late: sum(rows, 'late'), lateMin: sum(rows, 'lateMin'), earlyMin: sum(rows, 'earlyMin'),
@@ -1458,7 +1458,7 @@ function adminStaff(token) {
     canSetRole: ctx.perms.superAdmin,
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
-      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard,
+      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard, lateCut: e.lateCut,
     })),
   };
 }
@@ -1484,6 +1484,7 @@ function adminSaveStaff(token, data) {
   const anywhere = data.anywhere === undefined ? null : !!data.anywhere;
   const timing = data.shiftStart === undefined ? null : shiftFields_(data);
   const gender = data.gender === undefined ? null : parseGender_(data.gender);
+  const lateCut = data.lateCut === undefined ? null : data.lateCut !== false;
   const genderCell = g => (g === 'M' ? 'Male' : g === 'F' ? 'Female' : '');
   const sh = sheet_(SHEET.EMPLOYEES);
   ensureHeaders_(sh, EMP_HEADERS);
@@ -1505,6 +1506,7 @@ function adminSaveStaff(token, data) {
       row[anyCol - 1] = anywhere ? 'Yes' : 'No';
       if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3]; }
       if (gender !== null) row[h['Gender']] = genderCell(gender);
+      if (lateCut !== null) row[h['Late Cut']] = lateCut ? 'Yes' : 'No';
       sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
       forget_('employees');
       audit_(ctx.emp, 'ADD_EMPLOYEE', id, joinDate, name + ', salary ' + salary);
@@ -1519,6 +1521,10 @@ function adminSaveStaff(token, data) {
       if (role && emp.role !== 'SUPER_ADMIN') sh.getRange(row, 5).setValue(role);
       sh.getRange(row, 6, 1, 3).setValues([[active ? 'Yes' : 'No', "'" + joinDate, phone]]);
       if (anywhere !== null) sh.getRange(row, anyCol).setValue(anywhere ? 'Yes' : 'No');
+      if (lateCut !== null && lateCut !== emp.lateCut) {
+        sh.getRange(row, headerIndex_(sh)['Late Cut'] + 1).setValue(lateCut ? 'Yes' : 'No');
+        audit_(ctx.emp, 'EDIT_LATE_CUT', emp.id, '', 'Cut late / early from salary (no hourly OT): ' + (lateCut ? 'Yes' : 'No'));
+      }
       if (gender !== null && gender !== emp.gender) {
         sh.getRange(row, headerIndex_(sh)['Gender'] + 1).setValue(genderCell(gender));
         audit_(ctx.emp, 'EDIT_GENDER', emp.id, '', (genderCell(emp.gender) || '-') + ' → ' + (genderCell(gender) || '-'));
@@ -2043,14 +2049,14 @@ function adminExportPayroll(token, ym) {
   const header = ['Emp ID', 'Name', 'Monthly Salary', 'Days Counted', 'Salary Earned', 'Present', 'Half Days',
     'Absent (Leaves)', 'Paid Leave', 'Week Off', 'Holidays', 'Worked on Off-Day', 'Late Marks', 'Late Mins',
     'Early Leaving Mins', 'OT Mins (gross)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
-    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Advance Deduction', 'Gross Payable',
+    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut (no OT)', 'Advance Deduction', 'Gross Payable',
     'PF', 'Basic Salary (PF)', 'PF Employee', 'PF Employer']
     .concat(split ? ['In Bank', 'In Cash'] : []).concat(['Total Salary']);
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
     (r.elapsedDays === undefined ? r.daysInMonth : r.elapsedDays) + ' / ' + r.daysInMonth,
     r.earned === undefined ? r.salary : r.earned, r.present, r.halfDay, r.absent + r.notJoined, r.leave,
     r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, r.otMinGross, r.otMin, r.otHours, r.perDay,
-    r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.advance || 0, r.gross,
+    r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.gross,
     r.pf ? 'Yes' : 'No', r.pf ? r.pfBankSalary : '', r.pf ? r.pfEmployee : '', r.pf ? r.pfEmployer : '',
   ].concat(split ? [r.pf ? r.bank : '', r.pf ? r.cash : ''] : []).concat([r.net]));
   const status = data.locked ? 'Final (locked by ' + data.locked.by + ' on ' + data.locked.at + ')'
@@ -2472,7 +2478,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0, offWorkCredit: 0,
     notJoined: 0, late: 0, lateMin: 0, earlyMin: 0, workedHours: 0, otMinGross: 0, otMin: 0, otHours: 0,
     otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
-    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0, absentWorkMin: 0,
+    workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0, absentWorkMin: 0, shortMin: 0,
   };
   const days = [];
   const es = empSettings_(emp, s); // own shift length / hourly OT / morning OT
@@ -2532,6 +2538,9 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
         t.targetMin += shift;
         t.workedMin += w;
         d.dayOtMin = hourly ? w - shift : 0;
+        // No hourly OT: there is no OT to take short time from, so late coming / early leaving on a full day
+        // is cut from the salary by the minute (unless "Late Cut" is off for this employee).
+        if (!hourly && es.lateCut !== false && w < shift) { t.shortMin += shift - w; d.shortCutMin = shift - w; }
       } else if (d.status === 'HALF_DAY') {
         const w = dayWorkedMin_(rec, es);
         t.halfDayExtraMin += Math.max(0, w - Math.round(shift / 2));
@@ -2598,7 +2607,8 @@ function calcPay_(emp, s, t, dim, advanceWanted) {
   const leaveDed = R((t.absent + t.notJoined) * perDay);
   const halfDayDed = R(t.halfDay * 0.5 * perDay);
   const lateCutDed = R(t.lateCutDays * perDay);
-  const deduction = Math.min(earned, leaveDed + halfDayDed + lateCutDed);
+  const shortCutDed = R((t.shortMin || 0) * perMin); // late / early on full days, employees without hourly OT
+  const deduction = Math.min(earned, leaveDed + halfDayDed + lateCutDed + shortCutDed);
   const otPay = R(t.otMin * perMin * s.otMultiplier);
   const offDayPay = R((t.offWorkCredit || 0) * perDay); // extra pay for working on the weekly off
   const gross = round2_(earned - deduction + otPay + offDayPay);
@@ -2606,7 +2616,7 @@ function calcPay_(emp, s, t, dim, advanceWanted) {
   const pay = {
     salary: round2_(emp.salary), earned: earned, prorated: ratio < 1, elapsedDays: t.elapsedDays, daysInMonth: dim,
     perDay: round2_(perDay), hourly: round2_(perHour), perMin: round2_(perMin),
-    leaveDed: leaveDed, halfDayDed: halfDayDed, lateCutDed: lateCutDed, deduction: round2_(deduction),
+    leaveDed: leaveDed, halfDayDed: halfDayDed, lateCutDed: lateCutDed, shortCutDed: shortCutDed, deduction: round2_(deduction),
     otPay: otPay, offDayPay: offDayPay, gross: gross, advance: 0,
     pf: false, pfBankSalary: 0, pfEmployee: 0, pfEmployer: 0, bank: 0, cash: 0, net: gross,
   };
@@ -2809,6 +2819,7 @@ function payslipHtml_(emp, m) {
   let ded = row('Leaves (' + (t.absent + t.notJoined) + ' days)', money(p.leaveDed)) +
     row('Half Days (' + t.halfDay + ')', money(p.halfDayDed));
   if (p.lateCutDed) ded += row('Late marks', money(p.lateCutDed));
+  if (p.shortCutDed) ded += row('Late coming / early leaving (' + mins(t.shortMin) + ')', money(p.shortCutDed));
   if (p.advance) ded += row('Advance recovery', money(p.advance));
   if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + ')', money(p.pfEmployee));
   const totalDed = p.deduction + (p.advance || 0) + (p.pf ? p.pfEmployee : 0);
@@ -3064,6 +3075,7 @@ function getPeople_() {
           morningOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Morning OT')).trim()),
           gender: parseGender_(get(r, 'Gender')),
           leaderboard: !/^(n|no|false|0|off)$/i.test(String(get(r, 'In Leaderboard')).trim()), // blank = Yes
+          lateCut: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Late Cut')).trim()), // blank = Yes
           pf: {
             active: /^(y|yes|true|1|on)$/i.test(String(get(r, 'PF Active')).trim()),
             bankSalary: get(r, 'PF Bank Salary'),
@@ -3141,7 +3153,7 @@ function empSettings_(emp, s) {
   const start = toMinutes_(emp.shiftStart), end = toMinutes_(emp.shiftEnd);
   const own = start != null && end != null && start !== end;
   let o = s;
-  if (own || emp.hourlyOt === false || emp.morningOt === false) {
+  if (own || emp.hourlyOt === false || emp.morningOt === false || emp.lateCut === false) {
     o = Object.assign({}, s);
     if (own) {
       const hours = ((end - start + 1440) % 1440) / 60;
@@ -3153,6 +3165,7 @@ function empSettings_(emp, s) {
     }
     if (emp.hourlyOt === false) o.hourlyOt = false;
     if (emp.morningOt === false) o.morningOt = false;
+    if (emp.lateCut === false) o.lateCut = false;
   }
   emp._sBase = s; emp._s = o;
   return o;

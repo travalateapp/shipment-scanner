@@ -194,6 +194,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - The **full / half-day minimums** scale with the shift length. With the company 9 h shift and 8 h / 4 h minimums, an 8 h shift needs 7.1 h / 3.6 h.
 - **Morning OT** unticked: coming before the shift start doesn't count as OT; only time **after the shift end** does (evening OT).
 - **Hourly OT** unticked: no OT for extra hours on working days. **Sunday / week-off work is still paid** (day pay plus OT outside 09:30–17:00), and holidays still follow *Off-Day Work Is OT*.
+- **Cut late coming / early leaving from salary** (only when Hourly OT is unticked; default ticked, the *Late Cut* column): on a full day, the minutes short of the shift are cut from the salary by the minute (salary ÷ 30 ÷ shift hours ÷ 60). Example: ₹40,000, shift 09:00–19:00, worked 09:58–19:05 → 53 min short → ₹118. Untick it for employees whose late coming should not be cut. With Hourly OT on, short time is taken from the month's OT instead.
 - **Gender** (Male / Female, the *Gender* column): used for the **top OT leaders** on the home screen.
   - Men see the men's top 3 and women the women's top 3, ranked by **net OT this month**: the same OT the salary pays (time worked beyond the shift, with late coming and early leaving already taken off, plus Sunday / holiday OT). It refreshes every 15 minutes.
   - On the **1st–5th of each month** the card shows only **last month's champion** (the name, with fireworks), then the new month's top 3 again.

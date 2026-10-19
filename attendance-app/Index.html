@@ -467,6 +467,8 @@
     '🎆 Men\'s champion of {month}': '🎆 {month} के चैंपियन · पुरुष', '🎆 Women\'s champion of {month}': '🎆 {month} की चैंपियन · महिलाएँ', 'You!': 'आप!', 'Most OT hours among men': 'पुरुषों में सबसे ज़्यादा ओवरटाइम',
     'Most OT hours among women': 'महिलाओं में सबसे ज़्यादा ओवरटाइम', 'No OT yet this month.': 'इस महीने अभी कोई ओवरटाइम नहीं।',
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
+    'Late coming / early leaving': 'देर से आना / जल्दी जाना',
+    'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
     'day.short': 'शिफ्ट से {m} कम काम। यह महीने के बाकी दिनों के ओवरटाइम से कटता है (शून्य से कम नहीं)।',
     'Late + early leaving': 'देर + जल्दी जाना', 'Early leaving': 'जल्दी जाना', 'Short time': 'कम समय',
@@ -503,6 +505,7 @@
     'home.forgot': ' Forgot to check in or out? Use <b>Requests</b>.',
     'missed.days': '⚠ {n} day(s) without check-out',
     'again.info': 'Went out and came back? Check in again. The time away is not counted as worked.',
+    'day.shortcut': 'Worked {m} less than the shift. No hourly OT for this employee, so it is cut from the salary.',
     'day.short': 'Worked {m} less than the shift. This is cut from the OT of other days in the month (never below zero).',
     'day.absentot': 'Too few hours for a half day: the day\'s salary is cut, the time worked is paid as OT.',
     'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.absentwork': '+ time worked on days counted absent (too few hours) {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
@@ -926,7 +929,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261028;
+  var NEEDS_SERVER = 20261029;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1343,6 +1346,7 @@
         payLine(t('Leaves') + ' <span class="muted">(' + t('{n} days', { n: tt.absent + tt.notJoined }) + ')</span>', '− ' + money(p.leaveDed, cur), 'red') +
         payLine(t('Half Days') + ' <span class="muted">(' + tt.halfDay + ')</span>', '− ' + money(p.halfDayDed, cur), 'red') +
         (p.lateCutDed ? payLine(t('Late marks cut') + ' <span class="muted">(' + t('{n} days', { n: num(tt.lateCutDays) }) + ')</span>', '− ' + money(p.lateCutDed, cur), 'red') : '') +
+        (p.shortCutDed ? payLine(t('Late coming / early leaving') + ' <span class="muted">(' + mins(tt.shortMin) + ')</span>', '− ' + money(p.shortCutDed, cur), 'red') : '') +
         (p.advance ? payLine(t('Advance recovery'), '− ' + money(p.advance, cur), 'red') : '');
       (m.advances || []).forEach(function (a, ai) {
         if (navArg && m.canManageAdvance) {
@@ -1428,13 +1432,15 @@
     var salary = Math.round(p.perDay * share);
     var otMin = d.dayOtMin !== undefined ? d.dayOtMin : (d.otMin || 0);
     var ot = Math.round(otMin * (p.hourly || 0) / 60 * ((m.rules && m.rules.otMultiplier) || 1));
+    if (d.shortCutMin) { otMin = -d.shortCutMin; ot = -Math.round(d.shortCutMin * (p.hourly || 0) / 60); } // cut from salary (no hourly OT)
     var sign = function (n) { return (n < 0 ? '−' : '') + money(Math.abs(n), cur); };
     var html = '<div class="kv" style="margin-top:10px">' +
       '<div><b>' + money(salary, cur) + '</b><span>' + t('Salary for the day') + '</span></div>' +
       (ot < 0 ? '<div><b style="color:var(--red)">' + sign(ot) + '</b><span>' + t(shortLabel(d)) + ' (' + mins(-otMin) + ')</span></div>'
         : '<div class="k-ot"><b>' + sign(ot) + '</b><span>' + t('OT amount') + '</span></div>') +
       '<div><b style="color:var(' + (salary + ot < 0 ? '--red' : '--green') + ')">' + sign(salary + ot) + '</b><span>' + t('Total for the day') + '</span></div></div>';
-    if (otMin < 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.short', { m: mins(-otMin) }) + '</p>';
+    if (d.shortCutMin) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.shortcut', { m: mins(d.shortCutMin) }) + '</p>';
+    else if (otMin < 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.short', { m: mins(-otMin) }) + '</p>';
     else if (d.status === 'ABSENT' && otMin > 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.absentot') + '</p>';
     return html;
   }
@@ -2000,6 +2006,7 @@
       payLine('Leave deductions', '− ' + money(t.leaveDed, cur), 'red') +
       payLine('Half-day deductions', '− ' + money(t.halfDayDed, cur), 'red') +
       (t.lateCutDed ? payLine('Late-mark deductions', '− ' + money(t.lateCutDed, cur), 'red') : '') +
+      (t.shortCutDed ? payLine('Late / early cut (no hourly OT)', '− ' + money(t.shortCutDed, cur), 'red') : '') +
       (t.advance ? payLine('Advances recovered', '− ' + money(t.advance, cur), 'red') : '') +
       (t.pfEmployee ? payLine('PF employee share', '− ' + money(t.pfEmployee, cur), 'red') : '') +
       '</div></div>';
@@ -2443,7 +2450,7 @@
         (e.gender ? '' : (e.role === 'GUARD' ? '' : '<div class="sub" style="color:var(--orange)">Gender not set</div>')) +
         (e.leaderboard === false && e.role !== 'GUARD' ? '<div class="sub">🏆 Not in the OT leaderboard</div>' : '') +
         (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
-          e.hourlyOt === false ? 'no hourly OT' : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
+          e.hourlyOt === false ? 'no hourly OT' + (e.lateCut === false ? ', no late cut' : ', late cut from salary') : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
         '<div><button class="link" onclick="openStaffForm(' + i + ')">Edit</button></div></div></div>';
     });
@@ -2496,8 +2503,9 @@
         '<p class="muted small" style="margin:4px 0 0">Leave empty for the company shift. With an own shift, late marks, early leaving and OT use these times.</p>' +
         '<div class="grid2"><div class="field"><label>Shift start</label><input id="sfShiftStart" class="inp" type="time" value="' + esc(e.shiftStart || '') + '"></div>' +
         '<div class="field"><label>Shift end</label><input id="sfShiftEnd" class="inp" type="time" value="' + esc(e.shiftEnd || '') + '"></div></div>' +
-        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
-        '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + '> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label></div>') +
+        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked;$(\'sfLateCut\').disabled=this.checked"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
+        '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + '> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label>' +
+        '<label class="check"><input type="checkbox" id="sfLateCut"' + (e.lateCut === false ? '' : ' checked') + (e.hourlyOt === false ? '' : ' disabled') + '> Cut late coming / early leaving from salary, by the minute (only without hourly OT; with hourly OT it is taken from the OT)</label></div>') +
       (e.role === 'GUARD' ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfAnywhere"' + (e.anywhere ? ' checked' : '') + '> Can mark from anywhere (outstation): no office distance check, location still recorded</label>') +
       (isNew ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfActive"' + (e.active ? ' checked' : '') + ' onchange="staffActiveChanged(' + i + ')"> Active (untick when someone leaves the company)</label>' +
         '<div id="sfActiveDate" class="field hidden"><label id="sfActiveLabel"></label><input id="sfActiveOn" class="inp" type="date"></div>' +
@@ -2581,7 +2589,7 @@
     }
     if ($('sfAnywhere')) data.anywhere = $('sfAnywhere').checked;
     if ($('sfGender')) data.gender = $('sfGender').value;
-    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; }
+    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; data.lateCut = $('sfLateCut').checked; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;
     api('adminSaveStaff', S.token, data).then(function (r) {
