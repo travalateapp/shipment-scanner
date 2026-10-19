@@ -34,7 +34,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261031;
+const SERVER_VERSION = 20261032;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -131,7 +131,7 @@ const DEFAULT_SETTINGS = [
   ['Request Back-Date Limit (days)', 7, 'Employees can request corrections / leave up to this many days back'],
   ['Currency', '₹', ''],
   ['Stay Logged In (days)', 30, 'People stay logged in this many days after they last used the app (then they enter the PIN again)'],
-  ['Face Match Distance', 0.5, 'Face recognition strictness: lower = stricter (0.4 very strict … 0.6 relaxed)'],
+  ['Face Match Max Distance', 0.42, 'Face recognition strictness: lower = stricter. Same person ≈ 0.1–0.35, different people from ≈ 0.48. Keep 0.38–0.45'],
   ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
   ['Selfie Folder ID', '', 'Filled automatically'],
@@ -3146,7 +3146,7 @@ function getSettings_() {
       currency: str('Currency', '₹'),
       minAppVersion: num('Min Android App Version', 0),
       sessionDays: num('Stay Logged In (days)', 30),
-      faceDistance: num('Face Match Distance', 0.5),
+      faceDistance: num('Face Match Max Distance', 0.42),
       appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
       keepSelfieDays: num('Keep Selfies (days)', 60),

@@ -484,7 +484,7 @@
     'again.info': 'बाहर गए थे और वापस आए? फिर से चेक-इन करें। बाहर का समय काम में नहीं गिना जाता।',
     'Back in at {time} · away {a}': '{time} पर वापस · बाहर {a}', 'Away {list} ({m}) · not counted as worked': 'बाहर {list} ({m}) · काम में नहीं गिना',
     'In again': 'फिर से इन', 'away {m}': 'बाहर {m}', '{n} back in at {t}': '{n} {t} पर वापस', '{n} is back in the office? Check in again now.': '{n} ऑफिस वापस आ गए? अभी फिर से चेक-इन करें।',
-    'Face': 'चेहरा', 'Face recognised': 'चेहरा पहचाना गया', 'Look at the camera': 'कैमरे की तरफ देखें', 'Looking for your face…': 'आपका चेहरा ढूँढ रहे हैं…',
+    'Hold still…': 'हिलें नहीं…', 'Face': 'चेहरा', 'Face recognised': 'चेहरा पहचाना गया', 'Look at the camera': 'कैमरे की तरफ देखें', 'Looking for your face…': 'आपका चेहरा ढूँढ रहे हैं…',
     'Starting face recognition…': 'चेहरा पहचान शुरू हो रही है…', 'Use selfie instead': 'इसकी जगह सेल्फी लें',
     'Face not recognised yet. Look straight at the camera in good light.': 'चेहरा अभी पहचाना नहीं गया। अच्छी रोशनी में सीधे कैमरे की तरफ देखें।',
     'Your face was not recognised.': 'आपका चेहरा पहचाना नहीं गया।', 'Face check skipped.': 'चेहरा जाँच छोड़ी गई।',
@@ -948,7 +948,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261030;
+  var NEEDS_SERVER = 20261032;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1117,19 +1117,21 @@
       };
       return tryB(['webgl', 'wasm', 'cpu']);
     }).then(function () {
-      return Promise.all([faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODELS), faceapi.nets.faceLandmark68TinyNet.loadFromUri(FACE_MODELS),
+      return Promise.all([faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODELS), faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODELS),
         faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODELS)]);
     }).then(function () { return faceapi.tf && faceapi.tf.ready ? faceapi.tf.ready() : null; })
       .catch(function (e) { S.faceLoad = null; throw e; });
     return S.faceLoad;
   }
-  /** One look at the camera: { d: fingerprint, score } of the biggest face, or null. */
+  /** One look at the camera: { d: fingerprint, score, size: face width ÷ picture width } of the biggest face, or null. */
   function faceRead(video) {
     if (!video || !video.videoWidth) return Promise.resolve(null);
     return faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
-      .withFaceLandmarks(true).withFaceDescriptor()
-      .then(function (r) { return r ? { d: Array.prototype.slice.call(r.descriptor), score: r.detection.score } : null; });
+      .withFaceLandmarks().withFaceDescriptor() // full landmark model: better aligned faces → people told apart better
+      .then(function (r) { return r ? { d: Array.prototype.slice.call(r.descriptor), score: r.detection.score, size: r.detection.box.width / video.videoWidth } : null; });
   }
+  var FACE_MAX = 0.42; // used until the server sends its setting
+  function faceAvg(list) { var a = []; for (var k = 0; k < 128; k++) { var n = 0; list.forEach(function (d) { n += d[k]; }); a.push(n / list.length); } return a; }
   function faceDist(a, b) { var n = 0; for (var i = 0; i < 128; i++) { var x = a[i] - b[i]; n += x * x; } return Math.sqrt(n); }
   /** Small proof photo (about 15 KB). */
   function facePhoto(video, mirror) {
@@ -1194,13 +1196,14 @@
       if (S.flow !== f || f.faceState !== 'scanning') return;
       if (r) {
         var dist = faceDist(r.d, S.home.face);
-        if (dist < (S.home.faceDistance || 0.5)) {
+        f.faceHits = dist < (S.home.faceDistance || FACE_MAX) ? (f.faceHits || 0) + 1 : 0;
+        if (f.faceHits >= 2) { // two looks in a row must match
           f.faceState = 'ok'; f.faceDist = Math.round(dist * 1000) / 1000; f.selfie = facePhoto(v, true);
           stopCamera(); renderFlow();
           if (f.pos && !f.error) submitFlow();
           return;
         }
-        f.faceMsg = t('Face not recognised yet. Look straight at the camera in good light.');
+        f.faceMsg = f.faceHits ? t('Hold still…') : t('Face not recognised yet. Look straight at the camera in good light.');
       } else f.faceMsg = t('Looking for your face…');
       if (Date.now() - f.faceStarted > 12000) return faceFlowGiveUp(t('Your face was not recognised.'));
       renderFaceStatus();
@@ -1928,9 +1931,19 @@
       if (S.kiosk !== K) return;
       if (!r) { K.unknownSince = 0; if (!K.hold || Date.now() > K.hold) kioskMsg('', t('Look at the camera')); }
       else {
-        var best = null;
-        K.faces.list.forEach(function (p) { var d = faceDist(r.d, p.d); if (!best || d < best.dist) best = { p: p, dist: d }; });
-        if (best && best.dist < (K.faces.distance || 0.5)) { K.unknownSince = 0; return kioskMark(K, best.p, best.dist, v); }
+        var best = null, second = 9;
+        K.faces.list.forEach(function (p) {
+          var d = faceDist(r.d, p.d);
+          if (!best || d < best.dist) { if (best) second = best.dist; best = { p: p, dist: d }; } else if (d < second) second = d;
+        });
+        // Mark only when sure: close enough, clearly closer than anyone else, and the same person in 2 looks in a row.
+        var sure = best && best.dist < (K.faces.distance || FACE_MAX) && second - best.dist >= 0.08;
+        if (sure) {
+          K.unknownSince = 0;
+          if (K.lastId === best.p.id) { K.lastId = null; return kioskMark(K, best.p, best.dist, v); }
+          K.lastId = best.p.id; return setTimeout(function () { kioskLoop(K); }, 60);
+        }
+        K.lastId = null;
         K.unknownSince = K.unknownSince || Date.now();
         if (Date.now() - K.unknownSince > 4000) kioskMsg('err', t('Face not recognised. Close this and use the list below (with photo).'));
       }
@@ -2737,12 +2750,18 @@
     var v = $('regVideo');
     faceRead(v).then(function (r) {
       if (S.faceReg !== reg || $('modal').classList.contains('hidden')) return;
-      if (r && r.score > 0.6) { // clear, front-facing scans only
+      var hint = '';
+      if (r && r.score > 0.6 && r.size >= 0.2) { // clear, front-facing and close enough
         reg.samples.push(r.d);
         if (reg.samples.length === 2) reg.photo = facePhoto(v, reg.facing === 'user');
+      } else if (r && r.size < 0.2) hint = ' — come closer';
+      if (reg.samples.length >= 5) {
+        // All scans must agree (same person, sharp): drop odd ones and scan again if needed.
+        var avg = faceAvg(reg.samples);
+        reg.samples = reg.samples.filter(function (d) { return faceDist(d, avg) < 0.3; });
+        if (reg.samples.length >= 5) return regSave(reg);
       }
-      $('regMsg').innerHTML = reg.samples.length ? 'Scanning… ' + reg.samples.length + ' / 5' : 'Looking for the face…';
-      if (reg.samples.length >= 5) return regSave(reg);
+      $('regMsg').innerHTML = (reg.samples.length ? 'Scanning… ' + reg.samples.length + ' / 5' : 'Looking for the face…') + hint;
       if (Date.now() - reg.started > 20000) {
         reg.active = false; stopCamera();
         $('regMsg').innerHTML = errBox('Could not get a clear look at the face. Use good light, remove mask / sunglasses, look straight at the camera, and try again.') +
@@ -2755,8 +2774,7 @@
   function regSave(reg) {
     reg.active = false;
     stopCamera();
-    var avg = [];
-    for (var k = 0; k < 128; k++) { var sum = 0; reg.samples.forEach(function (d) { sum += d[k]; }); avg.push(sum / reg.samples.length); }
+    var avg = faceAvg(reg.samples);
     var e = S.staff.list[reg.i];
     $('regMsg').innerHTML = '<span class="spinner"></span> Saving…';
     api('adminSaveFace', S.token, e.id, avg, reg.photo).then(function (r) {
