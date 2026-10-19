@@ -223,6 +223,10 @@
     .kiosk-msg.big { font-size: 22px; }
     .kiosk-msg.warn { background: var(--amber-soft); color: var(--amber); }
     .kiosk-msg.err { background: var(--red-soft); color: var(--red); }
+    table.given { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 13px; }
+    table.given th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
+    table.given td { padding: 5px 6px; border-bottom: 1px dashed var(--line); }
+    table.given .r { text-align: right; } table.given tr.tot td { font-weight: 700; border-bottom: 0; }
     .x-btn { border: 0; background: var(--bg); width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; flex: none; }
     .day-nav { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 2px; }
     .day-nav b { font-size: 17px; }
@@ -495,6 +499,7 @@
     'Checking location… one moment': 'लोकेशन जाँच रहे हैं… एक पल', 'back in at {t}': '{t} पर वापस', 'checked in at {t}': '{t} पर चेक-इन', 'checked out at {t}': '{t} पर चेक-आउट',
     'Face not recognised. Close this and use the list below (with photo).': 'चेहरा नहीं पहचाना गया। इसे बंद करें और नीचे की सूची से (फोटो के साथ) मार्क करें।',
     'No faces are registered yet. Ask the admin to register faces (Employees → Edit).': 'अभी कोई चेहरा रजिस्टर नहीं है। एडमिन से चेहरे रजिस्टर करवाएँ।',
+    'Date given': 'दी गई तारीख', 'Amount': 'राशि', 'Note': 'नोट', 'Total': 'कुल',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
@@ -948,7 +953,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261032;
+  var NEEDS_SERVER = 20261033;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1516,7 +1521,8 @@
       html += '<div class="total-tile"><span>' + t('Total Salary') + '</span><b>' + money(p.net, cur) + '</b></div>';
       (m.advances || []).forEach(function (a) {
         html += '<p class="muted small" style="margin:8px 0 0">' + t('Advance {amt}{note}: balance {bal} after this month', { amt: money(a.amount, cur),
-          note: a.note ? ' (' + esc(a.note) + ')' : '', bal: money(a.balanceAfter, cur) }) + (a.status !== 'ACTIVE' ? ' · ' + esc(t(STATUS[a.status] || a.status)) : '') + '</p>';
+          note: a.note ? ' (' + esc(a.note) + ')' : '', bal: money(a.balanceAfter, cur) }) + (a.status !== 'ACTIVE' ? ' · ' + esc(t(STATUS[a.status] || a.status)) : '') + '</p>' +
+          (a.given && a.given.length > 1 ? givenHtml(a, cur) : '');
       });
       if (p.prorated) html += '<p class="muted small" style="margin:8px 0 0">' + t('prorated.note') + '</p>';
       if (!navArg || m.canPayslip) html += '<button class="btn ghost" onclick="openPayslip(\'' + m.ym + '\'' + (navArg ? ',\'' + esc(m.employee.id) + '\'' : '') + ')">' + t('📄 Payslip') + '</button>';
@@ -2972,9 +2978,8 @@
     r.list.forEach(function (a, i) {
       var st = a.repaid ? '<span class="chip s-APPROVED">Repaid</span>' : chip(a.status);
       html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(a.name) + ' <span class="muted" style="font-weight:400">' + esc(a.empId) + '</span></div>' + st + '</div>' +
-        '<div class="sub">' + money(a.amount, cur) + ' given ' + esc(fmtDate(a.dateGiven)) + (a.note ? ' · ' + esc(a.note) : '') + '</div>' +
+        givenHtml(a, cur) +
         '<div class="sub">' + money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + '</div>' +
-        (a.topUps && a.topUps.length ? a.topUps.map(function (t) { return '<div class="sub">➕ ' + esc(t) + '</div>'; }).join('') : '') +
         '<div class="kv" style="margin-top:8px"><div><b>' + money(a.deductedBefore, cur) + '</b><span>Recovered</span></div>' +
         '<div' + (a.thisMonthChanged ? ' class="k-ot"' : '') + '><b>' + money(a.thisMonth, cur) + '</b><span>This month' + (a.thisMonthChanged ? ' (changed)' : '') + '</span></div>' +
         '<div class="k-red"><b>' + money(a.balanceAfter, cur) + '</b><span>Balance after</span></div></div>' +
@@ -2995,6 +3000,14 @@
       'Pause skips every month until resumed. Close stops it for good (e.g. repaid in cash). Locked months keep what was actually deducted.</p>';
     adminBody(html);
     advEmpHint();
+  }
+
+  /** Every payment of an advance on its own row: date, amount, note (and the total when there are several). */
+  function givenHtml(a, cur) {
+    var list = a.given && a.given.length ? a.given : [{ date: a.dateGiven, amount: a.amount, note: a.note }];
+    return '<table class="given"><tr><th>' + t('Date given') + '</th><th class="r">' + t('Amount') + '</th><th>' + t('Note') + '</th></tr>' +
+      list.map(function (g) { return '<tr><td>' + esc(fmtDate(g.date)) + '</td><td class="r">' + money(g.amount, cur) + '</td><td class="muted">' + esc(g.note || '') + '</td></tr>'; }).join('') +
+      (list.length > 1 ? '<tr class="tot"><td>' + t('Total') + '</td><td class="r">' + money(a.amount, cur) + '</td><td></td></tr>' : '') + '</table>';
   }
 
   /** Tells the admin when the selected employee already has an advance running. */
