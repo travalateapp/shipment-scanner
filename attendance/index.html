@@ -223,6 +223,8 @@
     .kiosk-msg.big { font-size: 22px; }
     .kiosk-msg.warn { background: var(--amber-soft); color: var(--amber); }
     .kiosk-msg.err { background: var(--red-soft); color: var(--red); }
+    details.adv-one { border-top: 1px dashed var(--line); margin-top: 8px; padding-top: 6px; }
+    details.adv-one summary { cursor: pointer; color: var(--brand); font-weight: 600; font-size: 13px; padding: 4px 0; }
     table.given { width: 100%; border-collapse: collapse; margin: 6px 0; font-size: 13px; }
     table.given th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
     table.given td { padding: 5px 6px; border-bottom: 1px dashed var(--line); }
@@ -2984,25 +2986,52 @@
 
     html += '<div class="card"><h2>Advances</h2>';
     if (!r.list.length) html += '<p class="muted">No advances yet.</p>';
+    // One card per employee: every payment as a row, then the combined amounts.
+    var groups = [], byEmp = {};
     r.list.forEach(function (a, i) {
-      var st = a.repaid ? '<span class="chip s-APPROVED">Repaid</span>' : chip(a.status);
-      html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(a.name) + ' <span class="muted" style="font-weight:400">' + esc(a.empId) + '</span></div>' + st + '</div>' +
-        givenHtml(a, cur) +
-        '<div class="sub">' + money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + '</div>' +
-        '<div class="kv" style="margin-top:8px"><div><b>' + money(a.deductedBefore, cur) + '</b><span>Recovered</span></div>' +
-        '<div' + (a.thisMonthChanged ? ' class="k-ot"' : '') + '><b>' + money(a.thisMonth, cur) + '</b><span>This month' + (a.thisMonthChanged ? ' (changed)' : '') + '</span></div>' +
-        '<div class="k-red"><b>' + money(a.balanceAfter, cur) + '</b><span>Balance after</span></div></div>' +
-        (a.changes.length ? '<div style="margin-top:8px">' + a.changes.map(function (c) {
-          return '<div class="row small" style="padding:4px 0"><span>📌 <b>' + esc(monthName(c.month)) + ':</b> ' +
-            (c.amount === 0 ? 'no deduction (skipped)' : 'deduct ' + money(c.amount, cur)) + (c.note ? ' <span class="muted">· ' + esc(c.note) + '</span>' : '') + '</span>' +
-            (c.locked ? '<span class="muted">locked</span>' : '<button class="link" style="color:var(--red)" onclick="clearAdvMonth(' + i + ',\'' + c.month + '\')">Undo</button>') + '</div>';
-        }).join('') + '</div>' : '') +
-        (a.status === 'CLOSED' || (a.repaid && !a.changes.length) ? '<div class="btns"><button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button></div>' : '<div class="btns">' +
-          '<button class="btn small" onclick="openAdvMonth(' + i + ')">Change a month</button>' +
-          '<button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button>' +
-          '<button class="btn small ghost" onclick="editAdvance(' + i + ')">Change monthly</button>' +
-          (a.status === 'ACTIVE' ? '<button class="btn small ghost" onclick="advStatus(' + i + ',\'PAUSED\')">Pause</button>' : '<button class="btn small ghost" onclick="advStatus(' + i + ',\'ACTIVE\')">Resume</button>') +
-          '<button class="btn small soft-red" onclick="advStatus(' + i + ',\'CLOSED\')">Close</button></div>') + '</div>';
+      if (!byEmp[a.empId]) { byEmp[a.empId] = { empId: a.empId, name: a.name, items: [] }; groups.push(byEmp[a.empId]); }
+      byEmp[a.empId].items.push({ a: a, i: i });
+    });
+    groups.forEach(function (g) {
+      var sum = function (k) { return g.items.reduce(function (n, x) { return n + (Number(x.a[k]) || 0); }, 0); };
+      var total = sum('amount'), thisMonth = sum('thisMonth'), after = sum('balanceAfter'), recovered = sum('deductedBefore');
+      var running = g.items.filter(function (x) { return !x.a.repaid && x.a.status !== 'CLOSED'; }).length;
+      var allRepaid = g.items.every(function (x) { return x.a.repaid; });
+      var st = allRepaid ? '<span class="chip s-APPROVED">Repaid</span>' : running ? chip('ACTIVE') : chip(g.items[0].a.status);
+      var rows = [];
+      g.items.forEach(function (x) {
+        (x.a.given && x.a.given.length ? x.a.given : [{ date: x.a.dateGiven, amount: x.a.amount, note: x.a.note }]).forEach(function (p) { rows.push(p); });
+      });
+      rows.sort(function (p, q) { return p.date < q.date ? -1 : p.date > q.date ? 1 : 0; });
+      html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(g.name) + ' <span class="muted" style="font-weight:400">' + esc(g.empId) + '</span></div>' + st + '</div>' +
+        '<table class="given"><tr><th>Date given</th><th class="r">Amount</th><th>Note</th></tr>' +
+        rows.map(function (p) { return '<tr><td>' + esc(fmtDate(p.date)) + '</td><td class="r">' + money(p.amount, cur) + '</td><td class="muted">' + esc(p.note || '') + '</td></tr>'; }).join('') +
+        (rows.length > 1 ? '<tr class="tot"><td>Total given</td><td class="r">' + money(total, cur) + '</td><td></td></tr>' : '') + '</table>' +
+        '<div class="kv" style="margin-top:8px"><div class="k-red"><b>' + money(total - recovered, cur) + '</b><span>Pending</span></div>' +
+        '<div><b>' + money(thisMonth, cur) + '</b><span>This month</span></div>' +
+        '<div class="k-red"><b>' + money(after, cur) + '</b><span>Balance after</span></div></div>' +
+        (recovered ? '<p class="muted small" style="margin:6px 0 0">Recovered so far: ' + money(recovered, cur) + '</p>' : '');
+      // Each advance keeps its own deduction and buttons.
+      g.items.forEach(function (x) {
+        var a = x.a, i = x.i, one = g.items.length === 1;
+        var inner = (one ? '' : '<div class="sub" style="margin:4px 0">' + money(a.amount, cur) + ' given ' + esc(fmtDate(a.dateGiven)) + (a.note ? ' · ' + esc(a.note) : '') +
+            ' · balance ' + money(a.balanceAfter, cur) + ' after this month</div>') +
+          '<div class="sub">' + money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + (a.thisMonthChanged ? ' · <b>this month changed</b>' : '') + '</div>' +
+          (a.changes.length ? '<div style="margin-top:6px">' + a.changes.map(function (c) {
+            return '<div class="row small" style="padding:4px 0"><span>📌 <b>' + esc(monthName(c.month)) + ':</b> ' +
+              (c.amount === 0 ? 'no deduction (skipped)' : 'deduct ' + money(c.amount, cur)) + (c.note ? ' <span class="muted">· ' + esc(c.note) + '</span>' : '') + '</span>' +
+              (c.locked ? '<span class="muted">locked</span>' : '<button class="link" style="color:var(--red)" onclick="clearAdvMonth(' + i + ',\'' + c.month + '\')">Undo</button>') + '</div>';
+          }).join('') + '</div>' : '') +
+          (a.status === 'CLOSED' || (a.repaid && !a.changes.length) ? '<div class="btns"><button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button></div>' : '<div class="btns">' +
+            '<button class="btn small" onclick="openAdvMonth(' + i + ')">Change a month</button>' +
+            '<button class="btn small ghost" onclick="openTopUp(' + i + ')">＋ Add more</button>' +
+            '<button class="btn small ghost" onclick="editAdvance(' + i + ')">Change monthly</button>' +
+            (a.status === 'ACTIVE' ? '<button class="btn small ghost" onclick="advStatus(' + i + ',\'PAUSED\')">Pause</button>' : '<button class="btn small ghost" onclick="advStatus(' + i + ',\'ACTIVE\')">Resume</button>') +
+            '<button class="btn small soft-red" onclick="advStatus(' + i + ',\'CLOSED\')">Close</button></div>');
+        html += one ? inner : '<details class="adv-one"><summary>Advance of ' + esc(fmtDate(a.dateGiven)) + ' · ' + money(a.amount, cur) + ' · ' +
+          (a.repaid ? 'repaid' : esc(t(STATUS[a.status] || a.status)).toLowerCase()) + ' — manage</summary>' + inner + '</details>';
+      });
+      html += '</div>';
     });
     html += '</div><p class="muted small center"><b>Add more</b> adds a new amount to a running advance (one balance, one deduction). ' +
       'Saving a new advance above instead keeps it separate, with its own deduction (both are deducted each month). <b>Change a month</b> sets a different amount (or no deduction) for one month only; the balance moves to later months. ' +
