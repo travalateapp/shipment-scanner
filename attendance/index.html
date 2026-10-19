@@ -218,6 +218,11 @@
     .upd-pill { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 60; background: #1b2333; color: #fff;
       font-size: 13px; padding: 6px 12px; border-radius: 999px; box-shadow: 0 4px 14px rgba(0,0,0,.2); display: flex; gap: 6px; align-items: center; }
     .upd-pill .spinner { width: 14px; height: 14px; border-width: 2px; }
+    .kiosk-msg { text-align: center; padding: 12px; border-radius: 12px; margin: 10px 0; background: var(--bg); font-weight: 600; min-height: 48px; }
+    .kiosk-msg.ok { background: var(--green-soft); color: var(--green); }
+    .kiosk-msg.big { font-size: 22px; }
+    .kiosk-msg.warn { background: var(--amber-soft); color: var(--amber); }
+    .kiosk-msg.err { background: var(--red-soft); color: var(--red); }
     .x-btn { border: 0; background: var(--bg); width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; flex: none; }
     .day-nav { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 2px; }
     .day-nav b { font-size: 17px; }
@@ -302,7 +307,8 @@
     WEAK_GPS: 'Weak GPS', WEAK_GPS_OUT: 'Weak GPS at check-out', REPEAT_GPS: 'Same GPS as another day',
     SHARED_GPS: 'Same GPS as another person', NO_SELFIE: 'No selfie', NO_CHECKOUT: 'Did not check out',
     PROXY: 'Check-in marked by someone else', PROXY_OUT: 'Check-out marked by someone else',
-    OUTSIDE: 'Checked in outside office', OUTSIDE_OUT: 'Checked out outside office'
+    OUTSIDE: 'Checked in outside office', OUTSIDE_OUT: 'Checked out outside office',
+    FACE: 'Check-in by face', FACE_OUT: 'Check-out by face'
   };
 
   function $(id) { return document.getElementById(id); }
@@ -324,6 +330,7 @@
       var who = f === 'PROXY' ? by.in : f === 'PROXY_OUT' ? by.out : null;
       if (who) return ' <span class="chip s-LEAVE">👤 ' + (f === 'PROXY' ? 'Check-in' : 'Check-out') + ' marked by ' + esc(who) + '</span>';
       if (/^OUTSIDE/.test(f)) return ' <span class="chip s-LEAVE">📍 ' + esc(FLAGS[f]) + '</span>';
+      if (/^FACE/.test(f)) return ' <span class="chip s-PRESENT">🙂 ' + esc(FLAGS[f]) + '</span>';
       return /^PROXY/.test(f) ? ' <span class="chip s-LEAVE">👤 ' + esc(FLAGS[f]) + '</span>' : ' <span class="chip s-FLAG">⚠ ' + esc(FLAGS[f] || f) + '</span>';
     }).join('');
   }
@@ -477,6 +484,17 @@
     'again.info': 'बाहर गए थे और वापस आए? फिर से चेक-इन करें। बाहर का समय काम में नहीं गिना जाता।',
     'Back in at {time} · away {a}': '{time} पर वापस · बाहर {a}', 'Away {list} ({m}) · not counted as worked': 'बाहर {list} ({m}) · काम में नहीं गिना',
     'In again': 'फिर से इन', 'away {m}': 'बाहर {m}', '{n} back in at {t}': '{n} {t} पर वापस', '{n} is back in the office? Check in again now.': '{n} ऑफिस वापस आ गए? अभी फिर से चेक-इन करें।',
+    'Face': 'चेहरा', 'Face recognised': 'चेहरा पहचाना गया', 'Look at the camera': 'कैमरे की तरफ देखें', 'Looking for your face…': 'आपका चेहरा ढूँढ रहे हैं…',
+    'Starting face recognition…': 'चेहरा पहचान शुरू हो रही है…', 'Use selfie instead': 'इसकी जगह सेल्फी लें',
+    'Face not recognised yet. Look straight at the camera in good light.': 'चेहरा अभी पहचाना नहीं गया। अच्छी रोशनी में सीधे कैमरे की तरफ देखें।',
+    'Your face was not recognised.': 'आपका चेहरा पहचाना नहीं गया।', 'Face check skipped.': 'चेहरा जाँच छोड़ी गई।',
+    'Take a selfie instead.': 'इसकी जगह सेल्फी लें।', 'You can continue without it.': 'आप इसके बिना आगे बढ़ सकते हैं।',
+    'Could not load face recognition. Check the internet connection.': 'चेहरा पहचान लोड नहीं हुई। इंटरनेट जाँचें।',
+    '🙂 Scan faces (auto check in / out)': '🙂 चेहरा स्कैन करें (अपने-आप चेक-इन / आउट)', '🙂 Scan faces': '🙂 चेहरा स्कैन',
+    'already marked just now': 'अभी-अभी मार्क हो चुका', 'already done for today': 'आज का पूरा हो चुका', 'not in your list today': 'आज आपकी सूची में नहीं',
+    'Checking location… one moment': 'लोकेशन जाँच रहे हैं… एक पल', 'back in at {t}': '{t} पर वापस', 'checked in at {t}': '{t} पर चेक-इन', 'checked out at {t}': '{t} पर चेक-आउट',
+    'Face not recognised. Close this and use the list below (with photo).': 'चेहरा नहीं पहचाना गया। इसे बंद करें और नीचे की सूची से (फोटो के साथ) मार्क करें।',
+    'No faces are registered yet. Ask the admin to register faces (Employees → Edit).': 'अभी कोई चेहरा रजिस्टर नहीं है। एडमिन से चेहरे रजिस्टर करवाएँ।',
     '🎉 Upcoming holidays': '🎉 आने वाली छुट्टियाँ', 'National': 'राष्ट्रीय', 'Festival': 'त्योहार', 'Company': 'कंपनी',
     'App {v}': 'ऐप {v}', 'Check for update': 'अपडेट देखें',
     'Please update the app': 'कृपया ऐप अपडेट करें', 'Update now': 'अभी अपडेट करें',
@@ -885,6 +903,7 @@
       $('adminBadge').textContent = h.adminMissed ? '!' : '';
       $('adminBadge').classList.toggle('hidden', !h.adminMissed);
       if (S.tab === 'home') renderHome();
+      if (h.face && faceSupported() && !S.faceLoad) setTimeout(function () { loadFace().catch(function () {}); }, 1500); // models ready before Check In
   }
 
   /** True when the phone's clock and time zone match the server (i.e. automatic time is on). */
@@ -929,7 +948,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261029;
+  var NEEDS_SERVER = 20261030;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1071,12 +1090,77 @@
   }
 
   /** Step 1: get GPS. Step 2 (check-in): selfie. Step 3: submit. */
+  /* ---------------- Face recognition (runs on the phone) ----------------
+   * face-api (TensorFlow.js) from jsDelivr: a tiny face detector, landmarks and a 128-number face fingerprint.
+   * The models (~7 MB) download once and stay in the phone's cache. Matching = distance between fingerprints.
+   */
+  var FACE_LIB = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js';
+  var FACE_MODELS = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model/';
+  var FACE_WASM = 'https://cdn.jsdelivr.net/npm/@tensorflow/tfjs-backend-wasm@4.22.0/dist/';
+  function faceSupported() { return !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia && window.WebGLRenderingContext !== undefined); }
+  function loadFace() {
+    if (S.faceLoad) return S.faceLoad;
+    S.faceLoad = new Promise(function (resolve, reject) {
+      if (window.faceapi) return resolve();
+      var sc = document.createElement('script');
+      sc.src = FACE_LIB; sc.onload = function () { resolve(); };
+      sc.onerror = function () { reject(new Error(t('Could not load face recognition. Check the internet connection.'))); };
+      document.head.appendChild(sc);
+    }).then(function () {
+      // Fastest engine the phone has: its graphics chip (WebGL), else WebAssembly, else plain JavaScript.
+      var tf = faceapi.tf;
+      if (tf.setWasmPaths) tf.setWasmPaths(FACE_WASM);
+      var tryB = function (list) {
+        if (!list.length) return null;
+        return Promise.resolve().then(function () { return tf.setBackend(list[0]); })
+          .then(function (ok) { return ok && tf.getBackend() === list[0] ? tf.ready() : tryB(list.slice(1)); }, function () { return tryB(list.slice(1)); });
+      };
+      return tryB(['webgl', 'wasm', 'cpu']);
+    }).then(function () {
+      return Promise.all([faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODELS), faceapi.nets.faceLandmark68TinyNet.loadFromUri(FACE_MODELS),
+        faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODELS)]);
+    }).then(function () { return faceapi.tf && faceapi.tf.ready ? faceapi.tf.ready() : null; })
+      .catch(function (e) { S.faceLoad = null; throw e; });
+    return S.faceLoad;
+  }
+  /** One look at the camera: { d: fingerprint, score } of the biggest face, or null. */
+  function faceRead(video) {
+    if (!video || !video.videoWidth) return Promise.resolve(null);
+    return faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+      .withFaceLandmarks(true).withFaceDescriptor()
+      .then(function (r) { return r ? { d: Array.prototype.slice.call(r.descriptor), score: r.detection.score } : null; });
+  }
+  function faceDist(a, b) { var n = 0; for (var i = 0; i < 128; i++) { var x = a[i] - b[i]; n += x * x; } return Math.sqrt(n); }
+  /** Small proof photo (about 15 KB). */
+  function facePhoto(video, mirror) {
+    var scale = Math.min(1, 360 / Math.max(video.videoWidth, video.videoHeight));
+    var c = document.createElement('canvas');
+    c.width = Math.round(video.videoWidth * scale); c.height = Math.round(video.videoHeight * scale);
+    var ctx = c.getContext('2d');
+    if (mirror) { ctx.translate(c.width, 0); ctx.scale(-1, 1); }
+    ctx.drawImage(video, 0, 0, c.width, c.height);
+    return c.toDataURL('image/jpeg', 0.6);
+  }
+  function openCamera(videoId, facing) {
+    stopCamera();
+    return navigator.mediaDevices.getUserMedia({ video: { facingMode: facing || 'user', width: { ideal: 640 } }, audio: false }).then(function (stream) {
+      S.camStream = stream;
+      var v = $(videoId);
+      if (v) { v.srcObject = stream; if (v.play) v.play().catch(function () {}); }
+      return v;
+    });
+  }
+
   function startFlow(mode) {
     if (!phoneTimeOk()) { renderHome(); return; }
-    S.flow = { mode: mode, pos: null, selfie: null, busy: false, error: null, locating: true };
+    S.flow = { mode: mode, pos: null, selfie: null, busy: false, error: null, locating: true,
+      face: !!(S.home.face && faceSupported()), faceState: 'loading', faceMsg: '' };
     renderFlow();
+    if (S.flow.face) faceFlowStart();
     $('flow').scrollIntoView({ behavior: 'smooth' });
+    var fl = S.flow;
     getBestPosition(S.home.office.maxAccuracy).then(function (p) {
+      if (S.flow !== fl) return;
       S.flow.locating = false;
       S.flow.pos = p;
       p.distance = distance(p.lat, p.lng, S.home.office.lat, S.home.office.lng);
@@ -1085,16 +1169,59 @@
       else if (p.accuracy > S.home.office.maxAccuracy) S.flow.error = 'GPS signal is weak (±' + Math.round(p.accuracy) + ' m). Move near a window or open area and try again.';
       else if (p.distance > S.home.office.radius) S.flow.error = 'You are ' + Math.round(p.distance) + ' m from the office. You must be within ' + S.home.office.radius + ' m.';
       renderFlow();
+      if (fl.face && fl.faceState === 'ok' && !fl.error && !fl.busy) submitFlow(); // face was quicker than GPS
     }).catch(function (err) {
+      if (S.flow !== fl) return;
       S.flow.locating = false;
       S.flow.error = err.message;
       renderFlow();
     });
   }
 
+  /** Face check on the employee's own phone: scans until the face matches, then marks at once. */
+  function faceFlowStart() {
+    var f = S.flow;
+    f.faceState = 'loading'; f.faceMsg = ''; f.faceStarted = Date.now(); renderFlow();
+    Promise.all([loadFace(), openCamera('faceVideo', 'user')]).then(function () {
+      if (S.flow !== f) return stopCamera();
+      f.faceState = 'scanning'; f.faceStarted = Date.now(); renderFaceStatus(); faceFlowLoop(f);
+    }).catch(function (e) { if (S.flow === f) faceFlowGiveUp(e.message); });
+  }
+  function faceFlowLoop(f) {
+    if (S.flow !== f || f.faceState !== 'scanning') return;
+    var v = $('faceVideo');
+    faceRead(v).then(function (r) {
+      if (S.flow !== f || f.faceState !== 'scanning') return;
+      if (r) {
+        var dist = faceDist(r.d, S.home.face);
+        if (dist < (S.home.faceDistance || 0.5)) {
+          f.faceState = 'ok'; f.faceDist = Math.round(dist * 1000) / 1000; f.selfie = facePhoto(v, true);
+          stopCamera(); renderFlow();
+          if (f.pos && !f.error) submitFlow();
+          return;
+        }
+        f.faceMsg = t('Face not recognised yet. Look straight at the camera in good light.');
+      } else f.faceMsg = t('Looking for your face…');
+      if (Date.now() - f.faceStarted > 12000) return faceFlowGiveUp(t('Your face was not recognised.'));
+      renderFaceStatus();
+      setTimeout(function () { faceFlowLoop(f); }, 120);
+    }).catch(function (e) { faceFlowGiveUp(e.message); });
+  }
+  /** Not recognised (or no camera): back to the usual way — selfie at check-in, nothing extra at check-out. */
+  function faceFlowGiveUp(msg) {
+    var f = S.flow; if (!f) return;
+    stopCamera();
+    f.face = false; f.faceFailed = msg || ''; f.selfie = null;
+    renderFlow();
+  }
+  function renderFaceStatus() {
+    var f = S.flow, el = $('faceMsg'); if (!el || !f) return;
+    el.textContent = f.faceState === 'loading' ? t('Starting face recognition…') : f.faceMsg || t('Look at the camera');
+  }
+
   function renderFlow() {
     var f = S.flow, el = $('flow'); if (!el || !f) return;
-    var needSelfie = f.mode === 'in' && S.home.selfieRequired; // not again: the first check-in has the selfie
+    var needSelfie = f.mode === 'in' && S.home.selfieRequired && !f.face; // not again: the first check-in has the selfie
     var locOk = f.pos && !f.error;
     var html = '<div class="card"><h2>' + t(f.mode === 'in' ? 'Check In' : f.mode === 'again' ? 'Check in again' : 'Check Out') + '</h2>';
 
@@ -1107,6 +1234,17 @@
     if (f.error) html += errBox(f.error) + '<button class="btn ghost" onclick="startFlow(\'' + f.mode + '\')">' + t('Retry') + '</button>';
     html += '</div></div>';
 
+    if (f.face) {
+      var ok = f.faceState === 'ok';
+      html += '<div class="flow-step ' + (ok ? 'done' : '') + '"><div class="dot">' + (ok ? '✓' : '2') + '</div><div style="flex:1"><b>' + t('Face') + '</b><br>';
+      if (ok) html += '<span class="muted">' + t('Face recognised') + '</span>';
+      else html += '<video id="faceVideo" class="cam" autoplay playsinline muted style="max-height:260px;object-fit:cover"></video>' +
+        '<p class="muted small" id="faceMsg" style="margin:4px 0 0"></p>' +
+        '<button class="link" onclick="faceFlowGiveUp(\'\')">' + t('Use selfie instead') + '</button>';
+      html += '</div></div>';
+    } else if (f.faceFailed !== undefined && S.home.face) {
+      html += '<div class="msg warn">' + esc(f.faceFailed || t('Face check skipped.')) + ' ' + t(f.mode === 'in' && S.home.selfieRequired ? 'Take a selfie instead.' : 'You can continue without it.') + '</div>';
+    }
     if (needSelfie) {
       html += '<div class="flow-step ' + (f.selfie ? 'done' : '') + '"><div class="dot">' + (f.selfie ? '✓' : '2') + '</div><div style="flex:1"><b>' + t('Selfie') + '</b><br>';
       if (f.selfie) html += '<img class="selfie-preview" src="' + f.selfie + '"><button class="btn ghost" onclick="takeSelfie()">' + t('Retake') + '</button>';
@@ -1115,14 +1253,19 @@
       html += '</div></div>';
     }
 
-    var ready = locOk && (!needSelfie || f.selfie);
+    var ready = locOk && (!needSelfie || f.selfie) && (!f.face || f.faceState === 'ok');
     html += '<button class="btn ' + (f.mode === 'out' ? 'red' : 'green') + '" ' + (ready && !f.busy ? '' : 'disabled') + ' onclick="submitFlow()">' +
       (f.busy ? '<span class="spinner"></span> ' + t('Saving…') : t(f.mode === 'out' ? 'Confirm Check-Out' : 'Confirm Check-In')) + '</button>';
     html += '<button class="btn ghost" onclick="cancelFlow()" ' + (f.busy ? 'disabled' : '') + '>' + t('Cancel') + '</button></div>';
-    el.innerHTML = html;
+    var keepVideo = f.face && f.faceState !== 'ok' && $('faceVideo') && S.camStream;
+    if (keepVideo) { // don't restart the camera on every redraw: only refresh the parts around it
+      var vid = $('faceVideo'); el.innerHTML = html; var nv = $('faceVideo'); nv.parentNode.replaceChild(vid, nv);
+      if (vid.play) vid.play().catch(function () {}); // moving a video pauses it
+      renderFaceStatus();
+    } else el.innerHTML = html;
   }
 
-  function cancelFlow() { S.flow = null; $('flow').innerHTML = ''; }
+  function cancelFlow() { stopCamera(); S.flow = null; $('flow').innerHTML = ''; }
 
   /** Live front camera first; the phone's camera app (file input) only if live camera is not available and allowed. */
   function takeSelfie() {
@@ -1177,9 +1320,10 @@
     var f = S.flow; if (!f || f.busy) return;
     f.busy = true; renderFlow();
     var p = f.pos;
+    var face = f.faceState === 'ok' && f.face ? { dist: f.faceDist } : null;
     var call = f.mode !== 'out'
-      ? api('checkIn', S.token, p.lat, p.lng, p.accuracy, f.selfie, phoneClock())
-      : api('checkOut', S.token, p.lat, p.lng, p.accuracy, phoneClock());
+      ? api('checkIn', S.token, p.lat, p.lng, p.accuracy, f.selfie, phoneClock(), face)
+      : api('checkOut', S.token, p.lat, p.lng, p.accuracy, phoneClock(), face ? f.selfie : null, face);
     call.then(function (r) {
       S.flow = null; S.monthCache = {};
       toast(r.again ? t('Back in at {time} · away {a}', { time: r.time, a: r.away })
@@ -1707,7 +1851,8 @@
     var html = '<div class="card">' + (sw ? '<div class="center">' + sw + '</div>' : '') + '<h2>' + t('Mark attendance for others') + '</h2>' +
       '<p class="muted small" style="margin:-6px 0 8px">' + t('proxy.info') + '</p>' +
       (proxyTimeOk() ? '' : '<div class="msg err">' + t('proxy.badtime') + '</div>') +
-      '<div id="pxLoc"></div></div>';
+      '<div id="pxLoc"></div>' +
+      (faceSupported() ? '<button class="btn green" style="margin-top:10px" onclick="kioskStart()">' + t('🙂 Scan faces (auto check in / out)') + '</button>' : '') + '</div>';
     html += '<div class="card"><input class="inp" id="pxSearch" placeholder="' + t('🔍 Search name or ID') + '" value="' + esc(S.proxy.filter || '') + '" oninput="S.proxy.filter=this.value;renderProxyList()">' +
       '<div id="pxList" style="margin-top:8px"></div></div>';
     adminBody(html);
@@ -1752,6 +1897,76 @@
   }
 
   /* Photo of the employee for a check-in marked by someone else (compulsory). Front camera first (🔄 switches). */
+  /*
+   * "Scan faces" on the guard's phone: the camera stays on; each recognised employee is marked at once —
+   * Check In, Check Out or In again, from their status — with a small proof photo. The same person is not
+   * marked again for 2 minutes. Faces that are not registered / not recognised: use the list (with photo).
+   */
+  function kioskStart(facing) {
+    var K = S.kiosk = { active: true, facing: facing || 'user', faces: null, recent: {}, busy: false, unknownSince: 0 };
+    openModal('<div class="row"><h2 style="margin:0">' + t('🙂 Scan faces') + '</h2><button class="x-btn" onclick="kioskStop()" aria-label="Close">✕</button></div>' +
+      '<video id="kioskVideo" class="cam" autoplay playsinline muted' + (K.facing === 'user' ? '' : ' style="transform:none"') + '></video>' +
+      '<div id="kioskMsg" class="kiosk-msg"><span class="spinner"></span> ' + t('Starting face recognition…') + '</div>' +
+      '<div class="btns"><button class="btn ghost" onclick="kioskStart(\'' + (K.facing === 'user' ? 'environment' : 'user') + '\')">' + t('🔄 Switch camera') + '</button>' +
+      '<button class="btn ghost" onclick="kioskStop()">' + t('Close') + '</button></div>');
+    if (!proxyPosFresh()) proxyLocate();
+    Promise.all([loadFace(), openCamera('kioskVideo', K.facing), api('proxyFaces', S.token)]).then(function (res) {
+      if (S.kiosk !== K) return;
+      K.faces = res[2];
+      if (!K.faces.list.length) return kioskMsg('warn', t('No faces are registered yet. Ask the admin to register faces (Employees → Edit).'));
+      kioskMsg('', t('Look at the camera'));
+      kioskLoop(K);
+    }).catch(function (err) { if (S.kiosk === K) kioskMsg('err', err.message); });
+  }
+  function kioskStop() { if (S.kiosk) S.kiosk.active = false; S.kiosk = null; closeModal(); renderProxyList(); }
+  function kioskMsg(kind, html) { var el = $('kioskMsg'); if (el) { el.className = 'kiosk-msg ' + (kind || ''); el.innerHTML = html; } }
+  function kioskLoop(K) {
+    if (S.kiosk !== K || !K.active || $('modal').classList.contains('hidden')) { if (S.kiosk === K) S.kiosk = null; return; }
+    if (K.busy) return setTimeout(function () { kioskLoop(K); }, 200);
+    var v = $('kioskVideo');
+    faceRead(v).then(function (r) {
+      if (S.kiosk !== K) return;
+      if (!r) { K.unknownSince = 0; if (!K.hold || Date.now() > K.hold) kioskMsg('', t('Look at the camera')); }
+      else {
+        var best = null;
+        K.faces.list.forEach(function (p) { var d = faceDist(r.d, p.d); if (!best || d < best.dist) best = { p: p, dist: d }; });
+        if (best && best.dist < (K.faces.distance || 0.5)) { K.unknownSince = 0; return kioskMark(K, best.p, best.dist, v); }
+        K.unknownSince = K.unknownSince || Date.now();
+        if (Date.now() - K.unknownSince > 4000) kioskMsg('err', t('Face not recognised. Close this and use the list below (with photo).'));
+      }
+      setTimeout(function () { kioskLoop(K); }, 150);
+    }).catch(function (err) { kioskMsg('err', err.message); setTimeout(function () { kioskLoop(K); }, 1000); });
+  }
+  function kioskMark(K, p, dist, v) {
+    var next = function (ms) { setTimeout(function () { kioskLoop(K); }, ms); };
+    if (K.recent[p.id] && Date.now() - K.recent[p.id] < 120000) {
+      kioskMsg('ok', '✓ ' + esc(p.name) + ' — ' + t('already marked just now')); K.hold = Date.now() + 1500; return next(800);
+    }
+    var row = (S.proxy.data.list || []).filter(function (x) { return x.id === p.id; })[0];
+    if (!row) { kioskMsg('err', esc(p.name) + ': ' + t('not in your list today')); return next(1500); }
+    var mode = !row.in ? 'in' : !row.out ? 'out' : (row.date === S.proxy.data.date && row.out > row.in ? 'again' : null);
+    if (!mode) { kioskMsg('ok', '✓ ' + esc(p.name) + ' — ' + t('already done for today')); K.recent[p.id] = Date.now(); return next(1500); }
+    var pos = S.proxy.pos;
+    if (!pos || pos.error || pos.locating) { kioskMsg('warn', t('Checking location… one moment')); if (!pos || pos.error) proxyLocate(); return next(1500); }
+    if (!proxyPosFresh()) proxyLocate(); // refresh in the background for the next people
+    K.busy = true;
+    var photo = facePhoto(v, K.facing === 'user'), face = { dist: Math.round(dist * 1000) / 1000 };
+    kioskMsg('', '<span class="spinner"></span> ' + esc(p.name) + '…');
+    var call = mode !== 'out' ? api('proxyCheckIn', S.token, p.id, pos.lat, pos.lng, pos.accuracy, phoneClock(), photo, face)
+      : api('proxyCheckOut', S.token, p.id, pos.lat, pos.lng, pos.accuracy, phoneClock(), photo, face);
+    call.then(function (res) {
+      K.recent[p.id] = Date.now(); K.busy = false;
+      S.proxy.data.list = res.list;
+      var what = res.again ? t('back in at {t}', { t: res.time }) : mode === 'in' ? t('checked in at {t}', { t: res.time }) + (res.late ? t(' (Late)') : '')
+        : t('checked out at {t}', { t: res.time });
+      kioskMsg('ok big', '✓ ' + esc(p.name) + '<br><small>' + what + '</small>');
+      K.hold = Date.now() + 2500; next(2500);
+    }).catch(function (err) {
+      K.busy = false; K.recent[p.id] = Date.now() - 90000; // try this person again in 30 s
+      kioskMsg('err', esc(p.name) + ': ' + esc(err.message)); next(2500);
+    });
+  }
+
   function proxyPhoto(i) {
     S.pxPhoto = { i: i, data: null, facing: 'user' };
     proxyCamera();
@@ -1874,7 +2089,8 @@
       html += '<div class="list-item"' + (canOpen ? ' style="cursor:pointer" onclick="todayOpen(' + i + ')"' : '') + '><div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
         '<div class="sub">' + (e.in ? esc(e.in) + ' → ' + esc(e.out || '—') + (e.distance !== '' ? ' · ' + esc(dist(e.distance)) : '') + (e.accuracy !== '' ? ' · ±' + esc(e.accuracy) + ' m' : '') : 'No check-in') + '</div>' +
         (e.flags.length ? '<div>' + flagChips(e.flags, e.markedBy) + '</div>' : '') +
-        (e.hasSelfie ? '<button class="link" onclick="event.stopPropagation();viewSelfie(' + i + ')">📷 View ' + (e.flags.indexOf('PROXY') >= 0 ? 'photo' : 'selfie') + '</button>' : '') +
+        (e.hasSelfie ? '<button class="link" onclick="event.stopPropagation();viewSelfie(' + i + ')">📷 View ' + (e.flags.indexOf('PROXY') >= 0 || e.flags.indexOf('FACE') >= 0 ? 'photo' : 'selfie') + '</button>' : '') +
+        (e.hasOutPhoto ? ' <button class="link" onclick="event.stopPropagation();viewSelfie(' + i + ',\'out\')">📷 Check-out photo</button>' : '') +
         (proxyNoPhoto ? '<div class="sub">No photo saved (marked before photos were required)</div>' : '') +
         '</div><div class="right">' + chip(e.status) + lateChip(e.late) + (canOpen ? '<div class="muted small" style="margin-top:4px">Month ›</div>' : '') + '</div></div>';
     });
@@ -1918,11 +2134,11 @@
     }).catch(function (e) { btn.disabled = false; toast(e.message); });
   }
 
-  function viewSelfie(i) {
+  function viewSelfie(i, which) {
     var e = S.adminToday[i];
     openModal('<h2 style="margin-top:0">' + esc(e.name) + '</h2><div class="center"><div class="spinner"></div></div>');
-    api('adminGetSelfie', S.token, e.row).then(function (src) {
-      openModal('<h2 style="margin-top:0">' + esc(e.name) + ' · ' + esc(e.in) + '</h2><img src="' + src + '">' + (e.flags.length ? '<p>' + flagChips(e.flags, e.markedBy) + '</p>' : '') +
+    api('adminGetSelfie', S.token, e.row, which || '').then(function (src) {
+      openModal('<h2 style="margin-top:0">' + esc(e.name) + ' · ' + esc(which === 'out' ? e.out : e.in) + '</h2><img src="' + src + '">' + (e.flags.length ? '<p>' + flagChips(e.flags, e.markedBy) + '</p>' : '') +
         '<button class="btn ghost" onclick="closeModal()">Close</button>');
     }).catch(function (err) {
       openModal(errBox(err) + '<button class="btn ghost" onclick="closeModal()">Close</button>');
@@ -2495,6 +2711,7 @@
         (!e.active && e.periods && e.periods.length && e.periods[e.periods.length - 1].to ? '<div class="sub">Left on ' + esc(fmtDate(e.periods[e.periods.length - 1].to)) + '</div>' : '') +
         (e.gender ? '' : (e.role === 'GUARD' ? '' : '<div class="sub" style="color:var(--orange)">Gender not set</div>')) +
         (e.leaderboard === false && e.role !== 'GUARD' ? '<div class="sub">🏆 Not in the OT leaderboard</div>' : '') +
+        (e.role !== 'GUARD' ? '<div class="sub">' + (e.face ? '🙂 Face registered' : '<span class="muted">Face not registered</span>') + '</div>' : '') +
         (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
           e.hourlyOt === false ? 'no hourly OT' + (e.lateCut === false ? ', no late cut' : ', late cut from salary') : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
@@ -2502,6 +2719,56 @@
     });
     html += '</div>';
     adminBody(html);
+  }
+
+  /** Admin registers a face: a few scans in a row are averaged into one fingerprint (+ a small photo). */
+  function registerFace(i, facing) {
+    var e = S.staff.list[i], reg = S.faceReg = { i: i, facing: facing || 'user', samples: [], photo: null, active: true, started: 0 };
+    openModal('<div class="row"><h2 style="margin:0">🙂 ' + esc(e.name) + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small">Hold the phone at face height. ' + esc(e.name) + ' looks straight at the camera; good light, no mask or sunglasses.</p>' +
+      '<video id="regVideo" class="cam" autoplay playsinline muted' + (reg.facing === 'user' ? '' : ' style="transform:none"') + '></video>' +
+      '<p class="center" id="regMsg"><span class="spinner"></span> Starting face recognition…</p>' +
+      '<button class="btn ghost" onclick="registerFace(' + i + ',\'' + (reg.facing === 'user' ? 'environment' : 'user') + '\')">🔄 Switch camera</button>');
+    Promise.all([loadFace(), openCamera('regVideo', reg.facing)]).then(function () { reg.started = Date.now(); regLoop(reg); })
+      .catch(function (err) { if (S.faceReg === reg) $('regMsg').innerHTML = errBox(err); });
+  }
+  function regLoop(reg) {
+    if (S.faceReg !== reg || !reg.active || $('modal').classList.contains('hidden')) return;
+    var v = $('regVideo');
+    faceRead(v).then(function (r) {
+      if (S.faceReg !== reg || $('modal').classList.contains('hidden')) return;
+      if (r && r.score > 0.6) { // clear, front-facing scans only
+        reg.samples.push(r.d);
+        if (reg.samples.length === 2) reg.photo = facePhoto(v, reg.facing === 'user');
+      }
+      $('regMsg').innerHTML = reg.samples.length ? 'Scanning… ' + reg.samples.length + ' / 5' : 'Looking for the face…';
+      if (reg.samples.length >= 5) return regSave(reg);
+      if (Date.now() - reg.started > 20000) {
+        reg.active = false; stopCamera();
+        $('regMsg').innerHTML = errBox('Could not get a clear look at the face. Use good light, remove mask / sunglasses, look straight at the camera, and try again.') +
+          '<button class="btn" onclick="registerFace(' + reg.i + ',\'' + reg.facing + '\')">Try again</button>';
+        return;
+      }
+      setTimeout(function () { regLoop(reg); }, 250);
+    }).catch(function (err) { $('regMsg').innerHTML = errBox(err); });
+  }
+  function regSave(reg) {
+    reg.active = false;
+    stopCamera();
+    var avg = [];
+    for (var k = 0; k < 128; k++) { var sum = 0; reg.samples.forEach(function (d) { sum += d[k]; }); avg.push(sum / reg.samples.length); }
+    var e = S.staff.list[reg.i];
+    $('regMsg').innerHTML = '<span class="spinner"></span> Saving…';
+    api('adminSaveFace', S.token, e.id, avg, reg.photo).then(function (r) {
+      reopenStaff(r, e.id); toast('Face registered for ' + e.name);
+    }).catch(function (err) {
+      $('regMsg').innerHTML = errBox(err) + '<button class="btn" onclick="registerFace(' + reg.i + ',\'' + reg.facing + '\')">Try again</button>';
+    });
+  }
+  function removeFace(i) {
+    var e = S.staff.list[i];
+    if (!confirm('Remove the face of ' + e.name + '? They will use the selfie again until it is registered again.')) return;
+    api('adminDeleteFace', S.token, e.id).then(function (r) { reopenStaff(r, e.id); toast('Face removed'); }).catch(function (err) { toast(err.message); });
   }
 
   /** Super admin: tick the employees who take part in the OT leaderboard (men's and women's boards). */
@@ -2558,6 +2825,11 @@
         periodsHtml(e)) +
       '<button class="btn" id="sfSave" onclick="saveStaff(' + i + ')">Save</button>' +
       (isNew || e.role === 'GUARD' ? '' : incrementsHtml(e, i)) +
+      (isNew || e.role === 'GUARD' ? '' : '<div class="card" style="background:var(--bg);margin-top:16px"><b>🙂 Face recognition</b>' +
+        '<p class="muted small" style="margin:4px 0 8px">' + (e.face ? 'Registered (' + esc(e.face) + '). ' + esc(e.name) + ' checks in and out by face, on their phone or the guard\'s phone.'
+          : 'Not registered: ' + esc(e.name) + ' uses the selfie as now. Register with ' + esc(e.name) + ' in front of the camera, in good light.') + '</p>' +
+        '<div class="btns"><button class="btn small" onclick="registerFace(' + i + ')">' + (e.face ? 'Register again' : '📷 Register face') + '</button>' +
+        (e.face ? '<button class="btn small soft-red" onclick="removeFace(' + i + ')">Remove</button>' : '') + '</div></div>') +
       (isNew ? '' : '<div class="card" style="background:var(--bg);margin-top:16px"><b>Reset PIN</b><div class="row" style="margin-top:8px"><input id="sfNewPin" class="inp" inputmode="numeric" placeholder="New PIN"><button class="btn small" onclick="resetPin(\'' + esc(e.id) + '\')">Reset</button></div></div>') +
       '<button class="btn ghost" onclick="closeModal()">Cancel</button><div id="sfMsg"></div>';
     openModal(html);

@@ -3,6 +3,7 @@
 A mobile-friendly web app that runs on a Google Sheet. It lets employees:
 
 - **Check in and check out** only when they are within **30 m of the office**, checked by GPS.
+- **Face recognition** (once an admin has registered the employee's face): Check In / Check Out open the camera, the face is matched on the phone in about a second and the attendance is marked at once — no selfie. A small proof photo of each scan is kept (deleted with the selfies after *Keep Selfies (days)*). GPS is still checked. If the face is not recognised in ~12 seconds (or *Use selfie instead* is tapped), the usual selfie is used. Employees without a registered face use the selfie as before.
 - **Check in again** after checking out (went out for a few hours and came back): the time away is saved in the *Breaks* column (e.g. `13:00-15:30`) and is **not counted as worked**. Late still uses the first check-in, early leaving the last check-out; everything else is calculated as usual. No second selfie; the location is checked again. Guards see **In again** for such people. Admins see and edit each return as a "Check in again" / "Check out" pair in the entry editor.
 - **Take a selfie at check-in** with the live front camera. Photos are saved to a Google Drive folder.
 - **See their month**: pick any month and see a colour-coded calendar (Absent, Half Day, OT, Late). The month view also shows late and early-leaving minutes, net OT, advance recovery and the salary breakdown with PF and one **Total Salary** figure. The In Bank / In Cash split is shown only to admins who have permission to see it.
@@ -201,6 +202,14 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - **Super admins choose who is ranked:** Employees → *🏆 Choose OT leaderboard employees* (the *In Leaderboard* column; blank = Yes). Employees left out still see the board.
   - Employees without a gender (shown as *Gender not set* in the Employees list) don't see the card and are not ranked.
   - **Admins:** the super admin ticks *Men's Leaders Card* and / or *Women's Leaders Card* for each admin (Admin → Admins). Both unticked = only the card of their own gender. Super admins see both.
+
+### Face recognition
+- **Register:** Admin → Employees → Edit → **🙂 Face recognition → 📷 Register face**, with the employee in front of the camera in good light (5 quick scans are averaged). Only admins can register; the same face cannot be registered for two employees. **Remove** sends the employee back to the selfie.
+- Only a 128-number "face fingerprint" is stored (tab **Faces**) plus a small reference photo in the selfie folder. Tell employees and take their consent (India's DPDP Act).
+- **Guard's phone:** Mark Attendance → **🙂 Scan faces**. The camera stays on; every recognised employee is marked at once — Check In, Check Out or In again from their status — with a proof photo. The same person isn't marked again for 2 minutes. Unknown faces: close it and use the list (with photo) as before.
+- **Speed:** the face models (~7 MB) download once per phone from jsDelivr and stay cached; after that a scan takes well under a second on a normal phone.
+- **Setting:** *Face Match Distance* (default 0.5): lower = stricter. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
+- Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
 
 ### Holidays (national / festival)
 - **Who:** admins with the **Manage Holidays** permission (super admins always) add holidays in **Admin → Holidays**. Each has a date, a name and a type: National, Festival or Company.
