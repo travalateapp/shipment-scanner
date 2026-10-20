@@ -234,6 +234,11 @@
       padding: 10px 20px; font-size: 18px; font-weight: 800; box-shadow: 0 6px 22px rgba(0,0,0,.18); white-space: nowrap; max-width: 92vw;
       overflow: hidden; text-overflow: ellipsis; transition: opacity .8s; }
     .celeb-banner.out { opacity: 0; }
+    .celeb-sound { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 1000; border: 1px solid #f3c74e;
+      background: #fff6d6; color: #9a5b00; border-radius: 999px; padding: 8px 16px; font-size: 15px; font-weight: 700; cursor: pointer;
+      box-shadow: 0 4px 14px rgba(0,0,0,.15); }
+    .card.bday { background: linear-gradient(135deg, #fff6d6, #ffe1ec); border: 1px solid #f3c74e; text-align: center; }
+    .card.bday .big { font-size: 22px; font-weight: 800; color: #9a5b00; margin: 4px 0; }
     .x-btn { border: 0; background: var(--bg); width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; flex: none; }
     .day-nav { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 2px; }
     .day-nav b { font-size: 17px; }
@@ -485,6 +490,9 @@
     '🎆 Men\'s champion of {month}': '🎆 {month} के चैंपियन · पुरुष', '🎆 Women\'s champion of {month}': '🎆 {month} की चैंपियन · महिलाएँ', 'You!': 'आप!', 'Most OT hours among men': 'पुरुषों में सबसे ज़्यादा ओवरटाइम',
     'Most OT hours among women': 'महिलाओं में सबसे ज़्यादा ओवरटाइम', 'No OT yet this month.': 'इस महीने अभी कोई ओवरटाइम नहीं।',
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
+    '🎂 Happy Birthday, {name}! 🎉': '🎂 जन्मदिन मुबारक हो, {name}! 🎉', 'bday.wish': '{company} की पूरी टीम की ओर से आपको जन्मदिन की ढेरों शुभकामनाएँ। आपका साल खुशियों से भरा हो!',
+    '🎂 Today is {names}\'s birthday': '🎂 आज {names} का जन्मदिन है', 'bday.others': 'उन्हें शुभकामनाएँ देना न भूलें! 🎉', ' & ': ' और ',
+    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', '🔇 Stop music': '🔇 संगीत बंद करें',
     'Late coming / early leaving': 'देर से आना / जल्दी जाना',
     'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
@@ -524,6 +532,8 @@
 
   /** English text for the keyed (longer) messages above. */
   var EN = {
+    'bday.wish': 'Warm wishes from everyone at {company}. Have a wonderful year ahead!',
+    'bday.others': 'Don\'t forget to wish them! 🎉',
     'missed.one': 'You were checked out automatically at midnight. This day is marked until an admin fixes it. Send a correction with your real check-out time.',
     'missed.many': 'You were checked out automatically at midnight. These days are marked until an admin fixes them. Send a correction with your real check-out time.',
     'marked.today': 'You are marked <b>{status}</b> today. If you are at work, checking in will replace it.',
@@ -912,7 +922,7 @@
         document.querySelector('.nav button[data-tab="' + tab + '"]').classList.toggle('hidden', !!h.guard);
       });
       if (h.guard) {
-        if (h.celebration && !S.fireworksDone) { S.fireworksDone = true; celebrate(h.celebration.animation, h.celebration.seconds, h.celebration.message); }
+        if (!S.fireworksDone) { S.fireworksDone = true; if (!birthdayCelebrate(h) && h.celebration) celebrate(h.celebration.animation, h.celebration.seconds, h.celebration.message, h.celebration.music); }
         if (S.tab !== 'admin') go('admin', true); return;
       }
       $('reqBadge').textContent = h.pendingRequests;
@@ -965,7 +975,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261036;
+  var NEEDS_SERVER = 20261037;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -981,7 +991,7 @@
     if (!S.homeStale && !phoneTimeOk() && state !== 'done') state = 'badtime';
     if (S.homeStale && state !== 'done') state = 'refreshing';
 
-    var html = '';
+    var html = birthdayHtml(h);
     if (h.missedCheckouts && h.missedCheckouts.length) {
       html += '<div class="card alert"><h2>' + t('⚠ You did not check out') + '</h2>' + h.missedCheckouts.map(function (x) {
         return '<div>' + t('{date} · checked in {time}', { date: esc(fmtDate(x.date)), time: esc(x.in) }) + '</div>';
@@ -1037,8 +1047,13 @@
     $('content').innerHTML = html;
     tickClock();
     clearInterval(clockTimer); clockTimer = setInterval(tickClock, 1000);
-    if (h.celebration && !S.fireworksDone) { S.fireworksDone = true; celebrate(h.celebration.animation, h.celebration.seconds, h.celebration.message); }
-    else if ((h.leaders || []).some(function (L) { return L.winner; }) && !S.fireworksDone) { S.fireworksDone = true; fireworks(); }
+    // One celebration per app opening: a birthday first, then a festival, then the monthly champion.
+    if (!S.fireworksDone) {
+      S.fireworksDone = true;
+      if (birthdayCelebrate(h)) { /* done */ }
+      else if (h.celebration) celebrate(h.celebration.animation, h.celebration.seconds, h.celebration.message, h.celebration.music);
+      else if ((h.leaders || []).some(function (L) { return L.winner; })) fireworks();
+    }
   }
 
   /** Top 3 by hours this month (same gender), or on days 1–5 last month's champion. */
@@ -1058,17 +1073,121 @@
     }).join('') + '</div>';
   }
 
+  /** "Ankit", "Ankit & Ravi", "Ankit, Ravi & Sita" (first names). */
+  function bdayNames(list) {
+    var n = (list || []).map(function (x) { return String(x).split(' ')[0]; });
+    return n.length > 1 ? n.slice(0, -1).join(', ') + t(' & ') + n[n.length - 1] : n[0] || '';
+  }
+  /** Home card on birthdays: my own wish, and/or "Today is X's birthday" (the day only, never the age). */
+  function birthdayHtml(h) {
+    var b = h.birthday; if (!b) return '';
+    var html = '';
+    if (b.me) html += '<div class="card bday"><div style="font-size:40px">🎂🎉</div><div class="big">' + t('🎂 Happy Birthday, {name}! 🎉', { name: esc(h.profile.name.split(' ')[0]) }) + '</div>' +
+      '<div class="muted small">' + t('bday.wish', { company: esc(h.company) }) + '</div></div>';
+    if (b.names && b.names.length) html += '<div class="card bday"><div class="big" style="font-size:18px">' + t('🎂 Today is {names}\'s birthday', { names: esc(bdayNames(b.names)) }) + '</div>' +
+      '<div class="muted small">' + t('bday.others') + '</div></div>';
+    return html;
+  }
+  /** Everyone sees the birthday animation; returns true when it ran. */
+  function birthdayCelebrate(h) {
+    var b = h.birthday; if (!b || !b.animation) return false;
+    var msg = b.me ? t('🎂 Happy Birthday, {name}! 🎉', { name: h.profile.name.split(' ')[0] }) : t('🎂 Today is {names}\'s birthday', { names: bdayNames(b.names) });
+    celebrate(b.animation, b.seconds, msg, b.music);
+    return true;
+  }
+
   /** Monthly champion: a few seconds of fireworks. */
   function fireworks() { celebrate('fireworks', 5); }
 
   var ANIM_LABELS = { fireworks: '🎆 Fireworks', confetti: '🎊 Confetti', diyas: '🪔 Diyas (Diwali)', petals: '🌼 Flower petals (Dussehra / Navratri)',
     snow: '❄️ Snowfall (Christmas)', balloons: '🎈 Balloons', sparkles: '✨ Sparkles (New Year)' };
+  var MUSIC_LABELS = { none: '🔇 No music', chime: '🔔 Festive chime', fanfare: '🎺 Celebration fanfare', birthday: '🎂 Happy Birthday',
+    jinglebells: '🎄 Jingle Bells (Christmas)', auldlangsyne: '🥂 Auld Lang Syne (New Year)' };
+
+  /*
+   * Tunes played by the page itself with Web Audio (no music files; old public-domain melodies).
+   * Each note: [name, beats]; 'R' = rest. `beat` = seconds per beat, `voice` = sound.
+   */
+  var TUNES = {
+    chime: { beat: 0.16, voice: 'bell', notes: [['C5', 1], ['E5', 1], ['G5', 1], ['C6', 3], ['G5', 1], ['C6', 1], ['E6', 4], ['R', 4], ['A5', 1], ['C6', 1], ['E6', 1], ['A6', 3], ['G6', 1], ['E6', 1], ['C7', 5], ['R', 4]] },
+    fanfare: { beat: 0.17, voice: 'brass', notes: [['G4', 1], ['C5', 1], ['E5', 1], ['G5', 3], ['E5', 1], ['G5', 6], ['R', 2], ['A5', 1], ['A5', 1], ['A5', 1], ['F5', 2], ['A5', 2], ['C6', 6], ['B5', 1], ['C6', 1], ['D6', 2], ['C6', 8], ['R', 4]] },
+    birthday: { beat: 0.42, voice: 'soft', notes: [['G4', 0.75], ['G4', 0.25], ['A4', 1], ['G4', 1], ['C5', 1], ['B4', 2], ['G4', 0.75], ['G4', 0.25], ['A4', 1], ['G4', 1], ['D5', 1], ['C5', 2],
+      ['G4', 0.75], ['G4', 0.25], ['G5', 1], ['E5', 1], ['C5', 1], ['B4', 1], ['A4', 2], ['F5', 0.75], ['F5', 0.25], ['E5', 1], ['C5', 1], ['D5', 1], ['C5', 3], ['R', 1]] },
+    jinglebells: { beat: 0.27, voice: 'bell', notes: [['E5', 1], ['E5', 1], ['E5', 2], ['E5', 1], ['E5', 1], ['E5', 2], ['E5', 1], ['G5', 1], ['C5', 1.5], ['D5', 0.5], ['E5', 4],
+      ['F5', 1], ['F5', 1], ['F5', 1.5], ['F5', 0.5], ['F5', 1], ['E5', 1], ['E5', 1], ['E5', 0.5], ['E5', 0.5], ['E5', 1], ['D5', 1], ['D5', 1], ['E5', 1], ['D5', 2], ['G5', 2],
+      ['E5', 1], ['E5', 1], ['E5', 2], ['E5', 1], ['E5', 1], ['E5', 2], ['E5', 1], ['G5', 1], ['C5', 1.5], ['D5', 0.5], ['E5', 4],
+      ['F5', 1], ['F5', 1], ['F5', 1.5], ['F5', 0.5], ['F5', 1], ['E5', 1], ['E5', 1], ['E5', 0.5], ['E5', 0.5], ['G5', 1], ['G5', 1], ['F5', 1], ['D5', 1], ['C5', 4]] },
+    auldlangsyne: { beat: 0.48, voice: 'soft', notes: [['G4', 1], ['C5', 1.5], ['C5', 0.5], ['C5', 1], ['E5', 1], ['D5', 1.5], ['C5', 0.5], ['D5', 1], ['E5', 0.5], ['D5', 0.5],
+      ['C5', 1.5], ['C5', 0.5], ['E5', 1], ['G5', 1], ['A5', 3], ['A5', 1], ['G5', 1.5], ['E5', 0.5], ['E5', 1], ['C5', 1], ['D5', 1.5], ['C5', 0.5], ['D5', 1], ['E5', 0.5], ['D5', 0.5],
+      ['C5', 1.5], ['A4', 0.5], ['A4', 1], ['G4', 1], ['C5', 3], ['R', 1]] },
+  };
+  function noteHz(n) {
+    var m = /^([A-G])(#?)(\d)$/.exec(n); if (!m) return 0;
+    var semi = { C: -9, D: -7, E: -5, F: -4, G: -2, A: 0, B: 2 }[m[1]] + (m[2] ? 1 : 0) + (+m[3] - 4) * 12;
+    return 440 * Math.pow(2, semi / 12);
+  }
+  /**
+   * Plays a tune for about `seconds` (at least once through). Returns { stop } or null.
+   * Phones allow sound only after a tap: when it is blocked, a "🔊 Tap for music" button appears (and any tap starts it).
+   */
+  function playTune(name, seconds) {
+    var tune = TUNES[name], AC = window.AudioContext || window.webkitAudioContext;
+    if (!tune || !AC) return null;
+    var ac = S.audioCtx || (S.audioCtx = new AC());
+    var out = ac.createGain(); out.gain.value = 0.22; out.connect(ac.destination);
+    var oscs = [], stopped = false, btn = null, started = false, me = {};
+    function note(f, t0, len) {
+      var v = tune.voice, g = ac.createGain(), o = ac.createOscillator();
+      o.type = v === 'brass' ? 'sawtooth' : v === 'bell' ? 'sine' : 'triangle'; o.frequency.value = f;
+      var node = o;
+      if (v === 'brass') { var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; o.connect(lp); node = lp; }
+      node.connect(g); g.connect(out);
+      var decay = v === 'bell' ? Math.max(len, 0.9) : len;
+      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(v === 'bell' ? 0.9 : 0.6, t0 + 0.02);
+      if (v === 'bell') g.gain.exponentialRampToValueAtTime(0.0001, t0 + decay);
+      else { g.gain.setValueAtTime(0.6, t0 + Math.max(0.03, len * 0.75)); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len * 0.98); }
+      o.start(t0); o.stop(t0 + decay + 0.05); oscs.push(o);
+      if (v === 'bell') { // a quiet overtone makes it ring like a bell
+        var o2 = ac.createOscillator(), g2 = ac.createGain(); o2.frequency.value = f * 2.76; o2.connect(g2); g2.connect(out);
+        g2.gain.setValueAtTime(0.0001, t0); g2.gain.exponentialRampToValueAtTime(0.18, t0 + 0.01); g2.gain.exponentialRampToValueAtTime(0.0001, t0 + decay * 0.5);
+        o2.start(t0); o2.stop(t0 + decay); oscs.push(o2);
+      }
+    }
+    function begin() {
+      if (started || stopped) return; started = me.started = true;
+      if (btn) { btn.textContent = t('🔇 Stop music'); btn.onclick = stop; }
+      var len = tune.notes.reduce(function (a, n) { return a + n[1]; }, 0) * tune.beat;
+      var times = Math.max(1, Math.round((seconds || 0) / len)), at = ac.currentTime + 0.08;
+      for (var k = 0; k < times; k++) tune.notes.forEach(function (n) { if (n[0] !== 'R') note(noteHz(n[0]), at, n[1] * tune.beat); at += n[1] * tune.beat; });
+      setTimeout(stop, (at - ac.currentTime + 1.5) * 1000);
+    }
+    function unlock() { ac.resume().then(begin, function () {}); }
+    function stop() {
+      if (stopped) return; stopped = true;
+      document.removeEventListener('pointerdown', unlock, true);
+      oscs.forEach(function (o) { try { o.stop(); } catch (e) {} });
+      try { out.disconnect(); } catch (e) {}
+      if (btn) btn.remove();
+      if (S.tune && S.tune.stop === stop) S.tune = null;
+    }
+    btn = document.createElement('button'); btn.className = 'celeb-sound'; btn.textContent = t('🔊 Tap for music'); btn.onclick = unlock;
+    document.body.appendChild(btn);
+    if (ac.state === 'running') begin();
+    else {
+      document.addEventListener('pointerdown', unlock, true); // the first tap anywhere starts the music
+      ac.resume().then(function () { if (ac.state === 'running') begin(); }, function () {});
+    }
+    me.stop = stop;
+    return me;
+  }
 
   /**
    * Festival / celebration animation over the page for `seconds`, with an optional message at the top.
    * Pointer events pass through, so the app stays usable. Skipped when the phone asks for reduced motion.
    */
-  function celebrate(kind, seconds, message) {
+  function celebrate(kind, seconds, message, music) {
+    if (S.tune) S.tune.stop();
+    if (music && music !== 'none') S.tune = playTune(music, seconds);
     try { if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch (e) { return; }
     if (S.celebCanvas) S.celebCanvas.stop();
     var c = document.createElement('canvas'), ctx = c.getContext && c.getContext('2d');
@@ -1109,6 +1228,7 @@
       if (stopped) return; stopped = true;
       removeEventListener('resize', size); c.remove(); if (banner) banner.remove();
       if (S.celebCanvas && S.celebCanvas.c === c) S.celebCanvas = null;
+      if (S.tune && !S.tune.started) S.tune.stop(); // never tapped: no music after the animation has gone
     }
     S.celebCanvas = { c: c, stop: stop };
     (function frame() {
@@ -2278,29 +2398,31 @@
       '<div class="field"><label>To</label><input id="ceTo" class="inp" type="date" value="' + todayLocal() + '"></div></div>' +
       '<div class="grid2"><div class="field"><label>Animation</label><select id="ceAnim" class="inp">' + opts + '</select></div>' +
       '<div class="field"><label>Duration (seconds)</label><input id="ceSec" class="inp" type="number" min="2" max="60" value="8"></div></div>' +
+      '<div class="field"><label>Music</label><select id="ceMusic" class="inp">' + (r.music || ['none']).map(function (m) { return '<option value="' + m + '">' + esc(MUSIC_LABELS[m] || m) + '</option>'; }).join('') + '</select>' +
+        '<div class="muted small" style="margin-top:4px">Phones play sound only after a tap, so people see "🔊 Tap for music" on the screen.</div></div>' +
       '<div class="field"><label>Message (optional)</label><input id="ceMsg" class="inp" maxlength="80" placeholder="e.g. Happy Diwali! 🪔"></div>' +
-      '<div class="btns"><button class="btn ghost" onclick="celebrate($(\'ceAnim\').value, +$(\'ceSec\').value, $(\'ceMsg\').value)">▶ Preview</button>' +
+      '<div class="btns"><button class="btn ghost" onclick="celebrate($(\'ceAnim\').value, +$(\'ceSec\').value, $(\'ceMsg\').value, $(\'ceMusic\').value)">▶ Preview</button>' +
       '<button class="btn" id="ceBtn" onclick="saveCelebration()">Save</button></div><div id="ceMsgBox"></div>';
     if (r.list.length) {
       html += '<div style="margin-top:10px">' + r.list.map(function (c, i) {
         var past = c.to < todayLocal(), now = c.from <= todayLocal() && todayLocal() <= c.to;
         return '<div class="list-item"' + (past ? ' style="opacity:.6"' : '') + '><div><div class="name">' + esc(ANIM_LABELS[c.animation] || c.animation) + (now ? ' <span class="chip s-PRESENT">Today</span>' : '') + '</div>' +
-          '<div class="sub">' + esc(fmtDate(c.from)) + (c.to !== c.from ? ' – ' + esc(fmtDate(c.to)) : '') + ' · ' + c.seconds + ' s' + (c.message ? ' · ' + esc(c.message) : '') + '</div></div>' +
-          '<div class="right"><button class="link" onclick="celebrate(\'' + c.animation + '\',' + c.seconds + ',S.celeb.list[' + i + '].message)">▶</button> · ' +
+          '<div class="sub">' + esc(fmtDate(c.from)) + (c.to !== c.from ? ' – ' + esc(fmtDate(c.to)) : '') + ' · ' + c.seconds + ' s' + (c.music && c.music !== 'none' ? ' · ' + esc(MUSIC_LABELS[c.music] || c.music) : '') + (c.message ? ' · ' + esc(c.message) : '') + '</div></div>' +
+          '<div class="right"><button class="link" onclick="celebrate(\'' + c.animation + '\',' + c.seconds + ',S.celeb.list[' + i + '].message,\'' + (c.music || 'none') + '\')">▶</button> · ' +
           '<button class="link" onclick="editCelebration(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteCelebration(' + i + ')">Delete</button></div></div>';
       }).join('') + '</div>';
     }
     box.innerHTML = html;
   }
   function saveCelebration() {
-    var c = { row: $('ceRow').value, from: $('ceFrom').value, to: $('ceTo').value, animation: $('ceAnim').value, seconds: $('ceSec').value, message: $('ceMsg').value };
+    var c = { row: $('ceRow').value, from: $('ceFrom').value, to: $('ceTo').value, animation: $('ceAnim').value, seconds: $('ceSec').value, message: $('ceMsg').value, music: $('ceMusic').value };
     $('ceBtn').disabled = true;
     api('adminSaveCelebration', S.token, c).then(function (r) { renderCelebrations(r); toast('Celebration saved'); })
       .catch(function (e) { $('ceBtn').disabled = false; $('ceMsgBox').innerHTML = errBox(e); });
   }
   function editCelebration(i) {
     var c = S.celeb.list[i];
-    $('ceRow').value = c.row; $('ceFrom').value = c.from; $('ceTo').value = c.to; $('ceAnim').value = c.animation; $('ceSec').value = c.seconds; $('ceMsg').value = c.message;
+    $('ceRow').value = c.row; $('ceFrom').value = c.from; $('ceTo').value = c.to; $('ceAnim').value = c.animation; $('ceSec').value = c.seconds; $('ceMsg').value = c.message; $('ceMusic').value = c.music || 'none';
     $('ceBtn').textContent = 'Save changes'; $('celebBox').scrollIntoView({ behavior: 'smooth' });
   }
   function deleteCelebration(i) {
@@ -2953,6 +3075,7 @@
       '<div class="grid2"><div class="field"><label>Phone</label><input id="sfPhone" class="inp" inputmode="tel" value="' + esc(e.phone) + '"></div>' +
       '<div class="field"><label>Gender</label><select id="sfGender" class="inp"><option value="">— Not set —</option>' +
         '<option value="M"' + (e.gender === 'M' ? ' selected' : '') + '>Male</option><option value="F"' + (e.gender === 'F' ? ' selected' : '') + '>Female</option></select></div></div>' +
+      (e.role === 'GUARD' ? '' : '<div class="field"><label>Birth date <span class="muted small">(for the birthday wish; only the day is shown, never the age)</span></label><input id="sfBirth" class="inp" type="date" max="' + todayLocal() + '" value="' + esc(e.birthDate || '') + '"></div>') +
       (isNew ? '<div class="field"><label>PIN (4–6 digits)</label><input id="sfPin" class="inp" inputmode="numeric"></div>' : '') +
       (S.staff.canSetRole && e.role !== 'SUPER_ADMIN' ? '<div class="field"><label>Role</label><select id="sfRole" class="inp"><option value="EMPLOYEE"' + (e.role === 'EMPLOYEE' ? ' selected' : '') + '>Employee</option><option value="ADMIN"' + (e.role === 'ADMIN' ? ' selected' : '') + '>Admin</option><option value="GUARD"' + (e.role === 'GUARD' ? ' selected' : '') + '>Guard (only marks others)</option></select></div>' : '') +
       (e.role === 'GUARD' ? '' : '<div class="card" style="background:var(--bg);margin:14px 0 0;padding:12px"><b>Work timing</b>' +
@@ -3050,6 +3173,7 @@
     }
     if ($('sfAnywhere')) data.anywhere = $('sfAnywhere').checked;
     if ($('sfGender')) data.gender = $('sfGender').value;
+    if ($('sfBirth')) data.birthDate = $('sfBirth').value;
     if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; data.lateCut = $('sfLateCut').checked; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;

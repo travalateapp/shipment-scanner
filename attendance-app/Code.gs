@@ -27,8 +27,10 @@ const SHEET = {
   CELEBRATIONS: 'Celebrations',
 };
 // Festival animations on the app (Admin → Holidays → Celebrations).
-const CELEB_HEADERS = ['From', 'To', 'Animation', 'Seconds', 'Message', 'By', 'At'];
+const CELEB_HEADERS = ['From', 'To', 'Animation', 'Seconds', 'Message', 'By', 'At', 'Music'];
 const ANIMATIONS = ['fireworks', 'confetti', 'diyas', 'petals', 'snow', 'balloons', 'sparkles'];
+// Tunes the page plays itself (no music files): 'none' = silent.
+const MUSIC = ['none', 'chime', 'fanfare', 'birthday', 'jinglebells', 'auldlangsyne'];
 // Registered faces: a 128-number "face fingerprint" per employee (no photo is needed to recognise them).
 const FACE_HEADERS = ['Emp ID', 'Name', 'Descriptor (do not edit)', 'Photo', 'Registered By', 'Registered At'];
 const EMPLOYMENT_HEADERS = ['Emp ID', 'From', 'To', 'Note', 'By', 'At'];
@@ -38,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261036;
+const SERVER_VERSION = 20261037;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -64,7 +66,7 @@ const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
 const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
-  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut'];
+  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut', 'Birth Date'];
 const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type', 'Close At'];
 // Type 'Short Day' + Close At (e.g. 16:30): a working day on which the office closes early (see shortenDay_).
 const SHORT_DAY = 'Short Day';
@@ -137,6 +139,9 @@ const DEFAULT_SETTINGS = [
   ['Request Back-Date Limit (days)', 7, 'Employees can request corrections / leave up to this many days back'],
   ['Currency', '₹', ''],
   ['Stay Logged In (days)', 30, 'People stay logged in this many days after they last used the app (then they enter the PIN again)'],
+  ['Birthday Animation', 'balloons', 'Shown to everyone on an employee\'s birthday: ' + ANIMATIONS.join(', ') + ' (blank = none)'],
+  ['Birthday Music', 'birthday', 'Tune on birthdays: ' + MUSIC.join(', ')],
+  ['Birthday Seconds', 10, 'How long the birthday animation runs (2–60)'],
   ['Face Match Max Distance', 0.42, 'Face recognition strictness: lower = stricter. Same person ≈ 0.1–0.35, different people from ≈ 0.48. Keep 0.38–0.45'],
   ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
@@ -523,7 +528,7 @@ function getHome(token) {
   const emp = auth_(token, true);
   if (emp.role === 'GUARD') {
     // No attendance of their own: the app opens straight on Mark Attendance.
-    return { profile: profile_(emp), company: getSettings_().company, guard: true, pendingRequests: 0, adminMissed: 0, celebration: celebrationOn_(todayStr_()) };
+    return { profile: profile_(emp), company: getSettings_().company, guard: true, pendingRequests: 0, adminMissed: 0, celebration: celebrationOn_(todayStr_()), birthday: birthdayOn_(todayStr_(), emp) };
   }
   sweepOpenEntries_();
   const s = getSettings_();
@@ -553,6 +558,7 @@ function getHome(token) {
     shiftStart: minutesToStr_(empSettings_(emp, s).shiftStartMin),
     closeEarly: shortDays_()[today] || null, // office closes early today
     celebration: celebrationOn_(today),
+    birthday: birthdayOn_(today, emp),
     standardHours: empSettings_(emp, s).standardHours,
     upcomingHolidays: upcomingHolidays_(today, 45, 3),
     face: readFaces_()[emp.id] ? readFaces_()[emp.id].d : null, // registered face: check in / out by face
@@ -1592,7 +1598,7 @@ function adminStaff(token) {
     canSetRole: ctx.perms.superAdmin,
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
-      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard, lateCut: e.lateCut,
+      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard, lateCut: e.lateCut, birthDate: e.birthDate,
       face: readFaces_()[e.id] ? readFaces_()[e.id].at || 'yes' : '',
     })),
   };
@@ -1601,7 +1607,7 @@ function adminStaff(token) {
 /**
  * data = { isNew, id, name, pin (new only), salary (new only; later changes are increments), joinDate, phone,
  *          active + leftOn (when deactivating) / activeFrom (when activating again), anywhere,
- *          shiftStart, shiftEnd (blank = company shift), hourlyOt, gender ('M' / 'F' / ''), role (super admin only) }
+ *          shiftStart, shiftEnd (blank = company shift), hourlyOt, gender ('M' / 'F' / ''), birthDate (blank clears), role (super admin only) }
  */
 function adminSaveStaff(token, data) {
   const ctx = authAdmin_(token, 'manageEmployees');
@@ -1620,6 +1626,9 @@ function adminSaveStaff(token, data) {
   const timing = data.shiftStart === undefined ? null : shiftFields_(data);
   const gender = data.gender === undefined ? null : parseGender_(data.gender);
   const lateCut = data.lateCut === undefined ? null : data.lateCut !== false;
+  const birthDate = data.birthDate === undefined ? null : toDateStr_(data.birthDate);
+  if (data.birthDate && !birthDate) throw new Error('Enter a valid birth date.');
+  if (birthDate && birthDate > todayStr_()) throw new Error('The birth date cannot be in the future.');
   const genderCell = g => (g === 'M' ? 'Male' : g === 'F' ? 'Female' : '');
   const sh = sheet_(SHEET.EMPLOYEES);
   ensureHeaders_(sh, EMP_HEADERS);
@@ -1642,6 +1651,7 @@ function adminSaveStaff(token, data) {
       if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3]; }
       if (gender !== null) row[h['Gender']] = genderCell(gender);
       if (lateCut !== null) row[h['Late Cut']] = lateCut ? 'Yes' : 'No';
+      if (birthDate) row[h['Birth Date']] = "'" + birthDate;
       sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
       forget_('employees');
       audit_(ctx.emp, 'ADD_EMPLOYEE', id, joinDate, name + ', salary ' + salary);
@@ -1659,6 +1669,10 @@ function adminSaveStaff(token, data) {
       if (lateCut !== null && lateCut !== emp.lateCut) {
         sh.getRange(row, headerIndex_(sh)['Late Cut'] + 1).setValue(lateCut ? 'Yes' : 'No');
         audit_(ctx.emp, 'EDIT_LATE_CUT', emp.id, '', 'Cut late / early from salary (no hourly OT): ' + (lateCut ? 'Yes' : 'No'));
+      }
+      if (birthDate !== null && birthDate !== emp.birthDate) {
+        sh.getRange(row, headerIndex_(sh)['Birth Date'] + 1).setValue(birthDate ? "'" + birthDate : '');
+        audit_(ctx.emp, 'EDIT_BIRTH_DATE', emp.id, '', (emp.birthDate || '-') + ' → ' + (birthDate || '-'));
       }
       if (gender !== null && gender !== emp.gender) {
         sh.getRange(row, headerIndex_(sh)['Gender'] + 1).setValue(genderCell(gender));
@@ -3176,6 +3190,9 @@ function getSettings_() {
       minAppVersion: num('Min Android App Version', 0),
       sessionDays: num('Stay Logged In (days)', 30),
       faceDistance: num('Face Match Max Distance', 0.42),
+      birthdayAnim: blank('Birthday Animation') ? 'balloons' : String(raw['Birthday Animation']).trim().toLowerCase(),
+      birthdayMusic: blank('Birthday Music') ? 'birthday' : String(raw['Birthday Music']).trim().toLowerCase(),
+      birthdaySeconds: Math.max(2, Math.min(60, num('Birthday Seconds', 10))),
       appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
       keepSelfieDays: num('Keep Selfies (days)', 60),
@@ -3232,6 +3249,7 @@ function getPeople_() {
           gender: parseGender_(get(r, 'Gender')),
           leaderboard: !/^(n|no|false|0|off)$/i.test(String(get(r, 'In Leaderboard')).trim()), // blank = Yes
           lateCut: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Late Cut')).trim()), // blank = Yes
+          birthDate: toDateStr_(get(r, 'Birth Date')),
           pf: {
             active: /^(y|yes|true|1|on)$/i.test(String(get(r, 'PF Active')).trim()),
             bankSalary: get(r, 'PF Bank Salary'),
@@ -3458,20 +3476,44 @@ function readCelebrations_() {
   return memo_('celebrations', () => (sheetValues_(SHEET.CELEBRATIONS) || []).slice(1).map((r, i) => {
     const from = toDateStr_(r[0]);
     return { from: from, to: toDateStr_(r[1]) || from, animation: ANIMATIONS.indexOf(String(r[2]).trim().toLowerCase()) >= 0 ? String(r[2]).trim().toLowerCase() : 'fireworks',
-      seconds: Math.max(2, Math.min(60, Number(r[3]) || 6)), message: String(r[4] || '').trim(), row: i + 2 };
+      seconds: Math.max(2, Math.min(60, Number(r[3]) || 6)), message: String(r[4] || '').trim(),
+      music: MUSIC.indexOf(String(r[7] || '').trim().toLowerCase()) > 0 ? String(r[7]).trim().toLowerCase() : 'none', row: i + 2 };
   }).filter(c => c.from).sort((a, b) => (a.from < b.from ? -1 : 1)));
 }
 
 /** The celebration running on a date (the first one if several overlap). */
 function celebrationOn_(date) {
   const c = readCelebrations_().filter(x => x.from <= date && date <= x.to)[0];
-  return c ? { animation: c.animation, seconds: c.seconds, message: c.message, from: c.from, to: c.to } : null;
+  return c ? { animation: c.animation, seconds: c.seconds, message: c.message, music: c.music, from: c.from, to: c.to } : null;
+}
+
+/**
+ * Today's birthdays (active staff, guards excluded): { me: true when it is mine, names: [the others],
+ * animation, music, seconds } or null. Only the day is used — never the year or the age.
+ * 29 Feb birthdays are celebrated on 28 Feb in other years.
+ */
+function birthdayOn_(date, me) {
+  const md = date.slice(5), y = Number(date.slice(0, 4));
+  const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
+  const hits = getPeople_().filter(e => e.active && e.role !== 'GUARD' && e.birthDate).filter(e => {
+    const b = e.birthDate.slice(5);
+    return b === md || (b === '02-29' && !leap && md === '02-28');
+  });
+  if (!hits.length) return null;
+  const s = getSettings_();
+  return {
+    me: hits.some(e => e.id === me.id),
+    names: hits.filter(e => e.id !== me.id).map(e => e.name).sort((a, b) => a.localeCompare(b)),
+    animation: ANIMATIONS.indexOf(s.birthdayAnim) >= 0 ? s.birthdayAnim : '',
+    music: MUSIC.indexOf(s.birthdayMusic) >= 0 ? s.birthdayMusic : 'none',
+    seconds: s.birthdaySeconds,
+  };
 }
 
 function adminCelebrations(token) {
   authAdmin_(token, 'manageHolidays');
   const today = todayStr_();
-  return { animations: ANIMATIONS, list: readCelebrations_().filter(c => c.to >= addDays_(today, -60)) };
+  return { animations: ANIMATIONS, music: MUSIC, list: readCelebrations_().filter(c => c.to >= addDays_(today, -60)) };
 }
 
 /** c = { row (to edit), from, to, animation, seconds, message } */
@@ -3485,8 +3527,10 @@ function adminSaveCelebration(token, c) {
   const seconds = Math.round(Number(c.seconds));
   if (!(seconds >= 2 && seconds <= 60)) throw new Error('Duration must be 2 to 60 seconds.');
   const message = String(c.message || '').trim().slice(0, 80);
-  const row = ["'" + from, "'" + to, c.animation, seconds, message, ctx.emp.id + ' ' + ctx.emp.name, Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm')];
+  const music = MUSIC.indexOf(c.music) >= 0 ? c.music : 'none';
+  const row = ["'" + from, "'" + to, c.animation, seconds, message, ctx.emp.id + ' ' + ctx.emp.name, Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), music];
   const sh = sheetOrCreate_(SHEET.CELEBRATIONS, CELEB_HEADERS);
+  ensureHeaders_(sh, CELEB_HEADERS);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -3494,7 +3538,7 @@ function adminSaveCelebration(token, c) {
     if (old) sh.getRange(old.row, 1, 1, row.length).setValues([row]);
     else sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
     forget_('celebrations');
-    audit_(ctx.emp, old ? 'EDIT_CELEBRATION' : 'ADD_CELEBRATION', '', from, c.animation + ' ' + seconds + 's' + (to !== from ? ' to ' + to : '') + (message ? ' · ' + message : ''));
+    audit_(ctx.emp, old ? 'EDIT_CELEBRATION' : 'ADD_CELEBRATION', '', from, c.animation + ' ' + seconds + 's' + (music !== 'none' ? ' ♪ ' + music : '') + (to !== from ? ' to ' + to : '') + (message ? ' · ' + message : ''));
   } finally {
     lock.releaseLock();
   }
