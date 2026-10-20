@@ -172,7 +172,7 @@
     /* Switch, PF grid */
     .switch { position: relative; width: 48px; height: 28px; flex: none; display: inline-block; }
     .switch input { opacity: 0; width: 0; height: 0; }
-    .switch span { position: absolute; inset: 0; background: var(--gray-soft); border-radius: 999px; transition: .2s; }
+    .switch span { position: absolute; top: 0; left: 0; right: 0; bottom: 0; background: var(--gray-soft); border-radius: 999px; transition: .2s; }
     .switch span:before { content: ''; position: absolute; width: 22px; height: 22px; left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: .2s; box-shadow: 0 1px 2px rgba(0,0,0,.2); }
     .switch input:checked + span { background: var(--green); }
     .switch input:checked + span:before { transform: translateX(20px); }
@@ -210,7 +210,7 @@
     .badge { position: absolute; top: 4px; left: 55%; background: var(--red); color: #fff; border-radius: 999px; font-size: 10px; padding: 1px 6px; }
 
     /* Modal */
-    .modal { position: fixed; inset: 0; background: rgba(15,20,35,.55); display: flex; align-items: flex-end;
+    .modal { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(15,20,35,.55); display: flex; align-items: flex-end;
       justify-content: center; z-index: 10; }
     .modal .sheet { background: #fff; width: 100%; max-width: 520px; border-radius: 20px 20px 0 0; padding: 20px 16px 28px;
       max-height: 90vh; overflow: auto; }
@@ -962,7 +962,7 @@
     if (mine >= info.minAppVersion) return;
     var w = document.createElement('div');
     w.id = 'updateWall'; w.className = 'login';
-    w.style.cssText = 'position:fixed;inset:0;z-index:50;background:var(--bg)';
+    w.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:50;background:var(--bg)';
     w.innerHTML = '<div class="card center"><h1 style="font-size:20px">' + t('Please update the app') + '</h1>' +
       '<p class="muted">' + t('update.why', { v: mine }) + '</p>' +
       '<button class="btn" id="updNow">' + t('Update now') + '</button>' +
@@ -1460,16 +1460,18 @@
 
   /**
    * Festival / celebration animation over the page for `seconds`, with an optional message at the top.
-   * Pointer events pass through, so the app stays usable. Skipped when the phone asks for reduced motion.
+   * Pointer events pass through, so the app stays usable. It plays even when the phone asks for less motion
+   * (Android "Remove animations" / battery saver, iPhone "Reduce Motion"), but then without the screen shake.
    */
   function celebrate(kind, seconds, message, music) {
     if (S.tune) S.tune.stop();
     if (music && music !== 'none') S.tune = playTune(music, seconds);
-    try { if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch (e) { return; }
+    var calm = false;
+    try { calm = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches); } catch (e) {}
     if (S.celebCanvas) S.celebCanvas.stop();
     var c = document.createElement('canvas'), ctx = c.getContext && c.getContext('2d');
     if (!ctx) return;
-    c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:999';
+    c.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;width:100%;height:100%;pointer-events:none;z-index:999'; // no 'inset': older Android WebViews ignore it
     document.body.appendChild(c);
     var banner = null;
     if (kind === 'dussehra' && !message) message = t('🏹 Happy Dussehra! 🔥');
@@ -1504,7 +1506,7 @@
     }
     var acc = 0, shakeUntil = 0, shakeAmp = 0;
     var scene = kind === 'dussehra' ? dussehraScene({ ctx: ctx, size: function () { return { W: W, H: H }; }, dur: dur,
-      add: function (p) { parts.push(p); }, burst: burst, launch: launch, shake: function (ms, amp) { shakeUntil = Date.now() + ms; shakeAmp = amp; } }) : null;
+      add: function (p) { parts.push(p); }, burst: burst, launch: launch, shake: function (ms, amp) { if (!calm) { shakeUntil = Date.now() + ms; shakeAmp = amp; } } }) : null;
     function stop() {
       if (stopped) return; stopped = true;
       removeEventListener('resize', size); c.remove(); if (banner) banner.remove();
