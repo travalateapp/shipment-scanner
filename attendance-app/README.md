@@ -218,6 +218,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - Lord Rama draws his bow and shoots a flaming arrow into the Ravana effigy (ten heads).
   - The effigy catches fire, bursts with a big bang (flash, shaking screen, flying pieces), and heavy fireworks fill the sky.
   - It always runs at least 10 seconds. With no message, the banner says "🏹 Happy Dussehra! 🔥".
+- **Reopening the app:** employees don't need to clear the app from recent apps. When they come back to it after 5 minutes or more (or on a new day), it refreshes and plays today's celebration again.
 - **Music:** each celebration can also play a tune. **Indian:** 🪔 Diwali shehnai, 🔔 Aarti (bells & shankh – Puja, Dussehra, Ganesh Chaturthi), 💃 Garba / Dandiya (Navratri), 🥁 Dhol – Bhangra (Lohri, Baisakhi), 🌈 Holi (bansuri & dholak). These are our own raag-style compositions, so there is no copyright issue. **Others:** 🔔 Festive chime, 🎺 Celebration fanfare, 🎂 Happy Birthday, 🎄 Jingle Bells, 🥂 Auld Lang Syne, or 🔇 none. The app plays these itself, so no music files are needed. Phones and browsers allow sound only after a tap, so a **🔊 Tap for music** button appears. Any tap starts the music, and **🔇 Stop music** turns it off. If nobody taps before the animation ends, the music is skipped.
 
 ### Birthdays
@@ -235,7 +236,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - **Birthday Wishes From / Till**: the times the wishes are shown (09:00 and 15:00 by default).
 - **How the timing works:**
   - Before 9:00 nothing shows. If the app is already open at 9:00, the wishes start by themselves.
-  - Every time someone opens the app or the link before 3:00 PM, the animation plays again. Coming back to the open app after 10 minutes or more also replays it.
+  - Every time someone opens the app or the link before 3:00 PM, the animation plays again. Coming back to the app from the background after 5 minutes or more also replays it.
   - At 3:00 PM the card disappears.
 
 ### Holidays (national / festival)
