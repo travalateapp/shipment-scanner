@@ -28,9 +28,9 @@ const SHEET = {
 };
 // Festival animations on the app (Admin → Holidays → Celebrations).
 const CELEB_HEADERS = ['From', 'To', 'Animation', 'Seconds', 'Message', 'By', 'At', 'Music'];
-const ANIMATIONS = ['fireworks', 'confetti', 'diyas', 'petals', 'snow', 'balloons', 'sparkles'];
+const ANIMATIONS = ['fireworks', 'confetti', 'diyas', 'petals', 'snow', 'balloons', 'sparkles', 'dussehra'];
 // Tunes the page plays itself (no music files): 'none' = silent.
-const MUSIC = ['none', 'chime', 'fanfare', 'birthday', 'jinglebells', 'auldlangsyne'];
+const MUSIC = ['none', 'diwali', 'aarti', 'garba', 'dhol', 'holi', 'chime', 'fanfare', 'birthday', 'jinglebells', 'auldlangsyne'];
 // Registered faces: a 128-number "face fingerprint" per employee (no photo is needed to recognise them).
 const FACE_HEADERS = ['Emp ID', 'Name', 'Descriptor (do not edit)', 'Photo', 'Registered By', 'Registered At'];
 const EMPLOYMENT_HEADERS = ['Emp ID', 'From', 'To', 'Note', 'By', 'At'];
@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261037;
+const SERVER_VERSION = 20261039;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -142,6 +142,8 @@ const DEFAULT_SETTINGS = [
   ['Birthday Animation', 'balloons', 'Shown to everyone on an employee\'s birthday: ' + ANIMATIONS.join(', ') + ' (blank = none)'],
   ['Birthday Music', 'birthday', 'Tune on birthdays: ' + MUSIC.join(', ')],
   ['Birthday Seconds', 10, 'How long the birthday animation runs (2–60)'],
+  ['Birthday Wishes From', '09:00', 'Birthday wishes and animation start at this time (HH:mm)'],
+  ['Birthday Wishes Till', '15:00', 'Birthday wishes and animation end at this time (HH:mm)'],
   ['Face Match Max Distance', 0.42, 'Face recognition strictness: lower = stricter. Same person ≈ 0.1–0.35, different people from ≈ 0.48. Keep 0.38–0.45'],
   ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
@@ -3193,6 +3195,8 @@ function getSettings_() {
       birthdayAnim: blank('Birthday Animation') ? 'balloons' : String(raw['Birthday Animation']).trim().toLowerCase(),
       birthdayMusic: blank('Birthday Music') ? 'birthday' : String(raw['Birthday Music']).trim().toLowerCase(),
       birthdaySeconds: Math.max(2, Math.min(60, num('Birthday Seconds', 10))),
+      birthdayFrom: toTimeStr_(raw['Birthday Wishes From']) || '09:00',
+      birthdayTill: toTimeStr_(raw['Birthday Wishes Till']) || '15:00',
       appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
       keepSelfieDays: num('Keep Selfies (days)', 60),
@@ -3489,7 +3493,7 @@ function celebrationOn_(date) {
 
 /**
  * Today's birthdays (active staff, guards excluded): { me: true when it is mine, names: [the others],
- * animation, music, seconds } or null. Only the day is used — never the year or the age.
+ * animation, music, seconds, date, from, till } or null. The page shows them only between from and till. Only the day is used — never the year or the age.
  * 29 Feb birthdays are celebrated on 28 Feb in other years.
  */
 function birthdayOn_(date, me) {
@@ -3507,6 +3511,7 @@ function birthdayOn_(date, me) {
     animation: ANIMATIONS.indexOf(s.birthdayAnim) >= 0 ? s.birthdayAnim : '',
     music: MUSIC.indexOf(s.birthdayMusic) >= 0 ? s.birthdayMusic : 'none',
     seconds: s.birthdaySeconds,
+    date: date, from: s.birthdayFrom, till: s.birthdayTill, // shown only from–till (e.g. 09:00–15:00) on this date
   };
 }
 

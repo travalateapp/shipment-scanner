@@ -214,11 +214,15 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 ### Celebrations (festival animations)
 - **Admin → Holidays → 🎉 Celebrations**: choose the dates (one day or From–To), an **animation** — 🎆 Fireworks, 🎊 Confetti, 🪔 Diyas (Diwali), 🌼 Flower petals (Dussehra / Navratri), ❄️ Snowfall (Christmas), 🎈 Balloons, ✨ Sparkles (New Year) — the **duration** (2–60 seconds) and an optional **message** (e.g. "Happy Diwali! 🪔"). **▶ Preview** shows it at once.
 - On those days the animation plays over the app (with the message at the top) each time someone opens it — employees, admins and guards. The app stays usable while it plays. It replaces the monthly champion's fireworks on the same day. Saved in the **Celebrations** tab.
-- **Music:** each celebration can also play a tune: 🔔 Festive chime, 🎺 Celebration fanfare, 🎂 Happy Birthday, 🎄 Jingle Bells, 🥂 Auld Lang Syne, or 🔇 none. The app plays these itself, so no music files are needed. Phones and browsers allow sound only after a tap, so a **🔊 Tap for music** button appears. Any tap starts the music, and **🔇 Stop music** turns it off. If nobody taps before the animation ends, the music is skipped.
+- **🏹 Dussehra animation:**
+  - Lord Rama draws his bow and shoots a flaming arrow into the Ravana effigy (ten heads).
+  - The effigy catches fire, bursts with a big bang (flash, shaking screen, flying pieces), and heavy fireworks fill the sky.
+  - It always runs at least 10 seconds. With no message, the banner says "🏹 Happy Dussehra! 🔥".
+- **Music:** each celebration can also play a tune. **Indian:** 🪔 Diwali shehnai, 🔔 Aarti (bells & shankh – Puja, Dussehra, Ganesh Chaturthi), 💃 Garba / Dandiya (Navratri), 🥁 Dhol – Bhangra (Lohri, Baisakhi), 🌈 Holi (bansuri & dholak). These are our own raag-style compositions, so there is no copyright issue. **Others:** 🔔 Festive chime, 🎺 Celebration fanfare, 🎂 Happy Birthday, 🎄 Jingle Bells, 🥂 Auld Lang Syne, or 🔇 none. The app plays these itself, so no music files are needed. Phones and browsers allow sound only after a tap, so a **🔊 Tap for music** button appears. Any tap starts the music, and **🔇 Stop music** turns it off. If nobody taps before the animation ends, the music is skipped.
 
 ### Birthdays
 - **Admin → Employees → Edit → Birth date.** It is saved in the **Birth Date** column.
-- On an employee's birthday, **everyone** who opens the app sees the birthday animation (🎈 balloons with the 🎂 Happy Birthday tune by default). This includes the employee, other employees, admins and guards.
+- On an employee's birthday, **between 9:00 AM and 3:00 PM**, **everyone** who opens the app sees the birthday animation (🎈 balloons with the 🎂 Happy Birthday tune by default). This includes the employee, other employees, admins and guards.
 - **The employee** sees "🎂 Happy Birthday, Ankit! 🎉" with a wishes card.
 - **Everyone else** sees "🎂 Today is Ankit's birthday".
 - Only the day is shown. The age and the year never are.
@@ -228,6 +232,11 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - **Birthday Animation**: fireworks, confetti, diyas, petals, snow, balloons or sparkles. Blank means the card only, with no animation.
   - **Birthday Music**: the tune.
   - **Birthday Seconds**: the duration (10 by default).
+  - **Birthday Wishes From / Till**: the times the wishes are shown (09:00 and 15:00 by default).
+- **How the timing works:**
+  - Before 9:00 nothing shows. If the app is already open at 9:00, the wishes start by themselves.
+  - Every time someone opens the app or the link before 3:00 PM, the animation plays again. Coming back to the open app after 10 minutes or more also replays it.
+  - At 3:00 PM the card disappears.
 
 ### Holidays (national / festival)
 - **Who:** admins with the **Manage Holidays** permission (super admins always) add holidays in **Admin → Holidays**. Each has a date, a name and a type: National, Festival or Company.
