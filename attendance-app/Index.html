@@ -1106,7 +1106,7 @@
 
   /**
    * While the app stays open on a birthday: the wishes start by themselves at the "from" time (9:00) and
-   * the card goes at the "till" time (15:00). Coming back to the app after 10+ minutes plays the animation again.
+   * the card goes at the "till" time (15:00). Coming back to the app after 5+ minutes plays it again (see visibilitychange).
    */
   function bdayWatch() {
     clearInterval(S.bdayTimer); S.bdayTimer = null;
@@ -1560,10 +1560,19 @@
     })();
   }
 
+  /*
+   * Phones keep the app alive in the background, so "opening" it again does not reload the page. When it comes
+   * back after 5+ minutes (or on a new day), fetch today's home again and play today's celebration as on a fresh
+   * start — unless a check-in or a pop-up is in progress.
+   */
   document.addEventListener('visibilitychange', function () {
-    if (document.hidden) { clearInterval(clockTimer); clockTimer = null; }
-    else if ($('clock') && !clockTimer) { tickClock(); clockTimer = setInterval(tickClock, 1000); }
-    if (!document.hidden && S.home && bdayLive(S.home) && Date.now() - (S.bdayPlayedAt || 0) > 10 * 60000) birthdayCelebrate(S.home);
+    if (document.hidden) { clearInterval(clockTimer); clockTimer = null; S.hiddenAt = Date.now(); return; }
+    if ($('clock') && !clockTimer) { tickClock(); clockTimer = setInterval(tickClock, 1000); }
+    var away = Date.now() - (S.hiddenAt || Date.now());
+    if (!S.token || !S.home || S.flow || !$('modal').classList.contains('hidden')) return;
+    if (away < 5 * 60000 && (!S.home.today || S.home.today === todayLocal())) return;
+    var sentAt = Date.now();
+    api('getHome', S.token).then(function (h) { S.fireworksDone = false; showHome(h, sentAt); }).catch(function () {});
   });
 
   function tickClock() {
