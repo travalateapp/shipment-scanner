@@ -907,6 +907,7 @@
   function showHome(h, sentAt) {
       S.homeStale = false;
       S.home = h; S.profile = h.profile;
+      bdayWatch();
       if (!h.fromPhone) store('att_home', JSON.stringify({ t: S.token, h: h }));
       checkAppVersion(h);
       store('att_role', h.profile.role);
@@ -975,7 +976,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261037;
+  var NEEDS_SERVER = 20261038;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -991,7 +992,7 @@
     if (!S.homeStale && !phoneTimeOk() && state !== 'done') state = 'badtime';
     if (S.homeStale && state !== 'done') state = 'refreshing';
 
-    var html = birthdayHtml(h);
+    var html = '<div id="bdayBox">' + birthdayHtml(h) + '</div>';
     if (h.missedCheckouts && h.missedCheckouts.length) {
       html += '<div class="card alert"><h2>' + t('⚠ You did not check out') + '</h2>' + h.missedCheckouts.map(function (x) {
         return '<div>' + t('{date} · checked in {time}', { date: esc(fmtDate(x.date)), time: esc(x.in) }) + '</div>';
@@ -1080,7 +1081,7 @@
   }
   /** Home card on birthdays: my own wish, and/or "Today is X's birthday" (the day only, never the age). */
   function birthdayHtml(h) {
-    var b = h.birthday; if (!b) return '';
+    var b = h.birthday; if (!bdayLive(h)) return '';
     var html = '';
     if (b.me) html += '<div class="card bday"><div style="font-size:40px">🎂🎉</div><div class="big">' + t('🎂 Happy Birthday, {name}! 🎉', { name: esc(h.profile.name.split(' ')[0]) }) + '</div>' +
       '<div class="muted small">' + t('bday.wish', { company: esc(h.company) }) + '</div></div>';
@@ -1088,12 +1089,36 @@
       '<div class="muted small">' + t('bday.others') + '</div></div>';
     return html;
   }
+  /** Birthday wishes are on only on the day, from–till by the phone clock (Settings: 09:00–15:00). */
+  function bdayLive(h) {
+    var b = h && h.birthday; if (!b) return false;
+    var now = phoneClock().local, hm = now.slice(11, 16);
+    return now.slice(0, 10) === (b.date || now.slice(0, 10)) && hm >= (b.from || '00:00') && hm < (b.till || '24:00');
+  }
   /** Everyone sees the birthday animation; returns true when it ran. */
   function birthdayCelebrate(h) {
-    var b = h.birthday; if (!b || !b.animation) return false;
+    var b = h.birthday; if (!b || !b.animation || !bdayLive(h)) return false;
+    S.bdayPlayedAt = Date.now();
     var msg = b.me ? t('🎂 Happy Birthday, {name}! 🎉', { name: h.profile.name.split(' ')[0] }) : t('🎂 Today is {names}\'s birthday', { names: bdayNames(b.names) });
     celebrate(b.animation, b.seconds, msg, b.music);
     return true;
+  }
+
+  /**
+   * While the app stays open on a birthday: the wishes start by themselves at the "from" time (9:00) and
+   * the card goes at the "till" time (15:00). Coming back to the app after 10+ minutes plays the animation again.
+   */
+  function bdayWatch() {
+    clearInterval(S.bdayTimer); S.bdayTimer = null;
+    if (!S.home || !S.home.birthday) return;
+    S.bdayWasLive = bdayLive(S.home);
+    S.bdayTimer = setInterval(function () {
+      var live = bdayLive(S.home);
+      if (live === S.bdayWasLive) return;
+      S.bdayWasLive = live;
+      var box = $('bdayBox'); if (box) box.innerHTML = birthdayHtml(S.home);
+      if (live && !document.hidden) birthdayCelebrate(S.home);
+    }, 20000);
   }
 
   /** Monthly champion: a few seconds of fireworks. */
@@ -1274,6 +1299,7 @@
   document.addEventListener('visibilitychange', function () {
     if (document.hidden) { clearInterval(clockTimer); clockTimer = null; }
     else if ($('clock') && !clockTimer) { tickClock(); clockTimer = setInterval(tickClock, 1000); }
+    if (!document.hidden && S.home && bdayLive(S.home) && Date.now() - (S.bdayPlayedAt || 0) > 10 * 60000) birthdayCelebrate(S.home);
   });
 
   function tickClock() {

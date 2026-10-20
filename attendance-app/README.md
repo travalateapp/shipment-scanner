@@ -218,7 +218,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 
 ### Birthdays
 - **Admin → Employees → Edit → Birth date.** It is saved in the **Birth Date** column.
-- On an employee's birthday, **everyone** who opens the app sees the birthday animation (🎈 balloons with the 🎂 Happy Birthday tune by default). This includes the employee, other employees, admins and guards.
+- On an employee's birthday, **between 9:00 AM and 3:00 PM**, **everyone** who opens the app sees the birthday animation (🎈 balloons with the 🎂 Happy Birthday tune by default). This includes the employee, other employees, admins and guards.
 - **The employee** sees "🎂 Happy Birthday, Ankit! 🎉" with a wishes card.
 - **Everyone else** sees "🎂 Today is Ankit's birthday".
 - Only the day is shown. The age and the year never are.
@@ -228,6 +228,11 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
   - **Birthday Animation**: fireworks, confetti, diyas, petals, snow, balloons or sparkles. Blank means the card only, with no animation.
   - **Birthday Music**: the tune.
   - **Birthday Seconds**: the duration (10 by default).
+  - **Birthday Wishes From / Till**: the times the wishes are shown (09:00 and 15:00 by default).
+- **How the timing works:**
+  - Before 9:00 nothing shows. If the app is already open at 9:00, the wishes start by themselves.
+  - Every time someone opens the app or the link before 3:00 PM, the animation plays again. Coming back to the open app after 10 minutes or more also replays it.
+  - At 3:00 PM the card disappears.
 
 ### Holidays (national / festival)
 - **Who:** admins with the **Manage Holidays** permission (super admins always) add holidays in **Admin → Holidays**. Each has a date, a name and a type: National, Festival or Company.
