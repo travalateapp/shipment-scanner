@@ -24,7 +24,11 @@ const SHEET = {
   EMPLOYMENT: 'Employment History',
   INCREMENTS: 'Salary Increments',
   FACES: 'Faces',
+  CELEBRATIONS: 'Celebrations',
 };
+// Festival animations on the app (Admin → Holidays → Celebrations).
+const CELEB_HEADERS = ['From', 'To', 'Animation', 'Seconds', 'Message', 'By', 'At'];
+const ANIMATIONS = ['fireworks', 'confetti', 'diyas', 'petals', 'snow', 'balloons', 'sparkles'];
 // Registered faces: a 128-number "face fingerprint" per employee (no photo is needed to recognise them).
 const FACE_HEADERS = ['Emp ID', 'Name', 'Descriptor (do not edit)', 'Photo', 'Registered By', 'Registered At'];
 const EMPLOYMENT_HEADERS = ['Emp ID', 'From', 'To', 'Note', 'By', 'At'];
@@ -34,7 +38,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261035;
+const SERVER_VERSION = 20261036;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -163,7 +167,7 @@ function forget_() {
  */
 const CACHED_SHEETS = {
   settings: 'Settings', employees: 'Employees', holidays: 'Holidays', perms: 'Admin Permissions', locks: 'Payroll Locks',
-  employment: 'Employment History', increments: 'Salary Increments', faces: 'Faces',
+  employment: 'Employment History', increments: 'Salary Increments', faces: 'Faces', celebrations: 'Celebrations',
 };
 
 /** All values of a tab (dates as 'yyyy-MM-dd', times as 'HH:mm'); null when the tab does not exist. */
@@ -283,7 +287,7 @@ const API_FUNCTIONS = {
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
   superListAdmins, superSavePermissions, superSetRole, superAuditLog, superSetLeaderboard,
-  adminSaveFace, adminDeleteFace, proxyFaces,
+  adminSaveFace, adminDeleteFace, proxyFaces, adminCelebrations, adminSaveCelebration, adminDeleteCelebration,
 };
 
 function doPost(e) {
@@ -519,7 +523,7 @@ function getHome(token) {
   const emp = auth_(token, true);
   if (emp.role === 'GUARD') {
     // No attendance of their own: the app opens straight on Mark Attendance.
-    return { profile: profile_(emp), company: getSettings_().company, guard: true, pendingRequests: 0, adminMissed: 0 };
+    return { profile: profile_(emp), company: getSettings_().company, guard: true, pendingRequests: 0, adminMissed: 0, celebration: celebrationOn_(todayStr_()) };
   }
   sweepOpenEntries_();
   const s = getSettings_();
@@ -548,6 +552,7 @@ function getHome(token) {
     anywhere: !!emp.anywhere,
     shiftStart: minutesToStr_(empSettings_(emp, s).shiftStartMin),
     closeEarly: shortDays_()[today] || null, // office closes early today
+    celebration: celebrationOn_(today),
     standardHours: empSettings_(emp, s).standardHours,
     upcomingHolidays: upcomingHolidays_(today, 45, 3),
     face: readFaces_()[emp.id] ? readFaces_()[emp.id].d : null, // registered face: check in / out by face
@@ -3444,6 +3449,73 @@ function getHolidays_() {
     holidayList_().forEach(x => { if (!x.closeAt) map[x.date] = x.name; }); // short days are working days
     return map;
   });
+}
+
+/* --------------------------- Celebrations -------------------------- */
+
+/** [{ from, to, animation, seconds, message, row }] sorted by date. */
+function readCelebrations_() {
+  return memo_('celebrations', () => (sheetValues_(SHEET.CELEBRATIONS) || []).slice(1).map((r, i) => {
+    const from = toDateStr_(r[0]);
+    return { from: from, to: toDateStr_(r[1]) || from, animation: ANIMATIONS.indexOf(String(r[2]).trim().toLowerCase()) >= 0 ? String(r[2]).trim().toLowerCase() : 'fireworks',
+      seconds: Math.max(2, Math.min(60, Number(r[3]) || 6)), message: String(r[4] || '').trim(), row: i + 2 };
+  }).filter(c => c.from).sort((a, b) => (a.from < b.from ? -1 : 1)));
+}
+
+/** The celebration running on a date (the first one if several overlap). */
+function celebrationOn_(date) {
+  const c = readCelebrations_().filter(x => x.from <= date && date <= x.to)[0];
+  return c ? { animation: c.animation, seconds: c.seconds, message: c.message, from: c.from, to: c.to } : null;
+}
+
+function adminCelebrations(token) {
+  authAdmin_(token, 'manageHolidays');
+  const today = todayStr_();
+  return { animations: ANIMATIONS, list: readCelebrations_().filter(c => c.to >= addDays_(today, -60)) };
+}
+
+/** c = { row (to edit), from, to, animation, seconds, message } */
+function adminSaveCelebration(token, c) {
+  const ctx = authAdmin_(token, 'manageHolidays');
+  c = c || {};
+  const from = toDateStr_(c.from), to = toDateStr_(c.to) || from;
+  if (!from) throw new Error('Choose the date.');
+  if (to < from) throw new Error('"To" must be on or after "From".');
+  if (ANIMATIONS.indexOf(c.animation) < 0) throw new Error('Choose an animation.');
+  const seconds = Math.round(Number(c.seconds));
+  if (!(seconds >= 2 && seconds <= 60)) throw new Error('Duration must be 2 to 60 seconds.');
+  const message = String(c.message || '').trim().slice(0, 80);
+  const row = ["'" + from, "'" + to, c.animation, seconds, message, ctx.emp.id + ' ' + ctx.emp.name, Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm')];
+  const sh = sheetOrCreate_(SHEET.CELEBRATIONS, CELEB_HEADERS);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const old = c.row ? readCelebrations_().filter(x => x.row === Number(c.row))[0] : null;
+    if (old) sh.getRange(old.row, 1, 1, row.length).setValues([row]);
+    else sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+    forget_('celebrations');
+    audit_(ctx.emp, old ? 'EDIT_CELEBRATION' : 'ADD_CELEBRATION', '', from, c.animation + ' ' + seconds + 's' + (to !== from ? ' to ' + to : '') + (message ? ' · ' + message : ''));
+  } finally {
+    lock.releaseLock();
+  }
+  return adminCelebrations(token);
+}
+
+function adminDeleteCelebration(token, rowNo) {
+  const ctx = authAdmin_(token, 'manageHolidays');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    forget_('celebrations');
+    const old = readCelebrations_().filter(x => x.row === Number(rowNo))[0];
+    if (!old) throw new Error('Celebration not found.');
+    sheet_(SHEET.CELEBRATIONS).deleteRow(old.row);
+    forget_('celebrations');
+    audit_(ctx.emp, 'DELETE_CELEBRATION', '', old.from, old.animation + (old.message ? ' · ' + old.message : ''));
+  } finally {
+    lock.releaseLock();
+  }
+  return adminCelebrations(token);
 }
 
 /** { date: { closeMin, closeAt, name } } of the days the office closes early. */

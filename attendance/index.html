@@ -229,6 +229,11 @@
     table.given th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; padding: 4px 6px; border-bottom: 1px solid var(--line); }
     table.given td { padding: 5px 6px; border-bottom: 1px dashed var(--line); }
     table.given .r { text-align: right; } table.given tr.tot td { font-weight: 700; border-bottom: 0; }
+    .celeb-banner { position: fixed; top: 14px; left: 50%; transform: translateX(-50%); z-index: 1000; pointer-events: none;
+      background: linear-gradient(135deg, #fff6d6, #ffe1ec); color: #9a5b00; border: 1px solid #f3c74e; border-radius: 999px;
+      padding: 10px 20px; font-size: 18px; font-weight: 800; box-shadow: 0 6px 22px rgba(0,0,0,.18); white-space: nowrap; max-width: 92vw;
+      overflow: hidden; text-overflow: ellipsis; transition: opacity .8s; }
+    .celeb-banner.out { opacity: 0; }
     .x-btn { border: 0; background: var(--bg); width: 36px; height: 36px; border-radius: 50%; font-size: 18px; cursor: pointer; flex: none; }
     .day-nav { display: flex; align-items: center; justify-content: space-between; margin: 10px 0 2px; }
     .day-nav b { font-size: 17px; }
@@ -689,7 +694,7 @@
 
   /** Calls a server function and returns a Promise. Handles expired sessions centrally. */
   /** Calls that only read. Any other call changes data, so screens kept in memory are forgotten. */
-  var READ_ONLY = /^(get[A-Z]|my[A-Z]|publicInfo$|proxyList$|admin(Today|Holidays|Summary|Month|EmployeeMonth|Requests|Staff|Advances|Employees|EntryOptions|GetEntry|GetSelfie|ExportPayroll|AttendanceRegister|Payslip)$|super(ListAdmins|AuditLog)$)/;
+  var READ_ONLY = /^(get[A-Z]|my[A-Z]|publicInfo$|proxyList$|admin(Today|Holidays|Celebrations|Summary|Month|EmployeeMonth|Requests|Staff|Advances|Employees|EntryOptions|GetEntry|GetSelfie|ExportPayroll|AttendanceRegister|Payslip)$|proxyFaces$|super(ListAdmins|AuditLog)$)/;
 
   function api(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
@@ -906,7 +911,10 @@
       ['home', 'month', 'requests'].forEach(function (tab) {
         document.querySelector('.nav button[data-tab="' + tab + '"]').classList.toggle('hidden', !!h.guard);
       });
-      if (h.guard) { if (S.tab !== 'admin') go('admin', true); return; }
+      if (h.guard) {
+        if (h.celebration && !S.fireworksDone) { S.fireworksDone = true; celebrate(h.celebration.animation, h.celebration.seconds, h.celebration.message); }
+        if (S.tab !== 'admin') go('admin', true); return;
+      }
       $('reqBadge').textContent = h.pendingRequests;
       $('reqBadge').classList.toggle('hidden', !h.pendingRequests);
       $('adminBadge').textContent = h.adminMissed ? '!' : '';
@@ -957,7 +965,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261035;
+  var NEEDS_SERVER = 20261036;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1029,7 +1037,8 @@
     $('content').innerHTML = html;
     tickClock();
     clearInterval(clockTimer); clockTimer = setInterval(tickClock, 1000);
-    if ((h.leaders || []).some(function (L) { return L.winner; }) && !S.fireworksDone) { S.fireworksDone = true; fireworks(); }
+    if (h.celebration && !S.fireworksDone) { S.fireworksDone = true; celebrate(h.celebration.animation, h.celebration.seconds, h.celebration.message); }
+    else if ((h.leaders || []).some(function (L) { return L.winner; }) && !S.fireworksDone) { S.fireworksDone = true; fireworks(); }
   }
 
   /** Top 3 by hours this month (same gender), or on days 1–5 last month's champion. */
@@ -1049,27 +1058,64 @@
     }).join('') + '</div>';
   }
 
-  /** A few seconds of fireworks over the page (not with "reduce motion" on). */
-  function fireworks() {
+  /** Monthly champion: a few seconds of fireworks. */
+  function fireworks() { celebrate('fireworks', 5); }
+
+  var ANIM_LABELS = { fireworks: '🎆 Fireworks', confetti: '🎊 Confetti', diyas: '🪔 Diyas (Diwali)', petals: '🌼 Flower petals (Dussehra / Navratri)',
+    snow: '❄️ Snowfall (Christmas)', balloons: '🎈 Balloons', sparkles: '✨ Sparkles (New Year)' };
+
+  /**
+   * Festival / celebration animation over the page for `seconds`, with an optional message at the top.
+   * Pointer events pass through, so the app stays usable. Skipped when the phone asks for reduced motion.
+   */
+  function celebrate(kind, seconds, message) {
     try { if (window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches) return; } catch (e) { return; }
+    if (S.celebCanvas) S.celebCanvas.stop();
     var c = document.createElement('canvas'), ctx = c.getContext && c.getContext('2d');
     if (!ctx) return;
     c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:999';
     document.body.appendChild(c);
-    var W, H, dpr = window.devicePixelRatio || 1, parts = [], rockets = [], start = Date.now(), last = 0;
+    var banner = null;
+    if (message) {
+      banner = document.createElement('div'); banner.className = 'celeb-banner'; banner.textContent = message;
+      document.body.appendChild(banner);
+    }
+    var W, H, dpr = window.devicePixelRatio || 1, parts = [], rockets = [], start = Date.now(), last = 0, dur = Math.max(2, seconds || 6) * 1000, stopped = false;
     function size() { W = innerWidth; H = innerHeight; c.width = W * dpr; c.height = H * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
     size(); addEventListener('resize', size);
     var COLORS = ['#ff4d4d', '#ffb31a', '#ffe14d', '#4dd97a', '#4db8ff', '#b84dff', '#ff66c4'];
-    function launch() { rockets.push({ x: W * (0.15 + Math.random() * 0.7), y: H, vy: -(H * 0.012 + Math.random() * 3), tY: H * (0.15 + Math.random() * 0.3), col: COLORS[Math.random() * COLORS.length | 0] }); }
+    var rnd = function (a, b) { return a + Math.random() * (b - a); }, pick = function (a) { return a[Math.random() * a.length | 0]; };
+    // Particle makers per animation: each returns one new particle.
+    var MAKE = {
+      confetti: function () { return { x: rnd(0, W), y: -10, vx: rnd(-1, 1), vy: rnd(2, 4.5), rot: rnd(0, 6), vr: rnd(-0.2, 0.2), w: rnd(6, 10), h: rnd(3, 6), col: pick(COLORS), sway: rnd(0, 6) }; },
+      snow: function () { var flake = Math.random() < 0.25; return { x: rnd(0, W), y: -10, vx: rnd(-0.4, 0.4), vy: rnd(0.8, 2), r: rnd(1.5, 4), emoji: flake ? '❄️' : null, size: rnd(14, 24), sway: rnd(0, 6), col: '#ffffff' }; },
+      diyas: function () { return Math.random() < 0.45 ? { x: rnd(0, W), y: H + 20, vx: rnd(-0.3, 0.3), vy: -rnd(0.8, 1.8), emoji: '🪔', size: rnd(22, 38), sway: rnd(0, 6), glow: true }
+        : { x: rnd(0, W), y: H + 5, vx: rnd(-0.5, 0.5), vy: -rnd(1, 3), r: rnd(1, 2.5), col: pick(['#ffd34d', '#ffb31a', '#ff8a1a']), life: 1, fade: rnd(0.004, 0.01) }; },
+      petals: function () { return { x: rnd(0, W), y: -20, vx: rnd(-0.8, 0.8), vy: rnd(1.2, 2.6), emoji: pick(['🌼', '🌸', '🏵️', '🌺']), size: rnd(16, 28), rot: rnd(0, 6), vr: rnd(-0.05, 0.05), sway: rnd(0, 6) }; },
+      balloons: function () { return { x: rnd(0, W), y: H + 40, vx: rnd(-0.3, 0.3), vy: -rnd(1.2, 2.6), emoji: '🎈', size: rnd(28, 46), sway: rnd(0, 6), hue: rnd(0, 360) }; },
+      sparkles: function () { return Math.random() < 0.5 ? { x: rnd(0, W), y: rnd(0, H * 0.8), vx: 0, vy: rnd(-0.2, 0.4), emoji: pick(['✨', '⭐', '🌟', '🎉']), size: rnd(16, 30), life: 1, fade: rnd(0.008, 0.02) }
+        : { x: rnd(0, W), y: -5, vx: rnd(-0.5, 0.5), vy: rnd(1.5, 3.5), r: rnd(1, 2.5), col: pick(['#ffd34d', '#fff2a8', '#ffffff']) }; },
+    };
+    var RATE = { confetti: 6, snow: 3, diyas: 0.7, petals: 0.8, balloons: 0.35, sparkles: 2 }; // per frame (≈60 frames / s)
+    function launch() { rockets.push({ x: W * rnd(0.15, 0.85), y: H, vy: -(H * 0.012 + rnd(0, 3)), tY: H * rnd(0.15, 0.45), col: pick(COLORS) }); }
     function burst(x, y, col) {
-      for (var i = 0; i < 60; i++) {
+      for (var k = 0; k < 60; k++) {
         var a = Math.random() * Math.PI * 2, v = 1 + Math.random() * 4;
-        parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, col: Math.random() < 0.3 ? '#fff' : col });
+        parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, fade: 0.012, grav: 0.05, drag: 0.985, r: 2.2, col: Math.random() < 0.3 ? '#fff' : col });
       }
     }
+    var acc = 0;
+    function stop() {
+      if (stopped) return; stopped = true;
+      removeEventListener('resize', size); c.remove(); if (banner) banner.remove();
+      if (S.celebCanvas && S.celebCanvas.c === c) S.celebCanvas = null;
+    }
+    S.celebCanvas = { c: c, stop: stop };
     (function frame() {
-      var now = Date.now(), t = now - start;
-      if (t < 5000 && now - last > 450) { last = now; launch(); if (Math.random() < 0.5) launch(); }
+      if (stopped) return;
+      var now = Date.now(), t = now - start, on = t < dur;
+      if (kind === 'fireworks') { if (on && now - last > 450) { last = now; launch(); if (Math.random() < 0.5) launch(); } }
+      else if (on && MAKE[kind]) { acc += RATE[kind] || 1; while (acc >= 1) { acc--; parts.push(MAKE[kind]()); } }
       ctx.clearRect(0, 0, W, H);
       rockets = rockets.filter(function (r) {
         r.y += r.vy; ctx.fillStyle = r.col; ctx.fillRect(r.x - 1.5, r.y, 3, 8);
@@ -1077,13 +1123,31 @@
         return true;
       });
       parts = parts.filter(function (p) {
-        p.x += p.vx; p.y += p.vy; p.vy += 0.05; p.vx *= 0.985; p.life -= 0.012;
-        ctx.globalAlpha = Math.max(0, p.life); ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x, p.y, 2.2, 0, 6.283); ctx.fill();
-        return p.life > 0;
+        if (p.sway !== undefined) { p.sway += 0.03; p.x += Math.sin(p.sway) * 0.6; }
+        p.x += p.vx; p.y += p.vy;
+        if (p.grav) p.vy += p.grav;
+        if (p.drag) p.vx *= p.drag;
+        if (p.vr) p.rot += p.vr;
+        if (p.fade) p.life -= p.fade;
+        ctx.globalAlpha = p.life !== undefined ? Math.max(0, Math.min(1, p.life)) : 1;
+        if (p.emoji) {
+          ctx.save(); ctx.translate(p.x, p.y); if (p.rot) ctx.rotate(p.rot);
+          if (p.glow) { ctx.shadowColor = '#ffb31a'; ctx.shadowBlur = 18 + Math.sin(now / 120 + p.x) * 6; }
+          if (p.hue !== undefined) ctx.filter = 'hue-rotate(' + p.hue + 'deg)';
+          ctx.font = p.size + 'px serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText(p.emoji, 0, 0);
+          ctx.restore();
+        } else if (p.w) {
+          ctx.save(); ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillStyle = p.col; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore();
+        } else {
+          ctx.fillStyle = p.col; ctx.beginPath(); ctx.arc(p.x, p.y, p.r || 2, 0, 6.283); ctx.fill();
+        }
+        var alive = p.life === undefined || p.life > 0;
+        return alive && p.y < H + 60 && p.y > -80 && p.x > -60 && p.x < W + 60;
       });
       ctx.globalAlpha = 1;
-      if (t < 5000 || parts.length || rockets.length) requestAnimationFrame(frame);
-      else { removeEventListener('resize', size); c.remove(); }
+      if (banner && !on) banner.classList.add('out');
+      if ((on || parts.length || rockets.length) && t < dur + 8000) requestAnimationFrame(frame);
+      else stop();
     })();
   }
 
@@ -2180,7 +2244,8 @@
     S.holidays = r;
     var y = +r.year, typeOpts = r.types.map(function (x) { return '<option>' + esc(x) + '</option>'; }).join('') +
       '<option value="Short Day">Short day – office closes early</option>';
-    var html = '<div class="card"><h2>Add holiday / short day</h2>' +
+    var html = '<div class="card" id="celebBox"><h2>🎉 Celebrations</h2><div class="center"><span class="spinner"></span></div></div>' +
+      '<div class="card"><h2>Add holiday / short day</h2>' +
       '<p class="muted small" style="margin:-6px 0 0">Holiday: employees are not marked absent, and the day is paid. Anyone who works on it gets the holiday OT rule.<br>' +
       '<b>Short day</b> (e.g. Dussehra, closing 16:30): a normal working day whose shift ends at the closing time. Leaving at that time is a full day with no early leaving or cut; full / half day hours shrink in the same proportion, and only time after closing is OT.</p>' +
       '<div class="grid2"><div class="field"><label>Date</label><input id="hoDate" class="inp" type="date" value="' + todayLocal() + '"></div>' +
@@ -2199,6 +2264,49 @@
         '<div><button class="link" onclick="editHoliday(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteHoliday(' + i + ')">Delete</button></div></div></div>';
     });
     adminBody(html + '</div>');
+    api('adminCelebrations', S.token).then(renderCelebrations).catch(function (e) { var b = $('celebBox'); if (b) b.innerHTML = '<h2>🎉 Celebrations</h2>' + errBox(e); });
+  }
+
+  /** Festival animations: dates, animation, duration and a message, shown to everyone who opens the app on those days. */
+  function renderCelebrations(r) {
+    var box = $('celebBox'); if (!box) return;
+    S.celeb = r;
+    var opts = r.animations.map(function (a) { return '<option value="' + a + '">' + esc(ANIM_LABELS[a] || a) + '</option>'; }).join('');
+    var html = '<h2>🎉 Celebrations</h2><p class="muted small" style="margin:-6px 0 8px">An animation plays over the app when anyone opens it on these days (e.g. Diwali, Dussehra, Christmas, New Year), with your message on top.</p>' +
+      '<input type="hidden" id="ceRow" value="">' +
+      '<div class="grid2"><div class="field"><label>From</label><input id="ceFrom" class="inp" type="date" value="' + todayLocal() + '" onchange="if($(\'ceTo\').value<this.value)$(\'ceTo\').value=this.value"></div>' +
+      '<div class="field"><label>To</label><input id="ceTo" class="inp" type="date" value="' + todayLocal() + '"></div></div>' +
+      '<div class="grid2"><div class="field"><label>Animation</label><select id="ceAnim" class="inp">' + opts + '</select></div>' +
+      '<div class="field"><label>Duration (seconds)</label><input id="ceSec" class="inp" type="number" min="2" max="60" value="8"></div></div>' +
+      '<div class="field"><label>Message (optional)</label><input id="ceMsg" class="inp" maxlength="80" placeholder="e.g. Happy Diwali! 🪔"></div>' +
+      '<div class="btns"><button class="btn ghost" onclick="celebrate($(\'ceAnim\').value, +$(\'ceSec\').value, $(\'ceMsg\').value)">▶ Preview</button>' +
+      '<button class="btn" id="ceBtn" onclick="saveCelebration()">Save</button></div><div id="ceMsgBox"></div>';
+    if (r.list.length) {
+      html += '<div style="margin-top:10px">' + r.list.map(function (c, i) {
+        var past = c.to < todayLocal(), now = c.from <= todayLocal() && todayLocal() <= c.to;
+        return '<div class="list-item"' + (past ? ' style="opacity:.6"' : '') + '><div><div class="name">' + esc(ANIM_LABELS[c.animation] || c.animation) + (now ? ' <span class="chip s-PRESENT">Today</span>' : '') + '</div>' +
+          '<div class="sub">' + esc(fmtDate(c.from)) + (c.to !== c.from ? ' – ' + esc(fmtDate(c.to)) : '') + ' · ' + c.seconds + ' s' + (c.message ? ' · ' + esc(c.message) : '') + '</div></div>' +
+          '<div class="right"><button class="link" onclick="celebrate(\'' + c.animation + '\',' + c.seconds + ',S.celeb.list[' + i + '].message)">▶</button> · ' +
+          '<button class="link" onclick="editCelebration(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteCelebration(' + i + ')">Delete</button></div></div>';
+      }).join('') + '</div>';
+    }
+    box.innerHTML = html;
+  }
+  function saveCelebration() {
+    var c = { row: $('ceRow').value, from: $('ceFrom').value, to: $('ceTo').value, animation: $('ceAnim').value, seconds: $('ceSec').value, message: $('ceMsg').value };
+    $('ceBtn').disabled = true;
+    api('adminSaveCelebration', S.token, c).then(function (r) { renderCelebrations(r); toast('Celebration saved'); })
+      .catch(function (e) { $('ceBtn').disabled = false; $('ceMsgBox').innerHTML = errBox(e); });
+  }
+  function editCelebration(i) {
+    var c = S.celeb.list[i];
+    $('ceRow').value = c.row; $('ceFrom').value = c.from; $('ceTo').value = c.to; $('ceAnim').value = c.animation; $('ceSec').value = c.seconds; $('ceMsg').value = c.message;
+    $('ceBtn').textContent = 'Save changes'; $('celebBox').scrollIntoView({ behavior: 'smooth' });
+  }
+  function deleteCelebration(i) {
+    var c = S.celeb.list[i];
+    if (!confirm('Delete this celebration (' + (ANIM_LABELS[c.animation] || c.animation) + ', ' + fmtDate(c.from) + ')?')) return;
+    api('adminDeleteCelebration', S.token, c.row).then(function (r) { renderCelebrations(r); toast('Deleted'); }).catch(function (e) { toast(e.message); });
   }
 
   function saveHoliday() {
