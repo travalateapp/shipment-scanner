@@ -492,7 +492,7 @@
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     '🎂 Happy Birthday, {name}! 🎉': '🎂 जन्मदिन मुबारक हो, {name}! 🎉', 'bday.wish': '{company} की पूरी टीम की ओर से आपको जन्मदिन की ढेरों शुभकामनाएँ। आपका साल खुशियों से भरा हो!',
     '🎂 Today is {names}\'s birthday': '🎂 आज {names} का जन्मदिन है', 'bday.others': 'उन्हें शुभकामनाएँ देना न भूलें! 🎉', ' & ': ' और ',
-    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', '🔇 Stop music': '🔇 संगीत बंद करें',
+    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
     'Late coming / early leaving': 'देर से आना / जल्दी जाना',
     'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
@@ -976,7 +976,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261038;
+  var NEEDS_SERVER = 20261039;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1125,13 +1125,18 @@
   function fireworks() { celebrate('fireworks', 5); }
 
   var ANIM_LABELS = { fireworks: '🎆 Fireworks', confetti: '🎊 Confetti', diyas: '🪔 Diyas (Diwali)', petals: '🌼 Flower petals (Dussehra / Navratri)',
-    snow: '❄️ Snowfall (Christmas)', balloons: '🎈 Balloons', sparkles: '✨ Sparkles (New Year)' };
-  var MUSIC_LABELS = { none: '🔇 No music', chime: '🔔 Festive chime', fanfare: '🎺 Celebration fanfare', birthday: '🎂 Happy Birthday',
+    snow: '❄️ Snowfall (Christmas)', balloons: '🎈 Balloons', sparkles: '✨ Sparkles (New Year)', dussehra: '🏹 Dussehra – Rama\'s arrow, Ravana bursts with fireworks' };
+  var MUSIC_LABELS = { none: '🔇 No music', diwali: '🪔 Diwali – shehnai', aarti: '🔔 Aarti – bells & shankh (Puja, Dussehra, Ganesh Chaturthi)',
+    garba: '💃 Garba / Dandiya (Navratri)', dhol: '🥁 Dhol – Bhangra (Lohri, Baisakhi)', holi: '🌈 Holi – bansuri & dholak', chime: '🔔 Festive chime', fanfare: '🎺 Celebration fanfare', birthday: '🎂 Happy Birthday',
     jinglebells: '🎄 Jingle Bells (Christmas)', auldlangsyne: '🥂 Auld Lang Syne (New Year)' };
 
   /*
-   * Tunes played by the page itself with Web Audio (no music files; old public-domain melodies).
-   * Each note: [name, beats]; 'R' = rest. `beat` = seconds per beat, `voice` = sound.
+   * Tunes played by the page itself with Web Audio (no music files). The western ones are old public-domain
+   * melodies; the Indian ones are our own compositions in raag style (Yaman, Bhupali) with synthesised
+   * shehnai, bansuri, tumbi, dhol, dholak, manjira, temple bells and shankh.
+   * A tune: { beat: seconds per beat, parts: [{ voice, notes: [[note, beats], ...] }] ('R' = rest),
+   *   drums: { perBeat: steps per beat, lines: { sound: 'x..x' } } (x = hit, X = loud), drone: ['C3', 'G2'] }.
+   * Short form { beat, voice, notes } = one part.
    */
   var TUNES = {
     chime: { beat: 0.16, voice: 'bell', notes: [['C5', 1], ['E5', 1], ['G5', 1], ['C6', 3], ['G5', 1], ['C6', 1], ['E6', 4], ['R', 4], ['A5', 1], ['C6', 1], ['E6', 1], ['A6', 3], ['G6', 1], ['E6', 1], ['C7', 5], ['R', 4]] },
@@ -1145,11 +1150,123 @@
     auldlangsyne: { beat: 0.48, voice: 'soft', notes: [['G4', 1], ['C5', 1.5], ['C5', 0.5], ['C5', 1], ['E5', 1], ['D5', 1.5], ['C5', 0.5], ['D5', 1], ['E5', 0.5], ['D5', 0.5],
       ['C5', 1.5], ['C5', 0.5], ['E5', 1], ['G5', 1], ['A5', 3], ['A5', 1], ['G5', 1.5], ['E5', 0.5], ['E5', 1], ['C5', 1], ['D5', 1.5], ['C5', 0.5], ['D5', 1], ['E5', 0.5], ['D5', 0.5],
       ['C5', 1.5], ['A4', 0.5], ['A4', 1], ['G4', 1], ['C5', 3], ['R', 1]] },
+    diwali: { beat: 0.36, drone: ['C3', 'G2'], parts: [{ voice: 'shehnai', notes: [
+        ['B3', 0.5], ['D4', 0.5], ['E4', 1.5], ['D4', 0.5], ['E4', 0.5], ['F#4', 0.5], ['E4', 1], ['D4', 0.5], ['C4', 2.5],
+        ['E4', 0.5], ['F#4', 0.5], ['G4', 1.5], ['A4', 0.5], ['G4', 0.5], ['F#4', 0.5], ['E4', 1], ['F#4', 0.5], ['E4', 0.5], ['D4', 2],
+        ['G4', 0.5], ['A4', 0.5], ['B4', 1], ['C5', 2], ['B4', 0.5], ['A4', 0.5], ['G4', 0.5], ['F#4', 0.5], ['A4', 0.5], ['G4', 1.5],
+        ['F#4', 0.5], ['E4', 0.5], ['D4', 1], ['E4', 0.5], ['F#4', 0.5], ['E4', 0.5], ['D4', 0.5], ['B3', 0.5], ['D4', 0.5], ['C4', 3]] }],
+      drums: { perBeat: 2, lines: { ge: 'xx....x.', na: '..xxxx.x', bellhi: 'x' + Array(64).join('.') } } },
+    aarti: { beat: 0.5, drone: ['C3', 'G2'], parts: [{ voice: 'shankh', notes: [['G3', 3.5], ['R', 12.5]] },
+        { voice: 'flute', notes: [['R', 4], ['C5', 1], ['D5', 1], ['E5', 2], ['E5', 1], ['D5', 1], ['E5', 1], ['G5', 1], ['E5', 1], ['D5', 1], ['C5', 2]] }],
+      drums: { perBeat: 4, lines: { bellhi: '................x.x.x.x.x.x.x.x.', bello: '.................x.x.x.x.x.x.x.x', manjira: '....', ge: '................x.......x...x...' } } },
+    garba: { beat: 0.17, parts: [{ voice: 'flute', notes: [
+        ['C5', 2], ['D5', 1], ['E5', 2], ['G5', 1], ['E5', 2], ['D5', 1], ['C5', 3], ['D5', 2], ['E5', 1], ['G5', 2], ['A5', 1], ['G5', 2], ['E5', 1], ['D5', 3],
+        ['E5', 2], ['G5', 1], ['A5', 2], ['C6', 1], ['A5', 2], ['G5', 1], ['E5', 3], ['D5', 2], ['E5', 1], ['D5', 2], ['C5', 1], ['A4', 1], ['G4', 2], ['C5', 3]] }],
+      drums: { perBeat: 1, lines: { ge: 'X..x..', na: '.xx.xx', click: 'x.xx.x' } } },
+    dhol: { beat: 0.23, parts: [{ voice: 'tumbi', notes: [
+        ['G5', 0.5], ['A5', 0.5], ['C6', 0.5], ['C6', 0.5], ['C6', 0.5], ['A5', 0.5], ['C6', 1], ['D6', 0.5], ['C6', 0.5], ['A5', 0.5], ['G5', 0.5], ['A5', 1], ['R', 1],
+        ['G5', 0.5], ['A5', 0.5], ['C6', 0.5], ['C6', 0.5], ['D6', 0.5], ['E6', 0.5], ['D6', 1], ['C6', 0.5], ['A5', 0.5], ['G5', 0.5], ['E5', 0.5], ['G5', 1], ['R', 1]] }],
+      drums: { perBeat: 2, lines: { dagga: 'X..x..x.', tilli: '.x.xx.xx' } } },
+    holi: { beat: 0.26, parts: [{ voice: 'flute', notes: [
+        ['E5', 0.5], ['G5', 0.5], ['A5', 1], ['G5', 0.5], ['E5', 0.5], ['D5', 1], ['E5', 0.5], ['D5', 0.5], ['C5', 1], ['D5', 0.5], ['E5', 0.5], ['G5', 1],
+        ['A5', 0.5], ['C6', 0.5], ['A5', 0.5], ['G5', 0.5], ['E5', 0.5], ['G5', 0.5], ['A5', 1], ['G5', 0.5], ['E5', 0.5], ['D5', 0.5], ['E5', 0.5], ['C5', 2]] }],
+      drums: { perBeat: 2, lines: { ge: 'x..x.x..', na: '..x.x.xx', manjira: 'x...x...' } } },
   };
   function noteHz(n) {
     var m = /^([A-G])(#?)(\d)$/.exec(n); if (!m) return 0;
     var semi = { C: -9, D: -7, E: -5, F: -4, G: -2, A: 0, B: 2 }[m[1]] + (m[2] ? 1 : 0) + (+m[3] - 4) * 12;
     return 440 * Math.pow(2, semi / 12);
+  }
+  /**
+   * Schedules `tune` on the audio context from time `at`, repeated to last about `seconds` (at least once).
+   * Returns { nodes (to stop early), end (context time) }.
+   */
+  function scheduleTune(ac, out, tune, at, seconds) {
+    var nodes = [];
+    function src(n, t, end) { n.start(t); n.stop(end); nodes.push(n); return n; }
+    function osc(type, f, t, end) { var o = ac.createOscillator(); o.type = type; o.frequency.value = f; return src(o, t, end); }
+    function gain(v) { var g = ac.createGain(); g.gain.value = v; return g; }
+    function filt(type, f, q) { var x = ac.createBiquadFilter(); x.type = type; x.frequency.value = f; if (q) x.Q.value = q; return x; }
+    function chain() { for (var i = 0; i < arguments.length - 1; i++) arguments[i].connect(arguments[i + 1]); return arguments[0]; }
+    /** Attack to `peak`, hold, release to silence at `end`. */
+    function env(g, t, peak, attack, end, release) {
+      g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(peak, t + attack);
+      g.gain.setValueAtTime(peak, Math.max(t + attack, end - release)); g.gain.exponentialRampToValueAtTime(0.0001, end);
+    }
+    function hitEnv(g, t, peak, decay) { g.gain.setValueAtTime(peak, t); g.gain.exponentialRampToValueAtTime(0.0001, t + decay); }
+    function vibrato(o, t, end, rate, depth) { var l = osc('sine', rate, t, end), lg = gain(depth); chain(l, lg, o.frequency); }
+    function noise(t, dur) {
+      if (!ac._noise) { var b = ac.createBuffer(1, ac.sampleRate, ac.sampleRate), d = b.getChannelData(0); for (var i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1; ac._noise = b; }
+      var n = ac.createBufferSource(); n.buffer = ac._noise; return src(n, t, t + dur);
+    }
+    function note(v, f, t, len) {
+      var end = t + len, g, o;
+      if (v === 'bell') {
+        var dec = Math.max(len, 0.9);
+        g = gain(0); hitEnv(g, t, 0.9, dec); chain(osc('sine', f, t, t + dec + 0.05), g, out);
+        var g2 = gain(0); hitEnv(g2, t, 0.18, dec * 0.5); chain(osc('sine', f * 2.76, t, t + dec), g2, out); // the overtone that makes it ring
+      } else if (v === 'shehnai') { // reedy, nasal, with a glide into the note (meend) and vibrato
+        o = osc('sawtooth', f, t, end + 0.05); o.frequency.setValueAtTime(f * 0.96, t); o.frequency.linearRampToValueAtTime(f, t + 0.07);
+        vibrato(o, t, end + 0.05, 5.5, f * 0.012);
+        g = gain(0); env(g, t, 0.5, 0.04, end, Math.min(0.08, len * 0.3)); chain(o, filt('bandpass', 1300, 0.7), g, out);
+      } else if (v === 'flute') { // bansuri: soft, breathy attack
+        o = osc('sine', f, t, end + 0.05); vibrato(o, t, end + 0.05, 5, f * 0.007);
+        g = gain(0); env(g, t, 0.6, 0.05, end, Math.min(0.1, len * 0.3)); chain(o, g, out);
+        var h = gain(0); env(h, t, 0.08, 0.05, end, Math.min(0.1, len * 0.3)); chain(osc('triangle', f * 2, t, end + 0.05), h, out);
+        var br = gain(0); hitEnv(br, t, 0.05, 0.12); chain(noise(t, 0.15), filt('bandpass', f * 2, 2), br, out);
+      } else if (v === 'tumbi') { // one-string plucked Punjabi tumbi
+        g = gain(0); hitEnv(g, t, 0.35, Math.min(len, 0.3) + 0.05); chain(osc('square', f, t, t + 0.4), filt('lowpass', 3500), g, out);
+      } else if (v === 'drone') { // tanpura-like Sa–Pa underneath
+        g = gain(0); env(g, t, 0.1, 1, end, 1); var lp = filt('lowpass', 800);
+        chain(osc('sawtooth', f, t, end), lp); chain(osc('sawtooth', f * 1.003, t, end), lp); chain(lp, g, out);
+      } else if (v === 'shankh') { // conch: slow swell, rises at the end
+        o = osc('sawtooth', f, t, end + 0.05); o.frequency.setValueAtTime(f, Math.max(t, end - 0.4)); o.frequency.linearRampToValueAtTime(f * 1.06, end);
+        vibrato(o, t, end, 4, f * 0.006);
+        g = gain(0); env(g, t, 0.55, 0.6, end, 0.4); chain(o, filt('lowpass', 900, 3), g, out);
+      } else { // 'soft' / 'brass'
+        o = osc(v === 'brass' ? 'sawtooth' : 'triangle', f, t, end + 0.05);
+        g = gain(0); env(g, t, 0.6, 0.02, t + len * 0.98, len * 0.23);
+        if (v === 'brass') chain(o, filt('lowpass', 1800), g, out); else chain(o, g, out);
+      }
+    }
+    function hit(v, t, loud) {
+      var k = loud ? 1.35 : 1, g, o;
+      if (v === 'dagga' || v === 'ge') { // dhol / dholak bass: a thump that drops in pitch
+        var hi = v === 'dagga' ? 140 : 110, lo = v === 'dagga' ? 55 : 75, dec = v === 'dagga' ? 0.45 : 0.3;
+        o = osc('sine', hi, t, t + dec + 0.02); o.frequency.exponentialRampToValueAtTime(lo, t + dec * 0.6);
+        g = gain(0); hitEnv(g, t, 0.9 * k, dec); chain(o, g, out);
+        var n = gain(0); hitEnv(n, t, 0.3 * k, 0.06); chain(noise(t, 0.08), filt('lowpass', 400), n, out);
+      } else if (v === 'tilli' || v === 'na') { // dhol / dholak treble: a sharp slap
+        g = gain(0); hitEnv(g, t, (v === 'tilli' ? 0.45 : 0.25) * k, 0.07); chain(noise(t, 0.09), filt('bandpass', v === 'tilli' ? 2500 : 3000, 1.2), g, out);
+        var tg = gain(0); hitEnv(tg, t, 0.3 * k, 0.12); chain(osc('sine', v === 'tilli' ? 330 : 520, t, t + 0.14), tg, out);
+      } else if (v === 'click') { // dandiya sticks
+        g = gain(0); hitEnv(g, t, 1.1 * k, 0.035); chain(noise(t, 0.05), filt('bandpass', 3200, 6), g, out);
+        var cg = gain(0); hitEnv(cg, t, 0.15 * k, 0.03); chain(osc('sine', 2100, t, t + 0.05), cg, out);
+      } else if (v === 'manjira') { // small cymbals
+        [2650, 3980, 5310].forEach(function (f, i) { var mg = gain(0); hitEnv(mg, t, [0.12, 0.08, 0.05][i] * k, 0.6); chain(osc('sine', f, t, t + 0.65), mg, out); });
+      } else if (v === 'bellhi' || v === 'bello') { // temple bell
+        note('bell', v === 'bellhi' ? 1046.5 : 784, t, 0.7);
+      }
+    }
+    var parts = tune.parts || [{ voice: tune.voice, notes: tune.notes }];
+    var beats = Math.max.apply(null, parts.map(function (p) { return p.notes.reduce(function (a, n) { return a + n[1]; }, 0); }));
+    var len = beats * tune.beat, times = Math.max(1, Math.round((seconds || 0) / len)), t0 = at;
+    for (var k = 0; k < times; k++) {
+      parts.forEach(function (p) {
+        var x = t0;
+        p.notes.forEach(function (n) { if (n[0] !== 'R') note(p.voice, noteHz(n[0]), x, n[1] * tune.beat); x += n[1] * tune.beat; });
+      });
+      if (tune.drums) {
+        var step = tune.beat / tune.drums.perBeat;
+        Object.keys(tune.drums.lines).forEach(function (v) {
+          var pat = tune.drums.lines[v];
+          for (var i = 0; i * step < len - 1e-6; i++) { var ch = pat[i % pat.length]; if (ch !== '.') hit(v, t0 + i * step, ch === 'X'); }
+        });
+      }
+      t0 += len;
+    }
+    (tune.drone || []).forEach(function (n) { note('drone', noteHz(n), at, t0 - at + 0.8); });
+    return { nodes: nodes, end: t0 + 1 };
   }
   /**
    * Plays a tune for about `seconds` (at least once through). Returns { stop } or null.
@@ -1160,37 +1277,19 @@
     if (!tune || !AC) return null;
     var ac = S.audioCtx || (S.audioCtx = new AC());
     var out = ac.createGain(); out.gain.value = 0.22; out.connect(ac.destination);
-    var oscs = [], stopped = false, btn = null, started = false, me = {};
-    function note(f, t0, len) {
-      var v = tune.voice, g = ac.createGain(), o = ac.createOscillator();
-      o.type = v === 'brass' ? 'sawtooth' : v === 'bell' ? 'sine' : 'triangle'; o.frequency.value = f;
-      var node = o;
-      if (v === 'brass') { var lp = ac.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1800; o.connect(lp); node = lp; }
-      node.connect(g); g.connect(out);
-      var decay = v === 'bell' ? Math.max(len, 0.9) : len;
-      g.gain.setValueAtTime(0.0001, t0); g.gain.exponentialRampToValueAtTime(v === 'bell' ? 0.9 : 0.6, t0 + 0.02);
-      if (v === 'bell') g.gain.exponentialRampToValueAtTime(0.0001, t0 + decay);
-      else { g.gain.setValueAtTime(0.6, t0 + Math.max(0.03, len * 0.75)); g.gain.exponentialRampToValueAtTime(0.0001, t0 + len * 0.98); }
-      o.start(t0); o.stop(t0 + decay + 0.05); oscs.push(o);
-      if (v === 'bell') { // a quiet overtone makes it ring like a bell
-        var o2 = ac.createOscillator(), g2 = ac.createGain(); o2.frequency.value = f * 2.76; o2.connect(g2); g2.connect(out);
-        g2.gain.setValueAtTime(0.0001, t0); g2.gain.exponentialRampToValueAtTime(0.18, t0 + 0.01); g2.gain.exponentialRampToValueAtTime(0.0001, t0 + decay * 0.5);
-        o2.start(t0); o2.stop(t0 + decay); oscs.push(o2);
-      }
-    }
+    var nodes = [], stopped = false, btn = null, started = false, me = {};
     function begin() {
       if (started || stopped) return; started = me.started = true;
       if (btn) { btn.textContent = t('🔇 Stop music'); btn.onclick = stop; }
-      var len = tune.notes.reduce(function (a, n) { return a + n[1]; }, 0) * tune.beat;
-      var times = Math.max(1, Math.round((seconds || 0) / len)), at = ac.currentTime + 0.08;
-      for (var k = 0; k < times; k++) tune.notes.forEach(function (n) { if (n[0] !== 'R') note(noteHz(n[0]), at, n[1] * tune.beat); at += n[1] * tune.beat; });
-      setTimeout(stop, (at - ac.currentTime + 1.5) * 1000);
+      var r = scheduleTune(ac, out, tune, ac.currentTime + 0.08, seconds);
+      nodes = r.nodes;
+      setTimeout(stop, (r.end - ac.currentTime + 0.5) * 1000);
     }
     function unlock() { ac.resume().then(begin, function () {}); }
     function stop() {
       if (stopped) return; stopped = true;
       document.removeEventListener('pointerdown', unlock, true);
-      oscs.forEach(function (o) { try { o.stop(); } catch (e) {} });
+      nodes.forEach(function (o) { try { o.stop(); } catch (e) {} });
       try { out.disconnect(); } catch (e) {}
       if (btn) btn.remove();
       if (S.tune && S.tune.stop === stop) S.tune = null;
@@ -1207,6 +1306,159 @@
   }
 
   /**
+   * Dussehra: Lord Rama draws his bow and shoots a flaming arrow into the Ravana effigy; the effigy catches fire,
+   * bursts with a big bang, and the sky fills with heavy fireworks. Drawn on the celebration canvas.
+   * Times (ms): 0–700 appear, 700–1500 draw the bow, 1500–2300 the arrow flies, 2300 hit and fire, 3700 the burst.
+   */
+  function dussehraScene(api) {
+    var ctx = api.ctx, T_DRAW = 700, T_FLY = 1500, T_HIT = 2300, T_BOOM = 3700, dur = api.dur, lastFire = 0, boomed = false, hit = false;
+    var rnd = function (a, b) { return a + Math.random() * (b - a); };
+    function geo() {
+      var z = api.size(), W = z.W, H = z.H, gy = H * 0.86;
+      var u = Math.max(0.45, Math.min((W * 0.34 - 6) / 135, H * 0.6 / 350, 1.7));
+      return { W: W, H: H, gy: gy, u: u, rx: W - 140 * u - 6, mx: Math.max(10 + 40 * u, W * 0.15) };
+    }
+    function poly(pts, fill, stroke) {
+      ctx.beginPath(); ctx.moveTo(pts[0], pts[1]); for (var i = 2; i < pts.length; i += 2) ctx.lineTo(pts[i], pts[i + 1]); ctx.closePath();
+      if (fill) { ctx.fillStyle = fill; ctx.fill(); } if (stroke) { ctx.strokeStyle = stroke; ctx.stroke(); }
+    }
+    function circle(x, y, r, fill) { ctx.beginPath(); ctx.arc(x, y, r, 0, 6.283); ctx.fillStyle = fill; ctx.fill(); }
+    function line(x1, y1, x2, y2, w, col) { ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.lineWidth = w; ctx.strokeStyle = col; ctx.lineCap = 'round'; ctx.stroke(); }
+    var scorch = 0;
+    /** A colour scorched towards dark brown by `scorch` (0–1). */
+    function C(hex) {
+      if (!scorch) return hex;
+      if (hex.length === 4) hex = '#' + hex[1] + hex[1] + hex[2] + hex[2] + hex[3] + hex[3];
+      var c = [1, 3, 5].map(function (i) { return parseInt(hex.substr(i, 2), 16); }), to = [62, 26, 0];
+      return 'rgb(' + c.map(function (v, i) { return Math.round(v + (to[i] - v) * scorch); }).join(',') + ')';
+    }
+    /** One Ravana face (local units, centre 0,0, radius r). */
+    function face(r, main) {
+      circle(0, 0, r, C('#f4c68f'));
+      ctx.lineWidth = r * 0.12; ctx.strokeStyle = C('#7a3b00'); ctx.stroke();
+      [-1, 1].forEach(function (sd) {
+        ctx.beginPath(); ctx.ellipse(sd * r * 0.38, -r * 0.12, r * 0.22, r * 0.15, 0, 0, 6.283); ctx.fillStyle = C('#fff'); ctx.fill();
+        circle(sd * r * 0.38, -r * 0.1, r * 0.09, '#111');
+        line(sd * r * 0.15, -r * 0.38, sd * r * 0.62, -r * 0.3, r * 0.1, '#111'); // angry eyebrows
+        ctx.beginPath(); ctx.moveTo(0, r * 0.22); ctx.quadraticCurveTo(sd * r * 0.5, r * 0.15, sd * r * 0.72, r * 0.02); ctx.lineWidth = r * 0.16; ctx.strokeStyle = '#111'; ctx.stroke(); // mustache
+      });
+      ctx.beginPath(); ctx.ellipse(0, r * 0.45, r * 0.2, r * 0.09, 0, 0, 6.283); ctx.fillStyle = C('#c62828'); ctx.fill();
+      circle(0, -r * 0.55, r * 0.08, C('#d32f2f')); // tilak
+      var ch = main ? r * 1.6 : r * 1.1; // crown
+      poly([-r * 0.85, -r * 0.7, r * 0.85, -r * 0.7, r * 0.6, -r * 0.7 - ch * 0.6, r * 0.3, -r * 0.7 - ch * 0.75, 0, -r * 0.7 - ch, -r * 0.3, -r * 0.7 - ch * 0.75, -r * 0.6, -r * 0.7 - ch * 0.6], C('#f5b800'), C('#a86e00'));
+      circle(0, -r * 0.7 - ch * 0.45, r * 0.13, C('#d81b60')); circle(-r * 0.45, -r * 0.85, r * 0.08, C('#1e88e5')); circle(r * 0.45, -r * 0.85, r * 0.08, C('#1e88e5'));
+    }
+    /** The Ravana effigy, feet at (x, y), size u; `burn` 0–1 scorches it. */
+    function ravana(x, y, u, burn, jig) {
+      scorch = burn;
+      ctx.save(); ctx.translate(x, y); ctx.scale(u, u); if (jig) ctx.rotate(jig);
+      ctx.lineJoin = 'round'; ctx.lineWidth = 2;
+      poly([-42, -122, 42, -122, 36, 0, 8, 0, 0, -48, -8, 0, -36, 0], C('#f08a24'), C('#8a4300')); // dhoti
+      for (var i = 0; i < 3; i++) line(-38 + i * 3, -100 + i * 32, 38 - i * 3, -100 + i * 32, 4, C('#ffd54f'));
+      poly([-50, -232, 50, -232, 46, -120, -46, -120], C('#c62828'), C('#7f0000')); // tunic
+      poly([-8, -232, 8, -232, 8, -120, -8, -120], C('#ffca28'));
+      [-205, -180, -155].forEach(function (yy) { circle(0, yy, 4, C('#1e88e5')); circle(-28, yy + 8, 3, C('#ffca28')); circle(28, yy + 8, 3, C('#ffca28')); });
+      line(-46, -124, 46, -124, 8, C('#ffb300')); // belt
+      line(-48, -222, -118, -168, 22, C('#c62828')); line(48, -222, 116, -170, 22, C('#c62828')); // arms
+      line(-104, -178, -112, -172, 24, C('#ffb300')); line(102, -180, 110, -174, 24, C('#ffb300')); // cuffs
+      circle(-122, -164, 11, C('#f4c68f')); circle(120, -166, 11, C('#f4c68f')); // hands
+      line(122, -170, 138, -262, 6, C('#cfd8dc')); line(112, -184, 132, -184, 5, C('#ffb300')); // sword
+      poly([-12, -250, 12, -250, 10, -230, -10, -230], C('#f4c68f')); // neck
+      // ten heads: the big one in the middle, nine smaller ones beside it
+      for (var k = -5; k <= 4; k++) {
+        if (k === 0) continue;
+        var hx = (k < 0 ? k * 25 - 14 : k * 25 + 14), hy = -262 + Math.abs(k) * 2;
+        ctx.save(); ctx.translate(hx, hy); face(13, false); ctx.restore();
+      }
+      ctx.save(); ctx.translate(0, -276); face(25, true); ctx.restore();
+      ctx.restore();
+    }
+    /** Lord Rama, feet at (x, y), facing right; `pull` = how far the bowstring is drawn (0–1). */
+    function rama(x, y, u, pull, arrowOn) {
+      ctx.save(); ctx.translate(x, y); ctx.scale(u, u); ctx.lineJoin = 'round';
+      var skin = '#3d6fd8';
+      poly([-26, -128, -16, -132, -24, -86, -34, -84], '#8d5524', '#5d3a1a'); // quiver
+      for (var i = 0; i < 3; i++) line(-21 + i * 3, -132, -17 + i * 4, -146, 2.5, '#e0e0e0');
+      line(-4, -82, -24, -2, 9, skin); line(4, -82, 26, -2, 9, skin); // legs
+      line(-24, -2, -34, -1, 7, skin); line(26, -2, 36, -1, 7, skin);
+      poly([-17, -94, 17, -94, 27, -44, 4, -40, 0, -56, -4, -40, -27, -44], '#ffcc00', '#e68a00'); // pitambar dhoti
+      poly([-17, -142, 17, -142, 13, -92, -13, -92], skin); // chest
+      line(-14, -140, 12, -96, 2.5, '#fff59d'); // sacred thread
+      ctx.beginPath(); ctx.arc(0, -140, 11, 0.2, 2.94); ctx.lineWidth = 3; ctx.strokeStyle = '#ffd54f'; ctx.stroke(); // necklace
+      line(-16, -138, -6, -92, 5, '#ff7043'); // angavastram
+      circle(0, -157, 12, skin); // head
+      ctx.beginPath(); ctx.arc(0, -157, 12.5, 1.9, 4.4); ctx.lineTo(-2, -157); ctx.fillStyle = '#1b1b1b'; ctx.fill(); // hair (back of the head)
+      line(-10, -152, -14, -134, 5, '#1b1b1b');
+      circle(6, -159, 1.8, '#111'); line(6, -167, 6, -163, 2, '#d32f2f'); // eye, tilak
+      ctx.beginPath(); ctx.arc(7, -151, 3, 0.2, 1.4); ctx.lineWidth = 1.4; ctx.strokeStyle = '#1a237e'; ctx.stroke(); // smile
+      poly([-11, -166, 11, -166, 9, -180, 5, -176, 0, -196, -5, -176, -9, -180], '#f5b800', '#a86e00'); // mukut
+      circle(0, -172, 2.6, '#d81b60');
+      var bx = 50, by = -146, tipT = { x: 42, y: -196 }, tipB = { x: 42, y: -96 }, hx = bx - 6 - pull * 44;
+      line(10, -136, bx, by, 7, skin); // bow arm
+      ctx.beginPath(); ctx.moveTo(tipT.x, tipT.y); ctx.quadraticCurveTo(bx + 30, by, tipB.x, tipB.y); ctx.lineWidth = 5; ctx.strokeStyle = '#8d5524'; ctx.stroke(); // bow
+      circle(tipT.x, tipT.y, 2.5, '#ffd54f'); circle(tipB.x, tipB.y, 2.5, '#ffd54f');
+      ctx.beginPath(); ctx.moveTo(tipT.x, tipT.y); ctx.lineTo(hx, by); ctx.lineTo(tipB.x, tipB.y); ctx.lineWidth = 1.2; ctx.strokeStyle = '#eee'; ctx.stroke(); // string
+      line(-6, -136, hx, by, 7, skin); circle(hx, by, 4, skin); // drawing arm
+      if (arrowOn) { line(hx, by, hx + 62, by, 2.5, '#6d4c41'); poly([hx + 62, by - 4, hx + 72, by, hx + 62, by + 4], '#ffd54f'); }
+      ctx.restore();
+      return { x: x + (bx - 6) * u, y: y + by * u }; // where the arrow leaves the bow
+    }
+    function arrow(x, y, ang, u) {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.scale(u, u);
+      line(-60, 0, 0, 0, 2.5, '#6d4c41'); poly([0, -4.5, 12, 0, 0, 4.5], '#ffd54f', '#ff8f00');
+      poly([-60, 0, -68, -6, -56, 0, -68, 6], '#e53935');
+      ctx.restore();
+    }
+    function fire(x, y, spread, n) {
+      for (var i = 0; i < n; i++) api.add({ x: x + rnd(-spread, spread), y: y + rnd(-spread * 0.3, spread * 0.3), vx: rnd(-0.4, 0.4), vy: -rnd(1, 3.2), r: rnd(2, 6),
+        col: ['#ffeb3b', '#ff9800', '#ff5722', '#f44336'][Math.random() * 4 | 0], life: 1, fade: rnd(0.015, 0.035) });
+    }
+    return {
+      heavy: function (t) { return t > T_BOOM + 300; },
+      back: function (t) {
+        var g = geo(), u = g.u, fadeIn = Math.min(1, t / 600), fadeOut = Math.max(0, Math.min(1, (dur + 1000 - t) / 1000));
+        ctx.globalAlpha = 0.72 * fadeIn * fadeOut; // night sky behind the scene
+        var sky = ctx.createLinearGradient(0, 0, 0, g.H); sky.addColorStop(0, '#0b0b2e'); sky.addColorStop(1, '#2a1640');
+        ctx.fillStyle = sky; ctx.fillRect(-20, -20, g.W + 40, g.H + 40);
+        ctx.globalAlpha = 0.85 * fadeIn * fadeOut; ctx.fillStyle = '#1b2a12'; ctx.fillRect(-20, g.gy, g.W + 40, g.H - g.gy + 20); // ground
+        ctx.globalAlpha = fadeIn * fadeOut;
+        var ravY = g.gy + (1 - fadeIn) * 40 * u, burn = t < T_HIT ? 0 : Math.min(1, (t - T_HIT) / (T_BOOM - T_HIT));
+        var chest = { x: g.rx, y: g.gy - 175 * u };
+        if (t < T_BOOM) {
+          var jig = t > T_HIT ? Math.sin(t / 40) * 0.025 * burn : 0;
+          ravana(g.rx, ravY, u, burn * 0.75, jig);
+          if (t > T_HIT && t - lastFire > 30) { lastFire = t; fire(g.rx, g.gy - rnd(20, 300) * u, 60 * u, 3 + (burn * 6 | 0)); }
+        } else if (!boomed) {
+          boomed = true; // the big bang: pieces fly, bursts all around, the screen shakes
+          var cols = ['#c62828', '#f08a24', '#ffca28', '#f4c68f', '#f5b800', '#3e1a00'];
+          for (var i = 0; i < 70; i++) api.add({ x: g.rx + rnd(-70, 70) * u, y: g.gy - rnd(0, 330) * u, vx: rnd(-7, 7), vy: rnd(-10, -2), grav: 0.25, drag: 0.99,
+            w: rnd(6, 16) * u, h: rnd(4, 12) * u, rot: rnd(0, 6), vr: rnd(-0.3, 0.3), col: cols[i % cols.length], life: 1.6, fade: 0.012 });
+          for (var b = 0; b < 9; b++) api.burst(g.rx + rnd(-130, 130) * u, g.gy - rnd(60, 360) * u, ['#ffeb3b', '#ff5722', '#ffffff', '#ff4081', '#69f0ae'][b % 5], 110, 7);
+          fire(g.rx, g.gy - 150 * u, 90 * u, 60);
+          api.shake(700, 9);
+        }
+        var p = t < T_DRAW ? 0 : t < T_FLY ? (t - T_DRAW) / (T_FLY - T_DRAW) : 0;
+        var from = rama(g.mx, g.gy, u * 1.2, p, t < T_FLY);
+        if (t >= T_FLY && t < T_HIT) { // the flaming arrow in flight
+          var q = (t - T_FLY) / (T_HIT - T_FLY), ex = chest.x - 20 * u, arc = 60 * u;
+          var ax = from.x + (ex - from.x) * q, ay = from.y + (chest.y - from.y) * q - arc * Math.sin(Math.PI * q);
+          var dx = ex - from.x, dy = (chest.y - from.y) - arc * Math.PI * Math.cos(Math.PI * q);
+          arrow(ax, ay, Math.atan2(dy, dx), u);
+          fire(ax - Math.cos(Math.atan2(dy, dx)) * 60 * u, ay - Math.sin(Math.atan2(dy, dx)) * 60 * u, 4 * u, 3);
+        } else if (t >= T_HIT && t < T_BOOM) {
+          if (!hit) { hit = true; api.burst(chest.x, chest.y, '#ffeb3b', 50, 3); api.shake(250, 4); }
+          arrow(chest.x - 14 * u, chest.y, 0, u); // stuck in the effigy
+        }
+        ctx.globalAlpha = 1;
+      },
+      front: function (t) {
+        var g = geo();
+        if (t >= T_BOOM && t < T_BOOM + 500) { ctx.globalAlpha = 0.85 * (1 - (t - T_BOOM) / 500); ctx.fillStyle = '#fff8e1'; ctx.fillRect(-20, -20, g.W + 40, g.H + 40); ctx.globalAlpha = 1; }
+      },
+    };
+  }
+
+  /**
    * Festival / celebration animation over the page for `seconds`, with an optional message at the top.
    * Pointer events pass through, so the app stays usable. Skipped when the phone asks for reduced motion.
    */
@@ -1220,6 +1472,8 @@
     c.style.cssText = 'position:fixed;inset:0;width:100%;height:100%;pointer-events:none;z-index:999';
     document.body.appendChild(c);
     var banner = null;
+    if (kind === 'dussehra' && !message) message = t('🏹 Happy Dussehra! 🔥');
+    if (kind === 'dussehra') seconds = Math.max(10, seconds || 0); // the story needs about 10 s
     if (message) {
       banner = document.createElement('div'); banner.className = 'celeb-banner'; banner.textContent = message;
       document.body.appendChild(banner);
@@ -1241,14 +1495,16 @@
         : { x: rnd(0, W), y: -5, vx: rnd(-0.5, 0.5), vy: rnd(1.5, 3.5), r: rnd(1, 2.5), col: pick(['#ffd34d', '#fff2a8', '#ffffff']) }; },
     };
     var RATE = { confetti: 6, snow: 3, diyas: 0.7, petals: 0.8, balloons: 0.35, sparkles: 2 }; // per frame (≈60 frames / s)
-    function launch() { rockets.push({ x: W * rnd(0.15, 0.85), y: H, vy: -(H * 0.012 + rnd(0, 3)), tY: H * rnd(0.15, 0.45), col: pick(COLORS) }); }
-    function burst(x, y, col) {
-      for (var k = 0; k < 60; k++) {
-        var a = Math.random() * Math.PI * 2, v = 1 + Math.random() * 4;
-        parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, fade: 0.012, grav: 0.05, drag: 0.985, r: 2.2, col: Math.random() < 0.3 ? '#fff' : col });
+    function launch(big) { rockets.push({ x: W * rnd(0.1, 0.9), y: H, vy: -(H * 0.012 + rnd(0, 3)), tY: H * rnd(0.12, 0.45), col: pick(COLORS), big: big }); }
+    function burst(x, y, col, n, speed) {
+      for (var k = 0; k < (n || 60); k++) {
+        var a = Math.random() * Math.PI * 2, v = 1 + Math.random() * (speed || 4);
+        parts.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v, life: 1, fade: 0.012, grav: 0.05, drag: 0.985, r: (n || 60) >= 100 ? 3 : 2.2, col: Math.random() < 0.3 ? '#fff' : col });
       }
     }
-    var acc = 0;
+    var acc = 0, shakeUntil = 0, shakeAmp = 0;
+    var scene = kind === 'dussehra' ? dussehraScene({ ctx: ctx, size: function () { return { W: W, H: H }; }, dur: dur,
+      add: function (p) { parts.push(p); }, burst: burst, launch: launch, shake: function (ms, amp) { shakeUntil = Date.now() + ms; shakeAmp = amp; } }) : null;
     function stop() {
       if (stopped) return; stopped = true;
       removeEventListener('resize', size); c.remove(); if (banner) banner.remove();
@@ -1260,11 +1516,15 @@
       if (stopped) return;
       var now = Date.now(), t = now - start, on = t < dur;
       if (kind === 'fireworks') { if (on && now - last > 450) { last = now; launch(); if (Math.random() < 0.5) launch(); } }
+      else if (scene) { if (on && scene.heavy(t) && now - last > 230) { last = now; launch(true); if (Math.random() < 0.6) launch(true); } }
       else if (on && MAKE[kind]) { acc += RATE[kind] || 1; while (acc >= 1) { acc--; parts.push(MAKE[kind]()); } }
       ctx.clearRect(0, 0, W, H);
+      ctx.save();
+      if (now < shakeUntil) ctx.translate(rnd(-shakeAmp, shakeAmp), rnd(-shakeAmp, shakeAmp));
+      if (scene) scene.back(t);
       rockets = rockets.filter(function (r) {
         r.y += r.vy; ctx.fillStyle = r.col; ctx.fillRect(r.x - 1.5, r.y, 3, 8);
-        if (r.y <= r.tY) { burst(r.x, r.y, r.col); return false; }
+        if (r.y <= r.tY) { burst(r.x, r.y, r.col, r.big ? 110 : 60, r.big ? 6 : 4); return false; }
         return true;
       });
       parts = parts.filter(function (p) {
@@ -1290,8 +1550,10 @@
         return alive && p.y < H + 60 && p.y > -80 && p.x > -60 && p.x < W + 60;
       });
       ctx.globalAlpha = 1;
+      if (scene) scene.front(t);
+      ctx.restore();
       if (banner && !on) banner.classList.add('out');
-      if ((on || parts.length || rockets.length) && t < dur + 8000) requestAnimationFrame(frame);
+      if ((on || parts.length || rockets.length || (scene && t < dur + 1200)) && t < dur + 8000) requestAnimationFrame(frame);
       else stop();
     })();
   }

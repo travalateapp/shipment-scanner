@@ -28,9 +28,9 @@ const SHEET = {
 };
 // Festival animations on the app (Admin → Holidays → Celebrations).
 const CELEB_HEADERS = ['From', 'To', 'Animation', 'Seconds', 'Message', 'By', 'At', 'Music'];
-const ANIMATIONS = ['fireworks', 'confetti', 'diyas', 'petals', 'snow', 'balloons', 'sparkles'];
+const ANIMATIONS = ['fireworks', 'confetti', 'diyas', 'petals', 'snow', 'balloons', 'sparkles', 'dussehra'];
 // Tunes the page plays itself (no music files): 'none' = silent.
-const MUSIC = ['none', 'chime', 'fanfare', 'birthday', 'jinglebells', 'auldlangsyne'];
+const MUSIC = ['none', 'diwali', 'aarti', 'garba', 'dhol', 'holi', 'chime', 'fanfare', 'birthday', 'jinglebells', 'auldlangsyne'];
 // Registered faces: a 128-number "face fingerprint" per employee (no photo is needed to recognise them).
 const FACE_HEADERS = ['Emp ID', 'Name', 'Descriptor (do not edit)', 'Photo', 'Registered By', 'Registered At'];
 const EMPLOYMENT_HEADERS = ['Emp ID', 'From', 'To', 'Note', 'By', 'At'];
@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261038;
+const SERVER_VERSION = 20261039;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
