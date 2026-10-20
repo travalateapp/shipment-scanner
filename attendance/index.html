@@ -487,7 +487,7 @@
     'Late + early leaving': 'देर + जल्दी जाना', 'Early leaving': 'जल्दी जाना', 'Short time': 'कम समय',
     'day.absentot': 'आधे दिन के लिए घंटे कम: दिन की तनख्वाह कटती है, किया गया काम ओवरटाइम में मिलता है।',
     '↩ Check in again': '↩ फिर से चेक-इन करें', 'Check in again': 'फिर से चेक-इन',
-    'again.info': 'बाहर गए थे और वापस आए? फिर से चेक-इन करें। बाहर का समय काम में नहीं गिना जाता।',
+    'again.info': '↩ बाहर गए थे और वापस आए? गार्ड या एडमिन से फिर से चेक-इन करवाएँ। उसके बाद चेक-आउट अपने फ़ोन से कर सकते हैं। बाहर का समय काम में नहीं गिना जाता।',
     'Back in at {time} · away {a}': '{time} पर वापस · बाहर {a}', 'Away {list} ({m}) · not counted as worked': 'बाहर {list} ({m}) · काम में नहीं गिना',
     'In again': 'फिर से इन', 'away {m}': 'बाहर {m}', '{n} back in at {t}': '{n} {t} पर वापस', '{n} is back in the office? Check in again now.': '{n} ऑफिस वापस आ गए? अभी फिर से चेक-इन करें।',
     'Hold still…': 'हिलें नहीं…', 'Face': 'चेहरा', 'Face recognised': 'चेहरा पहचाना गया', 'Look at the camera': 'कैमरे की तरफ देखें', 'Looking for your face…': 'आपका चेहरा ढूँढ रहे हैं…',
@@ -531,7 +531,7 @@
     'home.selfie': ' A selfie is required at check-in.',
     'home.forgot': ' Forgot to check in or out? Use <b>Requests</b>.',
     'missed.days': '⚠ {n} day(s) without check-out',
-    'again.info': 'Went out and came back? Check in again. The time away is not counted as worked.',
+    'again.info': '↩ Went out and came back? Check in again with the guard or an admin. After that you can check out from your phone. The time away is not counted as worked.',
     'day.shortcut': 'Worked {m} less than the shift. No hourly OT for this employee, so it is cut from the salary.',
     'day.short': 'Worked {m} less than the shift. This is cut from the OT of other days in the month (never below zero).',
     'day.absentot': 'Too few hours for a half day: the day\'s salary is cut, the time worked is paid as OT.',
@@ -957,7 +957,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261034;
+  var NEEDS_SERVER = 20261035;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1006,8 +1006,7 @@
     if (state === 'outPrev') html += '<div class="msg info">' + t('open.prev', { date: esc(fmtDate(prev.date)), time: esc(prev.in) }) + '</div>' +
       '<button class="big-btn" style="background:var(--red)" onclick="startFlow(\'out\')">' + t('CHECK OUT (night shift)') + '</button>';
     if (state === 'done') html += '<div class="msg ok center">' + t('✓ Attendance complete for today') + '</div>' +
-      (r && r.in && r.out && r.out > r.in ? '<button class="btn ghost" onclick="startFlow(\'again\')">' + t('↩ Check in again') + '</button>' +
-        '<p class="muted small center" style="margin:4px 0 0">' + t('again.info') + '</p>' : '');
+      (r && r.in && r.out && r.out > r.in ? '<div class="msg info">' + t('again.info') + '</div>' : '');
     if (state === 'refreshing') html += '<button class="big-btn" style="background:var(--gray)" disabled><span class="spinner"></span> ' + t('Updating…') + '</button>';
     if (state === 'badtime') html += '<div class="msg err">' + t('badtime') + '</div>' +
       '<button class="btn" onclick="loadHome()">' + t('Reload') + '</button>';
@@ -1166,9 +1165,9 @@
   function startFlow(mode) {
     if (!phoneTimeOk()) { renderHome(); return; }
     S.flow = { mode: mode, pos: null, selfie: null, busy: false, error: null, locating: true,
-      face: !!(S.home.face && faceSupported()), faceState: 'loading', faceMsg: '' };
+      face: !!(S.home.face && faceSupported()), faceState: 'waiting', faceMsg: '' };
     renderFlow();
-    if (S.flow.face) faceFlowStart();
+    // Face scan starts once the location is confirmed (see below).
     $('flow').scrollIntoView({ behavior: 'smooth' });
     var fl = S.flow;
     getBestPosition(S.home.office.maxAccuracy).then(function (p) {
@@ -1181,7 +1180,7 @@
       else if (p.accuracy > S.home.office.maxAccuracy) S.flow.error = 'GPS signal is weak (±' + Math.round(p.accuracy) + ' m). Move near a window or open area and try again.';
       else if (p.distance > S.home.office.radius) S.flow.error = 'You are ' + Math.round(p.distance) + ' m from the office. You must be within ' + S.home.office.radius + ' m.';
       renderFlow();
-      if (fl.face && fl.faceState === 'ok' && !fl.error && !fl.busy) submitFlow(); // face was quicker than GPS
+      if (fl.face && !fl.error) faceFlowStart(); // location OK → now the face
     }).catch(function (err) {
       if (S.flow !== fl) return;
       S.flow.locating = false;
@@ -1251,6 +1250,7 @@
       var ok = f.faceState === 'ok';
       html += '<div class="flow-step ' + (ok ? 'done' : '') + '"><div class="dot">' + (ok ? '✓' : '2') + '</div><div style="flex:1"><b>' + t('Face') + '</b><br>';
       if (ok) html += '<span class="muted">' + t('Face recognised') + '</span>';
+      else if (f.faceState === 'waiting') html += '<span class="muted">' + t('After location is verified') + '</span>';
       else html += '<video id="faceVideo" class="cam" autoplay playsinline muted style="max-height:260px;object-fit:cover"></video>' +
         '<p class="muted small" id="faceMsg" style="margin:4px 0 0"></p>' +
         '<button class="link" onclick="faceFlowGiveUp(\'\')">' + t('Use selfie instead') + '</button>';
