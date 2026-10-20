@@ -211,6 +211,24 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Setting:** *Face Match Max Distance* (default 0.42): lower = stricter. Same person is usually 0.1–0.35, different people from about 0.48. The guard's scanner also needs the best match to be clearly closer than the next person and to show up in 2 looks in a row. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
 
+### Celebrations (festival animations)
+- **Admin → Holidays → 🎉 Celebrations**: choose the dates (one day or From–To), an **animation** — 🎆 Fireworks, 🎊 Confetti, 🪔 Diyas (Diwali), 🌼 Flower petals (Dussehra / Navratri), ❄️ Snowfall (Christmas), 🎈 Balloons, ✨ Sparkles (New Year) — the **duration** (2–60 seconds) and an optional **message** (e.g. "Happy Diwali! 🪔"). **▶ Preview** shows it at once.
+- On those days the animation plays over the app (with the message at the top) each time someone opens it — employees, admins and guards. The app stays usable while it plays. It replaces the monthly champion's fireworks on the same day. Saved in the **Celebrations** tab.
+- **Music:** each celebration can also play a tune: 🔔 Festive chime, 🎺 Celebration fanfare, 🎂 Happy Birthday, 🎄 Jingle Bells, 🥂 Auld Lang Syne, or 🔇 none. The app plays these itself, so no music files are needed. Phones and browsers allow sound only after a tap, so a **🔊 Tap for music** button appears. Any tap starts the music, and **🔇 Stop music** turns it off. If nobody taps before the animation ends, the music is skipped.
+
+### Birthdays
+- **Admin → Employees → Edit → Birth date.** It is saved in the **Birth Date** column.
+- On an employee's birthday, **everyone** who opens the app sees the birthday animation (🎈 balloons with the 🎂 Happy Birthday tune by default). This includes the employee, other employees, admins and guards.
+- **The employee** sees "🎂 Happy Birthday, Ankit! 🎉" with a wishes card.
+- **Everyone else** sees "🎂 Today is Ankit's birthday".
+- Only the day is shown. The age and the year never are.
+- A birthday comes before a festival celebration and before the champion's fireworks on the same day.
+- Someone born on 29 Feb is celebrated on 28 Feb in other years.
+- **Settings tab** (optional rows):
+  - **Birthday Animation**: fireworks, confetti, diyas, petals, snow, balloons or sparkles. Blank means the card only, with no animation.
+  - **Birthday Music**: the tune.
+  - **Birthday Seconds**: the duration (10 by default).
+
 ### Holidays (national / festival)
 - **Who:** admins with the **Manage Holidays** permission (super admins always) add holidays in **Admin → Holidays**. Each has a date, a name and a type: National, Festival or Company.
 - **Effect:** on a holiday nobody is marked absent and the day is paid. Anyone who works gets the holiday OT rule. Past dates can be added too, and the months are recalculated, except locked months.
