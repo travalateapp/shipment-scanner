@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261039;
+const SERVER_VERSION = 20261040;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -293,7 +293,7 @@ const API_FUNCTIONS = {
   adminAttendanceRegister,
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
-  superListAdmins, superSavePermissions, superSetRole, superAuditLog, superSetLeaderboard,
+  superListAdmins, superSavePermissions, superSetRole, superAuditLog, superSetLeaderboard, superRefreshApps,
   adminSaveFace, adminDeleteFace, proxyFaces, adminCelebrations, adminSaveCelebration, adminDeleteCelebration,
 };
 
@@ -309,8 +309,11 @@ function doPost(e) {
     if (done) return ContentService.createTextOutput(done).setMimeType(ContentService.MimeType.JSON);
     const fn = Object.prototype.hasOwnProperty.call(API_FUNCTIONS, req.fn) ? API_FUNCTIONS[req.fn] : null;
     if (!fn) throw new Error('Unknown action.');
+    // "Refresh everyone's app" (super admin): pages sent with their version (pv) reload themselves; older
+    // pages, which cannot, are asked to close and reopen the app.
+    if (refreshAppsAt_() && !req.pv) throw new Error(OLD_PAGE_MSG);
     const result = fn.apply(null, Array.isArray(req.args) ? req.args : []);
-    json = JSON.stringify({ ok: true, result: result === undefined ? null : result });
+    json = JSON.stringify({ ok: true, result: result === undefined ? null : result, refreshAt: refreshAppsAt_() });
   } catch (err) {
     json = JSON.stringify({ ok: false, error: String((err && err.message) || err) });
   }
@@ -318,6 +321,23 @@ function doPost(e) {
     try { CacheService.getScriptCache().put(rid, json, 600); } catch (err) { /* ignore */ }
   }
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
+const OLD_PAGE_MSG = 'A new version of the app is ready. Please close the app (swipe it away from recent apps) and open it again. ' +
+  'In a browser, reload the page. / ऐप का नया वर्ज़न आ गया है। कृपया ऐप बंद करें (हाल के ऐप्स से हटाएँ) और फिर से खोलें।';
+
+/** When a super admin last pressed "Refresh everyone's app" (ms since 1970), 0 = never. */
+function refreshAppsAt_() {
+  try { return Number(getSettings_().refreshAppsAt) || 0; } catch (e) { return 0; }
+}
+
+/** Every phone reloads the app the next time it talks to the server (old versions are asked to reopen it). */
+function superRefreshApps(token) {
+  const ctx = authAdmin_(token, 'superAdmin');
+  const at = Date.now();
+  setSetting_('Refresh Apps At', String(at));
+  audit_(ctx.emp, 'REFRESH_APPS', '', '', 'Asked every phone to reload the app');
+  return { refreshAt: at };
 }
 
 /** Company name for the login screen (no login needed). */
@@ -3192,6 +3212,7 @@ function getSettings_() {
       minAppVersion: num('Min Android App Version', 0),
       sessionDays: num('Stay Logged In (days)', 30),
       faceDistance: num('Face Match Max Distance', 0.42),
+      refreshAppsAt: num('Refresh Apps At', 0),
       birthdayAnim: blank('Birthday Animation') ? 'balloons' : String(raw['Birthday Animation']).trim().toLowerCase(),
       birthdayMusic: blank('Birthday Music') ? 'birthday' : String(raw['Birthday Music']).trim().toLowerCase(),
       birthdaySeconds: Math.max(2, Math.min(60, num('Birthday Seconds', 10))),
