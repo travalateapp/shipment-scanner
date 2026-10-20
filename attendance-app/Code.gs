@@ -34,7 +34,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261034;
+const SERVER_VERSION = 20261035;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -696,7 +696,11 @@ function checkInCore_(emp, s, loc, selfieDataUrl, byEmp, face) {
   assertUnlocked_(today);
   const existing = () => byDate_(readAttendance_(), emp.id)[today];
   const first = existing();
-  if (first && first.in && first.out) return checkInAgain_(emp, s, loc, byEmp, who); // back after going out
+  if (first && first.in && first.out) {
+    // Back after going out: only a guard / admin can check someone in again (Mark Attendance).
+    if (!byEmp) throw new Error('You have already checked out today. To check in again, ask the guard or an admin to mark it (Mark Attendance).');
+    return checkInAgain_(emp, s, loc, byEmp, who);
+  }
   if (first && first.in) throw new Error(who + ' already checked in today.');
 
   // The selfie is saved before taking the lock so that a morning rush does not queue up on Drive uploads.
