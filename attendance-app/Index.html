@@ -997,7 +997,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261041;
+  var NEEDS_SERVER = 20261043;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2970,6 +2970,7 @@
       var aoa = [[r.title], [r.status], ['Generated ' + r.generated + ' · amounts in ' + r.currency], [], r.header]
         .concat(r.rows).concat([totals]);
       var ws = XLSX.utils.aoa_to_sheet(aoa);
+      addPayrollFormulas(ws, r, noSum);
       ws['!cols'] = r.header.map(function (h) { return { wch: h === 'Name' ? 22 : Math.max(10, Math.min(18, h.length + 2)) }; });
       ws['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 4, c: 0 }, e: { r: 4 + r.rows.length, c: r.header.length - 1 } }) };
       var wb = XLSX.utils.book_new();
@@ -2981,6 +2982,29 @@
     }).catch(function (e) {
       $('exportMsg').innerHTML = errBox(e);
     }).then(function () { var b = $('exportBtn'); if (b) { b.disabled = false; b.innerHTML = '⬇ Download Excel'; } });
+  }
+
+  /**
+   * Puts the formulas behind the calculated cells (the numbers stay as they are, so the file shows the same
+   * values; change an input such as Monthly Salary or OT minutes and Excel recalculates). The server sends them
+   * as "[Column Name]" references; data starts on row 6, the totals row is SUM()s.
+   */
+  function addPayrollFormulas(ws, r, noSum) {
+    var col = {}, first = 6, last = 5 + r.rows.length;
+    r.header.forEach(function (h, i) { col[h] = XLSX.utils.encode_col(i); });
+    (r.formulas || []).forEach(function (fs, i) {
+      var row = first + i;
+      Object.keys(fs || {}).forEach(function (h) {
+        if (!col[h]) return;
+        var ok = true, f = fs[h].replace(/\[([^\]]+)\]/g, function (m, name) { if (!col[name]) ok = false; return col[name] + row; });
+        var cell = ws[col[h] + row];
+        if (ok && cell) { cell.f = f; if (/^Per (Day|Hour|Min)$/.test(h)) cell.z = '0.00'; }
+      });
+    });
+    r.header.forEach(function (h, i) {
+      var cell = ws[col[h] + (last + 1)];
+      if (i > 0 && noSum.indexOf(h) < 0 && cell && typeof cell.v === 'number' && r.rows.length) cell.f = 'SUM(' + col[h] + first + ':' + col[h] + last + ')';
+    });
   }
 
   /** Loads the Excel library (SheetJS) the first time it is needed. */
