@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261043;
+const SERVER_VERSION = 20261044;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -1629,7 +1629,7 @@ function adminStaff(token) {
 /**
  * data = { isNew, id, name, pin (new only), salary (new only; later changes are increments), joinDate, phone,
  *          active + leftOn (when deactivating) / activeFrom (when activating again), anywhere,
- *          shiftStart, shiftEnd (blank = company shift), hourlyOt, gender ('M' / 'F' / ''), birthDate (blank clears), role (super admin only) }
+ *          shiftStart, shiftEnd (blank = company shift), hourlyOt, gender ('M' / 'F' / ''), birthDate ('MM-DD', no year; blank clears), role (super admin only) }
  */
 function adminSaveStaff(token, data) {
   const ctx = authAdmin_(token, 'manageEmployees');
@@ -1648,9 +1648,8 @@ function adminSaveStaff(token, data) {
   const timing = data.shiftStart === undefined ? null : shiftFields_(data);
   const gender = data.gender === undefined ? null : parseGender_(data.gender);
   const lateCut = data.lateCut === undefined ? null : data.lateCut !== false;
-  const birthDate = data.birthDate === undefined ? null : toDateStr_(data.birthDate);
-  if (data.birthDate && !birthDate) throw new Error('Enter a valid birth date.');
-  if (birthDate && birthDate > todayStr_()) throw new Error('The birth date cannot be in the future.');
+  const birthDate = data.birthDate === undefined ? null : toMonthDay_(data.birthDate);
+  if (data.birthDate && !birthDate) throw new Error('Choose both the day and the month of the birthday.');
   const genderCell = g => (g === 'M' ? 'Male' : g === 'F' ? 'Female' : '');
   const sh = sheet_(SHEET.EMPLOYEES);
   ensureHeaders_(sh, EMP_HEADERS);
@@ -1673,7 +1672,7 @@ function adminSaveStaff(token, data) {
       if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3]; }
       if (gender !== null) row[h['Gender']] = genderCell(gender);
       if (lateCut !== null) row[h['Late Cut']] = lateCut ? 'Yes' : 'No';
-      if (birthDate) row[h['Birth Date']] = "'" + birthDate;
+      if (birthDate) row[h['Birth Date']] = "'" + monthDayCell_(birthDate);
       sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
       forget_('employees');
       audit_(ctx.emp, 'ADD_EMPLOYEE', id, joinDate, name + ', salary ' + salary);
@@ -1693,8 +1692,8 @@ function adminSaveStaff(token, data) {
         audit_(ctx.emp, 'EDIT_LATE_CUT', emp.id, '', 'Cut late / early from salary (no hourly OT): ' + (lateCut ? 'Yes' : 'No'));
       }
       if (birthDate !== null && birthDate !== emp.birthDate) {
-        sh.getRange(row, headerIndex_(sh)['Birth Date'] + 1).setValue(birthDate ? "'" + birthDate : '');
-        audit_(ctx.emp, 'EDIT_BIRTH_DATE', emp.id, '', (emp.birthDate || '-') + ' → ' + (birthDate || '-'));
+        sh.getRange(row, headerIndex_(sh)['Birth Date'] + 1).setValue(birthDate ? "'" + monthDayCell_(birthDate) : '');
+        audit_(ctx.emp, 'EDIT_BIRTH_DATE', emp.id, '', (emp.birthDate ? monthDayCell_(emp.birthDate) : '-') + ' → ' + (birthDate ? monthDayCell_(birthDate) : '-'));
       }
       if (gender !== null && gender !== emp.gender) {
         sh.getRange(row, headerIndex_(sh)['Gender'] + 1).setValue(genderCell(gender));
@@ -3348,7 +3347,7 @@ function getPeople_() {
           gender: parseGender_(get(r, 'Gender')),
           leaderboard: !/^(n|no|false|0|off)$/i.test(String(get(r, 'In Leaderboard')).trim()), // blank = Yes
           lateCut: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Late Cut')).trim()), // blank = Yes
-          birthDate: toDateStr_(get(r, 'Birth Date')),
+          birthDate: toMonthDay_(get(r, 'Birth Date')), // 'MM-DD': day and month only
           pf: {
             active: /^(y|yes|true|1|on)$/i.test(String(get(r, 'PF Active')).trim()),
             bankSalary: get(r, 'PF Bank Salary'),
@@ -3595,7 +3594,7 @@ function birthdayOn_(date, me) {
   const md = date.slice(5), y = Number(date.slice(0, 4));
   const leap = (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0;
   const hits = getPeople_().filter(e => e.active && e.role !== 'GUARD' && e.birthDate).filter(e => {
-    const b = e.birthDate.slice(5);
+    const b = e.birthDate;
     return b === md || (b === '02-29' && !leap && md === '02-28');
   });
   if (!hits.length) return null;
@@ -3975,6 +3974,35 @@ function toDateStr_(v) {
   m = /^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/.exec(str); // dd/MM/yyyy
   if (m) return m[3] + '-' + pad2_(m[2]) + '-' + pad2_(m[1]);
   return '';
+}
+
+const MONTHS_ = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+/**
+ * A birthday as 'MM-DD' (no year), or '' when it is not a valid day. Accepts '20 Oct', 'Oct 20', '10-20',
+ * a full date (yyyy-MM-dd or dd/MM/yyyy, the year is ignored) and date cells. 29 Feb is allowed.
+ */
+function toMonthDay_(v) {
+  let m = null, d = null;
+  if (v instanceof Date) { const ds = Utilities.formatDate(v, tz_(), 'yyyy-MM-dd'); m = +ds.slice(5, 7); d = +ds.slice(8, 10); }
+  else {
+    const str = String(v || '').trim().replace(/^'/, '');
+    let x;
+    const mon = w => MONTHS_.indexOf(String(w).slice(0, 3).toLowerCase()) + 1;
+    if ((x = /^\d{4}-(\d{1,2})-(\d{1,2})$/.exec(str))) { m = +x[1]; d = +x[2]; }
+    else if ((x = /^(\d{1,2})[\/.-](\d{1,2})[\/.-]\d{4}$/.exec(str))) { d = +x[1]; m = +x[2]; }
+    else if ((x = /^(\d{1,2})-(\d{1,2})$/.exec(str))) { m = +x[1]; d = +x[2]; }
+    else if ((x = /^(\d{1,2})\s*[-\s]\s*([a-z]{3,})\.?$/i.exec(str))) { d = +x[1]; m = mon(x[2]); }
+    else if ((x = /^([a-z]{3,})\.?\s*[-\s]\s*(\d{1,2})$/i.exec(str))) { m = mon(x[1]); d = +x[2]; }
+  }
+  const max = [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][m - 1];
+  return m >= 1 && m <= 12 && d >= 1 && d <= max ? pad2_(m) + '-' + pad2_(d) : '';
+}
+
+/** 'MM-DD' → '20 Oct' for the sheet. */
+function monthDayCell_(md) {
+  const m = Number(md.slice(0, 2)), d = Number(md.slice(3, 5));
+  return d + ' ' + MONTHS_[m - 1].charAt(0).toUpperCase() + MONTHS_[m - 1].slice(1);
 }
 
 function toYm_(v) {

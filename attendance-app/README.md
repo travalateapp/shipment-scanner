@@ -228,7 +228,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Music:** each celebration can also play a tune. **Indian:** 🪔 Diwali shehnai, 🔔 Aarti (bells & shankh – Puja, Dussehra, Ganesh Chaturthi), 💃 Garba / Dandiya (Navratri), 🥁 Dhol – Bhangra (Lohri, Baisakhi), 🌈 Holi (bansuri & dholak). These are our own raag-style compositions, so there is no copyright issue. **Others:** 🔔 Festive chime, 🎺 Celebration fanfare, 🎂 Happy Birthday, 🎄 Jingle Bells, 🥂 Auld Lang Syne, or 🔇 none. The app plays these itself, so no music files are needed. Phones and browsers allow sound only after a tap, so a **🔊 Tap for music** button appears. Any tap starts the music, and **🔇 Stop music** turns it off. If nobody taps before the animation ends, the music is skipped.
 
 ### Birthdays
-- **Admin → Employees → Edit → Birth date.** It is saved in the **Birth Date** column.
+- **Admin → Employees → Edit → Birthday**: choose the **day and month** only; no year is needed. It is saved in the **Birth Date** column as, for example, `20 Oct`. You can also type it there: 20 Oct, Oct 20 or a full date all work, and the year is ignored.
 - On an employee's birthday, **between 9:00 AM and 3:00 PM**, **everyone** who opens the app sees the birthday animation (🎈 balloons with the 🎂 Happy Birthday tune by default). This includes the employee, other employees, admins and guards.
 - **The employee** sees "🎂 Happy Birthday, Ankit! 🎉" with a wishes card.
 - **Everyone else** sees "🎂 Today is Ankit's birthday".
