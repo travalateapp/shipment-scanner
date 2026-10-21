@@ -997,7 +997,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261043;
+  var NEEDS_SERVER = 20261044;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -3408,6 +3408,17 @@
       .catch(function (e) { $('lbSave').disabled = false; $('lbMsg').innerHTML = errBox(e); });
   }
 
+  /** Birthday: day and month only (no year). md = 'MM-DD' or ''. */
+  function birthFieldHtml(md) {
+    var m = md ? md.slice(0, 2) : '', d = md ? md.slice(3, 5) : '';
+    var MON = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+    var days = '<option value="">Day</option>', mons = '<option value="">Month</option>';
+    for (var k = 1; k <= 31; k++) days += '<option value="' + pad(k) + '"' + (pad(k) === d ? ' selected' : '') + '>' + k + '</option>';
+    MON.forEach(function (n, k) { mons += '<option value="' + pad(k + 1) + '"' + (pad(k + 1) === m ? ' selected' : '') + '>' + n + '</option>'; });
+    return '<div class="field"><label>Birthday <span class="muted small">(day and month only, for the birthday wish)</span></label>' +
+      '<div class="grid2"><select id="sfBirthD" class="inp">' + days + '</select><select id="sfBirthM" class="inp">' + mons + '</select></div></div>';
+  }
+
   function openStaffForm(i) {
     var isNew = i < 0, e = isNew ? { id: '', name: '', salary: '', joinDate: todayLocal(), phone: '', active: true, role: 'EMPLOYEE' } : S.staff.list[i];
     var html = '<h2 style="margin-top:0">' + (isNew ? 'Add employee' : esc(e.name)) + '</h2>' +
@@ -3419,7 +3430,7 @@
       '<div class="grid2"><div class="field"><label>Phone</label><input id="sfPhone" class="inp" inputmode="tel" value="' + esc(e.phone) + '"></div>' +
       '<div class="field"><label>Gender</label><select id="sfGender" class="inp"><option value="">— Not set —</option>' +
         '<option value="M"' + (e.gender === 'M' ? ' selected' : '') + '>Male</option><option value="F"' + (e.gender === 'F' ? ' selected' : '') + '>Female</option></select></div></div>' +
-      (e.role === 'GUARD' ? '' : '<div class="field"><label>Birth date <span class="muted small">(for the birthday wish; only the day is shown, never the age)</span></label><input id="sfBirth" class="inp" type="date" max="' + todayLocal() + '" value="' + esc(e.birthDate || '') + '"></div>') +
+      (e.role === 'GUARD' ? '' : birthFieldHtml(e.birthDate)) +
       (isNew ? '<div class="field"><label>PIN (4–6 digits)</label><input id="sfPin" class="inp" inputmode="numeric"></div>' : '') +
       (S.staff.canSetRole && e.role !== 'SUPER_ADMIN' ? '<div class="field"><label>Role</label><select id="sfRole" class="inp"><option value="EMPLOYEE"' + (e.role === 'EMPLOYEE' ? ' selected' : '') + '>Employee</option><option value="ADMIN"' + (e.role === 'ADMIN' ? ' selected' : '') + '>Admin</option><option value="GUARD"' + (e.role === 'GUARD' ? ' selected' : '') + '>Guard (only marks others)</option></select></div>' : '') +
       (e.role === 'GUARD' ? '' : '<div class="card" style="background:var(--bg);margin:14px 0 0;padding:12px"><b>Work timing</b>' +
@@ -3517,7 +3528,12 @@
     }
     if ($('sfAnywhere')) data.anywhere = $('sfAnywhere').checked;
     if ($('sfGender')) data.gender = $('sfGender').value;
-    if ($('sfBirth')) data.birthDate = $('sfBirth').value;
+    if ($('sfBirthD')) {
+      var bd = $('sfBirthD').value, bm = $('sfBirthM').value;
+      if (!!bd !== !!bm) { $('sfMsg').innerHTML = errBox('Choose both the day and the month of the birthday (or neither).'); return; }
+      if (bd && +bd > [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][bm - 1]) { $('sfMsg').innerHTML = errBox('That day does not exist in the chosen month.'); return; }
+      data.birthDate = bd ? bm + '-' + bd : '';
+    }
     if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; data.lateCut = $('sfLateCut').checked; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;
