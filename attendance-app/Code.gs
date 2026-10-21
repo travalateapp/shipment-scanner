@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261040;
+const SERVER_VERSION = 20261041;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2613,6 +2613,8 @@ function evaluateDay_(rec, s, offType, isToday) {
   d.lateMin = d.late ? inMin - s.shiftStartMin : 0;
   const shiftEnd = s.shiftStartMin + s.standardHours * 60;
   if (!cleared && !offType && d.status === 'PRESENT' && outMin != null && outMin < shiftEnd) d.earlyMin = shiftEnd - outMin;
+  // Short day (given by the office): leaving before the closing time is never cut — shown, not counted.
+  if (s.shortDay && d.earlyMin) { d.earlyOkMin = d.earlyMin; d.earlyMin = 0; }
 
   let otMin = 0;
   if (offType === 'WEEK_OFF' && s.woFullHours > 0 && !rec.override) {
@@ -2709,7 +2711,8 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     else if (!d.autoOut && rec && (ds < today || rec.out)) {
       const shift = Math.round(esD.standardHours * 60);
       if (d.status === 'PRESENT' || d.status === 'WORKING') {
-        const w = dayWorkedMin_(rec, esD);
+        // Short day: the minutes between leaving and the closing time count as worked (never cut); late coming still is.
+        const w = dayWorkedMin_(rec, esD) + (esD.shortDay ? d.earlyOkMin || 0 : 0);
         t.workDays++;
         t.targetMin += shift;
         t.workedMin += w;
