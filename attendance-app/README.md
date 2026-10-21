@@ -417,6 +417,10 @@ Employees see an **English | हिंदी** switch at the top of the Attendan
 ### Payroll, PF Setup, attendance register
 - **Search:** Payroll and PF Setup have a search box (name or ID). All employee lists are A–Z.
 - **⬇ Attendance register** (on Payroll and Monthly Summary) downloads the month's muster roll as Excel.
+- **OT columns in the payroll Excel:**
+  - **OT Mins (gross)**: all OT earned before anything is taken off. That is time worked before or after the shift on full days, plus extra time on half days, the hours of days counted Absent, and weekly-off / holiday OT.
+  - **OT Taken for Late/Early (mins)**: late coming, early leaving and time away, taken from that OT. It is never more than the OT earned.
+  - **OT Mins (net)**: gross − taken. This is the figure that is paid.
   - Two rows per employee (**In** time and **Out** time) and one column per day. Days without times show **A** absent, **L** paid leave, **WO** weekly off, **H** holiday, **-** not employed (P / HD only when an admin set the status without times).
   - Totals at the end: Present, Half Days, Absent, Paid Leave, Week Off (weekly offs + holidays), OT (h m), Late (h m). Locked months use the final data.
 

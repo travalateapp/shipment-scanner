@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261041;
+const SERVER_VERSION = 20261042;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2221,14 +2221,14 @@ function adminExportPayroll(token, ym) {
   const split = !!ctx.perms.viewSplit;
   const header = ['Emp ID', 'Name', 'Monthly Salary', 'Days Counted', 'Salary Earned', 'Present', 'Half Days',
     'Absent (Leaves)', 'Paid Leave', 'Week Off', 'Holidays', 'Worked on Off-Day', 'Late Marks', 'Late Mins',
-    'Early Leaving Mins', 'OT Mins (gross)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
+    'Early Leaving Mins', 'OT Mins (gross)', 'OT Taken for Late/Early (mins)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
     'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut (no OT)', 'Advance Deduction', 'Gross Payable',
     'PF', 'Basic Salary (PF)', 'PF Employee', 'PF Employer']
     .concat(split ? ['In Bank', 'In Cash'] : []).concat(['Total Salary']);
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
     (r.elapsedDays === undefined ? r.daysInMonth : r.elapsedDays) + ' / ' + r.daysInMonth,
     r.earned === undefined ? r.salary : r.earned, r.present, r.halfDay, r.absent + r.notJoined, r.leave,
-    r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, r.otMinGross, r.otMin, r.otHours, r.perDay,
+    r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, r.otMinGross, r.otMinGross - r.otMin, r.otMin, r.otHours, r.perDay,
     r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.gross,
     r.pf ? 'Yes' : 'No', r.pf ? r.pfBankSalary : '', r.pf ? r.pfEmployee : '', r.pf ? r.pfEmployer : '',
   ].concat(split ? [r.pf ? r.bank : '', r.pf ? r.cash : ''] : []).concat([r.net]));
@@ -2566,6 +2566,17 @@ function computeMonth_(emp, ym) {
  * Minutes worked on a working day for the monthly OT. An admin status without times counts as the full
  * (Present) or half (Half Day) shift. "Morning OT" off: time before the shift start does not count.
  */
+/** Minutes of one day worked inside the shift hours (start → start + Standard Hours), without time away. */
+function dayInsideMin_(rec, es) {
+  const shift = Math.round(es.standardHours * 60);
+  const inMin = toMinutes_(rec.in);
+  let outMin = toMinutes_(rec.out);
+  if (inMin == null || outMin == null) return dayWorkedMin_(rec, es); // Present / Half Day set without times
+  if (outMin <= inMin && es.overnight) outMin += 1440;
+  const a = Math.max(inMin, es.shiftStartMin), b = Math.min(outMin, es.shiftStartMin + shift);
+  return b > a ? Math.max(0, b - a - breakOverlap_(rec.breaks, a, b)) : 0;
+}
+
 function dayWorkedMin_(rec, es) {
   const inMin = toMinutes_(rec.in);
   let outMin = toMinutes_(rec.out);
@@ -2651,7 +2662,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
   const t = {
     daysInMonth: dim, present: 0, halfDay: 0, absent: 0, leave: 0, weekOff: 0, holiday: 0, offWork: 0, offWorkCredit: 0,
     notJoined: 0, late: 0, lateMin: 0, earlyMin: 0, workedHours: 0, otMinGross: 0, otMin: 0, otHours: 0,
-    otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
+    otExtraMin: 0, otShortMin: 0, otPendingMin: 0, missedCheckouts: 0, deductDays: 0, lateCutDays: 0, payableDays: 0,
     workDays: 0, targetMin: 0, workedMin: 0, offDayOtMin: 0, halfDayExtraMin: 0, absentWorkMin: 0, shortMin: 0,
   };
   const days = [];
@@ -2710,6 +2721,9 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
       const shift = Math.round(esD.standardHours * 60);
       if (d.status === 'PRESENT' || d.status === 'WORKING') {
         const w = dayWorkedMin_(rec, esD);
+        const inside = Math.min(w, dayInsideMin_(rec, esD));
+        t.otExtraMin += w - inside; // worked before / after the shift
+        t.otShortMin += shift - inside; // shift time not worked: late coming, early leaving, time away
         t.workDays++;
         t.targetMin += shift;
         t.workedMin += w;
@@ -2735,8 +2749,11 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
   // No hourly OT for this employee → only the weekly-off / holiday part.
   const weekdayOt = es.hourlyOt === false ? 0 : Math.max(0, t.workedMin - t.targetMin);
   t.earlyExitOtMin = es.hourlyOt === false ? 0 : t.halfDayExtraMin + t.absentWorkMin; // left out of the leaderboard
-  t.otMinGross = weekdayOt + t.earlyExitOtMin + t.offDayOtMin;
-  t.otMin = t.otMinGross;
+  // Gross = all OT earned before late coming / early leaving is taken off; net = what is paid.
+  // (weekdayOt = extra − short, never below zero, so gross − net = the late / early minutes taken from OT.)
+  t.otMin = weekdayOt + t.earlyExitOtMin + t.offDayOtMin;
+  t.otMinGross = (es.hourlyOt === false ? 0 : t.otExtraMin) + t.earlyExitOtMin + t.offDayOtMin;
+  t.otCutMin = t.otMinGross - t.otMin;
   t.otHours = round2_(t.otMin / 60);
   t.workedHours = round2_(t.workedHours);
   t.lateCutDays = s.latesPerHalfDay > 0 ? Math.floor(t.late / s.latesPerHalfDay) * 0.5 : 0;
