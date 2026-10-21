@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261042;
+const SERVER_VERSION = 20261043;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2228,7 +2228,7 @@ function adminExportPayroll(token, ym) {
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
     (r.elapsedDays === undefined ? r.daysInMonth : r.elapsedDays) + ' / ' + r.daysInMonth,
     r.earned === undefined ? r.salary : r.earned, r.present, r.halfDay, r.absent + r.notJoined, r.leave,
-    r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, r.otMinGross, r.otMinGross - r.otMin, r.otMin, r.otHours, r.perDay,
+    r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, otGross_(r), otGross_(r) - r.otMin, r.otMin, r.otHours, r.perDay,
     r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.gross,
     r.pf ? 'Yes' : 'No', r.pf ? r.pfBankSalary : '', r.pf ? r.pfEmployee : '', r.pf ? r.pfEmployer : '',
   ].concat(split ? [r.pf ? r.bank : '', r.pf ? r.cash : ''] : []).concat([r.net]));
@@ -2243,8 +2243,65 @@ function adminExportPayroll(token, ym) {
     currency: data.currency,
     header: header,
     rows: rows,
+    formulas: data.rows.map(r => payrollFormulas_(r, split)), // per row: { column: '=… [Other Column] …' }
     textCols: ['Emp ID', 'Name', 'Days Counted', 'PF'],
   };
+}
+
+/** Gross OT of a payroll row (months locked before it existed have only the net). */
+function otGross_(r) { return r.otMinGross === undefined ? r.otMin : r.otMinGross; }
+
+/**
+ * Excel formulas for one payroll row, written with [Column Name] references (the page turns them into cells).
+ * Each formula is the same calculation as calcPay_ and is included only when it gives exactly the number in the
+ * row, so a month locked under older settings keeps plain numbers where they would differ.
+ */
+function payrollFormulas_(r, split) {
+  const s = getSettings_(), emp = findEmployee_(r.id);
+  if (!emp) return {};
+  const es = empSettings_(emp, s);
+  const R = s.roundRupee ? Math.round : round2_;
+  const RF = x => 'ROUND(' + x + ',' + (s.roundRupee ? 0 : 2) + ')';
+  const near = (a, b) => Math.abs((Number(a) || 0) - (Number(b) || 0)) < 0.011;
+  const dim = r.daysInMonth, basis = s.salaryDays > 0 ? s.salaryDays : dim;
+  const perDay = r.salary / basis, perHour = es.standardHours > 0 ? perDay / es.standardHours : 0, perMin = perHour / 60;
+  if (!near(round2_(perDay), r.perDay) || !near(round2_(perHour), r.hourly)) return {}; // rates changed since it was locked
+  const f = { 'Per Day': '[Monthly Salary]/' + basis, 'Per Hour': es.standardHours > 0 ? '[Per Day]/' + es.standardHours : '0', 'Per Min': '[Per Hour]/60' };
+  const add = (col, formula, value, actual) => { if (near(value, actual)) f[col] = formula; };
+  const elapsed = r.elapsedDays === undefined ? dim : r.elapsedDays, full = elapsed >= dim || !(r.salary > 0);
+  add('Salary Earned', full ? RF('[Monthly Salary]') : RF('MIN([Monthly Salary],' + elapsed + '*[Per Day])'), full ? R(r.salary) : R(Math.min(r.salary, elapsed * perDay)), r.earned);
+  f['OT Mins (net)'] = '[OT Mins (gross)]-[OT Taken for Late/Early (mins)]';
+  add('OT Hrs (net)', 'ROUND([OT Mins (net)]/60,2)', round2_(r.otMin / 60), r.otHours);
+  add('OT Pay', RF('[OT Mins (net)]*[Per Min]*' + s.otMultiplier), R(r.otMin * perMin * s.otMultiplier), r.otPay);
+  add('Week-Off Work Pay', RF('[Week-Off Work Days]*[Per Day]'), R((r.offWorkCredit || 0) * perDay), r.offDayPay || 0);
+  add('Leave Deduction', RF('[Absent (Leaves)]*[Per Day]'), R((r.absent + r.notJoined) * perDay), r.leaveDed);
+  add('Half Day Deduction', RF('[Half Days]*0.5*[Per Day]'), R(r.halfDay * 0.5 * perDay), r.halfDayDed);
+  if (s.latesPerHalfDay > 0) {
+    add('Late Cut Deduction', RF('FLOOR([Late Marks]/' + s.latesPerHalfDay + ',1)*0.5*[Per Day]'),
+      R(Math.floor(r.late / s.latesPerHalfDay) * 0.5 * perDay), r.lateCutDed);
+  }
+  // Short minutes on full days of employees without hourly OT (not a column of its own).
+  add('Late/Early Cut (no OT)', RF((r.shortMin || 0) + '*[Per Min]'), R((r.shortMin || 0) * perMin), r.shortCutDed || 0);
+  add('Gross Payable', 'ROUND([Salary Earned]-MIN([Salary Earned],[Leave Deduction]+[Half Day Deduction]+[Late Cut Deduction]+[Late/Early Cut (no OT)])+[OT Pay]+[Week-Off Work Pay],2)',
+    round2_(r.earned - Math.min(r.earned, r.leaveDed + r.halfDayDed + r.lateCutDed + (r.shortCutDed || 0)) + r.otPay + (r.offDayPay || 0)), r.gross);
+  if (!r.pf) {
+    add('Total Salary', 'ROUND([Gross Payable]-[Advance Deduction],2)', round2_(r.gross - (r.advance || 0)), r.net);
+    return f;
+  }
+  // PF: bank / cash as in calcPay_ (a part that goes below zero is taken from the other part).
+  const bank = s.adjustIn === 'BANK';
+  const c1 = bank ? '([Salary Earned]-[Basic Salary (PF)])' : '([Gross Payable]-[Basic Salary (PF)]-[Advance Deduction])';
+  const b1 = bank ? '([Gross Payable]-' + c1 + '-[PF Employee]-[Advance Deduction])' : '([Basic Salary (PF)]-[PF Employee])';
+  const cv = bank ? r.earned - r.pfBankSalary : r.gross - r.pfBankSalary - (r.advance || 0);
+  const bv = bank ? r.gross - cv - r.pfEmployee - (r.advance || 0) : r.pfBankSalary - r.pfEmployee;
+  if (split) {
+    add('In Bank', 'ROUND(MAX(0,' + b1 + '+MIN(0,' + c1 + ')),2)', round2_(Math.max(0, bv + Math.min(0, cv))), r.bank);
+    add('In Cash', 'ROUND(MAX(0,MAX(0,' + c1 + ')+MIN(0,' + b1 + '+MIN(0,' + c1 + '))),2)', round2_(Math.max(0, Math.max(0, cv) + Math.min(0, bv + Math.min(0, cv)))), r.cash);
+    add('Total Salary', 'ROUND([In Bank]+[In Cash],2)', round2_((r.bank || 0) + (r.cash || 0)), r.net);
+  } else {
+    add('Total Salary', 'ROUND(MAX(0,[Gross Payable]-[PF Employee]-[Advance Deduction]),2)', round2_(Math.max(0, r.gross - r.pfEmployee - (r.advance || 0))), r.net);
+  }
+  return f;
 }
 
 /* ------------------------- Super admin ----------------------------- */
