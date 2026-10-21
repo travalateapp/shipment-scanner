@@ -492,8 +492,7 @@
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     '🎂 Happy Birthday, {name}! 🎉': '🎂 जन्मदिन मुबारक हो, {name}! 🎉', 'bday.wish': '{company} की पूरी टीम की ओर से आपको जन्मदिन की ढेरों शुभकामनाएँ। आपका साल खुशियों से भरा हो!',
     '🎂 Today is {names}\'s birthday': '🎂 आज {names} का जन्मदिन है', 'bday.others': 'उन्हें शुभकामनाएँ देना न भूलें! 🎉', ' & ': ' और ',
-    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', 'Left {m} early · short day, not cut': '{m} पहले गए · छोटा दिन, कटौती नहीं',
-    'Left {m} before closing: not cut on a short day.': 'बंद होने से {m} पहले गए: छोटे दिन पर कटौती नहीं।', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
+    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
     'Late coming / early leaving': 'देर से आना / जल्दी जाना',
     'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
@@ -2048,8 +2047,7 @@
           (d.otMin ? ' · <span style="color:var(--ot)">' + t('OT {m}', { m: mins(d.otMin) }) + '</span>' : '') +
           (d.otPending ? ' · <span style="color:var(--amber)">' + t('OT {m} pending', { m: mins(d.otPending) }) + '</span>' : '') +
           (d.lateMin ? ' · <span style="color:var(--orange)">' + t('Late {m}', { m: mins(d.lateMin) }) + '</span>' : '') +
-          (d.earlyMin ? ' · <span style="color:var(--orange)">' + t('Early {m}', { m: mins(d.earlyMin) }) + '</span>' : '') +
-          (d.earlyOkMin ? ' · <span class="muted">' + t('Left {m} early · short day, not cut', { m: mins(d.earlyOkMin) }) + '</span>' : '') + '</div></div>' +
+          (d.earlyMin ? ' · <span style="color:var(--orange)">' + t('Early {m}', { m: mins(d.earlyMin) }) + '</span>' : '') + '</div></div>' +
           '<div class="right">' + chip(d.status) + lateChip(d.late) + '</div></div>';
       });
       html += '</div>';
@@ -2117,8 +2115,7 @@
       '<div class="day-nav" style="margin-top:0">' + step(i - 1, '‹') + '<b style="font-size:20px">' + esc(fmtDate(d.date)) + '</b>' + step(i + 1, '›') + '</div><p>' + (chip(d.status) || '<span class="muted">' + t('No record') + '</span>') + lateChip(d.late) +
       (d.planned ? ' <span class="muted small">' + t('(approved, upcoming)') + '</span>' : '') + '</p>';
     if (d.holidayName) html += '<p>🎉 ' + esc(d.holidayName) + '</p>';
-    if (d.closeAt) html += '<p>🕓 ' + t('Office closed at {t} (short day)', { t: esc(d.closeAt) }) +
-      (d.earlyOkMin ? '<br><span class="muted small">' + t('Left {m} before closing: not cut on a short day.', { m: mins(d.earlyOkMin) }) + '</span>' : '') + '</p>';
+    if (d.closeAt) html += '<p>🕓 ' + t('Office closed at {t} (short day)', { t: esc(d.closeAt) }) + '</p>';
     if (d.in) html += '<div class="kv"><div><b>' + esc(d.in) + '</b><span>' + t('In') + '</span></div><div><b>' + esc(d.out || '—') + (d.overnight ? '<small> +1</small>' : '') + '</b><span>' + t('Out') + '</span></div><div><b>' + hrs(d.worked) + '</b><span>' + t('Worked') + '</span></div></div>' +
       '<div class="kv" style="margin-top:10px"><div class="k-orange"><b>' + mins(d.lateMin) + '</b><span>' + t('Late') + '</span></div><div class="k-orange"><b>' + mins(d.earlyMin) + '</b><span>' + t('Early') + '</span></div><div class="k-ot"><b>' + dayOtText(d) + '</b><span>' + t('OT') + '</span></div></div>';
     html += awayHtml(d) + dayMoneyHtml(m, d);

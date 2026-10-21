@@ -2613,8 +2613,6 @@ function evaluateDay_(rec, s, offType, isToday) {
   d.lateMin = d.late ? inMin - s.shiftStartMin : 0;
   const shiftEnd = s.shiftStartMin + s.standardHours * 60;
   if (!cleared && !offType && d.status === 'PRESENT' && outMin != null && outMin < shiftEnd) d.earlyMin = shiftEnd - outMin;
-  // Short day (given by the office): leaving before the closing time is never cut — shown, not counted.
-  if (s.shortDay && d.earlyMin) { d.earlyOkMin = d.earlyMin; d.earlyMin = 0; }
 
   let otMin = 0;
   if (offType === 'WEEK_OFF' && s.woFullHours > 0 && !rec.override) {
@@ -2711,8 +2709,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
     else if (!d.autoOut && rec && (ds < today || rec.out)) {
       const shift = Math.round(esD.standardHours * 60);
       if (d.status === 'PRESENT' || d.status === 'WORKING') {
-        // Short day: the minutes between leaving and the closing time count as worked (never cut); late coming still is.
-        const w = dayWorkedMin_(rec, esD) + (esD.shortDay ? d.earlyOkMin || 0 : 0);
+        const w = dayWorkedMin_(rec, esD);
         t.workDays++;
         t.targetMin += shift;
         t.workedMin += w;
@@ -3607,7 +3604,9 @@ function shortDays_() {
  */
 function shortenDay_(es, date) {
   const sd = date ? shortDays_()[date] : null;
-  if (!sd || es.overnight) return es;
+  if (!sd) return es;
+  // (The "Allow Overnight Shift" setting only lets a check-out after midnight close the day before; it must not
+  // switch short days off. A shift that does not include the closing time is simply left as it is.)
   const start = es.shiftStartMin, end = start + es.standardHours * 60;
   if (!(sd.closeMin > start && sd.closeMin < end)) return es;
   const hours = (sd.closeMin - start) / 60, k = hours / es.standardHours;
