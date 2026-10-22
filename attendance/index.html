@@ -492,7 +492,7 @@
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     '🎂 Happy Birthday, {name}! 🎉': '🎂 जन्मदिन मुबारक हो, {name}! 🎉', 'bday.wish': '{company} की पूरी टीम की ओर से आपको जन्मदिन की ढेरों शुभकामनाएँ। आपका साल खुशियों से भरा हो!',
     '🎂 Today is {names}\'s birthday': '🎂 आज {names} का जन्मदिन है', 'bday.others': 'उन्हें शुभकामनाएँ देना न भूलें! 🎉', ' & ': ' और ',
-    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', 'Come a little closer to the camera': 'कैमरे के थोड़ा और पास आएँ', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
+    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', 'That is you ({n}). Mark your own attendance on your Attendance screen.': 'यह आप हैं ({n})। अपनी हाज़िरी अपनी Attendance स्क्रीन पर लगाएँ।', 'Come a little closer to the camera': 'कैमरे के थोड़ा और पास आएँ', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
     'Late coming / early leaving': 'देर से आना / जल्दी जाना',
     'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
@@ -997,7 +997,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261044;
+  var NEEDS_SERVER = 20261045;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2435,36 +2435,66 @@
     openModal('<div class="row"><h2 style="margin:0">' + t('🙂 Scan faces') + '</h2><button class="x-btn" onclick="kioskStop()" aria-label="Close">✕</button></div>' +
       '<video id="kioskVideo" class="cam" autoplay playsinline muted' + (K.facing === 'user' ? '' : ' style="transform:none"') + '></video>' +
       '<div id="kioskMsg" class="kiosk-msg"><span class="spinner"></span> ' + t('Starting face recognition…') + '</div>' +
+      '<div id="kioskDiag" class="muted" style="font-size:11px;text-align:center;margin:-4px 0 6px;word-break:break-word"></div>' +
       '<div class="btns"><button class="btn ghost" onclick="kioskStart(\'' + (K.facing === 'user' ? 'environment' : 'user') + '\')">' + t('🔄 Switch camera') + '</button>' +
       '<button class="btn ghost" onclick="kioskStop()">' + t('Close') + '</button></div>');
     if (!proxyPosFresh()) proxyLocate();
     Promise.all([loadFace(), openCamera('kioskVideo', K.facing, true), api('proxyFaces', S.token)]).then(function (res) {
       if (S.kiosk !== K) return;
       K.faces = res[2];
-      if (!K.faces.list.length) return kioskMsg('warn', t('No faces are registered yet. Ask the admin to register faces (Employees → Edit).'));
+      kioskDiag(K, null);
+      if (!K.faces.list.length && !K.faces.me) return kioskMsg('warn', t('No faces are registered yet. Ask the admin to register faces (Employees → Edit).'));
       kioskMsg('', t('Look at the camera'));
       kioskLoop(K);
     }).catch(function (err) { if (S.kiosk === K) kioskMsg('err', err.message); });
   }
   function kioskStop() { if (S.kiosk) S.kiosk.active = false; S.kiosk = null; closeModal(); renderProxyList(); }
   function kioskMsg(kind, html) { var el = $('kioskMsg'); if (el) { el.className = 'kiosk-msg ' + (kind || ''); el.innerHTML = html; } }
+  /**
+   * Small information line under the camera, to find out why a face is not accepted: page version, engine,
+   * registered faces loaded, camera size, time per scan, face size, the closest match and its distance (limit).
+   * Admins also see the closest person's name; a guard sees only the numbers.
+   */
+  function kioskDiag(K, x) {
+    var el = $('kioskDiag'), v = $('kioskVideo'); if (!el) return;
+    var tf = window.faceapi && faceapi.tf, T = (K.faces && K.faces.distance) || FACE_MAX;
+    var parts = ['v' + NEEDS_SERVER, tf && tf.getBackend ? tf.getBackend() : '?', ((K.faces && K.faces.list.length) || 0) + ' faces',
+      v && v.videoWidth ? v.videoWidth + '×' + v.videoHeight : 'no camera'];
+    if (x) {
+      parts.push(x.ms + ' ms');
+      if (!x.found) parts.push('no face found');
+      else {
+        parts.push('face ' + Math.round(x.size * 100) + '%');
+        if (x.best) parts.push('closest ' + (S.profile && S.profile.role !== 'GUARD' ? x.best.p.name + ' ' : '') + x.best.dist.toFixed(2) + ' (limit ' + T + ')' +
+          (x.second < 9 ? ', next ' + x.second.toFixed(2) : ''));
+      }
+    }
+    el.textContent = parts.join(' · ');
+  }
   function kioskLoop(K) {
     if (S.kiosk !== K || !K.active || $('modal').classList.contains('hidden')) { if (S.kiosk === K) S.kiosk = null; return; }
     if (K.busy) return setTimeout(function () { kioskLoop(K); }, 200);
-    var v = $('kioskVideo');
+    var v = $('kioskVideo'), t0 = Date.now();
     faceRead(v, [224, 416]).then(function (r) {
       if (S.kiosk !== K) return;
+      if (!r) kioskDiag(K, { ms: Date.now() - t0, found: false });
       if (!r) { K.unknownSince = 0; if (!K.hold || Date.now() > K.hold) kioskMsg('', t('Look at the camera')); }
       else {
         var best = null, second = 9;
-        K.faces.list.forEach(function (p) {
+        K.faces.list.concat(K.faces.me ? [K.faces.me] : []).forEach(function (p) {
           var d = faceDist(r.d, p.d);
           if (!best || d < best.dist) { if (best) second = best.dist; best = { p: p, dist: d }; } else if (d < second) second = d;
         });
+        kioskDiag(K, { ms: Date.now() - t0, found: true, size: r.size, best: best, second: second });
         // Mark only when sure: as close as the employee's own phone requires, and the same person in 2 looks in a
         // row. When someone else is also that close, the best must be clearly (0.05) closer than them.
         var T = K.faces.distance || FACE_MAX;
         var sure = best && best.dist < T && (second >= T || second - best.dist >= 0.05);
+        if (sure && best.p.self) { // the admin / guard holding the phone
+          K.unknownSince = 0; K.lastId = null;
+          kioskMsg('warn', t('That is you ({n}). Mark your own attendance on your Attendance screen.', { n: esc(best.p.name) }));
+          K.hold = Date.now() + 2000; return setTimeout(function () { kioskLoop(K); }, 1500);
+        }
         if (sure) {
           K.unknownSince = 0;
           if (K.lastId === best.p.id) { K.lastId = null; return kioskMark(K, best.p, best.dist, v); }
@@ -2472,8 +2502,8 @@
         }
         K.lastId = null;
         K.unknownSince = K.unknownSince || Date.now();
-        if (r.size < 0.15) kioskMsg('warn', t('Come a little closer to the camera'));
-        else if (Date.now() - K.unknownSince > 4000) kioskMsg('err', t('Face not recognised. Close this and use the list below (with photo).'));
+        if (Date.now() - K.unknownSince > 4000) kioskMsg('err', t('Face not recognised. Close this and use the list below (with photo).'));
+        else if (r.size < 0.15) kioskMsg('warn', t('Come a little closer to the camera'));
       }
       setTimeout(function () { kioskLoop(K); }, 150);
     }).catch(function (err) { kioskMsg('err', err.message); setTimeout(function () { kioskLoop(K); }, 1000); });

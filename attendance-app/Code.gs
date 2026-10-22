@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261044;
+const SERVER_VERSION = 20261045;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -1207,6 +1207,8 @@ function proxyFaces(token) {
     distance: getSettings_().faceDistance,
     list: getEmployees_().filter(e => e.active && faces[e.id] && e.id !== ctx.emp.id && canEditEmployee_(ctx, e.id))
       .map(e => ({ id: e.id, name: e.name, d: faces[e.id].d })),
+    // The person scanning can't mark themselves here; their face is sent so the scan can say "that's you".
+    me: faces[ctx.emp.id] ? { id: ctx.emp.id, name: ctx.emp.name, d: faces[ctx.emp.id].d, self: true } : null,
   };
 }
 
