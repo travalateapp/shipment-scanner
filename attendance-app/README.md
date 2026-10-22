@@ -65,6 +65,17 @@ Chrome shows *"Google Drive – Sorry, unable to open the file at present"* for 
    The phone remembers the ID after the first visit, so **Add to Home Screen** works too.
 
 GPS, the camera and PDF downloads also work better this way, because the page is not inside Google's frame.
+**Automatic deploy (optional, set up once):** with this set up, every merge to `main` that changes `Code.gs` or `Index.html` updates the Apps Script project and the existing deployment to a new version, keeping the same app link. GitHub runs `.github/workflows/deploy-apps-script.yml` to do it.
+1. Turn on the Apps Script API at script.google.com/home/usersettings.
+2. On a computer with Node.js, run `npx @google/clasp login` and sign in with the account that owns the script. This saves the file `%USERPROFILE%\.clasprc.json`.
+3. In GitHub, open the repository's **Settings → Secrets and variables → Actions** and add three secrets:
+   - `CLASPRC_JSON`: the contents of that file
+   - `APPS_SCRIPT_ID`: Project Settings → Script ID
+   - `APPS_DEPLOYMENT_ID`: the web app's Deployment ID (`AKfycb…`)
+4. Optional check: **Actions → Deploy Apps Script → Run workflow** with **dry run** ticked. It signs in and compares the files, and uploads nothing.
+
+Without these secrets the step is simply skipped. To stop automatic deploys, delete the `CLASPRC_JSON` secret. Run `setup` by hand only if an update's notes say so.
+
 **After each code update:** paste `Code.gs` into Apps Script and redeploy (**Edit → New version**, which keeps the same ID). Then copy `attendance-app/Index.html` to `attendance/index.html` in GitHub (the two files are identical).
 
 ---

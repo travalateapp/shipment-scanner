@@ -1,0 +1,121 @@
+# Puts attendance-app/Code.gs and Index.html into the Apps Script project and updates the existing web-app
+# deployment to a new version (same app link), after every merge to main that changes them. Can also be run by
+# hand from the Actions tab (with "dry run" to only check the setup).
+#
+# One-time setup (see attendance-app/README.md → "Automatic deploy"): repository secrets
+#   CLASPRC_JSON          contents of .clasprc.json after `npx @google/clasp login` (the script owner's account)
+#   APPS_SCRIPT_ID        Apps Script → Project Settings → Script ID
+#   APPS_DEPLOYMENT_ID    Deploy → Manage deployments → the web app's Deployment ID (AKfycb…)
+name: Deploy Apps Script
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - attendance-app/Code.gs
+      - attendance-app/Index.html
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only check the setup and show what would change (nothing is uploaded)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-apps-script
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      SCRIPT_ID: ${{ secrets.APPS_SCRIPT_ID }}
+      DEPLOYMENT_ID: ${{ secrets.APPS_DEPLOYMENT_ID }}
+      DRY_RUN: ${{ inputs.dry_run || false }}
+    steps:
+      - name: Check the setup
+        id: setup
+        run: |
+          if [ -z "$CLASPRC_JSON" ] || [ -z "$SCRIPT_ID" ] || [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::notice::Automatic deploy is not set up yet (secrets CLASPRC_JSON, APPS_SCRIPT_ID, APPS_DEPLOYMENT_ID). Skipped."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.setup.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          node-version: 20
+
+      - name: Sign in (clasp)
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          npm install -g @google/clasp@3.4.1 --no-audit --no-fund
+          umask 077
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          clasp show-authorized-user
+
+      - name: Download the current Apps Script project
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          mkdir gas && cd gas
+          clasp clone "$SCRIPT_ID" --rootDir .
+          echo "Files in the Apps Script project:"; ls -la
+
+      - name: Put in the new Code.gs and Index.html
+        if: steps.setup.outputs.ready == 'true'
+        working-directory: gas
+        run: |
+          # The server file: Code (as clasp names it, Code.js / Code.gs); otherwise the only server file there is.
+          server=""
+          for f in Code.js Code.gs; do [ -f "$f" ] && server="$f"; done
+          if [ -z "$server" ]; then
+            others=$(ls *.js *.gs 2>/dev/null || true)
+            if [ "$(echo "$others" | grep -c .)" = "1" ]; then server="$others"; fi
+          fi
+          if [ -z "$server" ]; then
+            echo "::error::Could not tell which file in Apps Script holds Code.gs. Files: $(ls | tr '\n' ' ')"; exit 1
+          fi
+          if [ ! -f Index.html ]; then
+            echo "::error::The Apps Script project has no HTML file named 'Index'. Files: $(ls | tr '\n' ' ')"; exit 1
+          fi
+          echo "Code.gs → $server, Index.html → Index.html"
+          diff -q "$server" ../attendance-app/Code.gs >/dev/null && echo "Code.gs: no change" || echo "Code.gs: updated"
+          diff -q Index.html ../attendance-app/Index.html >/dev/null && echo "Index.html: no change" || echo "Index.html: updated"
+          cp ../attendance-app/Code.gs "$server"
+          cp ../attendance-app/Index.html Index.html
+          # Web-app settings must be in the manifest when deploying this way (as set up: Execute as Me, Anyone).
+          node -e '
+            const fs = require("fs"), m = JSON.parse(fs.readFileSync("appsscript.json", "utf8"));
+            if (!m.webapp) { m.webapp = { executeAs: "USER_DEPLOYING", access: "ANYONE_ANONYMOUS" };
+              fs.writeFileSync("appsscript.json", JSON.stringify(m, null, 2)); console.log("Added the web-app settings to appsscript.json"); }
+            else console.log("Web-app settings:", JSON.stringify(m.webapp));'
+          grep -o "const SERVER_VERSION = [0-9]*" "$server"
+
+      - name: Upload and update the deployment (same app link)
+        if: steps.setup.outputs.ready == 'true' && env.DRY_RUN != 'true'
+        working-directory: gas
+        run: |
+          clasp push --force
+          msg="GitHub $(echo "$GITHUB_SHA" | cut -c1-7): $(git -C .. log -1 --format=%s | cut -c1-80)"
+          clasp redeploy "$DEPLOYMENT_ID" --description "$msg" | tee out.txt
+          {
+            echo "### ✅ Apps Script deployed"
+            echo "$(cat out.txt)"
+            echo ""
+            echo "$msg"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry run summary
+        if: steps.setup.outputs.ready == 'true' && env.DRY_RUN == 'true'
+        run: echo "### Dry run OK — sign-in works, the project was found and the files match up. Nothing was uploaded." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the sign-in file
+        if: always()
+        run: rm -f ~/.clasprc.json
