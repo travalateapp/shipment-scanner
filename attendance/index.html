@@ -492,7 +492,7 @@
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     '🎂 Happy Birthday, {name}! 🎉': '🎂 जन्मदिन मुबारक हो, {name}! 🎉', 'bday.wish': '{company} की पूरी टीम की ओर से आपको जन्मदिन की ढेरों शुभकामनाएँ। आपका साल खुशियों से भरा हो!',
     '🎂 Today is {names}\'s birthday': '🎂 आज {names} का जन्मदिन है', 'bday.others': 'उन्हें शुभकामनाएँ देना न भूलें! 🎉', ' & ': ' और ',
-    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
+    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', 'Come a little closer to the camera': 'कैमरे के थोड़ा और पास आएँ', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
     'Late coming / early leaving': 'देर से आना / जल्दी जाना',
     'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
@@ -1636,12 +1636,20 @@
       .catch(function (e) { S.faceLoad = null; throw e; });
     return S.faceLoad;
   }
-  /** One look at the camera: { d: fingerprint, score, size: face width ÷ picture width } of the biggest face, or null. */
-  function faceRead(video) {
+  /**
+   * One look at the camera: { d: fingerprint, score, size: face width ÷ picture width } of the biggest face, or null.
+   * sizes = detector sizes to try in turn: 224 finds near faces fast; 416 also finds a face farther away
+   * (the guard's "Scan faces", where people stand an arm's length or more from the phone).
+   */
+  function faceRead(video, sizes) {
     if (!video || !video.videoWidth) return Promise.resolve(null);
-    return faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.4 }))
+    sizes = sizes || [224];
+    return faceapi.detectSingleFace(video, new faceapi.TinyFaceDetectorOptions({ inputSize: sizes[0], scoreThreshold: 0.4 }))
       .withFaceLandmarks().withFaceDescriptor() // full landmark model: better aligned faces → people told apart better
-      .then(function (r) { return r ? { d: Array.prototype.slice.call(r.descriptor), score: r.detection.score, size: r.detection.box.width / video.videoWidth } : null; });
+      .then(function (r) {
+        if (!r) return sizes.length > 1 ? faceRead(video, sizes.slice(1)) : null;
+        return { d: Array.prototype.slice.call(r.descriptor), score: r.detection.score, size: r.detection.box.width / video.videoWidth };
+      });
   }
   var FACE_MAX = 0.42; // used until the server sends its setting
   function faceAvg(list) { var a = []; for (var k = 0; k < 128; k++) { var n = 0; list.forEach(function (d) { n += d[k]; }); a.push(n / list.length); } return a; }
@@ -1656,9 +1664,10 @@
     ctx.drawImage(video, 0, 0, c.width, c.height);
     return c.toDataURL('image/jpeg', 0.6);
   }
-  function openCamera(videoId, facing) {
+  /** hd: a sharper picture (1280 wide) so that a face farther from the phone still has enough detail. */
+  function openCamera(videoId, facing, hd) {
     stopCamera();
-    return navigator.mediaDevices.getUserMedia({ video: { facingMode: facing || 'user', width: { ideal: 640 } }, audio: false }).then(function (stream) {
+    return navigator.mediaDevices.getUserMedia({ video: { facingMode: facing || 'user', width: { ideal: hd ? 1280 : 640 } }, audio: false }).then(function (stream) {
       S.camStream = stream;
       var v = $(videoId);
       if (v) { v.srcObject = stream; if (v.play) v.play().catch(function () {}); }
@@ -2429,7 +2438,7 @@
       '<div class="btns"><button class="btn ghost" onclick="kioskStart(\'' + (K.facing === 'user' ? 'environment' : 'user') + '\')">' + t('🔄 Switch camera') + '</button>' +
       '<button class="btn ghost" onclick="kioskStop()">' + t('Close') + '</button></div>');
     if (!proxyPosFresh()) proxyLocate();
-    Promise.all([loadFace(), openCamera('kioskVideo', K.facing), api('proxyFaces', S.token)]).then(function (res) {
+    Promise.all([loadFace(), openCamera('kioskVideo', K.facing, true), api('proxyFaces', S.token)]).then(function (res) {
       if (S.kiosk !== K) return;
       K.faces = res[2];
       if (!K.faces.list.length) return kioskMsg('warn', t('No faces are registered yet. Ask the admin to register faces (Employees → Edit).'));
@@ -2443,7 +2452,7 @@
     if (S.kiosk !== K || !K.active || $('modal').classList.contains('hidden')) { if (S.kiosk === K) S.kiosk = null; return; }
     if (K.busy) return setTimeout(function () { kioskLoop(K); }, 200);
     var v = $('kioskVideo');
-    faceRead(v).then(function (r) {
+    faceRead(v, [224, 416]).then(function (r) {
       if (S.kiosk !== K) return;
       if (!r) { K.unknownSince = 0; if (!K.hold || Date.now() > K.hold) kioskMsg('', t('Look at the camera')); }
       else {
@@ -2452,8 +2461,10 @@
           var d = faceDist(r.d, p.d);
           if (!best || d < best.dist) { if (best) second = best.dist; best = { p: p, dist: d }; } else if (d < second) second = d;
         });
-        // Mark only when sure: close enough, clearly closer than anyone else, and the same person in 2 looks in a row.
-        var sure = best && best.dist < (K.faces.distance || FACE_MAX) && second - best.dist >= 0.08;
+        // Mark only when sure: as close as the employee's own phone requires, and the same person in 2 looks in a
+        // row. When someone else is also that close, the best must be clearly (0.05) closer than them.
+        var T = K.faces.distance || FACE_MAX;
+        var sure = best && best.dist < T && (second >= T || second - best.dist >= 0.05);
         if (sure) {
           K.unknownSince = 0;
           if (K.lastId === best.p.id) { K.lastId = null; return kioskMark(K, best.p, best.dist, v); }
@@ -2461,7 +2472,8 @@
         }
         K.lastId = null;
         K.unknownSince = K.unknownSince || Date.now();
-        if (Date.now() - K.unknownSince > 4000) kioskMsg('err', t('Face not recognised. Close this and use the list below (with photo).'));
+        if (r.size < 0.15) kioskMsg('warn', t('Come a little closer to the camera'));
+        else if (Date.now() - K.unknownSince > 4000) kioskMsg('err', t('Face not recognised. Close this and use the list below (with photo).'));
       }
       setTimeout(function () { kioskLoop(K); }, 150);
     }).catch(function (err) { kioskMsg('err', err.message); setTimeout(function () { kioskLoop(K); }, 1000); });
