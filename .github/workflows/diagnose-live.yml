@@ -1,0 +1,32 @@
+# Read-only health check of the live Apps Script web app (ping + publicInfo, the calls the login screen makes).
+# Runs on pushes to claude/* branches that change this file; nothing is written anywhere.
+name: Diagnose live app
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['.github/workflows/diagnose-live.yml']
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOYMENT_ID: ${{ secrets.APPS_DEPLOYMENT_ID }}
+    steps:
+      - name: Ping and publicInfo
+        run: |
+          url="https://script.google.com/macros/s/$DEPLOYMENT_ID/exec"
+          echo "== GET ?ping=1"
+          curl -sS -L -m 60 -o ping.txt -w "HTTP %{http_code} in %{time_total}s\n" "$url?ping=1" || true
+          head -c 600 ping.txt; echo
+          for fn in publicInfo getHome; do
+            echo "== POST $fn"
+            body="{\"fn\":\"$fn\",\"args\":[\"x\"],\"pv\":20261046,\"rid\":\"diag$(date +%s)$fn\"}"
+            curl -sS -L -m 90 -H 'Content-Type: text/plain;charset=utf-8' --data "$body" -o out.txt -w "HTTP %{http_code} in %{time_total}s\n" "$url" || true
+            head -c 800 out.txt; echo
+          done
+          echo "== POST without page version (old page)"
+          curl -sS -L -m 90 -H 'Content-Type: text/plain;charset=utf-8' --data '{"fn":"publicInfo","args":[]}' -o old.txt -w "HTTP %{http_code} in %{time_total}s\n" "$url" || true
+          head -c 400 old.txt; echo
