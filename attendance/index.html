@@ -824,7 +824,7 @@
 
   /* ---------------- Login & PIN ---------------- */
   function showLogin() {
-    S.token = null; store('att_token', null); store('att_home', null); S.home = null; S.viewCache = {}; S.monthCache = {}; S.reqCache = null;
+    S.token = null; store('att_token', null); store('att_home', null); S.home = null; S.viewCache = {}; S.monthCache = {}; S.reqCache = null; S.prefetchedTabs = false;
     S.profile = null; store('att_role', null); applyLang(); // the login screen is always English
     S.home = null; S.monthCache = {}; S.prefetchedHome = null; S.navStack = [];
     $('appView').classList.add('hidden'); $('loadingView').classList.add('hidden');
@@ -973,6 +973,23 @@
       if (S.tab === 'home') renderHome();
       if (S.pendingReaction) { var pr = S.pendingReaction; S.pendingReaction = null; showReaction(pr.r, pr.mode); }
       if (h.face && faceSupported() && !S.faceLoad) setTimeout(function () { loadFace().catch(function () {}); }, 1500); // models ready before Check In
+      if (!h.fromPhone) prefetchTabs();
+  }
+
+  /**
+   * Once per app opening, a few seconds after the home screen: fetch My Month and Requests in the background,
+   * so the first switch to those tabs shows at once (each request to the server takes a few seconds).
+   */
+  function prefetchTabs() {
+    if (S.prefetchedTabs) return;
+    S.prefetchedTabs = true;
+    setTimeout(function () {
+      if (!S.token) return;
+      var ym = ymNow();
+      S.monthCache = S.monthCache || {};
+      if (!S.monthCache[ym]) api('getMyMonth', S.token, ym).then(function (m) { if (!S.monthCache[ym]) S.monthCache[ym] = m; }).catch(function () {});
+      if (!S.reqCache) api('myRequests', S.token).then(function (list) { if (!S.reqCache) S.reqCache = JSON.stringify(list); }).catch(function () {});
+    }, 2500);
   }
 
   /** True when the phone's clock and time zone match the server (i.e. automatic time is on). */
@@ -1017,7 +1034,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261047;
+  var NEEDS_SERVER = 20261048;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1878,6 +1895,7 @@
         : t('Checked out at {time} · Worked {w}', { time: r.time, w: hrs(r.worked) }) + (r.ot ? ' · ' + t('OT {m}', { m: hrs(r.ot) }) : ''));
       // The pop-up waits until the entry is saved and the home screen is back (see showHome / loadHome).
       if (r.gif) S.pendingReaction = { r: r, mode: f.mode };
+      if (r.home) S.prefetchedHome = r.home; // the server sent the new home screen with the save: no second request
       loadHome();
     }).catch(function (err) {
       f.busy = false; f.error = err.message; renderFlow();
