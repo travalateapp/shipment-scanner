@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261048;
+const SERVER_VERSION = 20261049;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -611,6 +611,7 @@ function getHome(token) {
     anywhere: !!emp.anywhere,
     shiftStart: minutesToStr_(empSettings_(emp, s).shiftStartMin),
     closeEarly: shortDays_()[today] || null, // office closes early today
+    react: reactRules_(emp, s, today, offType), // late / early-leaving GIF, shown the moment Save is tapped
     celebration: celebrationOn_(today),
     birthday: birthdayOn_(today, emp),
     standardHours: empSettings_(emp, s).standardHours,
@@ -752,6 +753,18 @@ function checkIn(token, lat, lng, accuracy, selfieDataUrl, phoneClock, face) {
   if (r.late && s.lateGif) r.gif = s.lateGif; // a little "you're late" reaction on the employee's own phone only
   r.home = homeAfterMark_(token);
   return r;
+}
+
+/**
+ * What the phone needs to show the late / early-leaving GIF as soon as Save is tapped, without waiting for the
+ * server: shift start, grace and end (on a short day, the closing time) in minutes, and the GIF links.
+ * null on a weekly off / holiday or when both GIFs are off.
+ */
+function reactRules_(emp, s, today, offType) {
+  if (offType || (!s.lateGif && !s.earlyGif)) return null;
+  const es = shortenDay_(empSettings_(emp, s), today);
+  return { startMin: es.shiftStartMin, graceMin: es.lateGrace, endMin: es.shiftStartMin + Math.round(es.standardHours * 60),
+    lateGif: s.lateGif, earlyGif: s.earlyGif };
 }
 
 /**
