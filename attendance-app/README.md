@@ -236,7 +236,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Checking in late** on their own phone (after the grace time) shows a small pop-up with a GIF and "⏰ You're late by 28m!". It closes after 5 seconds, or sooner with a tap.
 - **Checking out before the shift ends** shows "😳 Leaving 45m early?!". On a short day the closing time counts as the shift end.
 - The attendance is saved first; the pop-up never blocks it. It is never shown on the guard's / admin's **Mark Attendance**.
-- **Settings tab:** **Late GIF** and **Early Leaving GIF**. Paste a GIPHY link, either the page link or the .gif link, or any `https://…gif` link. Blank = off.
+- **Settings tab:** **Late GIF** and **Early Leaving GIF**. Paste a GIPHY link, either the page link or the .gif link, or any `https://…gif` link. Blank = off. Defaults: the Masko "HURRY UP!" dumpling for late, and the polar bear with shades for leaving early.
 
 ### Celebrations (festival animations)
 - **Admin → Holidays → 🎉 Celebrations**: choose the dates (one day or From–To), an **animation** — 🎆 Fireworks, 🎊 Confetti, 🪔 Diyas (Diwali), 🌼 Flower petals (Dussehra / Navratri), ❄️ Snowfall (Christmas), 🎈 Balloons, ✨ Sparkles (New Year) — the **duration** (2–60 seconds) and an optional **message** (e.g. "Happy Diwali! 🪔"). **▶ Preview** shows it at once.

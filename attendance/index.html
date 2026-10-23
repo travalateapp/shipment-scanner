@@ -931,7 +931,10 @@
     // Show the last screen at once (buttons wait), then refresh from the server.
     if (S.home && S.home.today === todayLocal()) { S.homeStale = true; renderHome(); } else setLoading();
     api('getHome', S.token).then(function (h) { showHome(h, sentAt); })
-      .catch(function (e) { if (S.home && S.homeStale) { S.homeStale = false; renderHome(); toast(e.message); } else setError(e, "loadHome()"); });
+      .catch(function (e) {
+        if (S.home && S.homeStale) { S.homeStale = false; renderHome(); toast(e.message); } else setError(e, "loadHome()");
+        if (S.pendingReaction) { var pr = S.pendingReaction; S.pendingReaction = null; showReaction(pr.r, pr.mode); }
+      });
   }
 
   function showHome(h, sentAt) {
@@ -961,6 +964,7 @@
       $('adminBadge').textContent = h.adminMissed ? '!' : '';
       $('adminBadge').classList.toggle('hidden', !h.adminMissed);
       if (S.tab === 'home') renderHome();
+      if (S.pendingReaction) { var pr = S.pendingReaction; S.pendingReaction = null; showReaction(pr.r, pr.mode); }
       if (h.face && faceSupported() && !S.faceLoad) setTimeout(function () { loadFace().catch(function () {}); }, 1500); // models ready before Check In
   }
 
@@ -1865,8 +1869,9 @@
         : f.mode !== 'out'
         ? t('Checked in at {time}', { time: r.time }) + (r.late ? t(' (Late)') : '')
         : t('Checked out at {time} · Worked {w}', { time: r.time, w: hrs(r.worked) }) + (r.ot ? ' · ' + t('OT {m}', { m: hrs(r.ot) }) : ''));
+      // The pop-up waits until the entry is saved and the home screen is back (see showHome / loadHome).
+      if (r.gif) S.pendingReaction = { r: r, mode: f.mode };
       loadHome();
-      if (r.gif) showReaction(r, f.mode);
     }).catch(function (err) {
       f.busy = false; f.error = err.message; renderFlow();
     });
