@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261045;
+const SERVER_VERSION = 20261046;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -144,6 +144,8 @@ const DEFAULT_SETTINGS = [
   ['Birthday Seconds', 10, 'How long the birthday animation runs (2–60)'],
   ['Birthday Wishes From', '09:00', 'Birthday wishes and animation start at this time (HH:mm)'],
   ['Birthday Wishes Till', '15:00', 'Birthday wishes and animation end at this time (HH:mm)'],
+  ['Late GIF', 'https://giphy.com/stickers/maskoai-cute-masko-dumple-WPZ4x9TSQO16YeC9ix', 'Shown on the employee\'s own phone when they check in late (a GIPHY link or a .gif link; blank = off)'],
+  ['Early Leaving GIF', 'https://giphy.com/stickers/solarbearshockey-shades-polar-bear-solar-DUcyNsf3oPmVNZYBh8', 'Shown on the employee\'s own phone when they check out before the shift ends (blank = off)'],
   ['Face Match Max Distance', 0.42, 'Face recognition strictness: lower = stricter. Same person ≈ 0.1–0.35, different people from ≈ 0.48. Keep 0.38–0.45'],
   ['Min Android App Version', 0, 'Android app versions below this must update before they can be used (0 = none). The app shows its version at the bottom of the home screen as "App 1.N": enter N'],
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
@@ -716,7 +718,9 @@ function checkIn(token, lat, lng, accuracy, selfieDataUrl, phoneClock, face) {
   const s = getSettings_();
   checkPhoneClock_(s, phoneClock);
   const loc = checkLocation_(s, lat, lng, accuracy, emp.anywhere);
-  return checkInCore_(emp, s, loc, selfieDataUrl, null, face);
+  const r = checkInCore_(emp, s, loc, selfieDataUrl, null, face);
+  if (r.late && s.lateGif) r.gif = s.lateGif; // a little "you're late" reaction on the employee's own phone only
+  return r;
 }
 
 /**
@@ -786,7 +790,7 @@ function checkInCore_(emp, s, loc, selfieDataUrl, byEmp, face) {
     SpreadsheetApp.flush();
     forget_('att');
     if (byEmp) audit_(byEmp, 'MARK_CHECKIN', emp.id, today, now + ' · ' + loc.dist + ' m from office');
-    return { time: now, late: late, distance: loc.dist };
+    return { time: now, late: late, lateMin: late ? toMinutes_(now) - es.shiftStartMin : 0, distance: loc.dist };
   } finally {
     lock.releaseLock();
   }
@@ -837,7 +841,26 @@ function checkOut(token, lat, lng, accuracy, phoneClock, photo, face) {
   const s = getSettings_();
   checkPhoneClock_(s, phoneClock);
   const loc = s.checkoutLocation || emp.anywhere ? checkLocation_(s, lat, lng, accuracy, emp.anywhere) : null;
-  return checkOutCore_(emp, s, loc, null, photo, face);
+  const r = checkOutCore_(emp, s, loc, null, photo, face);
+  // Leaving before the shift ends (on a short day: before closing) on a working day → a reaction on their own phone.
+  if (r.date === todayStr_() && !offType_(r.date, s, getHolidays_())) {
+    const es = shortenDay_(empSettings_(emp, s), r.date), end = es.shiftStartMin + Math.round(es.standardHours * 60);
+    const out = toMinutes_(r.time);
+    r.earlyMin = out > es.shiftStartMin && out < end ? end - out : 0;
+    if (r.earlyMin && s.earlyGif) r.gif = s.earlyGif;
+  }
+  return r;
+}
+
+/**
+ * A GIF link from Settings: a direct image link, or a GIPHY page link (giphy.com/gifs/… or /stickers/…-ID),
+ * turned into the GIF itself. '' = off.
+ */
+function gifUrl_(v) {
+  const str = String(v || '').trim();
+  if (!/^https:\/\//i.test(str)) return '';
+  const m = /giphy\.com\/(?:gifs|stickers|embed)\/(?:[\w-]*-)?([A-Za-z0-9]{8,})(?:[\/?#]|$)/.exec(str);
+  return m && !/media\d*\.giphy\.com|i\.giphy\.com/.test(str) ? 'https://media.giphy.com/media/' + m[1] + '/giphy.gif' : str;
 }
 
 function validFace_(face) {
@@ -3288,6 +3311,8 @@ function getSettings_() {
       sessionDays: num('Stay Logged In (days)', 30),
       faceDistance: num('Face Match Max Distance', 0.42),
       refreshAppsAt: num('Refresh Apps At', 0),
+      lateGif: gifUrl_(raw['Late GIF'] === undefined ? 'https://giphy.com/stickers/maskoai-cute-masko-dumple-WPZ4x9TSQO16YeC9ix' : raw['Late GIF']),
+      earlyGif: gifUrl_(raw['Early Leaving GIF'] === undefined ? 'https://giphy.com/stickers/solarbearshockey-shades-polar-bear-solar-DUcyNsf3oPmVNZYBh8' : raw['Early Leaving GIF']),
       birthdayAnim: blank('Birthday Animation') ? 'balloons' : String(raw['Birthday Animation']).trim().toLowerCase(),
       birthdayMusic: blank('Birthday Music') ? 'birthday' : String(raw['Birthday Music']).trim().toLowerCase(),
       birthdaySeconds: Math.max(2, Math.min(60, num('Birthday Seconds', 10))),
