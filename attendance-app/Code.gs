@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261046;
+const SERVER_VERSION = 20261047;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -272,6 +272,10 @@ function doGet(e) {
     return ContentService.createTextOutput(JSON.stringify({ ok: true, app: 'attendance' }))
       .setMimeType(ContentService.MimeType.JSON);
   }
+  // Speed check: how long recent requests took on the server (function names and times only, no data).
+  if (e && e.parameter && e.parameter.perf) {
+    return ContentService.createTextOutput(JSON.stringify(perfSummary_(), null, 1)).setMimeType(ContentService.MimeType.JSON);
+  }
   const t = HtmlService.createTemplateFromFile('Index');
   t.company = getSettings_().company;
   return t.evaluate()
@@ -300,8 +304,10 @@ const API_FUNCTIONS = {
 };
 
 function doPost(e) {
+  const t0 = Date.now();
   let json;
   let rid = '';
+  let fnName = '';
   try {
     const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     // The page retries when a reply is lost or Google answers with an error page. A retried request
@@ -311,14 +317,16 @@ function doPost(e) {
     if (done) return ContentService.createTextOutput(done).setMimeType(ContentService.MimeType.JSON);
     const fn = Object.prototype.hasOwnProperty.call(API_FUNCTIONS, req.fn) ? API_FUNCTIONS[req.fn] : null;
     if (!fn) throw new Error('Unknown action.');
+    fnName = req.fn;
     // "Refresh everyone's app" (super admin): pages sent with their version (pv) reload themselves; older
     // pages, which cannot, are asked to close and reopen the app.
     if (refreshAppsAt_() && !req.pv) throw new Error(OLD_PAGE_MSG);
     const result = fn.apply(null, Array.isArray(req.args) ? req.args : []);
-    json = JSON.stringify({ ok: true, result: result === undefined ? null : result, refreshAt: refreshAppsAt_() });
+    json = JSON.stringify({ ok: true, result: result === undefined ? null : result, refreshAt: refreshAppsAt_(), ms: Date.now() - t0 });
   } catch (err) {
-    json = JSON.stringify({ ok: false, error: String((err && err.message) || err) });
+    json = JSON.stringify({ ok: false, error: String((err && err.message) || err), ms: Date.now() - t0 });
   }
+  perfLog_(fnName || '?', Date.now() - t0, json.indexOf('{"ok":true') === 0);
   if (rid && json.length < 95000) {
     try { CacheService.getScriptCache().put(rid, json, 600); } catch (err) { /* ignore */ }
   }
@@ -327,6 +335,28 @@ function doPost(e) {
 
 const OLD_PAGE_MSG = 'A new version of the app is ready. Please close the app (swipe it away from recent apps) and open it again. ' +
   'In a browser, reload the page. / ऐप का नया वर्ज़न आ गया है। कृपया ऐप बंद करें (हाल के ऐप्स से हटाएँ) और फिर से खोलें।';
+
+/** Remembers the last 300 request times (CacheService, 6 h) for the speed check (?perf=1). */
+function perfLog_(fn, ms, ok) {
+  try {
+    const c = CacheService.getScriptCache(), list = JSON.parse(c.get('perf_log') || '[]');
+    list.push([Date.now(), fn, ms, ok ? 1 : 0]);
+    c.put('perf_log', JSON.stringify(list.slice(-300)), 21600);
+  } catch (e) { /* never let the speed check break a request */ }
+}
+
+/** Per function: count, median, slowest (ms) over the remembered requests, plus the last 40. */
+function perfSummary_() {
+  const list = JSON.parse(CacheService.getScriptCache().get('perf_log') || '[]');
+  const by = {};
+  list.forEach(x => { (by[x[1]] = by[x[1]] || []).push(x[2]); });
+  const fns = Object.keys(by).map(fn => {
+    const a = by[fn].slice().sort((p, q) => p - q);
+    return { fn: fn, n: a.length, medianMs: a[Math.floor(a.length / 2)], p90Ms: a[Math.floor(a.length * 0.9)], maxMs: a[a.length - 1] };
+  }).sort((p, q) => q.medianMs - p.medianMs);
+  return { serverVersion: SERVER_VERSION, requests: list.length, byFunction: fns,
+    last: list.slice(-40).reverse().map(x => [Utilities.formatDate(new Date(x[0]), tz_(), 'HH:mm:ss'), x[1], x[2], x[3] ? 'ok' : 'error']) };
+}
 
 /** When a super admin last pressed "Refresh everyone's app" (ms since 1970), 0 = never. */
 function refreshAppsAt_() {
@@ -3985,8 +4015,9 @@ function deleteRowsWhere_(name, fn) {
   for (let i = vals.length - 1; i >= 0; i--) if (fn(vals[i])) sh.deleteRow(i + 2);
 }
 
+/** The spreadsheet's time zone, looked up once per request (it is used for every date and time). */
 function tz_() {
-  return SpreadsheetApp.getActive().getSpreadsheetTimeZone() || Session.getScriptTimeZone();
+  return memo_('tz', () => SpreadsheetApp.getActive().getSpreadsheetTimeZone() || Session.getScriptTimeZone());
 }
 
 function todayStr_() {

@@ -1,0 +1,23 @@
+# Read-only checks of the live Apps Script app (run by hand, or on claude/* pushes that change this file):
+# health (ping) and the server's recent request times (?perf=1: function names and times only).
+name: Diagnose live app
+
+on:
+  push:
+    branches: ['claude/**']
+    paths: ['.github/workflows/diagnose-live.yml']
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      DEPLOYMENT_ID: ${{ secrets.APPS_DEPLOYMENT_ID }}
+    steps:
+      - name: Health
+        run: |
+          url="https://script.google.com/macros/s/$DEPLOYMENT_ID/exec"
+          for i in 1 2 3; do curl -sS -L -m 60 -o /dev/null -w "ping $i: %{time_total}s\n" "$url?ping=1" || true; done
+          echo "== Speed of recent requests on the server (?perf=1)"
+          curl -sS -L -m 60 "$url?perf=1" | head -c 6000; echo

@@ -735,6 +735,12 @@
     catch (e) { location.reload(); }
   }
 
+  /** The last 30 requests of this phone: total time and the server's part (Admin → Admins → Speed check). */
+  function perfNote(fn, total, server) {
+    (S.perf = S.perf || []).unshift({ fn: fn, at: new Date().toTimeString().slice(0, 8), total: total, server: server });
+    S.perf.length = Math.min(S.perf.length, 30);
+  }
+
   function api(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
     if (!READ_ONLY.test(fn)) { S.viewCache = {}; S.monthCache = {}; S.reqCache = null; }
@@ -752,7 +758,7 @@
     if (!url) return fail(new Error('App link is incomplete. Open the link your company shared with you.'));
     // Google sometimes answers with a 404/5xx page or drops the reply. Retry up to 3 more times; the request
     // id makes a retry safe (the server returns the first answer instead of repeating a check-in etc.).
-    var body = JSON.stringify({ fn: fn, args: args, rid: newRid(), pv: NEEDS_SERVER });
+    var body = JSON.stringify({ fn: fn, args: args, rid: newRid(), pv: NEEDS_SERVER }), t0 = Date.now();
     var attempt = function (n) {
       return postOnce(url, body).catch(function (err) {
         if (!err.retry || n >= 3) throw err;
@@ -762,6 +768,7 @@
     return attempt(0).catch(function (err) {
       return err.network ? diagnose(url).then(function (msg) { throw new Error(msg || err.message); }) : Promise.reject(err);
     }).then(function (res) {
+      perfNote(fn, Date.now() - t0, res && res.ms);
       if (!res || !res.ok) throw new Error((res && res.error) || 'Something went wrong.');
       if (res.refreshAt && READ_ONLY.test(fn)) checkRefresh(res.refreshAt);
       return res.result;
@@ -1010,7 +1017,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261046;
+  var NEEDS_SERVER = 20261047;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -3886,6 +3893,13 @@
   }
 
   /* ---------- Super admin: admins & permissions ---------- */
+  function renderPerf() {
+    var box = $('perfBox'); if (!box) return;
+    var L = S.perf || [], s = function (ms) { return ms == null ? '–' : (ms / 1000).toFixed(1) + ' s'; };
+    box.innerHTML = !L.length ? '<p class="muted small">No requests yet.</p>' :
+      '<table class="given"><tr><th>Time</th><th>Request</th><th class="r">Total</th><th class="r">Google</th><th class="r">Phone + net</th></tr>' +
+      L.map(function (x) { return '<tr><td>' + x.at + '</td><td>' + esc(x.fn) + '</td><td class="r"><b>' + s(x.total) + '</b></td><td class="r">' + s(x.server) + '</td><td class="r">' + (x.server == null ? '–' : s(x.total - x.server)) + '</td></tr>'; }).join('') + '</table>';
+  }
   function refreshAllApps() {
     if (!confirm('Reload the app on every phone (employees, admins, guards) the next time they use it?')) return;
     $('refreshAllBtn').disabled = true;
@@ -3902,6 +3916,8 @@
     var html = '<div class="card"><h2>🔄 Refresh everyone\'s app</h2><p class="muted small" style="margin:-6px 0 8px">After an update, press this so every phone loads the newest app. ' +
       'Phones reload by themselves the next time the app is used. Phones on a very old version are asked to close and reopen the app.</p>' +
       '<button class="btn ghost" id="refreshAllBtn" onclick="refreshAllApps()">🔄 Refresh all phones now</button></div>' +
+      '<div class="card"><h2>⏱ Speed check</h2><p class="muted small" style="margin:-6px 0 8px">Your last requests on this phone: total time, the part Google (Apps Script) took, and the rest (phone + internet).</p>' +
+      '<div id="perfBox"></div><button class="btn small ghost" onclick="renderPerf()">↻ Update</button></div>' +
       '<div class="card"><h2>Make an admin</h2>' +
       (nonAdmins.length ? '<div class="row" style="gap:8px"><select id="newAdmin" class="inp" style="flex:1">' +
         nonAdmins.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.name) + ' (' + esc(e.id) + ')</option>'; }).join('') +
@@ -3926,7 +3942,7 @@
         }).join('') + '</div></div>' +
         '<button class="btn" onclick="savePerms(' + i + ', this)">Save permissions</button></div>';
     });
-    adminBody(html);
+    adminBody(html); renderPerf();
   }
 
   function toggleScope(i) {
