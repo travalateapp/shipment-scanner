@@ -8861,7 +8861,7 @@ function renderShipmentsList() {
                 return `${balanceBtn}${podBtn ? `<div class="action-group ag-pod">${podBtn}</div>` : ''}`;
               })()
             : ''}
-          ${(s.platform || '').toLowerCase() === 'blinkit' && hasModule_('SHIPMENT_ADJUST') && !s.isDummy
+          ${isPoDrivenPlatform_(s.platform) && hasModule_('SHIPMENT_ADJUST') && !s.isDummy
             ? `<div class="action-group ag-adjust"><button class="btn btn-sm" style="background:#fde047;border-color:#facc15;color:#713f12" onclick="openAdjustmentModal_(${i})">🔧 Adjustment${(s.adjustments && s.adjustments.length) ? ' <span style="opacity:.75;font-weight:400">(' + s.adjustments.length + ')</span>' : ''}</button></div>`
             : ''}
           ${s.isDummy
@@ -11135,19 +11135,22 @@ function confirmLabelPrintCustom_() {
 // Legacy stubs (called from resetEntryForm / selectPlatform in some paths)
 function hidePoBalance_() { closePoBalancePopup_(); }
 
-// -- ADJUSTMENT BLOCK (Blinkit shipments only) ------------------
+// -- ADJUSTMENT BLOCK (Blinkit, Zepto, Swiggy  -  any PO-driven platform) --
 // Lets an employee record a shortage discovered AFTER a shipment (and
 // possibly its RO Invoice) was already created  -  reduces what's shown
 // as "Packed" in the Balance popup (adding a "Short" column) without
 // touching the shipment's own boxes, so RO Invoice / Tally Excel stay
 // exactly as originally generated. See adjustShipmentQuantities in
-// ShipmentManager.gs for the full writeup of why.
+// ShipmentManager.gs for the full writeup of why. Amazon is excluded
+// (same as everywhere else PO-driven-ness matters  -  see
+// isPoDrivenPlatform_) since it has no PO/Balance concept to adjust
+// against in the first place.
 let adjustmentTargetShipmentIdx_ = null;
 
 function openAdjustmentModal_(shipmentIdx) {
   const s = savedShipments[shipmentIdx];
   if (!s) { alert('Could not find that shipment  -  try reloading the Shipments tab.'); return; }
-  if ((s.platform || '').toLowerCase() !== 'blinkit') { alert('The Adjustment Block is only available for Blinkit shipments.'); return; }
+  if (!isPoDrivenPlatform_(s.platform)) { alert('The Adjustment Block is only available for Blinkit, Zepto, and Swiggy shipments.'); return; }
   if (!hasModule_('SHIPMENT_ADJUST')) { alert('You do not have permission to adjust shipments.'); return; }
 
   adjustmentTargetShipmentIdx_ = shipmentIdx;
@@ -11170,8 +11173,14 @@ function openAdjustmentModal_(shipmentIdx) {
     if (!key) return;
     alreadyAdjustedBySku[key] = (alreadyAdjustedBySku[key] || 0) + (parseInt(a.qty, 10) || 0);
   });
+  // This shipment's own platform decides which Item Code column to pull
+  // from SKU Master (blinkitItemId/zeptoItemId/swiggyItemId)  -  same
+  // field the Balance popup itself keys by (see skuItemIdField_), so a
+  // Short recorded here lines up with that platform's own Item Code
+  // column there, not Blinkit's.
+  const itemIdField = skuItemIdField_(s.platform);
   const skuToItemCode = {};
-  (skuData || []).forEach(sk => { if (sk.sku && sk.blinkitItemId) skuToItemCode[sk.sku.toString().trim().toUpperCase()] = sk.blinkitItemId.toString().trim(); });
+  (skuData || []).forEach(sk => { if (sk.sku && sk[itemIdField]) skuToItemCode[sk.sku.toString().trim().toUpperCase()] = sk[itemIdField].toString().trim(); });
 
   const seenSkus = {};
   const rows = [];

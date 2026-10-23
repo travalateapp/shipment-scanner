@@ -1349,7 +1349,9 @@ function sumPackedBySkuFromBoxes_(boxes) {
   return map;
 }
 
-/** THE ADJUSTMENT BLOCK — Blinkit-only. Lets an employee record that
+/** THE ADJUSTMENT BLOCK — Blinkit, Zepto, and Swiggy (any PO-driven
+ *  platform; see poPlatformConfig_ — Amazon has no PO/Balance concept
+ *  to adjust against, so it's excluded). Lets an employee record that
  *  fewer units of a SKU actually went out than what was originally
  *  packed/invoiced for this shipment (e.g. a shortage discovered after
  *  the RO Invoice was already generated). Deliberately does NOT touch
@@ -1386,8 +1388,8 @@ function adjustShipmentQuantities(shipmentId, adjustments, requesterName, reques
       return { success: false, message: "This shipment has been deleted." };
     }
     const platform = (row[SHIP_COLS.PLATFORM - 1] || "").toString().trim().toLowerCase();
-    if (platform !== "blinkit") {
-      return { success: false, message: "The Adjustment Block is only available for Blinkit shipments." };
+    if (!poPlatformConfig_(platform)) {
+      return { success: false, message: "The Adjustment Block is only available for Blinkit, Zepto, and Swiggy shipments." };
     }
 
     let boxes = [];
