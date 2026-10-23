@@ -21,6 +21,8 @@ jobs:
         run: |
           url="https://script.google.com/macros/s/$DEPLOYMENT_ID/exec"
           for i in 1 2 3; do curl -sS -L -m 60 -o /dev/null -w "ping $i: %{time_total}s\n" "$url?ping=1" || true; done
+          echo "== Speed of recent requests on the server (?perf=1)"
+          curl -sS -L -m 60 "$url?perf=1" | head -c 6000; echo
 
       - name: Recent executions (durations)
         run: |
