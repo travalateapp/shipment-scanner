@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261047;
+const SERVER_VERSION = 20261048;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -750,7 +750,16 @@ function checkIn(token, lat, lng, accuracy, selfieDataUrl, phoneClock, face) {
   const loc = checkLocation_(s, lat, lng, accuracy, emp.anywhere);
   const r = checkInCore_(emp, s, loc, selfieDataUrl, null, face);
   if (r.late && s.lateGif) r.gif = s.lateGif; // a little "you're late" reaction on the employee's own phone only
+  r.home = homeAfterMark_(token);
   return r;
+}
+
+/**
+ * The fresh home screen, sent back with an employee's own check-in / check-out so the phone needs no second
+ * request (each request to Apps Script costs 1–5 s on Google's side). null if it fails: the phone then asks.
+ */
+function homeAfterMark_(token) {
+  try { return getHome(token); } catch (e) { return null; }
 }
 
 /**
@@ -879,6 +888,7 @@ function checkOut(token, lat, lng, accuracy, phoneClock, photo, face) {
     r.earlyMin = out > es.shiftStartMin && out < end ? end - out : 0;
     if (r.earlyMin && s.earlyGif) r.gif = s.earlyGif;
   }
+  r.home = homeAfterMark_(token);
   return r;
 }
 
