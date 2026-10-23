@@ -1032,7 +1032,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261049;
+  var NEEDS_SERVER = 20261050;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2825,7 +2825,7 @@
     var box = $('celebBox'); if (!box) return;
     S.celeb = r;
     var opts = r.animations.map(function (a) { return '<option value="' + a + '">' + esc(ANIM_LABELS[a] || a) + '</option>'; }).join('');
-    var html = '<h2>🎉 Celebrations</h2><p class="muted small" style="margin:-6px 0 8px">An animation plays over the app when anyone opens it on these days (e.g. Diwali, Dussehra, Christmas, New Year), with your message on top.</p>' +
+    var html = birthdayWishesHtml(r) + '<h2>🎉 Celebrations</h2><p class="muted small" style="margin:-6px 0 8px">An animation plays over the app when anyone opens it on these days (e.g. Diwali, Dussehra, Christmas, New Year), with your message on top.</p>' +
       '<input type="hidden" id="ceRow" value="">' +
       '<div class="grid2"><div class="field"><label>From</label><input id="ceFrom" class="inp" type="date" value="' + todayLocal() + '" onchange="if($(\'ceTo\').value<this.value)$(\'ceTo\').value=this.value"></div>' +
       '<div class="field"><label>To</label><input id="ceTo" class="inp" type="date" value="' + todayLocal() + '"></div></div>' +
@@ -2846,6 +2846,33 @@
       }).join('') + '</div>';
     }
     box.innerHTML = html;
+  }
+  /** Birthday wishes settings (Settings tab rows "Birthday …"), at the top of the Celebrations card. */
+  function birthdayWishesHtml(r) {
+    var b = r.birthday; if (!b) return '';
+    var sel = function (v, x) { return v === x ? ' selected' : ''; };
+    return '<div style="border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:14px"><h2>🎂 Birthday wishes</h2>' +
+      '<p class="muted small" style="margin:-6px 0 8px">On an employee\'s birthday everyone who opens the app sees the wish between these times (only the day, never the age). ' +
+      'Birthdays are set in Employees → Edit → Birthday.</p>' +
+      '<div class="grid2"><div class="field"><label>Animation</label><select id="bdAnim" class="inp"><option value="none"' + sel(b.animation, 'none') + '>— Card only (no animation) —</option>' +
+        r.animations.map(function (a) { return '<option value="' + a + '"' + sel(b.animation, a) + '>' + esc(ANIM_LABELS[a] || a) + '</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label>Music</label><select id="bdMusic" class="inp">' +
+        (r.music || ['none']).map(function (m) { return '<option value="' + m + '"' + sel(b.music, m) + '>' + esc(MUSIC_LABELS[m] || m) + '</option>'; }).join('') + '</select></div></div>' +
+      '<div class="grid2"><div class="field"><label>Duration (seconds)</label><input id="bdSec" class="inp" type="number" min="2" max="60" value="' + esc(b.seconds) + '"></div><div></div></div>' +
+      '<div class="grid2"><div class="field"><label>Show from</label><input id="bdFrom" class="inp" type="time" value="' + esc(b.from) + '"></div>' +
+      '<div class="field"><label>Until</label><input id="bdTill" class="inp" type="time" value="' + esc(b.till) + '"></div></div>' +
+      '<div class="btns"><button class="btn ghost" onclick="previewBirthdayWishes()">▶ Preview</button><button class="btn" id="bdBtn" onclick="saveBirthdayWishes()">Save</button></div><div id="bdMsgBox"></div></div>';
+  }
+  function previewBirthdayWishes() {
+    var a = $('bdAnim').value, msg = t('🎂 Happy Birthday, {name}! 🎉', { name: (S.profile && S.profile.name || '').split(' ')[0] || 'Ankit' });
+    if (a === 'none') { toast('Card only: no animation. The birthday card shows on the home screen.'); return; }
+    celebrate(a, +$('bdSec').value, msg, $('bdMusic').value);
+  }
+  function saveBirthdayWishes() {
+    var b = { animation: $('bdAnim').value, music: $('bdMusic').value, seconds: $('bdSec').value, from: $('bdFrom').value, till: $('bdTill').value };
+    $('bdBtn').disabled = true;
+    api('adminSaveBirthdaySettings', S.token, b).then(function (r) { renderCelebrations(r); toast('Birthday wishes saved'); })
+      .catch(function (e) { $('bdBtn').disabled = false; $('bdMsgBox').innerHTML = errBox(e); });
   }
   function saveCelebration() {
     var c = { row: $('ceRow').value, from: $('ceFrom').value, to: $('ceTo').value, animation: $('ceAnim').value, seconds: $('ceSec').value, message: $('ceMsg').value, music: $('ceMusic').value };
