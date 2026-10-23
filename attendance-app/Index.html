@@ -940,7 +940,6 @@
     api('getHome', S.token).then(function (h) { showHome(h, sentAt); })
       .catch(function (e) {
         if (S.home && S.homeStale) { S.homeStale = false; renderHome(); toast(e.message); } else setError(e, "loadHome()");
-        if (S.pendingReaction) { var pr = S.pendingReaction; S.pendingReaction = null; showReaction(pr.r, pr.mode); }
       });
   }
 
@@ -971,7 +970,6 @@
       $('adminBadge').textContent = h.adminMissed ? '!' : '';
       $('adminBadge').classList.toggle('hidden', !h.adminMissed);
       if (S.tab === 'home') renderHome();
-      if (S.pendingReaction) { var pr = S.pendingReaction; S.pendingReaction = null; showReaction(pr.r, pr.mode); }
       if (h.face && faceSupported() && !S.faceLoad) setTimeout(function () { loadFace().catch(function () {}); }, 1500); // models ready before Check In
       if (!h.fromPhone) prefetchTabs();
   }
@@ -1034,7 +1032,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261048;
+  var NEEDS_SERVER = 20261049;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1882,6 +1880,7 @@
   function submitFlow() {
     var f = S.flow; if (!f || f.busy) return;
     f.busy = true; renderFlow();
+    reactNow(f.mode); // the late / early-leaving GIF appears at once, while the attendance is being saved
     var p = f.pos;
     var face = f.faceState === 'ok' && f.face ? { dist: f.faceDist } : null;
     var call = f.mode !== 'out'
@@ -1894,7 +1893,6 @@
         ? t('Checked in at {time}', { time: r.time }) + (r.late ? t(' (Late)') : '')
         : t('Checked out at {time} · Worked {w}', { time: r.time, w: hrs(r.worked) }) + (r.ot ? ' · ' + t('OT {m}', { m: hrs(r.ot) }) : ''));
       // The pop-up waits until the entry is saved and the home screen is back (see showHome / loadHome).
-      if (r.gif) S.pendingReaction = { r: r, mode: f.mode };
       if (r.home) S.prefetchedHome = r.home; // the server sent the new home screen with the save: no second request
       loadHome();
     }).catch(function (err) {
@@ -1903,8 +1901,22 @@
   }
 
   /**
+   * Late / leaving early right now (phone clock, already checked against the server) by the shift times the
+   * server sent with the home screen → the GIF pop-up, before the save has finished.
+   */
+  function reactNow(mode) {
+    var R = S.home && S.home.react; if (!R) return;
+    var d = new Date(), now = d.getHours() * 60 + d.getMinutes(), rec = S.home.record;
+    if (mode === 'in' && R.lateGif && now > R.startMin + R.graceMin) showReaction({ gif: R.lateGif, lateMin: now - R.startMin }, 'in');
+    // leaving early: today's own entry (not a night shift closed the next day), before the shift ends
+    else if (mode === 'out' && R.earlyGif && rec && rec.in && !S.home.openPrevious && now > R.startMin && now < R.endMin) {
+      showReaction({ gif: R.earlyGif, earlyMin: R.endMin - now }, 'out');
+    }
+  }
+
+  /**
    * A little reaction GIF on the employee's own phone (never on Mark Attendance): coming late, or leaving before
-   * the shift ends: a small pop-up over the screen for 5 seconds (tap to close sooner). The attendance is already saved.
+   * the shift ends: a small pop-up over the screen for 5 seconds (tap to close sooner), shown as soon as Save is tapped.
    */
   function showReaction(r, mode) {
     var early = mode === 'out';
