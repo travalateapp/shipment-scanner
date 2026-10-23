@@ -237,6 +237,12 @@
       padding: 10px 20px; font-size: 18px; font-weight: 800; box-shadow: 0 6px 22px rgba(0,0,0,.18); white-space: nowrap; max-width: 92vw;
       overflow: hidden; text-overflow: ellipsis; transition: opacity .8s; }
     .celeb-banner.out { opacity: 0; }
+    .react { position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 1001; background: rgba(15,20,35,.45); display: flex; align-items: center; justify-content: center; padding: 16px; }
+    .react-card { background: #fff; border-radius: 22px; padding: 16px 18px; width: 100%; max-width: 300px; text-align: center; box-shadow: 0 12px 40px rgba(0,0,0,.3);
+      animation: reactPop .35s cubic-bezier(.2,1.6,.4,1); }
+    .react-card img { width: 210px; height: 210px; object-fit: contain; display: block; margin: 0 auto 6px; }
+    .react-text { font-size: 20px; font-weight: 800; color: #b23a00; }
+    @keyframes reactPop { from { transform: scale(.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
     .celeb-sound { position: fixed; left: 50%; bottom: 84px; transform: translateX(-50%); z-index: 1000; border: 1px solid #f3c74e;
       background: #fff6d6; color: #9a5b00; border-radius: 999px; padding: 8px 16px; font-size: 15px; font-weight: 700; cursor: pointer;
       box-shadow: 0 4px 14px rgba(0,0,0,.15); }
@@ -495,7 +501,7 @@
     'Congratulations! You are the champion.': 'बधाई हो! आप चैंपियन हैं।',
     '🎂 Happy Birthday, {name}! 🎉': '🎂 जन्मदिन मुबारक हो, {name}! 🎉', 'bday.wish': '{company} की पूरी टीम की ओर से आपको जन्मदिन की ढेरों शुभकामनाएँ। आपका साल खुशियों से भरा हो!',
     '🎂 Today is {names}\'s birthday': '🎂 आज {names} का जन्मदिन है', 'bday.others': 'उन्हें शुभकामनाएँ देना न भूलें! 🎉', ' & ': ' और ',
-    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', 'That is you ({n}). Mark your own attendance on your Attendance screen.': 'यह आप हैं ({n})। अपनी हाज़िरी अपनी Attendance स्क्रीन पर लगाएँ।', 'Come a little closer to the camera': 'कैमरे के थोड़ा और पास आएँ', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
+    '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', '😳 Leaving {m} early?!': '😳 {m} पहले जा रहे हैं?!', '⏰ You\'re late by {m}!': '⏰ आप {m} देर से आए हैं!', 'Tap to close': 'बंद करने के लिए टैप करें', 'That is you ({n}). Mark your own attendance on your Attendance screen.': 'यह आप हैं ({n})। अपनी हाज़िरी अपनी Attendance स्क्रीन पर लगाएँ।', 'Come a little closer to the camera': 'कैमरे के थोड़ा और पास आएँ', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
     'Late coming / early leaving': 'देर से आना / जल्दी जाना',
     'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
@@ -1000,7 +1006,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261045;
+  var NEEDS_SERVER = 20261046;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -1860,9 +1866,29 @@
         ? t('Checked in at {time}', { time: r.time }) + (r.late ? t(' (Late)') : '')
         : t('Checked out at {time} · Worked {w}', { time: r.time, w: hrs(r.worked) }) + (r.ot ? ' · ' + t('OT {m}', { m: hrs(r.ot) }) : ''));
       loadHome();
+      if (r.gif) showReaction(r, f.mode);
     }).catch(function (err) {
       f.busy = false; f.error = err.message; renderFlow();
     });
+  }
+
+  /**
+   * A little reaction GIF on the employee's own phone (never on Mark Attendance): coming late, or leaving before
+   * the shift ends: a small pop-up over the screen for 5 seconds (tap to close sooner). The attendance is already saved.
+   */
+  function showReaction(r, mode) {
+    var early = mode === 'out';
+    var text = early ? t('😳 Leaving {m} early?!', { m: mins(r.earlyMin) }) : t('⏰ You\'re late by {m}!', { m: mins(r.lateMin) });
+    var d = document.createElement('div');
+    d.className = 'react';
+    d.innerHTML = '<div class="react-card"><img alt="" src="' + esc(r.gif) + '"><div class="react-text">' + esc(text) + '</div>' +
+      '<div class="muted small" style="margin-top:6px">' + t('Tap to close') + '</div></div>';
+    var img = d.querySelector('img');
+    img.onerror = function () { img.style.display = 'none'; }; // no internet / link gone: the message alone
+    var close = function () { if (d.parentNode) d.remove(); };
+    d.onclick = close;
+    document.body.appendChild(d);
+    setTimeout(close, 5000); // shown for 5 seconds
   }
 
   /** Watches GPS for up to 15 s and returns the most accurate reading. */

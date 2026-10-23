@@ -232,6 +232,12 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - It never reloads during a check-in or while a pop-up is open.
 - Phones still on a version from before this button existed can't reload by themselves. On their next action they see "A new version of the app is ready. Please close the app and open it again" (in English and Hindi).
 
+### Late / early-leaving GIFs (employee's own phone only)
+- **Checking in late** on their own phone (after the grace time) shows a small pop-up with a GIF and "⏰ You're late by 28m!". It closes after 5 seconds, or sooner with a tap.
+- **Checking out before the shift ends** shows "😳 Leaving 45m early?!". On a short day the closing time counts as the shift end.
+- The attendance is saved first; the pop-up never blocks it. It is never shown on the guard's / admin's **Mark Attendance**.
+- **Settings tab:** **Late GIF** and **Early Leaving GIF**. Paste a GIPHY link, either the page link or the .gif link, or any `https://…gif` link. Blank = off.
+
 ### Celebrations (festival animations)
 - **Admin → Holidays → 🎉 Celebrations**: choose the dates (one day or From–To), an **animation** — 🎆 Fireworks, 🎊 Confetti, 🪔 Diyas (Diwali), 🌼 Flower petals (Dussehra / Navratri), ❄️ Snowfall (Christmas), 🎈 Balloons, ✨ Sparkles (New Year) — the **duration** (2–60 seconds) and an optional **message** (e.g. "Happy Diwali! 🪔"). **▶ Preview** shows it at once.
 - On those days the animation plays over the app (with the message at the top) each time someone opens it — employees, admins and guards. The app stays usable while it plays. It replaces the monthly champion's fireworks on the same day. Saved in the **Celebrations** tab.
