@@ -40,7 +40,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261049;
+const SERVER_VERSION = 20261050;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -300,7 +300,7 @@ const API_FUNCTIONS = {
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
   superListAdmins, superSavePermissions, superSetRole, superAuditLog, superSetLeaderboard, superRefreshApps,
-  adminSaveFace, adminDeleteFace, proxyFaces, adminCelebrations, adminSaveCelebration, adminDeleteCelebration,
+  adminSaveFace, adminDeleteFace, proxyFaces, adminCelebrations, adminSaveCelebration, adminDeleteCelebration, adminSaveBirthdaySettings,
 };
 
 function doPost(e) {
@@ -3692,7 +3692,37 @@ function birthdayOn_(date, me) {
 function adminCelebrations(token) {
   authAdmin_(token, 'manageHolidays');
   const today = todayStr_();
-  return { animations: ANIMATIONS, music: MUSIC, list: readCelebrations_().filter(c => c.to >= addDays_(today, -60)) };
+  const s = getSettings_();
+  return { animations: ANIMATIONS, music: MUSIC, list: readCelebrations_().filter(c => c.to >= addDays_(today, -60)),
+    birthday: { animation: ANIMATIONS.indexOf(s.birthdayAnim) >= 0 ? s.birthdayAnim : 'none', music: MUSIC.indexOf(s.birthdayMusic) >= 0 ? s.birthdayMusic : 'none',
+      seconds: s.birthdaySeconds, from: s.birthdayFrom, till: s.birthdayTill } };
+}
+
+/** b = { animation ('none' = card only), music, seconds (2–60), from, till ('HH:mm') } → the Birthday rows of Settings. */
+function adminSaveBirthdaySettings(token, b) {
+  const ctx = authAdmin_(token, 'manageHolidays');
+  b = b || {};
+  const animation = b.animation === 'none' || ANIMATIONS.indexOf(b.animation) >= 0 ? b.animation : null;
+  if (!animation) throw new Error('Choose an animation.');
+  if (MUSIC.indexOf(b.music) < 0) throw new Error('Choose the music.');
+  const seconds = Math.round(Number(b.seconds));
+  if (!(seconds >= 2 && seconds <= 60)) throw new Error('Duration must be 2 to 60 seconds.');
+  const from = toTimeStr_(b.from), till = toTimeStr_(b.till);
+  if (!from || !till) throw new Error('Enter the start and end time.');
+  if (from >= till) throw new Error('The end time must be after the start time.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    setSetting_('Birthday Animation', animation);
+    setSetting_('Birthday Music', b.music);
+    setSetting_('Birthday Seconds', seconds);
+    setSetting_('Birthday Wishes From', "'" + from);
+    setSetting_('Birthday Wishes Till', "'" + till);
+    audit_(ctx.emp, 'EDIT_BIRTHDAY_WISHES', '', '', animation + ', ' + b.music + ', ' + seconds + ' s, ' + from + '–' + till);
+  } finally {
+    lock.releaseLock();
+  }
+  return adminCelebrations(token);
 }
 
 /** c = { row (to edit), from, to, animation, seconds, message } */

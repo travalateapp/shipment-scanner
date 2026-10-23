@@ -256,7 +256,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - Only the day is shown. The age and the year never are.
 - A birthday comes before a festival celebration and before the champion's fireworks on the same day.
 - Someone born on 29 Feb is celebrated on 28 Feb in other years.
-- **Settings tab** (optional rows):
+- **Admin → Holidays → 🎂 Birthday wishes** sets the animation (or card only), music, duration and the from–until times, with **▶ Preview**. It saves them to these Settings rows:
   - **Birthday Animation**: fireworks, confetti, diyas, petals, snow, balloons or sparkles. Blank means the card only, with no animation.
   - **Birthday Music**: the tune.
   - **Birthday Seconds**: the duration (10 by default).
