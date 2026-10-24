@@ -346,6 +346,21 @@ At month end, check **Admin → Payroll** and tap **🔒 Lock month**. After tha
 - Payslips no longer say "Provisional".
 - Only a super admin can unlock a month.
 
+### Arrears (money still owed to an employee)
+- **Adding:** **Admin → Advances → 💰 Arrears → ＋ Add arrears**, or **＋ Add arrears** on an employee's card. Enter the amount, the reason (e.g. "Sep OT short-paid"), **pay with the salary of** which month (this month by default) and an optional note.
+- **Who:** admins with **Manage Advances**, and super admins.
+- **In the salary:** the amount is added to that month's salary in full. It shows on:
+  - the payroll ("Arrears + ₹…") and the Monthly Summary totals
+  - the payslip, one line per reason
+  - the employee's own salary screen
+  - the payroll Excel, as the **Arrears** and **Arrears Reason** columns, included in the Gross Payable formula
+- **PF employees:** arrears go to cash or bank according to the **OT & Deductions Paid In** setting.
+- **Pending → Paid:** an arrear counts as **Paid** once the month it is paid with is locked. Until then it can be edited or deleted (tap **Pending ›**).
+- **Automatic arrears** (marked *auto*):
+  - **A raise starting in a month that is already locked** (paid): the back-pay for those locked months becomes arrears with this month's salary. This covers the salary, plus OT and deductions at the new rate. Locked months stay as paid. A decrease still can't start in a locked month.
+  - **A locked month unlocked, changed and locked again:** if someone now gets more than was paid, the difference becomes arrears with this month's salary. Less is not taken back. If that month's salary hadn't actually been paid yet, delete the arrears.
+- Saved in the **Arrears** tab of the sheet.
+
 ### Advances
 **Admin → Advances → Give an advance**: enter the amount, the deduction per month and the first month to deduct. Each month's salary recovers the instalment until the balance is zero.
 - **Employees request advances in the app:** Requests → *Salary advance*, with the amount, a suggested monthly deduction and a reason. Admins with **Manage Advances** see it under Admin → Requests. They can change the amount or deduction and approve it either as a **new separate advance** or **added to an advance already running**. Admins can still enter an advance directly under Advances, e.g. one already given in cash.
