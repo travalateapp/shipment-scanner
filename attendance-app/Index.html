@@ -455,6 +455,7 @@
     'Advance deduction changed to {amt} for this month{note}.': 'इस महीने एडवांस की कटौती {amt} की गई है{note}।',
     'PF Employee (Basic Salary {b})': 'PF कर्मचारी (बेसिक वेतन {b})', 'PF Employer (company contribution)': 'PF नियोक्ता (कंपनी का योगदान)',
     'Total Salary': 'कुल वेतन', 'Advance {amt}{note}: balance {bal} after this month': 'एडवांस {amt}{note}: इस महीने के बाद बाकी {bal}',
+    'Advance {amt}{note} given {date}: {mon}/month will be deducted from {start}.': 'एडवांस {amt}{note} ({date} को दिया): {start} से हर महीने {mon} कटेगा।',
     'prorated.note': 'वेतन, PF और बेसिक वेतन अभी तक बीते दिनों के हिसाब से दिखाए गए हैं। महीना खत्म होने तक ये हर दिन बढ़ेंगे।',
     '📄 Payslip': '📄 वेतन पर्ची', 'Daily log': 'रोज़ का रिकॉर्ड', 'no check-out': 'चेक-आउट नहीं', ' (+1 day)': ' (+1 दिन)',
     'OT {m}': 'ओवरटाइम {m}', 'OT {m} pending': 'ओवरटाइम {m} लंबित', 'Could not update: {e}': 'अपडेट नहीं हो सका: {e}',
@@ -1033,7 +1034,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261051;
+  var NEEDS_SERVER = 20261052;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2116,6 +2117,11 @@
         html += '<p class="muted small" style="margin:8px 0 0">' + t('Advance {amt}{note}: balance {bal} after this month', { amt: money(a.amount, cur),
           note: a.note ? ' (' + esc(a.note) + ')' : '', bal: money(a.balanceAfter, cur) }) + (a.status !== 'ACTIVE' ? ' · ' + esc(t(STATUS[a.status] || a.status)) : '') + '</p>' +
           (a.given && a.given.length > 1 ? givenHtml(a, cur) : '');
+      });
+      (m.upcomingAdvances || []).forEach(function (a) {
+        html += '<p class="muted small" style="margin:8px 0 0">' + t('Advance {amt}{note} given {date}: {mon}/month will be deducted from {start}.', {
+          amt: money(a.amount, cur), note: a.note ? ' (' + esc(a.note) + ')' : '', date: a.dateGiven ? esc(fmtDate(a.dateGiven)) : '',
+          mon: money(a.monthly, cur), start: esc(monthName(a.startMonth)) }) + (a.status === 'PAUSED' ? ' · ' + esc(t(STATUS.PAUSED || 'Paused')) : '') + '</p>';
       });
       if (p.prorated) html += '<p class="muted small" style="margin:8px 0 0">' + t('prorated.note') + '</p>';
       if (!navArg || m.canPayslip) html += '<button class="btn ghost" onclick="openPayslip(\'' + m.ym + '\'' + (navArg ? ',\'' + esc(m.employee.id) + '\'' : '') + ')">' + t('📄 Payslip') + '</button>';
