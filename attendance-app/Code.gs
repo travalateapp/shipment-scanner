@@ -41,7 +41,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261051;
+const SERVER_VERSION = 20261052;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2807,6 +2807,10 @@ function buildMonth_(emp, ym) {
   const lock = getLocks_()[ym];
   const snap = lock ? getSnapshot_(ym, emp.id) : null;
   const m = snap || computeMonth_(emp, ym);
+  // Advances already given by this month whose deduction starts in a later month (shown as a note).
+  m.upcomingAdvances = readAdvances_().filter(a => a.empId === emp.id && a.startMonth > ym && a.status !== 'CLOSED' &&
+    (a.dateGiven || a.startMonth) <= ym + '-31')
+    .map(a => ({ amount: a.amount, monthly: a.monthly, note: a.note, dateGiven: a.dateGiven, startMonth: a.startMonth, status: a.status }));
   m.employee = { id: emp.id, name: emp.name };
   m.ym = ym;
   m.label = ymLabel_(ym);
