@@ -21,6 +21,7 @@ const SHEET = {
   ADV_MONTHS: 'Advance Month Changes',
   LOCKS: 'Payroll Locks',
   SNAPSHOTS: 'Payroll Snapshots',
+  ARREARS: 'Arrears',
   EMPLOYMENT: 'Employment History',
   INCREMENTS: 'Salary Increments',
   FACES: 'Faces',
@@ -40,7 +41,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261050;
+const SERVER_VERSION = 20261051;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -91,6 +92,8 @@ const ADV_HEADERS = ['ID', 'Emp ID', 'Name', 'Date Given', 'Amount', 'Monthly De
 const ADV_MONTH_HEADERS = ['Advance ID', 'Emp ID', 'Month', 'Deduct', 'Note', 'By', 'At'];
 const LOCK_HEADERS = ['Month', 'Locked By', 'Locked At'];
 const SNAP_HEADERS = ['Month', 'Emp ID', 'Name', 'Data (do not edit)'];
+// Arrears: money still owed to an employee from earlier months, paid with the salary of "Pay Month".
+const ARREAR_HEADERS = ['ID', 'Emp ID', 'Name', 'Date Added', 'Amount', 'Reason', 'Pay Month', 'Note', 'Auto', 'By', 'At'];
 
 const OVERRIDE_VALUES = ['PRESENT', 'HALF_DAY', 'ABSENT', 'LEAVE'];
 /** Flags that count as "suspicious" on the admin Today screen (PROXY = marked by an admin or guard is not). */
@@ -177,6 +180,7 @@ function forget_() {
 const CACHED_SHEETS = {
   settings: 'Settings', employees: 'Employees', holidays: 'Holidays', perms: 'Admin Permissions', locks: 'Payroll Locks',
   employment: 'Employment History', increments: 'Salary Increments', faces: 'Faces', celebrations: 'Celebrations',
+  arrears: 'Arrears',
 };
 
 /** All values of a tab (dates as 'yyyy-MM-dd', times as 'HH:mm'); null when the tab does not exist. */
@@ -295,7 +299,7 @@ const API_FUNCTIONS = {
   proxyList, proxyCheckIn, proxyCheckOut,
   adminToday, adminSummary, adminMonth, adminEmployeeMonth, adminEntryOptions, adminGetEntry, adminSaveEntry,
   adminDeleteEntry, adminBulkEntry, adminRequests, adminDecideRequest, adminDecideOt, adminClearMissed,
-  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminSaveAdvance,
+  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminSaveAdvance, adminSaveArrear, adminDeleteArrear,
   adminAttendanceRegister,
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
@@ -1350,7 +1354,7 @@ function payrollRows_(ctx, ym) {
 
   const rows = getEmployees_().filter(e => (employedInMonth_(e, ym) || withRecords[e.id]) && canManage_(ctx, e.id)).map(e => {
     const m = buildMonth_(e, ym);
-    return hideSplit_(Object.assign({ id: e.id, name: e.name, advances: m.advances || [] }, m.totals, m.pay), ctx.perms.viewSplit);
+    return hideSplit_(Object.assign({ id: e.id, name: e.name, advances: m.advances || [], arrearItems: m.arrearItems || [] }, m.totals, m.pay), ctx.perms.viewSplit);
   });
   return {
     ym: ym, label: ymLabel_(ym), currency: s.currency, rows: rows,
@@ -1375,7 +1379,7 @@ function adminSummary(token, ym) {
   const totals = {
     employees: rows.length, pfEmployees: pfRows.length,
     monthlySalary: sum(rows, 'salary'), earned: sum(rows, 'earned'), prorated: rows.some(r => r.prorated), otPay: sum(rows, 'otPay'),
-    offDayPay: sum(rows, 'offDayPay'), offWorkCredit: sum(rows, 'offWorkCredit'), leaveDed: sum(rows, 'leaveDed'),
+    offDayPay: sum(rows, 'offDayPay'), arrears: sum(rows, 'arrears'), offWorkCredit: sum(rows, 'offWorkCredit'), leaveDed: sum(rows, 'leaveDed'),
     halfDayDed: sum(rows, 'halfDayDed'), lateCutDed: sum(rows, 'lateCutDed'), shortCutDed: sum(rows, 'shortCutDed'), advance: sum(rows, 'advance'),
     total: sum(rows, 'net'),
     present: sum(rows, 'present'), absent: rows.reduce((a, r) => a + r.absent + r.notJoined, 0), halfDay: sum(rows, 'halfDay'),
@@ -1862,6 +1866,138 @@ function adminSavePf(token, empId, data) {
 
 /* ---------------------------- Advances ----------------------------- */
 
+/* ---------------------------- Arrears ------------------------------ */
+
+/** [{ id, empId, name, date, amount, reason, payMonth, note, auto, row }] */
+function readArrears_() {
+  return memo_('arrears', () => (sheetValues_(SHEET.ARREARS) || []).slice(1).map((r, i) => ({
+    id: String(r[0]).trim(), empId: String(r[1]).trim().toUpperCase(), name: String(r[2] || ''), date: toDateStr_(r[3]),
+    amount: round2_(Number(r[4]) || 0), reason: String(r[5] || '').trim(), payMonth: toYm_(r[6]), note: String(r[7] || ''),
+    auto: /^(y|yes|true|1)$/i.test(String(r[8]).trim()), row: i + 2,
+  })).filter(a => a.id && a.empId && a.amount > 0 && a.payMonth));
+}
+
+/** Arrears paid with emp's salary of ym. */
+function arrearsFor_(empId, ym) {
+  return readArrears_().filter(a => a.empId === empId && a.payMonth === ym);
+}
+
+/** Adds an arrears row. Callers hold the script lock. */
+function createArrear_(byEmp, emp, amount, reason, payMonth, note, auto) {
+  const id = 'R' + Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+  sheetOrCreate_(SHEET.ARREARS, ARREAR_HEADERS).appendRow([id, emp.id, emp.name, "'" + todayStr_(), round2_(amount), reason.slice(0, 120),
+    "'" + payMonth, String(note || '').slice(0, 200), auto ? 'Yes' : '', byEmp.id + ' ' + byEmp.name, Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm')]);
+  forget_('arrears');
+  audit_(byEmp, auto ? 'ADD_ARREARS_AUTO' : 'ADD_ARREARS', emp.id, payMonth + '-01', amount + ' · ' + reason);
+  return id;
+}
+
+/** a = { id (edit) | empId (new), amount, reason, payMonth ('yyyy-MM'), note } */
+function adminSaveArrear(token, a) {
+  const ctx = authAdmin_(token, 'manageAdvances');
+  a = a || {};
+  const amount = round2_(Number(a.amount));
+  const reason = String(a.reason || '').trim();
+  const payMonth = toYm_(a.payMonth);
+  if (!(amount > 0)) throw new Error('Enter the amount.');
+  if (!reason) throw new Error('Enter the reason.');
+  if (!payMonth) throw new Error('Choose the month whose salary pays it.');
+  if (isLocked_(payMonth)) throw new Error('Payroll for ' + ymLabel_(payMonth) + ' is locked. Choose a later month.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    forget_('arrears');
+    if (a.id) {
+      const old = readArrears_().filter(x => x.id === a.id)[0];
+      if (!old) throw new Error('Arrears not found. Reload and try again.');
+      managedEmployee_(ctx, old.empId, true);
+      if (isLocked_(old.payMonth)) throw new Error('Already paid with the ' + ymLabel_(old.payMonth) + ' salary (locked).');
+      sheet_(SHEET.ARREARS).getRange(old.row, 5, 1, 4).setValues([[amount, reason.slice(0, 120), "'" + payMonth, String(a.note || '').slice(0, 200)]]);
+      forget_('arrears');
+      audit_(ctx.emp, 'EDIT_ARREARS', old.empId, payMonth + '-01', old.amount + ' → ' + amount + ' · ' + reason);
+    } else {
+      createArrear_(ctx.emp, managedEmployee_(ctx, a.empId, true), amount, reason, payMonth, a.note, false);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return adminAdvances(token);
+}
+
+function adminDeleteArrear(token, id) {
+  const ctx = authAdmin_(token, 'manageAdvances');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    forget_('arrears');
+    const old = readArrears_().filter(x => x.id === id)[0];
+    if (!old) throw new Error('Arrears not found. Reload and try again.');
+    managedEmployee_(ctx, old.empId, true);
+    if (isLocked_(old.payMonth)) throw new Error('Already paid with the ' + ymLabel_(old.payMonth) + ' salary (locked).');
+    sheet_(SHEET.ARREARS).deleteRow(old.row);
+    forget_('arrears');
+    audit_(ctx.emp, 'DELETE_ARREARS', old.empId, old.payMonth + '-01', old.amount + ' · ' + old.reason);
+  } finally {
+    lock.releaseLock();
+  }
+  return adminAdvances(token);
+}
+
+/** Unlocking a month: remember what each employee was paid (the locked gross), for correctionArrears_. */
+function rememberLockedPay_(ym) {
+  const props = PropertiesService.getScriptProperties(), key = 'paidBefore_' + ym;
+  if (props.getProperty(key)) return; // unlocked before and not locked again since: keep the first (paid) amounts
+  const paid = {}, extra = JSON.parse(props.getProperty('extraPaid_' + ym) || '{}');
+  // Locked pay, plus increment back-pay already given as arrears for this month (else a re-lock pays it twice).
+  getEmployees_().forEach(e => { const sn = getSnapshot_(ym, e.id); if (sn && sn.pay) paid[e.id] = round2_(sn.pay.gross + (extra[e.id] || 0)); });
+  props.setProperty(key, JSON.stringify(paid));
+}
+
+/**
+ * Locking a month again after it was unlocked and changed: when someone now gets more than was paid before, the
+ * difference becomes arrears (marked auto) with the current month's salary. Less is not taken back.
+ */
+function correctionArrears_(ctx, ym, lockedNow) {
+  const props = PropertiesService.getScriptProperties(), key = 'paidBefore_' + ym;
+  const raw = props.getProperty(key);
+  props.deleteProperty('extraPaid_' + ym); // the new locked pay includes any back-pay given for this month
+  if (!raw) return;
+  props.deleteProperty(key);
+  const paid = JSON.parse(raw), payMonth = todayStr_().slice(0, 7), R = getSettings_().roundRupee ? Math.round : round2_;
+  Object.keys(lockedNow).forEach(id => {
+    if (paid[id] === undefined) return;
+    const diff = R(lockedNow[id] - paid[id]);
+    if (diff >= 1) createArrear_(ctx.emp, findEmployee_(id), diff, 'Correction – ' + ymLabel_(ym), payMonth,
+      'Paid ' + paid[id] + ' before ' + ymLabel_(ym) + ' was unlocked; ' + lockedNow[id] + ' after the change', true);
+  });
+}
+
+/**
+ * A raise starting in a month that is already locked (paid): for each locked month from then on, what the salary
+ * would have been with the raise (salary, OT and deductions at the new rate) minus what was paid → one arrears row.
+ */
+function incrementArrears_(ctx, emp, fromYm, amount) {
+  const R = getSettings_().roundRupee ? Math.round : round2_;
+  const months = Object.keys(getLocks_()).filter(k => k >= fromYm).sort();
+  let total = 0;
+  const props = PropertiesService.getScriptProperties();
+  months.forEach(ym => {
+    const sn = getSnapshot_(ym, emp.id);
+    if (!sn || !sn.pay) return;
+    const diff = round2_(Math.max(0, computeMonth_(findEmployee_(emp.id), ym).pay.gross - sn.pay.gross));
+    total += diff;
+    // Remember it as paid for that month (see rememberLockedPay_).
+    const extra = JSON.parse(props.getProperty('extraPaid_' + ym) || '{}');
+    extra[emp.id] = round2_((extra[emp.id] || 0) + diff);
+    props.setProperty('extraPaid_' + ym, JSON.stringify(extra));
+  });
+  total = R(total);
+  if (total >= 1) {
+    createArrear_(ctx.emp, emp, total, 'Increment back-pay (' + ymLabel_(months[0]) + (months.length > 1 ? ' – ' + ymLabel_(months[months.length - 1]) : '') + ')',
+      todayStr_().slice(0, 7), 'Increment of ' + amount + ' from ' + ymLabel_(fromYm) + '; these months were already paid', true);
+  }
+}
+
 function adminAdvances(token) {
   const ctx = authAdmin_(token, 'manageAdvances');
   const s = getSettings_();
@@ -1885,8 +2021,13 @@ function adminAdvances(token) {
   list.forEach(a => {
     if (a.status !== 'CLOSED' && !a.repaid) ongoing[a.empId] = round2_((ongoing[a.empId] || 0) + a.balanceAfter + a.thisMonth);
   });
+  // Arrears: pending ones, and paid ones from the last 6 months.
+  const since = (() => { let k = ym; for (let i = 0; i < 6; i++) k = prevYm_(k); return k; })();
+  const arrears = readArrears_().filter(a => names[a.empId] && (a.payMonth >= since || !isLocked_(a.payMonth)))
+    .map(a => Object.assign({}, a, { name: names[a.empId], paid: isLocked_(a.payMonth) }))
+    .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : y.row - x.row)); // newest first
   return {
-    currency: s.currency, currentMonth: ym, list: list,
+    currency: s.currency, currentMonth: ym, list: list, arrears: arrears,
     employees: emps.filter(e => e.active).map(e => ({ id: e.id, name: e.name, ongoing: ongoing[e.id] || 0 })),
   };
 }
@@ -2188,9 +2329,11 @@ function adminLockMonth(token, ym) {
     const att = readAttendance_().filter(r => r.date.indexOf(ym) === 0);
     const withRecords = {};
     att.forEach(r => { withRecords[r.empId] = true; });
+    const lockedNow = {};
     const rows = getEmployees_().filter(e => employedInMonth_(e, ym) || withRecords[e.id]).map(e => {
       const m = computeMonth_(e, ym);
-      return ["'" + ym, e.id, e.name, JSON.stringify({ totals: m.totals, pay: m.pay, days: m.days, advances: m.advances })];
+      lockedNow[e.id] = m.pay.gross;
+      return ["'" + ym, e.id, e.name, JSON.stringify({ totals: m.totals, pay: m.pay, days: m.days, advances: m.advances, arrearItems: m.arrearItems })];
     });
     const snap = sheetOrCreate_(SHEET.SNAPSHOTS, SNAP_HEADERS);
     if (rows.length) snap.getRange(snap.getLastRow() + 1, 1, rows.length, 4).setValues(rows);
@@ -2198,6 +2341,7 @@ function adminLockMonth(token, ym) {
       Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm')]);
     forget_('locks', 'snapshots');
     audit_(ctx.emp, 'LOCK_MONTH', '', ym, rows.length + ' employees');
+    correctionArrears_(ctx, ym, lockedNow);
   } finally {
     lock.releaseLock();
   }
@@ -2210,6 +2354,7 @@ function superUnlockMonth(token, ym) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    rememberLockedPay_(ym);
     deleteRowsWhere_(SHEET.LOCKS, r => toYm_(r[0]) === ym);
     deleteRowsWhere_(SHEET.SNAPSHOTS, r => toYm_(r[0]) === ym);
     forget_('locks', 'snapshots');
@@ -2299,14 +2444,15 @@ function adminExportPayroll(token, ym) {
   const header = ['Emp ID', 'Name', 'Monthly Salary', 'Days Counted', 'Salary Earned', 'Present', 'Half Days',
     'Absent (Leaves)', 'Paid Leave', 'Week Off', 'Holidays', 'Worked on Off-Day', 'Late Marks', 'Late Mins',
     'Early Leaving Mins', 'OT Mins (gross)', 'OT Taken for Late/Early (mins)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
-    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut (no OT)', 'Advance Deduction', 'Gross Payable',
+    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Arrears', 'Arrears Reason', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut (no OT)', 'Advance Deduction', 'Gross Payable',
     'PF', 'Basic Salary (PF)', 'PF Employee', 'PF Employer']
     .concat(split ? ['In Bank', 'In Cash'] : []).concat(['Total Salary']);
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
     (r.elapsedDays === undefined ? r.daysInMonth : r.elapsedDays) + ' / ' + r.daysInMonth,
     r.earned === undefined ? r.salary : r.earned, r.present, r.halfDay, r.absent + r.notJoined, r.leave,
     r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, otGross_(r), otGross_(r) - r.otMin, r.otMin, r.otHours, r.perDay,
-    r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.gross,
+    r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.arrears || 0,
+    (r.arrearItems || []).map(a => a.reason + ' ' + a.amount).join('; '), r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.gross,
     r.pf ? 'Yes' : 'No', r.pf ? r.pfBankSalary : '', r.pf ? r.pfEmployee : '', r.pf ? r.pfEmployer : '',
   ].concat(split ? [r.pf ? r.bank : '', r.pf ? r.cash : ''] : []).concat([r.net]));
   const status = data.locked ? 'Final (locked by ' + data.locked.by + ' on ' + data.locked.at + ')'
@@ -2321,7 +2467,7 @@ function adminExportPayroll(token, ym) {
     header: header,
     rows: rows,
     formulas: data.rows.map(r => payrollFormulas_(r, split)), // per row: { column: '=… [Other Column] …' }
-    textCols: ['Emp ID', 'Name', 'Days Counted', 'PF'],
+    textCols: ['Emp ID', 'Name', 'Days Counted', 'PF', 'Arrears Reason'],
   };
 }
 
@@ -2359,8 +2505,8 @@ function payrollFormulas_(r, split) {
   }
   // Short minutes on full days of employees without hourly OT (not a column of its own).
   add('Late/Early Cut (no OT)', RF((r.shortMin || 0) + '*[Per Min]'), R((r.shortMin || 0) * perMin), r.shortCutDed || 0);
-  add('Gross Payable', 'ROUND([Salary Earned]-MIN([Salary Earned],[Leave Deduction]+[Half Day Deduction]+[Late Cut Deduction]+[Late/Early Cut (no OT)])+[OT Pay]+[Week-Off Work Pay],2)',
-    round2_(r.earned - Math.min(r.earned, r.leaveDed + r.halfDayDed + r.lateCutDed + (r.shortCutDed || 0)) + r.otPay + (r.offDayPay || 0)), r.gross);
+  add('Gross Payable', 'ROUND([Salary Earned]-MIN([Salary Earned],[Leave Deduction]+[Half Day Deduction]+[Late Cut Deduction]+[Late/Early Cut (no OT)])+[OT Pay]+[Week-Off Work Pay]+[Arrears],2)',
+    round2_(r.earned - Math.min(r.earned, r.leaveDed + r.halfDayDed + r.lateCutDed + (r.shortCutDed || 0)) + r.otPay + (r.offDayPay || 0) + (r.arrears || 0)), r.gross);
   if (!r.pf) {
     add('Total Salary', 'ROUND([Gross Payable]-[Advance Deduction],2)', round2_(r.gross - (r.advance || 0)), r.net);
     return f;
@@ -2684,7 +2830,9 @@ function computeMonth_(emp, ym) {
   const att = readAttendance_().filter(r => r.date.indexOf(ym) === 0);
   const adv = advancesForMonth_(emp.id, ym);
   emp = Object.assign({}, emp, { salary: salaryFor_(emp, ym), baseSalary: baseSalary_(emp) }); // increments in effect that month
-  const m = monthSummary_(emp, ym, s, byDate_(att, emp.id), getHolidays_(), adv.total);
+  const arr = arrearsFor_(emp.id, ym);
+  const m = monthSummary_(emp, ym, s, byDate_(att, emp.id), getHolidays_(), adv.total, arr.reduce((n, a) => n + a.amount, 0));
+  m.arrearItems = arr.map(a => ({ id: a.id, amount: a.amount, reason: a.reason, auto: a.auto }));
   // The salary may not cover every instalment: recover what it can, in order.
   let left = m.pay.advance;
   adv.items.forEach(a => {
@@ -2788,7 +2936,7 @@ function evaluateDay_(rec, s, offType, isToday) {
   return d;
 }
 
-function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
+function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTotal) {
   const y = Number(ym.slice(0, 4));
   const m = Number(ym.slice(5, 7));
   const dim = new Date(y, m, 0).getDate();
@@ -2905,7 +3053,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
   }
   t.elapsedUntil = t.elapsedDays ? ym + '-' + pad2_(t.elapsedDays) : '';
 
-  return { totals: t, pay: calcPay_(emp, s, t, dim, advanceTotal || 0), days: days };
+  return { totals: t, pay: calcPay_(emp, s, t, dim, advanceTotal || 0, arrearsTotal || 0), days: days };
 }
 
 /**
@@ -2917,7 +3065,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal) {
  * PF employees: Bank = PF Bank Salary − PF Employee, Cash = Salary − PF Bank Salary, and OT/deductions/advance
  * are applied to Cash (or Bank, per the "OT & Deductions Paid In" setting).
  */
-function calcPay_(emp, s, t, dim, advanceWanted) {
+function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
   s = empSettings_(emp, s);
   const R = s.roundRupee ? Math.round : round2_;
   const basis = s.salaryDays > 0 ? s.salaryDays : dim;
@@ -2939,13 +3087,14 @@ function calcPay_(emp, s, t, dim, advanceWanted) {
   const deduction = Math.min(earned, leaveDed + halfDayDed + lateCutDed + shortCutDed);
   const otPay = R(t.otMin * perMin * s.otMultiplier);
   const offDayPay = R((t.offWorkCredit || 0) * perDay); // extra pay for working on the weekly off
-  const gross = round2_(earned - deduction + otPay + offDayPay);
+  arrears = round2_(arrears || 0); // money owed from earlier months, paid with this salary
+  const gross = round2_(earned - deduction + otPay + offDayPay + arrears);
 
   const pay = {
     salary: round2_(emp.salary), earned: earned, prorated: ratio < 1, elapsedDays: t.elapsedDays, daysInMonth: dim,
     perDay: round2_(perDay), hourly: round2_(perHour), perMin: round2_(perMin),
     leaveDed: leaveDed, halfDayDed: halfDayDed, lateCutDed: lateCutDed, shortCutDed: shortCutDed, deduction: round2_(deduction),
-    otPay: otPay, offDayPay: offDayPay, gross: gross, advance: 0,
+    otPay: otPay, offDayPay: offDayPay, arrears: arrears, gross: gross, advance: 0,
     pf: false, pfBankSalary: 0, pfEmployee: 0, pfEmployer: 0, bank: 0, cash: 0, net: gross,
   };
 
@@ -3157,7 +3306,9 @@ function payslipHtml_(emp, m) {
   let earn = row('Monthly Salary', money(p.salary)) +
     (p.prorated ? row('Salary earned (' + p.elapsedDays + ' of ' + p.daysInMonth + ' days)', money(p.earned)) : '') +
     row('OT (' + mins(t.otMin) + ')', money(p.otPay)) +
-    (p.offDayPay ? row('Week-off work (' + t.offWorkCredit + ' day' + (t.offWorkCredit === 1 ? '' : 's') + ')', money(p.offDayPay)) : '');
+    (p.offDayPay ? row('Week-off work (' + t.offWorkCredit + ' day' + (t.offWorkCredit === 1 ? '' : 's') + ')', money(p.offDayPay)) : '') +
+    (m.arrearItems || []).map(a => row('Arrears – ' + e(a.reason), money(a.amount))).join('') +
+    (p.arrears && !(m.arrearItems || []).length ? row('Arrears', money(p.arrears)) : '');
   let ded = row('Leaves (' + (t.absent + t.notJoined) + ' days)', money(p.leaveDed)) +
     row('Half Days (' + t.halfDay + ')', money(p.halfDayDed));
   if (p.lateCutDed) ded += row('Late marks', money(p.lateCutDed));
@@ -3936,8 +4087,10 @@ function adminAddIncrement(token, empId, inc) {
   const amount = Number(inc.amount);
   if (!/^\d{4}-\d{2}$/.test(month)) throw new Error('Choose the month the new salary starts.');
   if (!isFinite(amount) || !amount) throw new Error('Enter the increment amount.');
+  // Starting in a month that is already locked (paid): allowed for a raise; the back-pay for the locked months
+  // becomes arrears paid with this month's salary (see incrementArrears_).
   const locked = lockedFrom_(month);
-  if (locked) throw new Error('Payroll for ' + ymLabel_(locked) + ' is already locked. Choose a month after it.');
+  if (locked && amount < 0) throw new Error('A salary decrease cannot start in ' + ymLabel_(month) + ': payroll up to ' + ymLabel_(locked) + ' is locked. Choose a month after it.');
   const newSalary = round2_(salaryFor_(emp, month) + amount);
   if (newSalary <= 0) throw new Error('The salary would become ' + newSalary + '.');
   const lock = LockService.getScriptLock();
@@ -3949,6 +4102,7 @@ function adminAddIncrement(token, empId, inc) {
     forget_('increments');
     audit_(ctx.emp, 'INCREMENT', emp.id, month + '-01', (amount > 0 ? '+' : '') + amount + ' from ' + ymLabel_(month) +
       ' → ' + newSalary + (inc.note ? ' (' + inc.note + ')' : ''));
+    if (locked) incrementArrears_(ctx, emp, month, amount);
   } finally {
     lock.releaseLock();
   }
@@ -4147,6 +4301,11 @@ function addDays_(dateStr, n) {
 function nextYm_(ym) {
   const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
   return m === 12 ? (y + 1) + '-01' : y + '-' + pad2_(m + 1);
+}
+
+function prevYm_(ym) {
+  const y = Number(ym.slice(0, 4)), m = Number(ym.slice(5, 7));
+  return m === 1 ? (y - 1) + '-12' : y + '-' + pad2_(m - 1);
 }
 
 function validYm_(ym) {

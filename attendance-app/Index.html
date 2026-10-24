@@ -450,6 +450,7 @@
     'Rate (salary ÷ {n} days): {day}/day · {hr}/hr · {min}/min': 'दर (वेतन ÷ {n} दिन): {day}/दिन · {hr}/घंटा · {min}/मिनट',
     'OT ({m})': 'ओवरटाइम ({m})', 'Leaves ({n} days)': 'छुट्टियाँ ({n} दिन)', 'Half Days ({n})': 'आधे दिन ({n})',
     'Late marks cut ({n} days)': 'देर से आने की कटौती ({n} दिन)', 'Advance recovery': 'एडवांस वसूली',
+    'Arrears': 'बकाया (एरियर)', 'Arrears with this salary: {list}': 'इस तनख्वाह के साथ बकाया: {list}',
     'No advance deduction this month{note}.': 'इस महीने एडवांस की कोई कटौती नहीं{note}।',
     'Advance deduction changed to {amt} for this month{note}.': 'इस महीने एडवांस की कटौती {amt} की गई है{note}।',
     'PF Employee (Basic Salary {b})': 'PF कर्मचारी (बेसिक वेतन {b})', 'PF Employer (company contribution)': 'PF नियोक्ता (कंपनी का योगदान)',
@@ -1032,7 +1033,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261050;
+  var NEEDS_SERVER = 20261051;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2084,11 +2085,14 @@
           day: money(p.perDay, cur), hr: money(p.hourly, cur), min: money(p.perMin, cur) }) + '</div>' +
         payLine(t('OT') + ' <span class="muted">(' + mins(tt.otMin) + (m.rules.otMultiplier != 1 ? ' × ' + m.rules.otMultiplier : '') + ')</span>', '+ ' + money(p.otPay, cur), 'green') +
         (p.offDayPay ? payLine(t('Week-off work') + ' <span class="muted">(' + t('{n} days', { n: num(tt.offWorkCredit) }) + ')</span>', '+ ' + money(p.offDayPay, cur), 'green') : '') +
+        (p.arrears ? payLine(t('Arrears') + ((m.arrearItems || []).length ? ' <span class="muted">(' + m.arrearItems.length + ')</span>' : ''), '+ ' + money(p.arrears, cur), 'green') : '') +
         payLine(t('Leaves') + ' <span class="muted">(' + t('{n} days', { n: tt.absent + tt.notJoined }) + ')</span>', '− ' + money(p.leaveDed, cur), 'red') +
         payLine(t('Half Days') + ' <span class="muted">(' + tt.halfDay + ')</span>', '− ' + money(p.halfDayDed, cur), 'red') +
         (p.lateCutDed ? payLine(t('Late marks cut') + ' <span class="muted">(' + t('{n} days', { n: num(tt.lateCutDays) }) + ')</span>', '− ' + money(p.lateCutDed, cur), 'red') : '') +
         (p.shortCutDed ? payLine(t('Late coming / early leaving') + ' <span class="muted">(' + mins(tt.shortMin) + ')</span>', '− ' + money(p.shortCutDed, cur), 'red') : '') +
         (p.advance ? payLine(t('Advance recovery'), '− ' + money(p.advance, cur), 'red') : '');
+      if ((m.arrearItems || []).length) html += '<p class="muted small" style="margin:6px 0 0">' + t('Arrears with this salary: {list}', {
+        list: m.arrearItems.map(function (a) { return esc(a.reason) + ' ' + money(a.amount, cur); }).join(' · ') }) + '</p>';
       (m.advances || []).forEach(function (a, ai) {
         if (navArg && m.canManageAdvance) {
           // Admins: change / skip this month's deduction right here.
@@ -2939,6 +2943,7 @@
         : payLine('Monthly salaries', money(t.monthlySalary, cur))) +
       payLine('OT pay', '+ ' + money(t.otPay, cur), 'green') +
       (t.offDayPay ? payLine('Week-off work pay (' + num(t.offWorkCredit) + ' days)', '+ ' + money(t.offDayPay, cur), 'green') : '') +
+      (t.arrears ? payLine('Arrears', '+ ' + money(t.arrears, cur), 'green') : '') +
       payLine('Leave deductions', '− ' + money(t.leaveDed, cur), 'red') +
       payLine('Half-day deductions', '− ' + money(t.halfDayDed, cur), 'red') +
       (t.lateCutDed ? payLine('Late-mark deductions', '− ' + money(t.lateCutDed, cur), 'red') : '') +
@@ -3024,11 +3029,12 @@
       html += '<div class="list-item" data-q="' + esc((e.name + ' ' + e.id).toLowerCase()) + '" onclick="openEmployee(\'' + esc(e.id) + '\',\'' + ym + '\')" style="cursor:pointer">' +
         '<div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
         '<div class="sub">P ' + e.present + ' · ½ ' + e.halfDay + ' · A ' + (e.absent + e.notJoined) + ' · Late ' + e.late + ' · OT ' + mins(e.otMin) + (e.pf ? ' · <span class="chip s-PF">PF</span>' : '') + '</div>' +
-        (e.advance ? '<div class="sub">Advance − ' + money(e.advance, cur) + '</div>' : '') +
+        (e.advance || e.arrears ? '<div class="sub">' + [e.advance ? 'Advance − ' + money(e.advance, cur) : '',
+          e.arrears ? '<b style="color:var(--green)">Arrears + ' + money(e.arrears, cur) + '</b>' : ''].filter(String).join(' · ') + '</div>' : '') +
         (e.missedCheckouts ? '<div class="sub" style="color:var(--red)">⚠ ' + e.missedCheckouts + ' missed check-out(s)</div>' : '') + '</div>' +
         '<div class="right"><b>' + money(e.net, cur) + '</b>' + (e.pf
           ? (e.bank !== undefined ? '<div class="sub">🏦 ' + money(e.bank, cur) + ' · 💵 ' + money(e.cash, cur) + '</div>' : '') + '<div class="sub">PF ' + money(e.pfEmployee, cur) + ' + ' + money(e.pfEmployer, cur) + '</div>'
-          : '<div class="sub">− ' + money(e.deduction, cur) + ' / + ' + money((e.otPay || 0) + (e.offDayPay || 0), cur) + '</div>') + '</div></div>';
+          : '<div class="sub">− ' + money(e.deduction, cur) + ' / + ' + money((e.otPay || 0) + (e.offDayPay || 0) + (e.arrears || 0), cur) + '</div>') + '</div></div>';
     });
     html += '<div class="pay-line total"><span>Total payroll</span><span>' + money(total, cur) + '</span></div></div>';
     adminBody(html);
@@ -3618,7 +3624,8 @@
   function incrementsHtml(e, i) {
     var inc = e.increments || [];
     var html = '<div class="card" style="background:var(--bg);margin-top:16px"><b>Salary increment</b>' +
-      '<p class="muted small" style="margin:4px 0 0">Original salary ' + money(e.baseSalary, '₹') + '. The new salary applies from the chosen month; earlier months stay as they were. Use a minus amount for a decrease.</p>' +
+      '<p class="muted small" style="margin:4px 0 0">Original salary ' + money(e.baseSalary, '₹') + '. The new salary applies from the chosen month; earlier months stay as they were. Use a minus amount for a decrease. ' +
+      'A raise may also start in a month that is already locked (paid): the back-pay for those months is added as arrears to this month\'s salary.</p>' +
       '<div class="grid2"><div class="field"><label>Increment (₹/month)</label><input id="inAmt" class="inp" inputmode="decimal" placeholder="e.g. 2000"></div>' +
       '<div class="field"><label>From month</label><input id="inMonth" class="inp" type="month" value="' + ymNow() + '"></div></div>' +
       '<div class="field"><label>Note (optional)</label><input id="inNote" class="inp" placeholder="e.g. Annual increment"></div>' +
@@ -3716,28 +3723,35 @@
       '<div class="field"><label>Note</label><input id="avNote" class="inp" placeholder="e.g. Medical"></div>' +
       '<button class="btn" id="avBtn" onclick="saveAdvance()">Save advance</button><div id="avMsg"></div></div>';
 
-    html += '<div class="card"><h2>Advances</h2>';
-    if (!r.list.length) html += '<p class="muted">No advances yet.</p>';
+    html += '<div class="card"><h2>💰 Arrears</h2><p class="muted small" style="margin:-6px 0 8px">Money still owed to an employee from earlier months (e.g. OT short-paid, a late increment). ' +
+      'It is added to the salary of the month you choose, and shows on the payroll, the payslip and the employee\'s own salary.</p>' +
+      '<button class="btn" style="background:var(--green)" onclick="openArrear()">＋ Add arrears</button></div>';
+
+    html += '<div class="card"><h2>Advances &amp; arrears</h2>';
+    if (!r.list.length && !(r.arrears || []).length) html += '<p class="muted">No advances yet.</p>';
     // One card per employee: every payment as a row, then the combined amounts.
     var groups = [], byEmp = {};
     r.list.forEach(function (a, i) {
       if (!byEmp[a.empId]) { byEmp[a.empId] = { empId: a.empId, name: a.name, items: [] }; groups.push(byEmp[a.empId]); }
       byEmp[a.empId].items.push({ a: a, i: i });
     });
+    (r.arrears || []).forEach(function (x) {
+      if (!byEmp[x.empId]) { byEmp[x.empId] = { empId: x.empId, name: x.name, items: [] }; groups.push(byEmp[x.empId]); }
+    });
     groups.forEach(function (g) {
       var sum = function (k) { return g.items.reduce(function (n, x) { return n + (Number(x.a[k]) || 0); }, 0); };
       var total = sum('amount'), thisMonth = sum('thisMonth'), after = sum('balanceAfter'), recovered = sum('deductedBefore');
       // Repaid only when an admin marked it (status Closed); until then it is Active (or Paused).
       var running = g.items.filter(function (x) { return x.a.status === 'ACTIVE'; }).length;
-      var allClosed = g.items.every(function (x) { return x.a.status === 'CLOSED'; });
-      var st = allClosed ? '<span class="chip s-APPROVED">✓ Repaid</span>' : running ? '<span class="chip s-WORKING">Active</span>' : '<span class="chip s-PAUSED">Paused</span>';
+      var allClosed = g.items.length && g.items.every(function (x) { return x.a.status === 'CLOSED'; });
+      var st = !g.items.length ? '' : allClosed ? '<span class="chip s-APPROVED">✓ Repaid</span>' : running ? '<span class="chip s-WORKING">Active</span>' : '<span class="chip s-PAUSED">Paused</span>';
       var rows = [];
       g.items.forEach(function (x) {
         (x.a.given && x.a.given.length ? x.a.given : [{ date: x.a.dateGiven, amount: x.a.amount, note: x.a.note }]).forEach(function (p) { rows.push({ p: p, x: x }); });
       });
       rows.sort(function (u, v) { return u.p.date < v.p.date ? -1 : u.p.date > v.p.date ? 1 : 0; });
-      html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(g.name) + ' <span class="muted" style="font-weight:400">' + esc(g.empId) + '</span></div>' + st + '</div>' +
-        '<table class="given"><tr><th>Date given</th><th class="r">Amount</th><th>Note</th><th>Status</th></tr>' +
+      html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(g.name) + ' <span class="muted" style="font-weight:400">' + esc(g.empId) + '</span></div>' + st + '</div>';
+      if (g.items.length) html += '<table class="given"><tr><th>Date given</th><th class="r">Amount</th><th>Note</th><th>Status</th></tr>' +
         rows.map(function (u) {
           return '<tr><td>' + esc(fmtDate(u.p.date)) + '</td><td class="r">' + money(u.p.amount, cur) + '</td><td class="muted">' + esc(u.p.note || '') + '</td>' +
             '<td><button class="link adv-st" onclick="advManage(' + u.x.i + ')">' + advStatusText(u.x.a, cur) + ' ›</button></td></tr>';
@@ -3746,8 +3760,10 @@
         '<div class="kv" style="margin-top:8px"><div class="k-red"><b>' + money(total - recovered, cur) + '</b><span>Pending</span></div>' +
         '<div><b>' + money(thisMonth, cur) + '</b><span>This month</span></div>' +
         '<div class="k-red"><b>' + money(after, cur) + '</b><span>Balance after</span></div></div>' +
-        (recovered ? '<p class="muted small" style="margin:6px 0 0">Recovered so far: ' + money(recovered, cur) + '</p>' : '') +
-        '<div class="btns"><button class="btn small ghost" onclick="advAddMore(\'' + esc(g.empId) + '\')">＋ Add more</button></div>';
+        (recovered ? '<p class="muted small" style="margin:6px 0 0">Recovered so far: ' + money(recovered, cur) + '</p>' : '');
+      html += arrearsBlockHtml(r, g.empId, cur) + '<div class="btns">' +
+        (g.items.length ? '<button class="btn small ghost" onclick="advAddMore(\'' + esc(g.empId) + '\')">＋ Add more</button>' : '') +
+        '<button class="btn small" style="background:var(--green)" onclick="openArrear(\'' + esc(g.empId) + '\')">＋ Add arrears</button></div>';
       html += '</div>';
     });
     html += '</div><p class="muted small center">Tap a <b>Status</b> to change a month, change the monthly deduction, pause or close that advance. <b>Add more</b> adds a new amount to a running advance (one balance, one deduction). ' +
@@ -3755,6 +3771,55 @@
       'Pause skips every month until resumed. <b>Mark as repaid</b> closes it (also when repaid in cash); until then it shows as Active. Locked months keep what was actually deducted.</p>';
     adminBody(html);
     advEmpHint();
+  }
+
+  /** An employee's arrears on their Advances card: pending ones (tap to edit / delete) and recently paid ones. */
+  function arrearsBlockHtml(r, empId, cur) {
+    var list = (r.arrears || []).map(function (x, i) { return { x: x, i: i }; }).filter(function (u) { return u.x.empId === empId; });
+    if (!list.length) return '';
+    var pending = list.filter(function (u) { return !u.x.paid; }), paid = list.filter(function (u) { return u.x.paid; });
+    var sum = function (l) { return l.reduce(function (n, u) { return n + u.x.amount; }, 0); };
+    var byMonth = {}; pending.forEach(function (u) { byMonth[u.x.payMonth] = (byMonth[u.x.payMonth] || 0) + u.x.amount; });
+    return '<div style="margin-top:12px;padding:10px;border-radius:12px;background:#eefaf2;border:1px solid #bfe8cc">' +
+      '<div class="row"><b>💰 Arrears (to pay with salary)</b>' + (pending.length ? '<span class="chip s-PRESENT">Pending ' + money(sum(pending), cur) + '</span>' : '') + '</div>' +
+      '<table class="given"><tr><th>Added</th><th>Reason</th><th class="r">Amount</th><th>Pay with</th><th>Status</th></tr>' +
+      list.map(function (u) {
+        var x = u.x;
+        return '<tr' + (x.paid ? ' style="opacity:.6"' : '') + '><td>' + esc(fmtDate(x.date)) + '</td><td>' + esc(x.reason) + (x.auto ? ' <span class="chip s-WORKING" style="font-size:10px">auto</span>' : '') +
+          (x.note ? '<div class="muted small">' + esc(x.note) + '</div>' : '') + '</td><td class="r">' + money(x.amount, cur) + '</td><td>' + esc(monthName(x.payMonth)) + '</td>' +
+          '<td>' + (x.paid ? '✓ Paid' : '<button class="link adv-st" onclick="openArrear(null,' + u.i + ')">Pending ›</button>') + '</td></tr>';
+      }).join('') + '</table>' +
+      '<div class="kv" style="margin-top:8px">' + Object.keys(byMonth).sort().map(function (k) {
+        return '<div><b style="color:var(--green)">+ ' + money(byMonth[k], cur) + '</b><span>With ' + esc(monthName(k)) + ' salary</span></div>'; }).join('') +
+      (paid.length ? '<div><b>' + money(sum(paid), cur) + '</b><span>Paid earlier</span></div>' : '') + '</div></div>';
+  }
+
+  /** Add (empId given or chosen) or edit (index into S.adv.arrears) an arrears entry. */
+  function openArrear(empId, i) {
+    var r = S.adv, x = i != null ? r.arrears[i] : null;
+    var emp = x ? x.empId : empId;
+    var name = x ? x.name : emp ? ((r.employees.filter(function (e) { return e.id === emp; })[0] || {}).name || emp) : '';
+    openModal('<div class="row"><h2 style="margin:0">' + (x ? 'Arrears – ' : 'Add arrears' + (emp ? ' – ' : '')) + esc(name) + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small" style="margin:6px 0 10px">Money still owed from earlier months. It is added to the salary of the month you choose.</p>' +
+      (emp ? '' : '<div class="field"><label>Employee</label><select id="arEmp" class="inp">' + r.employees.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.name) + ' (' + esc(e.id) + ')</option>'; }).join('') + '</select></div>') +
+      '<div class="field"><label>Amount</label><input id="arAmt" class="inp" inputmode="decimal" placeholder="e.g. 700" value="' + (x ? esc(x.amount) : '') + '"></div>' +
+      '<div class="field"><label>Reason</label><input id="arWhy" class="inp" maxlength="120" placeholder="e.g. Sep OT short-paid" value="' + (x ? esc(x.reason) : '') + '"></div>' +
+      '<div class="field"><label>Pay with the salary of</label><input id="arMonth" class="inp" type="month" min="' + r.currentMonth + '" value="' + (x ? x.payMonth : r.currentMonth) + '"></div>' +
+      '<div class="field"><label>Note (optional)</label><input id="arNote" class="inp" maxlength="200" placeholder="e.g. 3 h OT on 12 Sep not counted" value="' + (x ? esc(x.note) : '') + '"></div>' +
+      '<div id="arMsg"></div><button class="btn" id="arBtn" style="background:var(--green)" onclick="saveArrear(' + (x ? '\'' + esc(x.id) + '\'' : 'null') + ',' + (emp ? '\'' + esc(emp) + '\'' : 'null') + ')">' + (x ? 'Save changes' : 'Save arrears') + '</button>' +
+      (x ? '<button class="btn soft-red" onclick="deleteArrear(\'' + esc(x.id) + '\')">Delete</button>' : '') +
+      '<button class="btn ghost" onclick="closeModal()">Cancel</button>');
+  }
+  function saveArrear(id, empId) {
+    var a = { id: id || undefined, empId: empId || ($('arEmp') && $('arEmp').value), amount: $('arAmt').value, reason: $('arWhy').value, payMonth: $('arMonth').value, note: $('arNote').value };
+    $('arBtn').disabled = true;
+    api('adminSaveArrear', S.token, a).then(function (r) { closeModal(); renderAdvances(r); toast('Arrears saved'); })
+      .catch(function (e) { $('arBtn').disabled = false; $('arMsg').innerHTML = errBox(e); });
+  }
+  function deleteArrear(id) {
+    if (!confirm('Delete these arrears?')) return;
+    api('adminDeleteArrear', S.token, id).then(function (r) { closeModal(); renderAdvances(r); toast('Deleted'); })
+      .catch(function (e) { $('arMsg').innerHTML = errBox(e); });
   }
 
   /** Every payment of an advance on its own row: date, amount, note (and the total when there are several). */
