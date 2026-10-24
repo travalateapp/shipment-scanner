@@ -41,7 +41,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261052;
+const SERVER_VERSION = 20261053;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -1354,7 +1354,8 @@ function payrollRows_(ctx, ym) {
 
   const rows = getEmployees_().filter(e => (employedInMonth_(e, ym) || withRecords[e.id]) && canManage_(ctx, e.id)).map(e => {
     const m = buildMonth_(e, ym);
-    return hideSplit_(Object.assign({ id: e.id, name: e.name, advances: m.advances || [], arrearItems: m.arrearItems || [] }, m.totals, m.pay), ctx.perms.viewSplit);
+    return hideSplit_(Object.assign({ id: e.id, name: e.name, advances: m.advances || [], arrearItems: m.arrearItems || [],
+      upcomingAdvances: m.upcomingAdvances || [] }, m.totals, m.pay), ctx.perms.viewSplit);
   });
   return {
     ym: ym, label: ymLabel_(ym), currency: s.currency, rows: rows,
@@ -1404,6 +1405,7 @@ function adminSummary(token, ym) {
       advances: (r.advances || []).map(a => ({ id: a.id, note: a.note, amount: a.amount, monthly: a.monthly,
         startMonth: a.startMonth, wanted: a.wanted, deducted: a.deducted, balanceBefore: a.balanceBefore,
         balanceAfter: a.balanceAfter, changed: a.changed, changeNote: a.changeNote })),
+      upcomingAdvances: r.upcomingAdvances || [], // given already, deducted from a later month
       canEditAdvance: !!ctx.perms.manageAdvances && !data.locked && canEditEmployee_(ctx, r.id),
     })),
   };

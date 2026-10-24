@@ -1034,7 +1034,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261052;
+  var NEEDS_SERVER = 20261053;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2980,7 +2980,9 @@
     S.summary = r;
     var advRows = [];
     r.rows.forEach(function (e, ri) { (e.advances || []).forEach(function (a, ai) { advRows.push({ e: e, a: a, ri: ri, ai: ai }); }); });
-    if (advRows.length) {
+    var laterRows = [];
+    r.rows.forEach(function (e) { (e.upcomingAdvances || []).forEach(function (a) { laterRows.push({ e: e, a: a }); }); });
+    if (advRows.length || laterRows.length) {
       html += '<div class="card"><h2>💳 Advances this month</h2>';
       advRows.forEach(function (x) {
         var a = x.a;
@@ -2990,6 +2992,14 @@
           (a.changed ? ' <span class="chip s-OT">changed</span>' + (a.changeNote ? ' ' + esc(a.changeNote) : '') : '') +
           ' · balance after ' + money(Math.max(0, a.balanceBefore - a.wanted), cur) + '</div></div>' +
           (x.e.canEditAdvance ? '<div class="right"><button class="btn small" onclick="changeSumAdv(' + x.ri + ',' + x.ai + ')">Change</button></div>' : '') + '</div>';
+      });
+      // Given already, deducted from a later month: listed so nothing given this month is missed.
+      laterRows.forEach(function (x) {
+        var a = x.a;
+        html += '<div class="list-item"><div><div class="name">' + esc(x.e.name) + ' <span class="muted" style="font-weight:400">' + esc(x.e.id) + '</span></div>' +
+          '<div class="sub">Advance ' + money(a.amount, cur) + (a.dateGiven ? ' · given ' + esc(fmtDate(a.dateGiven)) : '') + (a.note ? ' · ' + esc(a.note) : '') + ' · ' + money(a.monthly, cur) + '/month</div>' +
+          '<div class="sub"><b>No deduction</b> this month · deduction starts <b>' + esc(monthName(a.startMonth)) + '</b>' + (a.status === 'PAUSED' ? ' · Paused' : '') + '</div></div>' +
+          '<div class="right"><span class="chip s-PENDING">From ' + esc(monthName(a.startMonth)) + '</span></div></div>';
       });
       html += '</div>';
     }
