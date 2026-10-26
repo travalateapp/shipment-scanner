@@ -4397,6 +4397,38 @@ function updateShipment(id, updates) {
         const newPlatform = updates.platform !== undefined ? updates.platform : oldPlatform;
         const newPoNumber = updates.poNumber !== undefined ? updates.poNumber : oldPoNumber;
         const newBoxesForPo = updates.boxes !== undefined ? updates.boxes : oldBoxesForPo;
+
+        // ── Adjustment-vs-edit reconciliation ───────────────────
+        // Guard against editing a shipment's boxes down below what's
+        // already been recorded as "Short" against it via the
+        // Adjustment Block (see adjustShipmentQuantities) — that
+        // ledger assumes whatever was packed at adjustment time stays
+        // packed. Without this check, an edit that later drops a
+        // SKU's packed quantity below its already-adjusted amount
+        // makes "Packed" (netPacked = originalPacked − short, see the
+        // Balance popup) go negative — an impossible, confusing
+        // number with no real meaning, and exactly what happens if
+        // this is skipped. Checked before any PO-sync or sheet write
+        // below, same validate-everything-first pattern as the rest
+        // of this function.
+        if (updates.boxes !== undefined) {
+          const existingAdjustments = parseShipmentAdjustments_(data[i][SHIP_COLS.ADJUSTMENTS_JSON - 1]);
+          const alreadyAdjustedBySku = sumAdjustmentsBySku_(existingAdjustments);
+          const newPackedBySku = sumPackedBySkuFromBoxes_(updates.boxes);
+          for (const skuKey in alreadyAdjustedBySku) {
+            const adjusted = alreadyAdjustedBySku[skuKey];
+            const nowPacked = newPackedBySku[skuKey] || 0;
+            if (nowPacked < adjusted) {
+              const displaySku = (existingAdjustments.find(a => String(a.sku || "").trim().toUpperCase() === skuKey) || {}).sku || skuKey;
+              return {
+                success: false,
+                message: displaySku + " already has " + adjusted + " unit(s) recorded as short via the Adjustment Block, but this edit leaves only " +
+                  nowPacked + " packed. Reduce or undo that adjustment first, or keep at least " + adjusted + " of this SKU packed."
+              };
+            }
+          }
+        }
+
         const oldPlatformLower = oldPlatform.toLowerCase();
         const newPlatformLower = (newPlatform || "").toString().trim().toLowerCase();
         const oldIsPoDriven = !!poPlatformConfig_(oldPlatformLower) && !!oldPoNumber;

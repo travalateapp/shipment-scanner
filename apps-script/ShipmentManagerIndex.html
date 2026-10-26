@@ -10928,7 +10928,17 @@ function renderPoBalancePopup_(poNum, items, shipment) {
             // still broken/inconsistent even after the Remaining fix.
             // Shipment-tab context is unaffected: netPacked already IS
             // that one shipment's own full packed amount minus Adjustments.
-            const netPacked = isLiveContext ? (it.shippedQty||0) + originalPacked : originalPacked - short; // what actually shipped
+            // Floored at 0 for shipment context: an Adjustment's "Short"
+            // assumes whatever was packed at adjustment time stays
+            // packed, so editing a shipment's boxes down afterward
+            // (now blocked going forward — see updateShipment's
+            // reconciliation guard) can still leave old, already-saved
+            // data where short > originalPacked. Rather than ever
+            // display that as a nonsensical negative "Packed" number,
+            // floor it here — the Short column right next to it still
+            // shows the real recorded shortage either way, so nothing
+            // about the mismatch is hidden, just not shown as impossible.
+            const netPacked = isLiveContext ? (it.shippedQty||0) + originalPacked : Math.max(0, originalPacked - short); // what actually shipped
             // Remaining = PO Qty − ORIGINAL Packed, unaffected by any
             // later Adjustment  -  the PO's own fulfillment record doesn't
             // change just because less physically went out.
