@@ -41,7 +41,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261053;
+const SERVER_VERSION = 20261054;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2446,7 +2446,7 @@ function adminExportPayroll(token, ym) {
   const header = ['Emp ID', 'Name', 'Monthly Salary', 'Days Counted', 'Salary Earned', 'Present', 'Half Days',
     'Absent (Leaves)', 'Paid Leave', 'Week Off', 'Holidays', 'Worked on Off-Day', 'Late Marks', 'Late Mins',
     'Early Leaving Mins', 'OT Mins (gross)', 'OT Taken for Late/Early (mins)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
-    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Arrears', 'Arrears Reason', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut (no OT)', 'Advance Deduction', 'Gross Payable',
+    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Arrears', 'Arrears Reason', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut', 'Advance Deduction', 'Gross Payable',
     'PF', 'Basic Salary (PF)', 'PF Employee', 'PF Employer']
     .concat(split ? ['In Bank', 'In Cash'] : []).concat(['Total Salary']);
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
@@ -2506,8 +2506,8 @@ function payrollFormulas_(r, split) {
       R(Math.floor(r.late / s.latesPerHalfDay) * 0.5 * perDay), r.lateCutDed);
   }
   // Short minutes on full days of employees without hourly OT (not a column of its own).
-  add('Late/Early Cut (no OT)', RF((r.shortMin || 0) + '*[Per Min]'), R((r.shortMin || 0) * perMin), r.shortCutDed || 0);
-  add('Gross Payable', 'ROUND([Salary Earned]-MIN([Salary Earned],[Leave Deduction]+[Half Day Deduction]+[Late Cut Deduction]+[Late/Early Cut (no OT)])+[OT Pay]+[Week-Off Work Pay]+[Arrears],2)',
+  add('Late/Early Cut', RF((r.shortMin || 0) + '*[Per Min]'), R((r.shortMin || 0) * perMin), r.shortCutDed || 0);
+  add('Gross Payable', 'ROUND([Salary Earned]-MIN([Salary Earned],[Leave Deduction]+[Half Day Deduction]+[Late Cut Deduction]+[Late/Early Cut])+[OT Pay]+[Week-Off Work Pay]+[Arrears],2)',
     round2_(r.earned - Math.min(r.earned, r.leaveDed + r.halfDayDed + r.lateCutDed + (r.shortCutDed || 0)) + r.otPay + (r.offDayPay || 0) + (r.arrears || 0)), r.gross);
   if (!r.pf) {
     add('Total Salary', 'ROUND([Gross Payable]-[Advance Deduction],2)', round2_(r.gross - (r.advance || 0)), r.net);
@@ -3035,11 +3035,15 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
   // beyond half the shift on half days, plus the hours of days counted Absent (too few hours), plus OT
   // from weekly-off / holiday work. Coming late or leaving early is already inside the worked minutes.
   // No hourly OT for this employee → only the weekly-off / holiday part.
-  const weekdayOt = es.hourlyOt === false ? 0 : Math.max(0, t.workedMin - t.targetMin);
   t.earlyExitOtMin = es.hourlyOt === false ? 0 : t.halfDayExtraMin + t.absentWorkMin; // left out of the leaderboard
+  // Hourly OT: late coming / early leaving on full days is taken from ALL the month's OT (full days, half-day
+  // extra, absent-day minutes, weekly-off OT). When it is more than the OT, the rest is cut from the salary
+  // by the minute (t.lateOverOtMin, added to t.shortMin → "Late coming / early leaving" deduction).
   // Gross = all OT earned before late coming / early leaving is taken off; net = what is paid.
-  // (weekdayOt = extra − short, never below zero, so gross − net = the late / early minutes taken from OT.)
-  t.otMin = weekdayOt + t.earlyExitOtMin + t.offDayOtMin;
+  const otBalance = es.hourlyOt === false ? t.offDayOtMin : (t.workedMin - t.targetMin) + t.earlyExitOtMin + t.offDayOtMin;
+  t.otMin = Math.max(0, otBalance);
+  t.lateOverOtMin = es.hourlyOt === false ? 0 : Math.max(0, -otBalance);
+  t.shortMin += t.lateOverOtMin;
   t.otMinGross = (es.hourlyOt === false ? 0 : t.otExtraMin) + t.earlyExitOtMin + t.offDayOtMin;
   t.otCutMin = t.otMinGross - t.otMin;
   t.otHours = round2_(t.otMin / 60);
@@ -3089,7 +3093,7 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
   const leaveDed = R((t.absent + t.notJoined) * perDay);
   const halfDayDed = R(t.halfDay * 0.5 * perDay);
   const lateCutDed = R(t.lateCutDays * perDay);
-  const shortCutDed = R((t.shortMin || 0) * perMin); // late / early on full days, employees without hourly OT
+  const shortCutDed = R((t.shortMin || 0) * perMin); // late / early: by the minute without hourly OT; with hourly OT only what is more than the OT
   const deduction = Math.min(earned, leaveDed + halfDayDed + lateCutDed + shortCutDed);
   const otPay = R(t.otMin * perMin * s.otMultiplier);
   const offDayPay = R((t.offWorkCredit || 0) * perDay); // extra pay for working on the weekly off

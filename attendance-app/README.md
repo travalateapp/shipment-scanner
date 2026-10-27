@@ -456,6 +456,7 @@ Employees see an **English | हिंदी** switch at the top of the Attendan
 - **OT columns in the payroll Excel:**
   - **OT Mins (gross)**: all OT earned before anything is taken off. That is time worked before or after the shift on full days, plus extra time on half days, the hours of days counted Absent, and weekly-off / holiday OT.
   - **OT Taken for Late/Early (mins)**: late coming, early leaving and time away, taken from that OT. It is never more than the OT earned.
+  - **Late/Early Cut**: late coming / early leaving cut from the salary. Without hourly OT it is cut by the minute. **With hourly OT**, only the part that is **more than all of the month's OT** is cut, by the minute. The OT includes the half-day extra, absent-day minutes and weekly-off OT.
   - **OT Mins (net)**: gross − taken. This is the figure that is paid.
 - **Formulas in the payroll Excel:** every calculated cell holds its formula, and its value is the same as in the app.
   - Formula cells: Per Day / Hour / Min, Salary Earned, OT net, OT Hrs, OT Pay, Week-Off Work Pay, the deductions, Gross Payable, In Bank / In Cash and Total Salary. The totals row uses SUM.
