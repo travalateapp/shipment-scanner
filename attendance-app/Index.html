@@ -442,7 +442,8 @@
     'missed.days.note': 'आधी रात को अपने-आप बंद किया गया और एडमिन के ठीक करने तक {status} गिना जाएगा। कैलेंडर में इन्हें लाल घेरे से दिखाया गया है।',
     'Absent (Leaves)': 'अनुपस्थित', 'Half Days': 'आधे दिन', 'Late · {m}': 'देर से · {m}', 'Early leaving': 'जल्दी गए',
     'Total OT': 'कुल ओवरटाइम', 'Paid Leave': 'सवेतन छुट्टी', 'Week Off / Holiday': 'साप्ताहिक छुट्टी / अवकाश',
-    'ot.month': 'ओवरटाइम = पूरे दिनों में काम का समय {w} − कामकाजी समय ({n} पूरे दिन × {h} घंटे) = {x}. गैरहाज़िर और आधे दिन ओवरटाइम नहीं काटते (उनकी तनख्वाह पहले ही कटती है)।', 'ot.halfday': '+ आधे दिनों में आधी शिफ्ट से ज़्यादा काम {o}.', 'ot.absentwork': '+ गैरहाज़िर गिने गए दिनों (कम घंटे) में किया काम {o}.', 'ot.offday': '+ साप्ताहिक छुट्टी / अवकाश का ओवरटाइम {o}.',
+    'ot.month': 'ओवरटाइम = पूरे दिनों में काम का समय {w} − कामकाजी समय ({n} पूरे दिन × {h} घंटे) = {x}. गैरहाज़िर और आधे दिन ओवरटाइम नहीं काटते (उनकी तनख्वाह पहले ही कटती है)।',
+    'ot.over': 'देर से आना / जल्दी जाना ओवरटाइम से <b>{m}</b> ज़्यादा रहा: यह समय तनख्वाह से कटता है।', 'ot.halfday': '+ आधे दिनों में आधी शिफ्ट से ज़्यादा काम {o}.', 'ot.absentwork': '+ गैरहाज़िर गिने गए दिनों (कम घंटे) में किया काम {o}.', 'ot.offday': '+ साप्ताहिक छुट्टी / अवकाश का ओवरटाइम {o}.',
     'No hourly OT for this employee.': 'इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है।', 'Total OT = <b>{n}</b>': 'कुल ओवरटाइम = <b>{n}</b>', 'Late {m}': 'देर {m}', 'Early {m}': 'जल्दी {m}',
     'ot.pending': '{m} ओवरटाइम एडमिन की मंज़ूरी का इंतज़ार कर रहा है (अभी गिना नहीं गया)।',
     'Salary': 'वेतन', '🔒 Final': '🔒 अंतिम', 'Month in progress': 'महीना जारी है', 'Monthly Salary': 'मासिक वेतन',
@@ -561,7 +562,8 @@
     'day.shortcut': 'Worked {m} less than the shift. No hourly OT for this employee, so it is cut from the salary.',
     'day.short': 'Worked {m} less than the shift. This is cut from the OT of other days in the month (never below zero).',
     'day.absentot': 'Too few hours for a half day: the day\'s salary is cut, the time worked is paid as OT.',
-    'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.absentwork': '+ time worked on days counted absent (too few hours) {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
+    'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).',
+    'ot.over': 'Late coming / early leaving was <b>{m}</b> more than the OT: that time is cut from the salary.', 'ot.halfday': '+ time beyond half the shift on half days {o}.', 'ot.absentwork': '+ time worked on days counted absent (too few hours) {o}.', 'ot.offday': '+ weekly-off / holiday OT {o}.',
     'missed.days.note': 'Auto-closed at midnight and counted as {status} until an admin clears them. They have a red outline in the calendar.',
     'missed.day.note': 'Auto-closed at midnight and counted as {status} until an admin clears it. It has a red outline in the calendar.',
     'ot.pending': '{m} OT is waiting for admin approval (not counted yet).',
@@ -1034,7 +1036,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261053;
+  var NEEDS_SERVER = 20261054;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2063,12 +2065,13 @@
       (tt.offWork && m.rules.weekOff ? '<p class="muted small" style="margin:10px 0 0">' + t('wo.rule', { s: m.rules.weekOff.start, e: m.rules.weekOff.end, f: m.rules.weekOff.full, h: m.rules.weekOff.half }) + '</p>' : '');
     if (m.rules.monthlyOt && tt.targetMin !== undefined) {
       var otTxt = m.rules.hourlyOt
-        ? t('ot.month', { w: mins(tt.workedMin), n: tt.workDays, h: num(m.rules.standardHours), x: mins(Math.max(0, tt.workedMin - tt.targetMin)) })
+        ? t('ot.month', { w: mins(tt.workedMin), n: tt.workDays, h: num(m.rules.standardHours), x: (tt.workedMin < tt.targetMin ? '− ' : '') + mins(Math.abs(tt.workedMin - tt.targetMin)) })
         : t('No hourly OT for this employee.');
       if (m.rules.hourlyOt && tt.halfDayExtraMin) otTxt += ' ' + t('ot.halfday', { o: mins(tt.halfDayExtraMin) });
       if (m.rules.hourlyOt && tt.absentWorkMin) otTxt += ' ' + t('ot.absentwork', { o: mins(tt.absentWorkMin) });
       if (tt.offDayOtMin) otTxt += ' ' + t('ot.offday', { o: mins(tt.offDayOtMin) });
-      html += '<p class="muted small" style="margin:10px 0 0">' + otTxt + ' ' + t('Total OT = <b>{n}</b>', { n: mins(tt.otMin) }) + '</p>';
+      html += '<p class="muted small" style="margin:10px 0 0">' + otTxt + ' ' + t('Total OT = <b>{n}</b>', { n: mins(tt.otMin) }) +
+        (tt.lateOverOtMin ? ' ' + t('ot.over', { m: mins(tt.lateOverOtMin) }) : '') + '</p>';
     }
     if (tt.otPendingMin) html += '<div class="msg warn">' + t('ot.pending', { m: mins(tt.otPendingMin) }) + '</div>';
     html += '</div>';
@@ -2953,7 +2956,7 @@
       payLine('Leave deductions', '− ' + money(t.leaveDed, cur), 'red') +
       payLine('Half-day deductions', '− ' + money(t.halfDayDed, cur), 'red') +
       (t.lateCutDed ? payLine('Late-mark deductions', '− ' + money(t.lateCutDed, cur), 'red') : '') +
-      (t.shortCutDed ? payLine('Late / early cut (no hourly OT)', '− ' + money(t.shortCutDed, cur), 'red') : '') +
+      (t.shortCutDed ? payLine('Late / early cut', '− ' + money(t.shortCutDed, cur), 'red') : '') +
       (t.advance ? payLine('Advances recovered', '− ' + money(t.advance, cur), 'red') : '') +
       (t.pfEmployee ? payLine('PF employee share', '− ' + money(t.pfEmployee, cur), 'red') : '') +
       '</div></div>';
