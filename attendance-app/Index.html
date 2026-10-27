@@ -2122,9 +2122,11 @@
           (a.given && a.given.length > 1 ? givenHtml(a, cur) : '');
       });
       (m.upcomingAdvances || []).forEach(function (a) {
-        html += '<p class="muted small" style="margin:8px 0 0">' + t('Advance {amt}{note} given {date}: {mon}/month will be deducted from {start}.', {
-          amt: money(a.amount, cur), note: a.note ? ' (' + esc(a.note) + ')' : '', date: a.dateGiven ? esc(fmtDate(a.dateGiven)) : '',
-          mon: money(a.monthly, cur), start: esc(monthName(a.startMonth)) }) + (a.status === 'PAUSED' ? ' · ' + esc(t(STATUS.PAUSED || 'Paused')) : '') + '</p>';
+        // Highlighted (yellow) with the amounts and dates in bold, so a coming deduction is not missed.
+        html += '<p class="small" style="margin:8px 0 0;padding:8px 10px;border-radius:10px;background:#fff4c2;border:1px solid #f3d36b;color:#5c4400">' +
+          t('Advance {amt}{note} given {date}: {mon}/month will be deducted from {start}.', {
+          amt: '<b>' + money(a.amount, cur) + '</b>', note: a.note ? ' (' + esc(a.note) + ')' : '', date: a.dateGiven ? '<b>' + esc(fmtDate(a.dateGiven)) + '</b>' : '',
+          mon: '<b>' + money(a.monthly, cur) + '</b>', start: '<b>' + esc(monthName(a.startMonth)) + '</b>' }) + (a.status === 'PAUSED' ? ' · ' + esc(t(STATUS.PAUSED || 'Paused')) : '') + '</p>';
       });
       if (p.prorated) html += '<p class="muted small" style="margin:8px 0 0">' + t('prorated.note') + '</p>';
       if (!navArg || m.canPayslip) html += '<button class="btn ghost" onclick="openPayslip(\'' + m.ym + '\'' + (navArg ? ',\'' + esc(m.employee.id) + '\'' : '') + ')">' + t('📄 Payslip') + '</button>';
