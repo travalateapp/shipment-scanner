@@ -7060,6 +7060,16 @@ function generateSkuLabelTspl_impl_(sku, platform, qty) {
       return { success: false, message: 'SKU "' + sku + '" has no MRP in SKU_MASTER — add one in the SKU Master tab before printing labels.' };
     }
 
+    // MFG Date is no longer a per-SKU value maintained in SKU_MASTER —
+    // it's always computed fresh at print time as "20 days before
+    // today", same MMM-yy format getSkuData() used to read it in. E.g.
+    // printed on Oct 20 -> Sep 30 -> "SEP-26"; printed on Oct 21 ->
+    // Oct 1 -> "OCT-26". No SKU_MASTER lookup/validation needed for it
+    // at all anymore.
+    const mfgDateObj = new Date();
+    mfgDateObj.setDate(mfgDateObj.getDate() - 20);
+    const mfgDate = Utilities.formatDate(mfgDateObj, Session.getScriptTimeZone() || "Etc/UTC", "MMM-yy").toUpperCase();
+
     const labelData = {
       platform: platform.charAt(0).toUpperCase() + platform.slice(1),
       productName: row.description || sku,
@@ -7068,7 +7078,7 @@ function generateSkuLabelTspl_impl_(sku, platform, qty) {
       barcodeValue: barcodeValue,
       sku: sku,
       mrp: row.mrp,
-      mfgDate: row.mfgDate,
+      mfgDate: mfgDate,
       quantity: row.packQty || "1",
       productType: row.productType,
       color: row.color,

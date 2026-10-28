@@ -9922,8 +9922,17 @@ function skuFieldKey_(header) {
 }
 const SKU_COMMON_FIELD_KEYS_ = [
   'INVENTORY_SKU','SKU','DESCRIPTION','WEIGHT_PER_UNIT','MRP','HSN','TAX',
-  'CASE_PACK_SIZE','MFG_DATE','PRODUCT_TYPE','COLOR','COUNTRY','PACK_QTY'
+  'CASE_PACK_SIZE','PRODUCT_TYPE','COLOR','COUNTRY','PACK_QTY'
 ];
+// Never shown in the Add/Edit SKU form at all (not even under "Other
+// Fields") — MFG_DATE used to be a per-SKU value maintained here, but
+// labels now always compute it fresh at print time as "20 days before
+// today" instead (see generateSkuLabelTspl_impl_ in ShipmentManager.gs),
+// so there's nothing left that reads this column. Deliberately NOT
+// deleted from the sheet itself, just no longer editable from this
+// form — see saveSkuForm_, which preserves whatever's already in a
+// hidden field's cell rather than blanking it on save.
+const SKU_FORM_HIDDEN_FIELD_KEYS_ = ['MFG_DATE'];
 const SKU_PLATFORM_FIELD_GROUPS_ = {
   amazon:  { label: 'Amazon',  keys: ['AMAZON_SKU','AMAZON'] },
   blinkit: { label: 'Blinkit', keys: ['BLINKIT','BLINKIT_ITEM_ID','BLINKIT_LANDING_PRICE'] },
@@ -9933,7 +9942,7 @@ const SKU_PLATFORM_FIELD_GROUPS_ = {
 const SKU_FIELD_LABELS_ = {
   INVENTORY_SKU: 'Inventory SKU', SKU: 'SKU', DESCRIPTION: 'Description',
   WEIGHT_PER_UNIT: 'Weight per Unit (kg)', MRP: 'MRP', HSN: 'HSN Code', TAX: 'Tax (%)',
-  CASE_PACK_SIZE: 'Case Pack Size', MFG_DATE: 'MFG Date', PRODUCT_TYPE: 'Product Type',
+  CASE_PACK_SIZE: 'Case Pack Size', PRODUCT_TYPE: 'Product Type',
   COLOR: 'Color', COUNTRY: 'Country of Origin', PACK_QTY: 'Pack Qty',
   AMAZON_SKU: 'Amazon SKU', AMAZON: 'Amazon UPC',
   BLINKIT: 'Blinkit UPC', BLINKIT_ITEM_ID: 'Blinkit Item ID', BLINKIT_LANDING_PRICE: 'Blinkit Landing Price',
@@ -9979,7 +9988,10 @@ function openSkuFormModal_(rowIndex) {
 
   const platformKeysFlat = Object.values(SKU_PLATFORM_FIELD_GROUPS_).flatMap(g => g.keys);
   const commonHeaders = headers.filter(h => SKU_COMMON_FIELD_KEYS_.includes(skuFieldKey_(h)));
-  const otherHeaders = headers.filter(h => !SKU_COMMON_FIELD_KEYS_.includes(skuFieldKey_(h)) && !platformKeysFlat.includes(skuFieldKey_(h)));
+  const otherHeaders = headers.filter(h =>
+    !SKU_COMMON_FIELD_KEYS_.includes(skuFieldKey_(h)) &&
+    !platformKeysFlat.includes(skuFieldKey_(h)) &&
+    !SKU_FORM_HIDDEN_FIELD_KEYS_.includes(skuFieldKey_(h)));
 
   document.getElementById('skuFormCommonFields').innerHTML =
     commonHeaders.map(h => skuFormFieldInputHtml_(h, valueFor(h))).join('');
@@ -10039,7 +10051,15 @@ function saveSkuForm_() {
   document.querySelectorAll('#skuFormModal [data-sku-form-header]').forEach(inp => {
     byHeader[inp.dataset.skuFormHeader] = inp.value;
   });
-  const cells = headers.map(h => byHeader[h] !== undefined ? byHeader[h] : '');
+  // Any header with no input in the form at all (e.g. MFG_DATE — see
+  // SKU_FORM_HIDDEN_FIELD_KEYS_) keeps whatever's already in that
+  // row's cell instead of being blanked out; Add mode has no existing
+  // row, so those simply stay empty, same as any other new SKU field.
+  const existingRow = skuFormRowIndex_ ? skuMasterData_.rows.find(r => r.rowIndex === skuFormRowIndex_) : null;
+  const cells = headers.map((h, idx) => {
+    if (byHeader[h] !== undefined) return byHeader[h];
+    return existingRow ? (existingRow.cells[idx] || '') : '';
+  });
 
   const skuHeaderIdx = headers.findIndex(h => skuFieldKey_(h) === 'SKU');
   const errEl = document.getElementById('skuFormError');
