@@ -6843,6 +6843,38 @@ function labelTsplEscape_(str) {
   return String(str == null ? "" : str).replace(/"/g, "'");
 }
 
+/** Explicit per-employee label initials — overrides for names where the
+ *  obvious "first letter of each word" wouldn't read the way the
+ *  business actually abbreviates that person (e.g. "Harshit" -> "HM",
+ *  not just "H"). Keyed lowercase/trimmed for matching; anyone NOT
+ *  listed here falls back to auto-generated initials instead (see
+ *  labelEmployeeInitials_) rather than the label printing with a blank
+ *  box. Update this map (and redeploy) whenever that mapping needs to
+ *  change for someone, rather than relying on the auto-generated
+ *  fallback to happen to match. */
+const LABEL_EMPLOYEE_INITIALS_ = {
+  "harshit": "HM",
+  "gautam": "GM",
+  "jitendra": "JB",
+  "karamveer": "KM",
+  "yogendra": "YS",
+  "habib": "HB",
+  "pramil donawat": "PJD"
+};
+/** Resolves the initials printed in the label's employee box for
+ *  whoever is logged in when the print is sent. Checks the explicit
+ *  mapping above first; anyone not listed gets auto-generated initials
+ *  instead — the first letter of each word in their name, uppercased,
+ *  capped at 3 letters — so a new employee always gets SOMETHING on
+ *  the label rather than a blank box. */
+function labelEmployeeInitials_(employeeName) {
+  const name = (employeeName || "").toString().trim();
+  if (!name) return "";
+  const key = name.toLowerCase();
+  if (LABEL_EMPLOYEE_INITIALS_[key] !== undefined) return LABEL_EMPLOYEE_INITIALS_[key];
+  return name.split(/\s+/).map(w => w.charAt(0).toUpperCase()).join("").slice(0, 3);
+}
+
 /** Estimates the physical printed width (in mm) of a Code128 barcode.
  *  All-numeric values render as Code128 Subset C (2 digits per symbol);
  *  anything else (alphanumeric SKU/ASIN-style values) renders as
@@ -6926,6 +6958,24 @@ function buildLabelTspl_(data, qty) {
   );
   lines.push(
     `TEXT ${labelMmToDots_(boxX + 3)},${labelMmToDots_(boxY + 2.4)},"5",0,1,1,"${labelPlatformInitial_(data.platform)}"`
+  );
+
+  // ---- Employee-initials box, directly below the platform box ----
+  // Deliberately compact (roughly half the platform box's own width and
+  // height) and placed with NO extra gap added anywhere else on the
+  // label: the space between the bottom of the platform box and where
+  // the product name line starts is only ~4.8mm to begin with, and
+  // pushing that down to fit a bigger box here would tighten the
+  // detail block's line spacing below, which was already tuned once
+  // before to stop text overrunning the right column. data.empInitials
+  // is resolved by labelEmployeeInitials_ below.
+  const empBoxX = boxX, empBoxGap = 0.3, empBoxW = 4.5, empBoxH = 4;
+  const empBoxY = boxY + boxH + empBoxGap;
+  lines.push(
+    `BOX ${labelMmToDots_(empBoxX)},${labelMmToDots_(empBoxY)},${labelMmToDots_(empBoxX + empBoxW)},${labelMmToDots_(empBoxY + empBoxH)},2`
+  );
+  lines.push(
+    `TEXT ${labelMmToDots_(empBoxX + 0.6)},${labelMmToDots_(empBoxY + 0.9)},"2",0,1,1,"${labelTsplEscape_(data.empInitials)}"`
   );
 
   // ---- Barcode (Code128), to the right of the platform box ----
@@ -7036,7 +7086,7 @@ function buildLabelTspl_(data, qty) {
  *  (from SKU_MASTER, same columns everything else uses) must both be
  *  present, or this returns a clear "map it first" error instead of
  *  printing a blank/wrong barcode. */
-function generateSkuLabelTspl_impl_(sku, platform, qty) {
+function generateSkuLabelTspl_impl_(sku, platform, qty, employeeName) {
   try {
     platform = (platform || "blinkit").toString().trim().toLowerCase();
     if (!poPlatformConfig_(platform)) {
@@ -7082,6 +7132,7 @@ function generateSkuLabelTspl_impl_(sku, platform, qty) {
       quantity: row.packQty || "1",
       productType: row.productType,
       color: row.color,
+      empInitials: labelEmployeeInitials_(employeeName),
     };
 
     const tspl = buildLabelTspl_(labelData, qtyNum);
@@ -7098,8 +7149,8 @@ function generateSkuLabelTspl_impl_(sku, platform, qty) {
 
 /** Public wrapper called from the Balance popup's 🟢 All / 🟡 Custom
  *  buttons. */
-function generateSkuLabelTspl(sku, platform, qty) {
-  return generateSkuLabelTspl_impl_(sku, platform, qty);
+function generateSkuLabelTspl(sku, platform, qty, employeeName) {
+  return generateSkuLabelTspl_impl_(sku, platform, qty, employeeName);
 }
 
 // ---------------------------------------------------------------

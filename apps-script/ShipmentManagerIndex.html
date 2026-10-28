@@ -11177,7 +11177,7 @@ function printSkuLabel_(sku, qty, btnLabel, platform) {
       hideLoadingOverlay_();
       alert('Server error: ' + err.message);
     })
-    .generateSkuLabelTspl(sku, platform || 'blinkit', qty);
+    .generateSkuLabelTspl(sku, platform || 'blinkit', qty, currentUser ? currentUser.name : '');
 }
 
 function openLabelPrintAll_(sku, qty, platform) {
