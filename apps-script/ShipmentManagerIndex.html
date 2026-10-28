@@ -960,6 +960,7 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
       <div class="side-menu-item hidden" id="side-tab-invsnapshot" onclick="showTab('invsnapshot')" title="Inventory Snapshot"><span class="side-menu-icon">📊</span><span class="side-menu-label">Inventory Snapshot</span></div>
       <div class="side-menu-item hidden" id="side-tab-warehouses" onclick="showTab('warehouses')"><span class="side-menu-icon">🏬</span><span class="side-menu-label">Warehouses</span></div>
       <div class="side-menu-item hidden" id="side-tab-sku" onclick="showTab('sku')"><span class="side-menu-icon">🗂️</span><span class="side-menu-label">SKU Master</span></div>
+      <div class="side-menu-item hidden" id="side-tab-skulabels" onclick="showTab('skulabels')" title="SKU Labels"><span class="side-menu-icon">🏷️</span><span class="side-menu-label">SKU Labels</span></div>
       <div class="side-menu-item hidden" id="side-tab-admin" onclick="showTab('admin')"><span class="side-menu-icon">⚙️</span><span class="side-menu-label">Admin</span></div>
     </div>
     <div class="side-menu-footer">
@@ -1403,6 +1404,45 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
             <button class="btn btn-primary" id="skuFormSaveBtn" onclick="saveSkuForm_()">💾 Save SKU</button>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- -- SKU LABELS TAB -- -->
+    <!-- Standalone product-label printing, independent of any shipment —
+         pick a platform + SKU and print straight to whatever printer is
+         selected in Settings → Label Printer (same QZ Tray connection
+         already established at login, see initQzTrayForLabels_). Reuses
+         printSkuLabel_, the same function the Balance popup's 🟢/🟡
+         buttons call. Entirely client-side (skuData is already loaded
+         app-wide), so there's no server round-trip just to open the tab. -->
+    <div id="tab-skulabels-content" class="hidden">
+      <div class="card">
+        <div class="section-title">SKU Labels</div>
+        <div class="section-sub">Print a product label for any SKU on any platform — no shipment required. Uses the label printer selected in Settings → Label Printer.</div>
+        <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;margin-bottom:10px">
+          <div class="form-group" style="margin-bottom:0">
+            <label>Platform</label>
+            <select id="skuLabelsPlatform" style="min-width:130px" onchange="renderSkuLabelsSkuOptions_()">
+              <option value="blinkit">Blinkit</option>
+              <option value="zepto">Zepto</option>
+              <option value="swiggy">Swiggy</option>
+            </select>
+          </div>
+          <div class="form-group" style="margin-bottom:0;min-width:220px">
+            <label>Search</label>
+            <input type="text" id="skuLabelsFilter" placeholder="Filter by SKU / description…" oninput="renderSkuLabelsSkuOptions_()">
+          </div>
+          <div class="form-group" style="margin-bottom:0;min-width:260px;flex:1">
+            <label>SKU</label>
+            <select id="skuLabelsSkuSelect" style="width:100%" onchange="updateSkuLabelsHint_()"></select>
+          </div>
+          <div class="form-group" style="margin-bottom:0">
+            <label>Quantity</label>
+            <input type="number" id="skuLabelsQty" min="1" value="1" style="width:90px">
+          </div>
+          <button class="btn btn-primary" onclick="printSkuLabelsTabPrint_()">🖨 Print Label(s)</button>
+        </div>
+        <div id="skuLabelsHint" style="font-size:12px;color:#64748b"></div>
       </div>
     </div>
 
@@ -2021,7 +2061,8 @@ const MODULE_DEFS = [
   { id: 'WAREHOUSES',           label: 'Warehouses' },
   { id: 'INVENTORY_SNAPSHOT',   label: 'Blinkit Shipment Planning' },
   { id: 'INVENTORY_LIVE_SNAPSHOT', label: 'Inventory Snapshot (Live)' },
-  { id: 'EXTENDED_SESSION_TIMEOUT', label: 'Extended Logout Timing (Admin-style)' }
+  { id: 'EXTENDED_SESSION_TIMEOUT', label: 'Extended Logout Timing (Admin-style)' },
+  { id: 'SKU_LABEL_PRINT',      label: 'SKU Labels (Print)' }
 ];
 
 /** Returns true if the currently logged-in user has access to `moduleId`.
@@ -2488,6 +2529,10 @@ function showApp() {
     if (hasModule_('SKU_MASTER')) {
       document.getElementById('side-tab-sku').classList.remove('hidden');
     }
+    // SKU Labels tab: admins always; SKU_LABEL_PRINT module for others.
+    if (hasModule_('SKU_LABEL_PRINT')) {
+      document.getElementById('side-tab-skulabels').classList.remove('hidden');
+    }
     // Shipments tab: admins always; SHIPMENTS_VIEW module for others.
     if (hasModule_('SHIPMENTS_VIEW')) {
       document.getElementById('side-tab-shipments').classList.remove('hidden');
@@ -2531,7 +2576,7 @@ function showApp() {
     showTab('dashboard');
     startTabAutoRefresh_();
     resetIdleTimer();
-    initQzTrayForLabels_(); // Product Label printing (Blinkit Balance popup) — connect early so it's ready by the time anyone opens it
+    initQzTrayForLabels_(); // Product Label printing (Balance popup + the standalone SKU Labels tab) — connect early so it's ready by the time anyone opens either
   } catch (err) {
     // Surface startup errors visibly instead of freezing the page
     document.getElementById('loginPage').classList.remove('hidden');
@@ -2592,7 +2637,7 @@ const TAB_AUTO_REFRESH_MS = 2 * 60 * 1000; // 2 minutes
 let tabAutoRefreshTimer_ = null;
 
 function showTab(name) {
-  ['dashboard','entry','shipments','warehouses','sku','admin','snapshot','invsnapshot'].forEach(t => {
+  ['dashboard','entry','shipments','warehouses','sku','skulabels','admin','snapshot','invsnapshot'].forEach(t => {
     const c = document.getElementById('tab-' + t + '-content');
     const b = document.getElementById('side-tab-' + t);
     if (c) c.classList.toggle('hidden', t !== name);
@@ -2635,6 +2680,7 @@ function refreshCurrentTab_(forceRefresh) {
   else if (name === 'shipments') loadShipmentsIfStale_(forceRefresh);
   else if (name === 'warehouses') loadWarehousesTab_(forceRefresh);
   else if (name === 'sku') loadSkuMaster_(forceRefresh);
+  else if (name === 'skulabels') renderSkuLabelsSkuOptions_();
   else if (name === 'admin') loadAdminTab_(forceRefresh);
   else if (name === 'snapshot') loadSnapshotTab_(forceRefresh);
   else if (name === 'invsnapshot') loadInventoryLiveSnapshot_(forceRefresh);
@@ -10858,9 +10904,11 @@ function renderPoBalancePopup_(poNum, items, shipment) {
   // Product Label print buttons (🟢 All / 🟡 Custom) only make sense
   // against a shipment that's actually been saved — "Packed" in the
   // live New Shipment form is just whatever's currently typed into the
-  // box builder, nothing physical to print labels for yet. Blinkit
-  // only for now — see generateSkuLabelTspl_impl_ in ShipmentManager.gs.
-  const showLabelButtons = !isLiveContext && balancePlatform === 'blinkit';
+  // box builder, nothing physical to print labels for yet. Blinkit,
+  // Zepto, and Swiggy — see generateSkuLabelTspl_impl_ in
+  // ShipmentManager.gs (Amazon isn't PO-driven, so it's excluded same
+  // as everywhere else isPoDrivenPlatform_ gates something).
+  const showLabelButtons = !isLiveContext && isPoDrivenPlatform_(balancePlatform);
 
   // Build Item Code → SKU lookup from skuData (PO lines are keyed by
   // that platform's own Item Code  -  SKU_MASTER's BLINKIT_ITEM_ID/
@@ -10965,7 +11013,7 @@ function renderPoBalancePopup_(poNum, items, shipment) {
               <td style="padding:4px 8px;text-align:center;font-weight:700;color:${netPacked>0?'#0369a1':'#94a3b8'}">${netPacked}</td>
               ${hasAdjustments ? `<td style="padding:4px 8px;text-align:center;font-weight:700;color:${short>0?'#a16207':'#94a3b8'}">${short}</td>` : ''}
               <td style="padding:4px 8px;text-align:center;font-weight:700;color:${rc}">${remainingAfterPacking}</td>
-              ${showLabelButtons ? labelPrintButtonsHtml_(skuEsc, netPacked) : ''}
+              ${showLabelButtons ? labelPrintButtonsHtml_(skuEsc, netPacked, balancePlatform) : ''}
             </tr>`;
           }).join('')}
         </tbody>
@@ -10984,15 +11032,16 @@ function renderPoBalancePopup_(poNum, items, shipment) {
 }
 
 /** The 🟢 All / 🟡 Custom Product Label print button pair for one PO
- *  Balance popup row — see showLabelButtons above (Blinkit, saved
- *  shipment context only). Disabled whenever there's nothing sensible
- *  to print: no resolvable SKU, or zero packed quantity. */
-function labelPrintButtonsHtml_(skuEsc, netPacked) {
+ *  Balance popup row — see showLabelButtons above (Blinkit/Zepto/
+ *  Swiggy, saved shipment context only). Disabled whenever there's
+ *  nothing sensible to print: no resolvable SKU, or zero packed
+ *  quantity. */
+function labelPrintButtonsHtml_(skuEsc, netPacked, platform) {
   const disabled = (!skuEsc || skuEsc === ' - ' || netPacked <= 0) ? 'disabled' : '';
   const sqBtn = (bg, border, title, handler) =>
     `<button class="btn btn-sm" style="width:26px;height:26px;padding:0;background:${bg};border:1px solid ${border};color:#fff;font-size:13px;line-height:1;border-radius:5px" title="${title}" ${disabled} onclick="${handler}">🖨</button>`;
-  return `<td style="padding:4px 8px;text-align:center">${sqBtn('#16a34a', '#15803d', 'Print all ' + netPacked + ' packed label(s) for this SKU', `openLabelPrintAll_('${skuEsc}',${netPacked})`)}</td>` +
-         `<td style="padding:4px 8px;text-align:center">${sqBtn('#eab308', '#ca8a04', 'Print a custom number of labels for this SKU', `openLabelPrintCustom_('${skuEsc}',${netPacked})`)}</td>`;
+  return `<td style="padding:4px 8px;text-align:center">${sqBtn('#16a34a', '#15803d', 'Print all ' + netPacked + ' packed label(s) for this SKU', `openLabelPrintAll_('${skuEsc}',${netPacked},'${platform}')`)}</td>` +
+         `<td style="padding:4px 8px;text-align:center">${sqBtn('#eab308', '#ca8a04', 'Print a custom number of labels for this SKU', `openLabelPrintCustom_('${skuEsc}',${netPacked},'${platform}')`)}</td>`;
 }
 
 // ---------------------------------------------------------------
@@ -11070,11 +11119,13 @@ function onLabelPrinterSelected_() {
   if (sel && sel.value) localStorage.setItem(LABEL_PRINTER_STORAGE_KEY_, sel.value);
 }
 
-/** Core print action shared by both the 🟢 All and 🟡 Custom buttons —
- *  generates the TSPL for one SKU server-side (generateSkuLabelTspl,
- *  Blinkit only) and sends it straight to the saved printer via QZ
- *  Tray. `qty` copies. */
-function printSkuLabel_(sku, qty, btnLabel) {
+/** Core print action shared by both the 🟢 All and 🟡 Custom buttons,
+ *  and by the standalone SKU Labels tab — generates the TSPL for one
+ *  SKU server-side (generateSkuLabelTspl, Blinkit/Zepto/Swiggy) and
+ *  sends it straight to the saved printer via QZ Tray. `qty` copies.
+ *  platform defaults to 'blinkit' so any older caller that doesn't
+ *  pass one keeps working unchanged. */
+function printSkuLabel_(sku, qty, btnLabel, platform) {
   const printer = localStorage.getItem(LABEL_PRINTER_STORAGE_KEY_);
   if (!qzLabelConnected_ || typeof qz === 'undefined') {
     alert('QZ Tray is not connected on this PC. Open Settings → Label Printer to check its status, or install/start QZ Tray from qz.io.');
@@ -11106,18 +11157,20 @@ function printSkuLabel_(sku, qty, btnLabel) {
       hideLoadingOverlay_();
       alert('Server error: ' + err.message);
     })
-    .generateSkuLabelTspl(sku, 'blinkit', qty);
+    .generateSkuLabelTspl(sku, platform || 'blinkit', qty);
 }
 
-function openLabelPrintAll_(sku, qty) {
+function openLabelPrintAll_(sku, qty, platform) {
   showConfirmModal_('Print all ' + qty + ' packed label(s) for ' + sku + '?', 'Print', () => {
-    printSkuLabel_(sku, qty, 'labels');
+    printSkuLabel_(sku, qty, 'labels', platform);
   });
 }
 
 let labelCustomQtyTargetSku_ = null;
-function openLabelPrintCustom_(sku, defaultQty) {
+let labelCustomQtyTargetPlatform_ = null;
+function openLabelPrintCustom_(sku, defaultQty, platform) {
   labelCustomQtyTargetSku_ = sku;
+  labelCustomQtyTargetPlatform_ = platform;
   document.getElementById('labelCustomQtySkuLine').textContent = 'SKU: ' + sku + ' (packed: ' + defaultQty + ')';
   const input = document.getElementById('labelCustomQtyInput');
   input.value = defaultQty > 0 ? defaultQty : '';
@@ -11128,6 +11181,7 @@ function openLabelPrintCustom_(sku, defaultQty) {
 function closeLabelCustomQtyModal_() {
   document.getElementById('labelCustomQtyModal').style.display = 'none';
   labelCustomQtyTargetSku_ = null;
+  labelCustomQtyTargetPlatform_ = null;
 }
 function confirmLabelPrintCustom_() {
   const qty = parseInt(document.getElementById('labelCustomQtyInput').value, 10);
@@ -11138,8 +11192,61 @@ function confirmLabelPrintCustom_() {
     return;
   }
   const sku = labelCustomQtyTargetSku_;
+  const platform = labelCustomQtyTargetPlatform_;
   closeLabelCustomQtyModal_();
-  printSkuLabel_(sku, qty, 'labels');
+  printSkuLabel_(sku, qty, 'labels', platform);
+}
+
+// -- SKU LABELS TAB (standalone, no shipment needed) ------------
+/** Rebuilds the SKU dropdown for the selected platform, filtered by
+ *  whatever's typed in the search box — only SKUs that actually have a
+ *  UPC on file for that platform are listed, same thing
+ *  generateSkuLabelTspl_impl_ would otherwise reject at print time, so
+ *  a missing mapping is obvious up front instead of after clicking
+ *  Print. Entirely local (skuData is already loaded app-wide). */
+function renderSkuLabelsSkuOptions_() {
+  const platform = (document.getElementById('skuLabelsPlatform').value || 'blinkit').toLowerCase();
+  const filterText = (document.getElementById('skuLabelsFilter').value || '').toLowerCase().trim();
+  const sel = document.getElementById('skuLabelsSkuSelect');
+  const platformLabel = platform.charAt(0).toUpperCase() + platform.slice(1);
+
+  const candidates = (skuData || [])
+    .filter(sk => sk.sku && sk[platform])
+    .filter(sk => !filterText || sk.sku.toLowerCase().includes(filterText) || (sk.description || '').toLowerCase().includes(filterText))
+    .sort((a, b) => a.sku.localeCompare(b.sku));
+
+  sel.innerHTML = candidates.length
+    ? candidates.map(sk => `<option value="${sk.sku.replace(/"/g,'&quot;')}">${sk.sku}${sk.description ? '  -  ' + sk.description : ''}</option>`).join('')
+    : `<option value="">No SKUs with a ${platformLabel} UPC on file${filterText ? ' matching "' + filterText + '"' : ''}</option>`;
+
+  updateSkuLabelsHint_();
+}
+
+/** Pre-flight warning for the currently-selected SKU — MRP is the other
+ *  thing generateSkuLabelTspl_impl_ requires besides the UPC already
+ *  guaranteed by the dropdown filter above, so check it here too rather
+ *  than only finding out after clicking Print. */
+function updateSkuLabelsHint_() {
+  const hint = document.getElementById('skuLabelsHint');
+  const sku = document.getElementById('skuLabelsSkuSelect').value;
+  if (!hint) return;
+  if (!sku) { hint.textContent = ''; return; }
+  const row = (skuData || []).find(sk => sk.sku === sku);
+  hint.textContent = (row && !row.mrp)
+    ? '⚠️ This SKU has no MRP in SKU Master — add one before printing, or the print will fail.'
+    : '';
+}
+
+function printSkuLabelsTabPrint_() {
+  const platform = (document.getElementById('skuLabelsPlatform').value || 'blinkit').toLowerCase();
+  const sku = document.getElementById('skuLabelsSkuSelect').value;
+  const qty = parseInt(document.getElementById('skuLabelsQty').value, 10);
+  if (!sku) { alert('Select a SKU first.'); return; }
+  if (!qty || qty < 1) { alert('Enter a quantity of at least 1.'); return; }
+  const platformLabel = platform.charAt(0).toUpperCase() + platform.slice(1);
+  showConfirmModal_('Print ' + qty + ' label(s) for ' + sku + ' (' + platformLabel + ')?', 'Print', () => {
+    printSkuLabel_(sku, qty, 'labels', platform);
+  });
 }
 
 // Legacy stubs (called from resetEntryForm / selectPlatform in some paths)

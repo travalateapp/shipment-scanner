@@ -46,7 +46,8 @@ const ALL_MODULES = [
   { id: "SHIPMENT_DELETE",      label: "Delete Shipment" },   // secondary — nested under Shipments
   { id: "WAREHOUSES",           label: "Warehouses" },
   { id: "INVENTORY_SNAPSHOT",   label: "Blinkit Shipment Planning" },
-  { id: "EXTENDED_SESSION_TIMEOUT", label: "Extended Logout Timing (Admin-style)" }
+  { id: "EXTENDED_SESSION_TIMEOUT", label: "Extended Logout Timing (Admin-style)" },
+  { id: "SKU_LABEL_PRINT",      label: "SKU Labels (Print)" }
 ];
 const ALL_MODULE_IDS = ALL_MODULES.map(m => m.id);
 
@@ -7028,16 +7029,18 @@ function buildLabelTspl_(data, qty) {
   return lines.join("\r\n") + "\r\n";
 }
 
-/** Generates the TSPL for one SKU's label, `qty` copies. Blinkit only
- *  for now — the SKU's Blinkit barcode/UPC and MRP (from SKU_MASTER,
- *  same columns everything else uses) must both be present, or this
- *  returns a clear "map it first" error instead of printing a blank/
- *  wrong barcode. */
+/** Generates the TSPL for one SKU's label, `qty` copies. Blinkit,
+ *  Zepto, and Swiggy (any PO-driven platform — see poPlatformConfig_;
+ *  Amazon isn't included here since it has no UPC column this reuses
+ *  the same way). The SKU's barcode/UPC for THAT platform and MRP
+ *  (from SKU_MASTER, same columns everything else uses) must both be
+ *  present, or this returns a clear "map it first" error instead of
+ *  printing a blank/wrong barcode. */
 function generateSkuLabelTspl_impl_(sku, platform, qty) {
   try {
     platform = (platform || "blinkit").toString().trim().toLowerCase();
-    if (platform !== "blinkit") {
-      return { success: false, message: "Product Label printing is only available for Blinkit right now." };
+    if (!poPlatformConfig_(platform)) {
+      return { success: false, message: "Product Label printing is only available for Blinkit, Zepto, and Swiggy." };
     }
     sku = (sku || "").toString().trim();
     if (!sku) return { success: false, message: "No SKU given." };
@@ -7051,7 +7054,7 @@ function generateSkuLabelTspl_impl_(sku, platform, qty) {
     const roFields = roFieldsForPlatform_(platform);
     const barcodeValue = (row[roFields.upcField] || "").toString().trim();
     if (!barcodeValue) {
-      return { success: false, message: 'SKU "' + sku + '" has no Blinkit barcode/UPC in SKU_MASTER — add one in the SKU Master tab before printing labels.' };
+      return { success: false, message: 'SKU "' + sku + '" has no ' + (platform.charAt(0).toUpperCase() + platform.slice(1)) + ' barcode/UPC in SKU_MASTER — add one in the SKU Master tab before printing labels.' };
     }
     if (!row.mrp) {
       return { success: false, message: 'SKU "' + sku + '" has no MRP in SKU_MASTER — add one in the SKU Master tab before printing labels.' };
