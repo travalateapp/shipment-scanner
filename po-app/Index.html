@@ -36,7 +36,7 @@
   .msg { padding:12px 14px; border-radius:9px; margin-bottom:14px; }
   .msg.ok { background:#e7f6ec; color:var(--ok); }
   .msg.err { background:#fdecea; color:var(--err); }
-  .msg a { color:inherit; font-weight:600; margin-right:14px; }
+  .msg a, .msg .link { color:inherit; font-weight:600; margin-right:14px; }
 
   .vsum { background:var(--bg); border-radius:9px; padding:10px 12px; line-height:1.5; margin-top:10px; font-size:14px; }
 
@@ -120,6 +120,16 @@
 
 <main>
   <div id="msg"></div>
+
+  <section id="view-pin" class="hidden">
+    <div class="card" style="max-width:360px;margin:40px auto;text-align:center">
+      <h2 style="justify-content:center">Enter PIN</h2>
+      <p class="muted" id="pinNote">Ask the office for the app PIN.</p>
+      <input id="pinInput" type="password" inputmode="numeric" autocomplete="off" style="text-align:center;font-size:20px;letter-spacing:.3em"
+        onkeydown="if (event.key === 'Enter') submitPin()">
+      <button class="btn" style="width:100%;margin-top:12px" onclick="submitPin()">Open</button>
+    </div>
+  </section>
 
   <!-- ============================== NEW PO ============================== -->
   <section id="view-new">
@@ -263,6 +273,72 @@
     document.querySelectorAll('.savebtn,.savebtn2').forEach(b => { b.disabled = on; b.textContent = on ? (text || 'Working…') : 'Save & create PDF'; });
   }
 
+  // ---------------------------------------------------------------- server calls + PIN
+
+  let PIN = '';
+  try { PIN = localStorage.getItem('poAppPin') || ''; } catch (e) { /* storage blocked */ }
+  let pinRetry = null; // call to repeat after the PIN is entered
+
+  /** Calls a server function with the PIN added as the last argument. Asks for the PIN when needed. */
+  function api(fn, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(e => {
+          if (String(e && e.message || e).indexOf('PIN_REQUIRED') >= 0) {
+            askPin(!!PIN, () => api(fn, ...args).then(resolve, reject));
+          } else reject(e);
+        })[fn](...args, PIN);
+    });
+  }
+
+  function askPin(wrong, retry) {
+    pinRetry = retry;
+    busy(false);
+    showMsg('', '');
+    $('pinNote').textContent = wrong ? 'Wrong PIN. Try again.' : 'Ask the office for the app PIN.';
+    $('pinInput').value = '';
+    document.querySelector('header nav').classList.add('hidden');
+    ['new', 'vendors', 'hist'].forEach(x => $('view-' + x).classList.add('hidden'));
+    $('view-pin').classList.remove('hidden');
+    $('pinInput').focus();
+  }
+
+  function submitPin() {
+    PIN = $('pinInput').value.trim();
+    try { localStorage.setItem('poAppPin', PIN); } catch (e) { /* storage blocked: asked again next visit */ }
+    $('view-pin').classList.add('hidden');
+    document.querySelector('header nav').classList.remove('hidden');
+    showTab('new');
+    if (pinRetry) pinRetry();
+  }
+
+  /** Saves the PDF on this phone/computer (no Google Drive access needed). */
+  let lastPdf = null;
+  function downloadPdf(r) {
+    lastPdf = r;
+    const bin = atob(r.pdfBase64);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/pdf' }));
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = r.fileName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  }
+  const againLink = '<button class="link" onclick="downloadPdf(lastPdf)">Download again</button>';
+
+  function pdfFor(poNumber) {
+    showMsg('Preparing the PDF of PO # ' + esc(poNumber) + '…', 'ok');
+    api('getPdf', poNumber).then(r => {
+      downloadPdf(r);
+      showMsg('PO # ' + esc(poNumber) + ' downloaded (' + esc(r.fileName) + '). ' + againLink, 'ok');
+    }, fail);
+  }
+
   function showTab(t) {
     ['new', 'vendors', 'hist'].forEach(x => $('view-' + x).classList.toggle('hidden', x !== t));
     document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
@@ -284,7 +360,7 @@
   function load() {
     $('vendorFields').innerHTML = fieldsHtml('v_');
     $('veFields').innerHTML = fieldsHtml('ve_');
-    google.script.run.withSuccessHandler(d => { applyData(d); resetForm(); }).withFailureHandler(fail).getInitData();
+    api('getInitData').then(d => { applyData(d); resetForm(); }, fail);
   }
 
   function applyData(d) {
@@ -305,8 +381,7 @@
     $('histRows').innerHTML = d.recent.length ? d.recent.map(p =>
       '<tr><td data-l="PO #"><b>' + esc(p.poNumber) + '</b></td><td data-l="Date">' + esc(p.date) + '</td>' +
       '<td data-l="Vendor">' + esc(p.vendor) + '</td><td class="r" data-l="Total">' + money(p.total) + '</td><td>' +
-      (p.url ? '<a href="' + esc(p.url) + '" target="_blank">Open</a>' : '') +
-      (p.downloadUrl ? '<a href="' + esc(p.downloadUrl) + '" target="_blank">Download</a>' : '') +
+      '<button class="link" onclick="pdfFor(\'' + esc(p.poNumber) + '\')">Download PDF</button>' +
       '<button class="link" onclick="repeatPo(\'' + esc(p.poNumber) + '\')">Repeat</button>' +
       '<button class="link" onclick="regen(\'' + esc(p.poNumber) + '\')">Remake PDF</button></td></tr>').join('')
       : '<tr><td colspan="5" class="muted">No purchase orders yet.</td></tr>';
@@ -504,10 +579,10 @@
   function repeatLast() {
     const v = currentVendor();
     if (!v || !v.lastPo) return;
-    google.script.run.withSuccessHandler(items => {
+    api('getPoItems', v.lastPo).then(items => {
       fillFromPo(items);
       showMsg('Quantities copied from PO # ' + esc(v.lastPo) + ' at the current rates. Check them, then save.', 'ok');
-    }).withFailureHandler(fail).getPoItems(v.lastPo);
+    }, fail);
   }
 
   function repeatPo(poNumber) {
@@ -518,10 +593,10 @@
     $('vendorSel').value = v.id;
     onVendorChange();
     showTab('new');
-    google.script.run.withSuccessHandler(items => {
+    api('getPoItems', poNumber).then(items => {
       fillFromPo(items);
       showMsg('New PO with the items of PO # ' + esc(poNumber) + ' at the current rates. Check them, then save.', 'ok');
-    }).withFailureHandler(fail).getPoItems(poNumber);
+    }, fail);
   }
 
   // ---------------------------------------------------------------- save PO
@@ -545,28 +620,20 @@
     };
     busy(true, 'Creating PDF…');
     showMsg('', '');
-    google.script.run
-      .withSuccessHandler(r => {
-        busy(false);
-        applyData(r.init); resetForm();
-        showMsg('PO # ' + esc(r.poNumber) + ' saved (total ' + money(r.total) + '). ' +
-          '<a href="' + esc(r.url) + '" target="_blank">Open PDF</a>' +
-          '<a href="' + esc(r.downloadUrl) + '" target="_blank">Download PDF</a>', 'ok');
-      })
-      .withFailureHandler(fail)
-      .savePO(po);
+    api('savePO', po).then(r => {
+      busy(false);
+      applyData(r.init); resetForm();
+      downloadPdf(r);
+      showMsg('PO # ' + esc(r.poNumber) + ' saved (total ' + money(r.total) + ') and downloaded as ' + esc(r.fileName) + '. ' + againLink, 'ok');
+    }, fail);
   }
 
   function regen(poNumber) {
     showMsg('Re-creating the PDF for PO # ' + esc(poNumber) + '…', 'ok');
-    google.script.run
-      .withSuccessHandler(r => {
-        showMsg('New PDF for PO # ' + esc(poNumber) + ': <a href="' + esc(r.url) + '" target="_blank">Open PDF</a>' +
-          '<a href="' + esc(r.downloadUrl) + '" target="_blank">Download PDF</a>', 'ok');
-        google.script.run.withSuccessHandler(applyData).getInitData();
-      })
-      .withFailureHandler(fail)
-      .regeneratePdf(poNumber);
+    api('regeneratePdf', poNumber).then(r => {
+      downloadPdf(r);
+      showMsg('New PDF for PO # ' + esc(poNumber) + ' downloaded (' + esc(r.fileName) + '). ' + againLink, 'ok');
+    }, fail);
   }
 
   // ---------------------------------------------------------------- Vendors screen
@@ -628,11 +695,11 @@
       rate: el.querySelector('.price').value,
     })).filter(p => p.item || p.description);
     showMsg('Saving…', 'ok');
-    google.script.run.withSuccessHandler(r => {
+    api('saveVendor', { vendor: vendor, products: products }).then(r => {
       applyData(r.init);
       showMsg('Vendor “' + esc(vendor.name) + '” saved with ' + products.length + ' product(s).', 'ok');
       if (thenOrder) newPoFor(r.vendorId); else closeVendorEditor();
-    }).withFailureHandler(fail).saveVendor({ vendor: vendor, products: products });
+    }, fail);
   }
 
   function newPoFor(id) {

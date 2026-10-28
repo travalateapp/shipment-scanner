@@ -11,8 +11,9 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
 - **Vendors screen:** add or edit vendors and their product and rate list before ordering, then tap **Save & new PO**.
 - **Our contact person can change.** *Our contact person* and *Contact phone* (in PO details) are printed in the PDF footer. They start with the person used on the last PO. Pick someone used before and their phone fills in, or type a new name and phone. New people are remembered automatically.
 - **Works on phone and desktop.** On a computer the order summary stays on the right while you scroll. On a phone each item becomes a card, and the total and **Save** button stay at the bottom of the screen.
-- **The PDF is saved in Google Drive** (folder *Purchase Orders (PDF)*), with **Open** and **Download** links. Every PO and item is also logged in the Sheet.
-- **History tab:** recent POs with their PDF links. **Remake PDF** creates the PDF again, for example after you change company details in Settings.
+- **The PDF downloads straight to the phone or computer** when you save, like any other file (Downloads folder / Files app). Nobody needs a Google account or access to your Drive. A copy is also kept in the owner's Drive (folder *Purchase Orders (PDF)*), and every PO and item is logged in the Sheet.
+- **History tab:** recent POs. **Download PDF** downloads the PDF again on any device. **Remake PDF** creates it again, for example after you change company details in Settings.
+- **Optional App PIN:** set it in Settings. Each phone or computer asks for it once.
 
 ## Install (about 5 minutes)
 
@@ -27,8 +28,11 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
 6. Open the **Settings** tab and check the values (see below). Make sure **Next PO Number** is correct.
 7. Deploy: **Deploy → New deployment → ⚙ → Web app**
    - **Execute as:** `Me`
-   - **Who has access:** `Only myself`. Choose `Anyone with a Google account` if colleagues should also create POs.
-   - Click **Deploy**, then open the **Web app URL**. Bookmark it, or add it to your phone's home screen.
+   - **Who has access:** `Anyone`. Choose this so colleagues can open the app **without requesting access** and without a Google login. Everything still runs under your account, and they never get access to your Sheet or Drive.
+   - Click **Deploy**, then share the **Web app URL**. Bookmark it, or add it to the phone's home screen.
+8. Set an **App PIN** in the Settings tab (recommended, because the link works for anyone who has it).
+
+> **Already deployed with "Only myself"?** Go to **Deploy → Manage deployments → ✏ Edit**, change **Who has access** to `Anyone`, choose **Version: New version**, and click **Deploy**. The URL stays the same.
 
 > **After changing the code:** paste the new files, then go to **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy**. The URL stays the same.
 
@@ -42,7 +46,8 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
 | Default Comments | Prefilled comment (e.g. *Thank you for your business.*) |
 | Default Tax % | Prefilled tax rate (5 % gives 4,650 on 93,000, as in the sample PO) |
 | Next PO Number | Suggested PO # for the next order. It moves up automatically, and you can still type another number on the form. Duplicate numbers are rejected. |
-| PDF Folder ID | Drive folder for the PDFs. It is created by `setup`, and you can replace it with another folder's ID. |
+| PDF Folder ID | Drive folder for the owner's copy of every PDF. It is created by `setup`, and you can replace it with another folder's ID. |
+| App PIN | Leave empty for no PIN. When set, the app asks for the PIN once on each phone or computer. If you change it, everyone is asked again. |
 
 ## Sheet tabs
 
@@ -55,4 +60,5 @@ A web app that creates purchase orders as PDFs in the company's PO format (the V
 
 ## Notes
 
-- If the page shows *"Sorry, unable to open the file at present"*, the browser is signed into several Google accounts. Open the link in a window that is signed into only the account that owns the script, or in an incognito window.
+- **Where is the PDF?** On Android and computers it goes to the **Downloads** folder. On iPhone, Safari shows the PDF; tap **Share → Save to Files** (or send it on WhatsApp/email from there). If a download is blocked, tap **Download again** in the green message.
+- If the page shows *"Sorry, unable to open the file at present"*, the browser is signed into several Google accounts. Open the link in an incognito/private window.

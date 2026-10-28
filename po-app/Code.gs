@@ -5,7 +5,9 @@
  * 2. Paste this file as Code.gs and Index.html as an HTML file named "Index".
  * 3. Run setup() once (authorise when asked), then check the Settings tab.
  * 4. Deploy → New deployment → Web app
- *      Execute as: Me      Who has access: Only myself (or Anyone with a Google account)
+ *      Execute as: Me      Who has access: Anyone
+ *    Nobody needs a Google account or access to your Drive: every PDF is downloaded straight to the
+ *    phone/computer. Set "App PIN" in Settings so only people who know the PIN can use the app.
  *
  * The first PO for a vendor saves the vendor's full details in the Vendors tab and its items/rates
  * in the Vendor Products tab. From then on, picking the vendor fills everything in automatically.
@@ -47,6 +49,8 @@ const SETTING_DEFAULTS = [
   ['Default Tax %', 5],
   ['Next PO Number', 211],
   ['PDF Folder ID', ''],
+  // Leave empty for no PIN. When set, the app asks for it once on each phone/computer.
+  ['App PIN', ''],
 ];
 
 const PDF_MIN_ROWS = 15; // empty rows keep the item table the same height as the template
@@ -86,9 +90,21 @@ function doGet() {
 }
 
 // ---------------------------------------------------------------- API used by Index.html
+// Every function the page calls takes the App PIN as its last argument.
+
+/** Throws PIN_REQUIRED (the page then asks for the PIN) when Settings has an App PIN and it doesn't match. */
+function checkPin_(pin) {
+  const want = String(getSettings_()['App PIN'] || '').trim();
+  if (want && String(pin || '').trim() !== want) throw new Error('PIN_REQUIRED');
+}
+
+function getInitData(pin) {
+  checkPin_(pin);
+  return initData_();
+}
 
 /** Everything the form needs on load. */
-function getInitData() {
+function initData_() {
   const s = getSettings_();
   return {
     company: s['Company Name'],
@@ -104,10 +120,11 @@ function getInitData() {
 }
 
 /**
- * Saves the PO, adds or updates the vendor, creates the PDF in Drive.
- * Returns the PO number and PDF links plus the refreshed lists for the form.
+ * Saves the PO, adds or updates the vendor, creates the PDF (a copy is kept in the owner's Drive).
+ * Returns the PDF itself (base64) so the page downloads it to the device, plus the refreshed lists.
  */
-function savePO(po) {
+function savePO(po, pin) {
+  checkPin_(pin);
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -176,20 +193,37 @@ function savePO(po) {
 
     upsertProducts_(vendor.id, items, date);
 
-    return {
-      poNumber: poNumber,
-      url: file.getUrl(),
-      downloadUrl: 'https://drive.google.com/uc?export=download&id=' + file.getId(),
-      total: total,
-      init: getInitData(),
-    };
+    return Object.assign(pdfResult_(file), { poNumber: poNumber, total: total, init: initData_() });
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Makes the PDF again for an existing PO (e.g. after changing Settings or vendor details). */
-function regeneratePdf(poNumber) {
+/** Makes the PDF again for an existing PO (e.g. after changing Settings or vendor details) and returns it. */
+function regeneratePdf(poNumber, pin) {
+  checkPin_(pin);
+  return pdfResult_(regenerate_(poNumber));
+}
+
+/** The PDF of an existing PO for download. Made again if the Drive copy was deleted. */
+function getPdf(poNumber, pin) {
+  checkPin_(pin);
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.POS);
+  const row = sh.getDataRange().getValues().find((r, k) => k > 0 && String(r[0]) === String(poNumber));
+  if (!row) throw new Error('PO # ' + poNumber + ' not found.');
+  let file = null;
+  try {
+    file = row[16] ? DriveApp.getFileById(String(row[16])) : null;
+    if (file && file.isTrashed()) file = null;
+  } catch (e) { file = null; }
+  return pdfResult_(file || regenerate_(poNumber));
+}
+
+function pdfResult_(file) {
+  return { fileName: file.getName(), pdfBase64: Utilities.base64Encode(file.getBlob().getBytes()) };
+}
+
+function regenerate_(poNumber) {
   const ss = SpreadsheetApp.getActive();
   const s = getSettings_();
   const sh = ss.getSheetByName(SHEET.POS);
@@ -212,7 +246,7 @@ function regeneratePdf(poNumber) {
   const oldId = String(r[16] || '');
   if (oldId) { try { DriveApp.getFileById(oldId).setTrashed(true); } catch (e) { /* already gone */ } }
   sh.getRange(i + 1, 16, 1, 2).setValues([[file.getUrl(), file.getId()]]);
-  return { url: file.getUrl(), downloadUrl: 'https://drive.google.com/uc?export=download&id=' + file.getId() };
+  return file;
 }
 
 // ---------------------------------------------------------------- vendors
@@ -245,7 +279,8 @@ function getVendors_() {
  * Vendors screen: saves the vendor's details and its full product list (rows not sent are removed).
  * payload = { vendor: {...}, products: [{item, description, rate}] }
  */
-function saveVendor(payload) {
+function saveVendor(payload, pin) {
+  checkPin_(pin);
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -276,14 +311,15 @@ function saveVendor(payload) {
       keep.push([vendor.id, p.item, p.description, p.rate, o ? o[4] : '', changed ? now : o[5]]);
     });
     rewriteRows_(sh, PRODUCT_HEADERS.length, keep);
-    return { vendorId: vendor.id, init: getInitData() };
+    return { vendorId: vendor.id, init: initData_() };
   } finally {
     lock.releaseLock();
   }
 }
 
 /** Items of an existing PO, used by "Repeat last order". */
-function getPoItems(poNumber) {
+function getPoItems(poNumber, pin) {
+  checkPin_(pin);
   const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.ITEMS);
   if (!sh || sh.getLastRow() < 2) return [];
   return sh.getRange(2, 1, sh.getLastRow() - 1, ITEM_HEADERS.length).getValues()
@@ -423,8 +459,6 @@ function getRecentPos_(limit) {
       vendorId: String(r[2]),
       vendor: String(r[3]),
       total: Number(r[13]) || 0,
-      url: String(r[15]),
-      downloadUrl: r[16] ? 'https://drive.google.com/uc?export=download&id=' + r[16] : '',
     }));
 }
 
