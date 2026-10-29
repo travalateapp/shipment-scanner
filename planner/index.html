@@ -154,7 +154,7 @@ var PlanCore = (function () {
   /**
    * The plan for every warehouse × item row of the Bulk RO file.
    * o = { coverDays, minLine, roundTo, skus: {item: {sku, group, tier}}, openROs: [...], bulkAt: ms }
-   *  - stock now = Blinkit warehouse sellable (Bulk file) + darkstore + in-between (Inventory file)
+   *  - stock now = "Total sellable" of the Inventory file (warehouse + in-between + darkstore)
    *  - incoming  = Blinkit "Incoming Quantity" + RO Log lines Blinkit cannot know yet
    *                (Planned, or Created after the Bulk file was downloaded)
    *  - daily rate: recent weeks weigh most; recently listed items use only the days they were listed;
@@ -180,7 +180,7 @@ var PlanCore = (function () {
     return bulk.map(function (b) {
       var x = invAt[b.whId + '|' + b.item] || null;
       var s7 = x ? x.s7 : 0, s15 = x ? x.s15 : 0, s30 = x ? x.s30 : 0;
-      var wh = b.sellable, ds = x ? x.between + x.darkstore : 0, inc = b.incoming, app = extra[b.whName + '|' + b.item] || 0;
+      var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming, app = extra[b.whName + '|' + b.item] || 0;
       var pos = wh + ds + inc + app;
       var r7 = s7 / 7, r15 = s15 / 15, r30 = s30 / 30, drr, status, kind;
       if (s30 === 0) { drr = 0; status = pos === 0 ? 'Not live here' : 'In stock, no sales yet'; kind = pos === 0 ? 'notlive' : 'nosale'; }
