@@ -19,13 +19,13 @@ The app only writes to **columns D–H** of a month tab and the RO heading above
 
 ## 1. Install (about 10 minutes)
 
-1. Open the **Blinkit Google Sheet** (the one with the *Oct 2026* tab).
-2. Open **Extensions → Apps Script**. If that project already has code of its own (its own `doGet`, `doPost` or `setup`), stop and ask first, because the two would clash.
-3. Copy the code in:
-   - Replace everything in `Code.gs` with [`Code.gs`](Code.gs).
-   - Click **+ → HTML**, name the file **`Index`** (exactly, without `.html`) and paste [`Index.html`](Index.html).
-4. **Project Settings ⚙** → set the time zone to `(GMT+05:30) India Standard Time`.
-5. Choose the function **`setup`** and click **Run**. Allow the permissions when asked.
+The Blinkit sheet's Apps Script project already holds the **daily inventory updater**: `Code.gs`, `UploadDialog.html` and `appsscript.json`, with the *📦 Blinkit Inventory* menu. The planner is **added next to it**, so don't replace or change those files.
+
+1. Open the **Blinkit Google Sheet**, then **Extensions → Apps Script**.
+2. Click **+ → Script**, name it **`Planner`**, and paste [`Planner.gs`](Planner.gs) into it.
+3. Click **+ → HTML**, name it **`Index`** (exactly, without `.html`), and paste [`Index.html`](Index.html) into it.
+4. Leave `Code.gs`, `UploadDialog.html` and `appsscript.json` as they are. The project's time zone (Asia/Kolkata) and permissions (spreadsheets) already cover the planner.
+5. Choose the function **`setup`** in the toolbar (from the file *Planner*) and click **Run**. Allow the permissions if asked.
    This creates the tabs *Planner Settings*, *Planner SKUs*, *Planner Users*, *RO Log* and *Planner Snapshot*. It also fills the SKU list (Item ID, SKU, TBI/TBO group, tier) from the month tabs, and creates the first login: **User ID `admin`, PIN `1234`**.
 6. **Deploy → New deployment → ⚙ → Web app**
    - **Execute as:** `Me`
@@ -33,7 +33,13 @@ The app only writes to **columns D–H** of a month tab and the RO heading above
    - Click **Deploy**, then copy the **Deployment ID** (`AKfycb…`).
 7. Open the app (see *Opening the app* below), log in as `admin` / `1234`, then go to **Account → Change PIN**. Add your team under **Users**.
 
-> **Updating:** paste both files again, run `setup` again (it only adds what is missing), then **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy**. The link stays the same. With *Automatic deploy* (below) this happens by itself.
+> **Updating:** paste `Planner.gs` and `Index.html` again, run `setup` again (it only adds what is missing), then **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy**. The link stays the same. With *Automatic deploy* (below) this happens by itself; it only replaces `Planner` and `Index`.
+
+### Working together with the daily inventory updater
+
+- The updater finds today's column from **row 4** (the rightmost filled cell, e.g. AO). The planner only writes RO quantities and headings into **D–H**, so that detection is not affected.
+- When the planner adds a row for an item missing from a block, the new row gets the formulas of the row above, including the live formula column. Numbers in the frozen daily columns are not copied.
+- **"Undo Last Upload"** restores the column exactly as it was by row number. If the planner inserted a row between an upload and its undo, the undone column would be off by one row below that point. So don't undo an upload after a Create RO that reported "Added a row for …".
 
 ### Opening the app
 
@@ -47,7 +53,7 @@ The `/exec` link from step 6 works too. On a phone, open the link in Chrome or S
 
 ### Automatic deploy (optional)
 
-The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Code.gs` and `Index.html` to Apps Script after every merge to `main`, keeping the same link. It needs these repository secrets:
+The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` and `Index.html` to Apps Script after every merge to `main`, keeping the same link. It never touches `Code.gs` or `UploadDialog.html`, and stops if the file it would replace turns out to be the inventory updater. It needs these repository secrets:
 
 | Secret | Value |
 |---|---|

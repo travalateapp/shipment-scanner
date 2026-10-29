@@ -1,7 +1,9 @@
 /**
  * Blinkit Shipment Planner — server side.
  *
- * This script is attached to the Blinkit Google Sheet (Extensions → Apps Script) and deployed as a web app.
+ * This file (Planner.gs) sits in the Blinkit Google Sheet's Apps Script project next to the daily inventory
+ * updater (Code.gs + UploadDialog.html) and is deployed as a web app. It shares no names with that script and
+ * needs no other permissions than the spreadsheet access the project already has.
  * The page (Index.html) reads the two Blinkit downloads in the browser, works out the plan and calls the
  * functions below to keep the RO Log and the month tabs (columns D–H) of this sheet up to date.
  *

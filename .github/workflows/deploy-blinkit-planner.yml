@@ -1,4 +1,4 @@
-# Puts blinkit-planner/Code.gs and Index.html into the Apps Script project and updates the existing web-app
+# Puts blinkit-planner/Planner.gs and Index.html into the Apps Script project and updates the existing web-app
 # deployment to a new version (same app link), after every merge to main that changes them. Can also be run by
 # hand from the Actions tab (with "dry run" to only check the setup).
 #
@@ -12,7 +12,7 @@ on:
   push:
     branches: [main]
     paths:
-      - blinkit-planner/Code.gs
+      - blinkit-planner/Planner.gs
       - blinkit-planner/Index.html
   workflow_dispatch:
     inputs:
@@ -68,28 +68,22 @@ jobs:
           clasp clone "$SCRIPT_ID" --rootDir .
           echo "Files in the Apps Script project:"; ls -la
 
-      - name: Put in the new Code.gs and Index.html
+      - name: Put in the new Planner.gs and Index.html (the inventory updater's files are left alone)
         if: steps.setup.outputs.ready == 'true'
         working-directory: gas
         run: |
-          # The server file: Code (as clasp names it, Code.js / Code.gs); otherwise the only server file there is.
-          server=""
-          for f in Code.js Code.gs; do [ -f "$f" ] && server="$f"; done
-          if [ -z "$server" ]; then
-            others=$(ls *.js *.gs 2>/dev/null || true)
-            if [ "$(echo "$others" | grep -c .)" = "1" ]; then server="$others"; fi
+          # The Blinkit sheet's script also holds the daily inventory updater (Code.gs + UploadDialog.html).
+          # Only the planner's own files are replaced; clasp names .gs files .js.
+          server="Planner.js"
+          [ -f Planner.gs ] && server="Planner.gs"
+          if grep -l "function processInventoryUpload" "$server" >/dev/null 2>&1; then
+            echo "::error::$server holds the inventory updater, not the planner. Stopped so nothing is overwritten."; exit 1
           fi
-          if [ -z "$server" ]; then
-            echo "::error::Could not tell which file in Apps Script holds Code.gs. Files: $(ls | tr '\n' ' ')"; exit 1
-          fi
-          if [ ! -f Index.html ]; then
-            echo "::error::The Apps Script project has no HTML file named 'Index'. Files: $(ls | tr '\n' ' ')"; exit 1
-          fi
-          echo "Code.gs → $server, Index.html → Index.html"
-          diff -q "$server" ../blinkit-planner/Code.gs >/dev/null && echo "Code.gs: no change" || echo "Code.gs: updated"
-          diff -q Index.html ../blinkit-planner/Index.html >/dev/null && echo "Index.html: no change" || echo "Index.html: updated"
-          cp ../blinkit-planner/Code.gs "$server"
+          [ -f "$server" ] && { diff -q "$server" ../blinkit-planner/Planner.gs >/dev/null && echo "Planner.gs: no change" || echo "Planner.gs: updated"; } || echo "Planner.gs: added"
+          [ -f Index.html ] && { diff -q Index.html ../blinkit-planner/Index.html >/dev/null && echo "Index.html: no change" || echo "Index.html: updated"; } || echo "Index.html: added"
+          cp ../blinkit-planner/Planner.gs "$server"
           cp ../blinkit-planner/Index.html Index.html
+          echo "Other files kept as they are: $(ls | grep -v -e "^$server$" -e '^Index.html$' | tr '\n' ' ')"
           # Web-app settings must be in the manifest when deploying this way (as set up: Execute as Me, Anyone).
           node -e '
             const fs = require("fs"), m = JSON.parse(fs.readFileSync("appsscript.json", "utf8"));
