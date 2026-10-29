@@ -713,7 +713,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!can('Planner') || !S.plan) return;
     var rows = S.plan.filter(function (r) { return r.rate > 0 || r.position > 0; }).map(function (r) {
       return [r.wh, r.item, r.name, r.group, r.status, Math.round(r.rate * 10) / 10, r.position,
-        r.daysNow == null ? '' : Math.round(r.daysNow * 10) / 10, r.rec, r.locked ? 'Yes' : ''];
+        r.daysNow == null ? '' : Math.round(r.daysNow * 10) / 10, r.rec, r.locked ? 'Yes' : '',
+        r.whStock + r.dsStock, r.incoming + r.appIncoming];
     });
     var items = {}; S.plan.forEach(function (r) { items[r.item] = { item: r.item, name: r.name }; });
     var units = 0, lines = 0; S.plan.forEach(function (r) { if (r.rec > 0) { units += r.rec; lines++; } });
@@ -1192,7 +1193,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function drawDash() {
     var d = S.dash, box = $('dashOut'); box.className = '';
     if (!d.meta || !d.rows.length) { box.className = 'card muted'; box.innerHTML = 'No data yet. Make a plan once (New Plan → upload the two files) and the dashboard fills from it.'; return; }
-    var rows = d.rows.map(function (r) { return { wh: r[0], item: r[1], name: r[2], group: r[3], status: r[4], rate: Number(r[5]) || 0, pos: Number(r[6]) || 0, days: r[7] === '' ? null : Number(r[7]), rec: Number(r[8]) || 0, locked: r[9] === 'Yes' }; });
+    var rows = d.rows.map(function (r) { return { wh: r[0], item: r[1], name: r[2], group: r[3], status: r[4], rate: Number(r[5]) || 0, pos: Number(r[6]) || 0, days: r[7] === '' ? null : Number(r[7]), rec: Number(r[8]) || 0, locked: r[9] === 'Yes',
+      // Has = stock (Total sellable); Planned = on ROs not received yet. A snapshot from before the split has only the sum.
+      has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]) }; });
     var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
     var byWh = {};
     rows.forEach(function (r) {
@@ -1211,10 +1214,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
-      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items by days of cover <span class="small muted">(lowest first' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Per day</th><th class="right">Has</th><th class="right">Days</th><th class="right">Suggested</th></tr>' +
+      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items by days of cover <span class="small muted">(lowest first' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Per day</th><th class="right">Has</th><th class="right">Planned</th><th class="right">Days</th><th class="right">Suggested</th></tr>' +
       list.slice(0, 300).map(function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.pos) + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? fmt(r.planned) : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
       }).join('') + '</table></div></div>';
     box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
     if ($('dAll')) $('dAll').onclick = function (e) { e.preventDefault(); S.dashWh = ''; drawDash(); };

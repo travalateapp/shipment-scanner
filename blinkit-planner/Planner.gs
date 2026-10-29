@@ -29,7 +29,7 @@ const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 const SKU_HEAD = ['Item ID', 'SKU', 'Item Name', 'Group', 'Tier', 'Active'];
 const USER_HEAD = ['User ID', 'Name', 'PIN', 'Role', 'Active'];
 const SNAP_HEAD = ['Warehouse', 'Item ID', 'Item Name', 'Group', 'Status', 'Daily Rate', 'Stock + Incoming',
-  'Days Cover', 'Suggested', 'Locked'];
+  'Days Cover', 'Suggested', 'Locked', 'Has', 'Planned'];
 
 const STATUSES = ['Planned', 'Created', 'Delivered', 'Cancelled'];
 const OPEN_STATUSES = ['Planned', 'Created'];
@@ -394,7 +394,7 @@ function saveSnapshot(token, rows, meta) {
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const sh = sheet_(TAB.SNAP);
+    const sh = ensureSheet_(TAB.SNAP, SNAP_HEAD); // adds the Has / Planned headings to an existing tab
     if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, SNAP_HEAD.length).clearContent();
     const vals = rows.slice(0, 5000).map(r => SNAP_HEAD.map((h, i) => (r[i] === null || r[i] === undefined ? '' : r[i])));
     if (vals.length) sh.getRange(2, 1, vals.length, SNAP_HEAD.length).setValues(vals);
