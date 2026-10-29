@@ -156,7 +156,7 @@ var PlanCore = (function () {
    * o = { coverDays, minLine, roundTo, skus: {item: {sku, group, tier}}, openROs: [...], bulkAt: ms }
    *  - stock now = "Total sellable" of the Inventory file (warehouse + in-between + darkstore)
    *  - incoming  = Blinkit "Incoming Quantity" + RO Log lines Blinkit cannot know yet
-   *                (Planned, or Created after the Bulk file was downloaded)
+   *                (Planned, or Created on Blinkit — R.O. PDF time, else app save time — after the Bulk file was downloaded)
    *  - daily rate: recent weeks weigh most; recently listed items use only the days they were listed;
    *    when stock ran low the last 7 days understate demand, so a longer average is used.
    */
@@ -173,7 +173,10 @@ var PlanCore = (function () {
     Object.keys(rates).forEach(function (k) { med[k] = median(rates[k]); });
     var extra = {};
     (o.openROs || []).forEach(function (r) {
-      var count = r.status === 'Planned' || (r.status === 'Created' && (!o.bulkAt || !r.createdAt || r.createdAt > o.bulkAt));
+      // A Created RO is in Blinkit's Incoming once Blinkit has it: from the R.O. time printed on its PDF when known,
+      // otherwise from when it was saved in the app.
+      var at = r.blinkitAt || r.createdAt;
+      var count = r.status === 'Planned' || (r.status === 'Created' && (!o.bulkAt || !at || at > o.bulkAt));
       if (count) extra[r.wh + '|' + r.item] = (extra[r.wh + '|' + r.item] || 0) + num(r.qty);
     });
 
@@ -416,6 +419,17 @@ var PlanCore = (function () {
 
   var MONTHS3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
   /** "Oct. 28, 2026" / "June 24, 2026" → "2026-10-28" ('' when it cannot be read). */
+  /** "Oct. 28, 2026, 2:50 p.m." (India time) → epoch ms; also "noon" / "midnight". 0 when it cannot be read. */
+  function pdfDateTime(s) {
+    var m = String(s || '').match(/([A-Za-z]+)\.?\s+(\d{1,2}),?\s*(\d{4}),?\s*(?:(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\.?|(noon|midnight))/i);
+    if (!m) return 0;
+    var mi = MONTHS3.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi < 0) return 0;
+    var h, mm = 0;
+    if (m[7]) h = m[7].toLowerCase() === 'noon' ? 12 : 0;
+    else { h = Number(m[4]) % 12 + (m[6].toLowerCase() === 'p' ? 12 : 0); mm = Number(m[5] || 0); }
+    return Date.UTC(Number(m[3]), mi, Number(m[2]), h, mm) - 330 * 60000; // IST = UTC+5:30
+  }
   function pdfDate(s) {
     var m = String(s || '').match(/([A-Za-z]+)\.?\s+(\d{1,2}),?\s*(\d{4})/);
     if (!m) return '';
@@ -445,6 +459,7 @@ var PlanCore = (function () {
     return {
       ok: true, roNo: p.poNumber, expiry: pdfDate(p.expiryDate),
       roDate: pdfDate((text.match(/\bDate\s*:\s*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})/) || [])[1]),
+      roAt: pdfDateTime((text.match(/\bDate\s*:\s*([^\n]+)/) || [])[1]),
       whRaw: whRaw, wh: matchWarehouse(whRaw, warehouses), lines: lines, sum: sum, total: total,
       totalOk: !total || total === sum
     };
@@ -1072,7 +1087,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var e = S.pdfs[i]; if (!e || e.state !== 'ready' || !e.d.wh) return Promise.resolve();
     var mt = pdfMatch(e);
     e.state = 'saving'; drawPdfs();
-    return api('importPdfRO', S.token, { roNo: e.d.roNo, roDate: e.d.roDate, expiry: e.d.expiry, wh: e.d.wh, lines: e.d.lines }, mt ? mt.batches : [], !!S.pdfLogOnly)
+    return api('importPdfRO', S.token, { roNo: e.d.roNo, roDate: e.d.roDate, roAt: e.d.roAt, expiry: e.d.expiry, wh: e.d.wh, lines: e.d.lines }, mt ? mt.batches : [], !!S.pdfLogOnly)
       .then(function (r) {
         if (r.skipped) { e.state = 'skipped'; e.msg = r.message; drawPdfs(); return; }
         S.boot.openROs = r.openROs;

@@ -23,7 +23,7 @@ const TAB = {
 
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
-  'Updated By', 'Tab Refs'];
+  'Updated By', 'Tab Refs', 'Blinkit Created At'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 const SKU_HEAD = ['Item ID', 'SKU', 'Item Name', 'Group', 'Tier', 'Active'];
@@ -123,6 +123,7 @@ function setup() {
   log.getRange('M:M').setNumberFormat('dd-mmm-yyyy');
   log.getRange('C:C').setNumberFormat('dd-mmm-yyyy hh:mm');
   log.getRange('R:R').setNumberFormat('dd-mmm-yyyy hh:mm');
+  log.getRange('U:U').setNumberFormat('dd-mmm-yyyy hh:mm');
   ensureSheet_(TAB.SNAP, SNAP_HEAD);
 
   const added = seedSkus_();
@@ -450,6 +451,7 @@ function readLog_() {
     name: String(r[L['Item Name']]), qty: Number(r[L['Qty']]) || 0, status: String(r[L['Status']]),
     appt: r[L['Appointment Date']], roNo: String(r[L['Blinkit RO No.']]), source: String(r[L['Source']]),
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
+    blinkitAt: r[L['Blinkit Created At']],
   })).filter(r => r.key);
 }
 
@@ -461,7 +463,7 @@ function publicRo_(r) {
   return {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
-    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes,
+    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
 }
@@ -561,6 +563,7 @@ function createROs_(u, data) {
         r[L['Updated At']] = now;
         r[L['Updated By']] = u.name || u.id;
         r[L['Tab Refs']] = JSON.stringify(ref ? [ref] : []);
+        r[L['Blinkit Created At']] = data.blinkitAt instanceof Date ? data.blinkitAt : '';
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
@@ -575,7 +578,7 @@ function createROs_(u, data) {
 
 /**
  * Saves an RO read from a Blinkit R.O. PDF (parsed in the browser).
- * pdf = { roNo, roDate: 'yyyy-mm-dd', expiry: 'yyyy-mm-dd', wh, lines: [{ item, qty }] }
+ * pdf = { roNo, roDate: 'yyyy-mm-dd', roAt: ms (Blinkit's R.O. date and time), expiry: 'yyyy-mm-dd', wh, lines: [{ item, qty }] }
  * matchBatches = batch ids of the planner's RO(s) this PDF is (same warehouse, no RO number yet, same items).
  *   Given → those lines get the RO number and the PDF's quantities (the month tab follows); nothing new is added.
  *   Empty → saved as a new RO (status Created, source PDF).
@@ -593,10 +596,14 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
   if (!Object.keys(want).length) throw new Error('RO ' + roNo + ' has no items.');
   const expiry = parseDate_(pdf.expiry);
   const notes = expiry ? 'R.O. expiry ' + Utilities.formatDate(expiry, tz_(), 'd MMM yyyy') : '';
+  // When Blinkit created the RO (printed on the PDF). The planner compares this, not the upload time, with the
+  // Bulk RO file's download time, so an older RO that Blinkit's file already shows as incoming is not added again.
+  const roAt = Number(pdf.roAt) > 0 ? new Date(Number(pdf.roAt)) : null;
 
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
+    ensureSheet_(TAB.LOG, LOG_HEAD);
     const log = readLog_();
     if (log.some(r => r.roNo === roNo && r.status !== 'Cancelled')) {
       return { skipped: true, message: 'RO ' + roNo + ' is already in the RO Log.' };
@@ -625,6 +632,7 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
         }
         if (q) sh.getRange(r.row, L['Status'] + 1).setValue('Created');
         sh.getRange(r.row, L['Blinkit RO No.'] + 1).setValue(roNo);
+        if (roAt) sh.getRange(r.row, L['Blinkit Created At'] + 1).setValue(roAt);
         if (notes) sh.getRange(r.row, L['Notes'] + 1).setValue(r.notes ? r.notes + '; ' + notes : notes);
         sh.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, u.name || u.id]]);
       });
@@ -646,7 +654,7 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
       const res = createROs_(u, {
         lines: Object.keys(want).map(i => ({ wh: pdf.wh, item: Number(i), qty: want[i],
           sku: (skuMap[i] || {}).sku, name: (skuMap[i] || {}).name, group: (skuMap[i] || {}).group })),
-        roDate: pdf.roDate, status: 'Created', source: 'PDF', roNo: roNo, notes: notes, logOnly: !!logOnly,
+        roDate: pdf.roDate, status: 'Created', source: 'PDF', roNo: roNo, notes: notes, logOnly: !!logOnly, blinkitAt: roAt,
       });
       out.batches = res.batches;
       out.warnings = res.warnings;

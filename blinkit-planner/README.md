@@ -14,7 +14,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - An RO number already in the log is skipped.
   - Tick **Log only** for ROs you've already typed into the month tab by hand. They're logged, but never written into the tab, even by *Sync month tabs* or *Start new month*.
   - *Add an RO by hand* is still there, under the upload, for an RO without a PDF.
-- **Planned vs Created:** *Planned* = not on Blinkit yet; it always counts as incoming in the next plan. *Created* = on Blinkit; it counts only until Blinkit's own Bulk RO file shows it as incoming, so it's never counted twice.
+- **Planned vs Created:** *Planned* = not on Blinkit yet; it always counts as incoming in the next plan. *Created* = on Blinkit; it counts only until Blinkit's own Bulk RO file shows it as incoming, so it's never counted twice. For an RO from a PDF, "on Blinkit since" is the **R.O. date and time printed on the PDF** (RO Log column *Blinkit Created At*), not the upload time. An older RO's PDF is therefore never counted on top of a Bulk RO file that already shows it.
 - **Dashboard:** days of cover per warehouse and item from the last plan (red under 7 days, amber 7–15). Handy on a phone.
 - **Settings (admin):** days of cover, rounding, address, the SKU list with TBI / TBO group, and **Start new month**.
 - **Users (admin):** User ID + PIN logins with the roles Admin, Planner (plans and ROs) and Viewer (dashboard and log only).
