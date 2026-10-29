@@ -8,7 +8,13 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - saves every line in the **RO Log**;
   - writes the quantities into the month tab (e.g. *Oct 2026*), in the **next free column D–H** of that warehouse's TBI / TBO block.
 - **RO Log:** every RO. Set the status (Planned → Created → Delivered, or Cancelled), and add the Blinkit RO number and appointment date. The RO heading in the month tab updates too, e.g. `RO 29 Oct / 4999… / app 2 Nov`. Changing a quantity, or cancelling a line, also changes the month tab.
-- **Add RO:** for ROs made directly on Blinkit. They go into the RO Log and the month tab the same way.
+- **RO PDF:** upload one or more Blinkit R.O. PDFs. They're read with the same parser as the Shipment Manager (`parseBlinkitRoPdf_`, copied unchanged), and the app picks up the RO number, warehouse, RO date, expiry and each Item Code + Qty. The items are checked against the PDF's *Total Quantity*.
+  - If a PDF is a planner RO that has no RO number yet (same warehouse, same items), that RO gets the number, and the PDF's quantities replace the planned ones. No second RO is made.
+  - Otherwise it's saved as a new **Created** RO in the RO Log and the month tab. An RO with both TBI and TBO items becomes two columns with the same RO number.
+  - An RO number already in the log is skipped.
+  - Tick **Log only** for ROs you've already typed into the month tab by hand. They're logged, but never written into the tab, even by *Sync month tabs* or *Start new month*.
+  - *Add an RO by hand* is still there, under the upload, for an RO without a PDF.
+- **Planned vs Created:** *Planned* = not on Blinkit yet; it always counts as incoming in the next plan. *Created* = on Blinkit; it counts only until Blinkit's own Bulk RO file shows it as incoming, so it's never counted twice.
 - **Dashboard:** days of cover per warehouse and item from the last plan (red under 7 days, amber 7–15). Handy on a phone.
 - **Settings (admin):** days of cover, rounding, address, the SKU list with TBI / TBO group, and **Start new month**.
 - **Users (admin):** User ID + PIN logins with the roles Admin, Planner (plans and ROs) and Viewer (dashboard and log only).

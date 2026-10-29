@@ -6,6 +6,7 @@
 <title>Blinkit Shipment Planner</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <style>
 :root{--bg:#f4f6fa;--card:#fff;--ink:#1a2233;--muted:#64748b;--line:#e2e8f0;--brand:#0f3460;--brand2:#16213e;--accent:#f8cb2e;
 --ok:#15803d;--okbg:#dcfce7;--warn:#a16207;--warnbg:#fef9c3;--bad:#b91c1c;--badbg:#fee2e2;--info:#1d4ed8;--infobg:#dbeafe;--chip:#eef2f7}
@@ -242,8 +243,241 @@ var PlanCore = (function () {
     return xml;
   }
 
+
+  /* ---- Blinkit R.O. PDF ----
+   * parseBlinkitRoPdf_ and its helpers below are copied unchanged from the Shipment Manager (ShipmentManager.gs),
+   * so both apps read Blinkit R.O. PDFs the same way. Keep them in step when one changes. */
+  function parseBlinkitRoPdf_(rawText) {
+    try {
+      const text = rawText.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+      const poMatch = text.match(/R\.O\.?\s*Number\s*[:\-]\s*(\d{10,16})/i);
+      if (!poMatch) return { success:false, message:"Could not find the R.O. Number in the extracted text. Please check the file is the correct Blinkit PO PDF." };
+      const poNumber = poMatch[1].trim();
+      // "date" sometimes lands on a different line than "R.O. expiry" itself
+      // (column-header word-wrap artifacts), so don't require them adjacent —
+      // just look for the date value within a short window after "expiry".
+      const expiryMatch = text.match(/R\.O\.?\s*expiry\b[\s\S]{0,20}?:\s*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})/i);
+      const expiryDate = expiryMatch ? expiryMatch[1].trim() : "";
+
+      let rows = parseRoRowsByLine_(text);
+      if (!rows.length) rows = parseRoRowsByGluedAnchor_(text);
+
+      rows.sort((a,b)=>a.itemCode.localeCompare(b.itemCode));
+      if (!rows.length) return {success:false,message:"PDF text extracted but no item rows could be parsed. Raw text shown below.",poNumber,expiryDate,rawText:text.slice(0,3000)};
+      return {success:true,poNumber,expiryDate,rows};
+    } catch(err) {
+      return {success:false,message:"Parse error: "+err.message};
+    }
+  }
+
+  /** Primary strategy: one line per item, e.g.
+   *  " 1   10254670   42033 74217751 Travalate 2-  18.00 0.00 0. 39.66 260.00 100 1299.00 26000.00"
+   *  Item Code is anchored directly (serial + Item Code + HSN-first-chunk +
+   *  UPC-first-chunk), then Qty is read as the 3rd-from-last number on that
+   *  same line — Landing Rate, Qty, MRP, Total Amt is always the trailing
+   *  order, regardless of how much description text precedes the numbers. */
+  /** Some R.O. PDFs (observed on the Jaipur warehouse's layout) render the
+   *  Item Code column one character narrower than usual, so its LAST digit
+   *  wraps onto the row's continuation line instead of staying on the main
+   *  line — landing right in front of that line's other wrapped fragments
+   *  (HSN's last 3 digits, UPC's last 5 digits, description continuation).
+   *  Item Codes are always 8 digits (10 + 6 more), so a 7-digit capture on
+   *  the main line means this wrap happened; the continuation line's very
+   *  first token (a lone digit followed by non-digit content) is that
+   *  missing 8th digit. Every other field needed (Qty, Landing Rate, Total
+   *  Amt) already lives complete on the main line regardless, so nothing
+   *  else about the existing per-line strategy needs to change. */
+  function parseRoRowsByLine_(text) {
+    const lines = text.split('\n');
+    const lineRe = /^\s*\d{1,2}\s+(10\d{5,6})\s+\d{5}\s+\d{7,8}\s+(.*)$/;
+    const wrappedDigitRe = /^\s*(\d)(?=\D|$)/;
+    const rows = [];
+    lines.forEach((line, idx) => {
+      const m = line.match(lineRe);
+      if (!m) return;
+      let itemCode = m[1];
+      if (itemCode.length === 7) {
+        const cm = (lines[idx + 1] || '').match(wrappedDigitRe);
+        if (cm) itemCode += cm[1];
+      }
+      if (itemCode.length !== 8) return; // still incomplete — don't guess further
+      const nums = (m[2].match(/\d+\.\d+|\d+/g) || []).map(Number);
+      if (nums.length < 5) return;
+      const landingRate = nums[nums.length - 4];
+      const qty = Math.round(nums[nums.length - 3]);
+      const totalAmt = nums[nums.length - 1];
+      // Sanity-check against the invoice arithmetic (Total Amt = Landing
+      // Rate × Qty) so a row with unexpected extra numbers earlier in the
+      // description doesn't silently produce a wrong Qty.
+      const expected = landingRate * qty;
+      if (qty > 0 && landingRate > 0 && Math.abs(expected - totalAmt) < Math.max(1, totalAmt * 0.02)) {
+        if (!rows.find(r => r.itemCode === itemCode)) rows.push({ itemCode, qty });
+      }
+    });
+    return rows;
+  }
+
+  /** Fallback strategy for when PDF.js collapses whitespace entirely instead
+   *  of preserving line structure (columns glued into one run of characters
+   *  with zero separators). Anchors on Item Code + HSN + UPC glued together
+   *  with no leading serial number — deliberately NOT capturing the row's
+   *  serial digit(s), since when a row runs straight into the next with no
+   *  paragraph break, a leading serial capture can "steal" trailing digits
+   *  off the PREVIOUS row's Total Amt. Then recovers Qty from
+   *  Total Amt = Landing Rate × Qty using decimal points, which survive
+   *  extraction more reliably than spaces do. */
+  function parseRoRowsByGluedAnchor_(text) {
+    const startIdx = text.search(/#\s*Item\s*Code/i);
+    const endIdx = text.search(/Total\s*Quantity\s*:/i);
+    const tableText = (startIdx >= 0 ? text.slice(startIdx) : text)
+      .slice(0, endIdx >= 0 ? (endIdx - (startIdx >= 0 ? startIdx : 0)) : undefined);
+
+    const rowRe = /(10\d{6})\s*(\d{5}\s*\d{3})\s*(742177\d{1,2}\s*\d{3,4})/g;
+    const anchors = [];
+    let m;
+    while ((m = rowRe.exec(tableText)) !== null) {
+      anchors.push({ matchStart: m.index, matchEnd: m.index + m[0].length, itemCode: m[1] });
+    }
+
+    const rows = [];
+    for (let a = 0; a < anchors.length; a++) {
+      const cur = anchors[a];
+      const chunkEnd = a + 1 < anchors.length ? anchors[a+1].matchStart : tableText.length;
+      let chunk = tableText.slice(cur.matchEnd, chunkEnd);
+
+      // The NEXT row's serial number always leaks onto the tail of this
+      // chunk (glued on with zero separator, or just separated by a
+      // newline) since we stopped anchoring on it. We know its exact
+      // expected value (row a+2, 1-indexed) so we can strip it precisely
+      // instead of guessing.
+      if (a + 1 < anchors.length) {
+        const nextSerial = String(a + 2);
+        chunk = chunk.replace(new RegExp('\\s*' + nextSerial.replace(/\d/g, '\\$&') + '\\s*$'), '');
+      }
+
+      const qty = extractQtyFromRowChunk_(chunk);
+      if (cur.itemCode && qty > 0 && !rows.find(r => r.itemCode === cur.itemCode)) {
+        rows.push({ itemCode: cur.itemCode, qty });
+      }
+    }
+    return rows;
+  }
+
+  /** Recovers Qty from one row's trailing numeric block using
+   *  Total Amt = Landing Rate × Qty, reading Landing Rate and Total Amt off
+   *  their decimal points (the last 4 periods in the chunk: TaxAmt's,
+   *  LandingRate's, MRP's, TotalAmt's — in that fixed column order) rather
+   *  than trying to isolate Qty's digits directly, which is ambiguous when
+   *  Qty is glued straight onto MRP with no separator.
+   *  Tries both 1- and 2-decimal-digit interpretations at each boundary,
+   *  because Blinkit occasionally prints a trailing-zero-free amount like
+   *  "71.7" instead of "71.70", which would otherwise misalign every field
+   *  after it. Returns 0 if no interpretation resolves to a clean qty. */
+  function extractQtyFromRowChunk_(chunk) {
+    const dots = [];
+    for (let i = 0; i < chunk.length; i++) if (chunk[i] === '.') dots.push(i);
+    if (dots.length < 4) return 0;
+    const d = dots.slice(-4); // [TaxAmt, LandingRate, MRP, TotalAmt] dots, in order
+    const segBeforeLanding = chunk.slice(d[0]+1, d[1]).replace(/\s+/g,''); // TaxAmt's decimals + LandingRate's integer part
+    const segBeforeMrp     = chunk.slice(d[1]+1, d[2]).replace(/\s+/g,''); // LandingRate's decimals + (ambiguous Qty+MRP-integer, unused)
+    const segBeforeTotal   = chunk.slice(d[2]+1, d[3]).replace(/\s+/g,''); // MRP's decimals + TotalAmt's integer part
+    const afterTotal       = chunk.slice(d[3]+1).replace(/\s+/g,'');       // TotalAmt's decimals
+
+    let best = 0, bestIsStandard = false;
+    for (const skipTax of [2,1]) {
+      if (segBeforeLanding.length <= skipTax) continue;
+      const landingInt = segBeforeLanding.slice(skipTax);
+      for (const skipLanding of [2,1]) {
+        if (segBeforeMrp.length < skipLanding) continue;
+        const landingRate = parseFloat(landingInt + '.' + segBeforeMrp.slice(0, skipLanding));
+        if (!landingRate) continue;
+        for (const skipMrp of [2,1]) {
+          if (segBeforeTotal.length <= skipMrp) continue;
+          const totalInt = segBeforeTotal.slice(skipMrp);
+          for (const decLen of [2,1]) {
+            if (afterTotal.length < decLen) continue;
+            const totalAmt = parseFloat(totalInt + '.' + afterTotal.slice(0, decLen));
+            if (!totalAmt) continue;
+            const qtyRaw = totalAmt / landingRate;
+            const qty = Math.round(qtyRaw);
+            const isStandard = skipTax===2 && skipLanding===2 && skipMrp===2 && decLen===2;
+            if (qty > 0 && qty < 100000 && Math.abs(qtyRaw - qty) < 0.03) {
+              // Prefer the standard (both-decimals-are-2-digits) interpretation
+              // when it's valid; otherwise take the first valid fallback found.
+              if (isStandard) return qty;
+              if (!best) { best = qty; bestIsStandard = isStandard; }
+            }
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  var MONTHS3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  /** "Oct. 28, 2026" / "June 24, 2026" → "2026-10-28" ('' when it cannot be read). */
+  function pdfDate(s) {
+    var m = String(s || '').match(/([A-Za-z]+)\.?\s+(\d{1,2}),?\s*(\d{4})/);
+    if (!m) return '';
+    var mi = MONTHS3.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi < 0) return '';
+    return m[3] + '-' + ('0' + (mi + 1)).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+  }
+  function whKey(s) { return String(s || '').toLowerCase().replace(/^\s*bcpl\s*-\s*/, '').replace(/warehouse/g, '').replace(/[^a-z0-9]/g, ''); }
+  /** "BCPL - Jaipur J3 Feeder warehouse" → "Jaipur J3 - Feeder" (one of the sheet's warehouse names), or ''. */
+  function matchWarehouse(raw, names) {
+    var k = whKey(raw);
+    if (!k) return '';
+    return (names || []).filter(function (n) { return whKey(n) === k; })[0] || '';
+  }
+
+  /**
+   * Everything the RO PDF upload needs from the PDF's text (as Shipment Manager's extractPdfText_ makes it):
+   * the parser's R.O. number, expiry and item rows, plus the warehouse, the R.O. date and the PDF's own total.
+   */
+  function readRoPdf(text, warehouses) {
+    var p = parseBlinkitRoPdf_(text || '');
+    if (!p.success) return { ok: false, message: p.message || 'Could not read this PDF.' };
+    var whRaw = ((text.match(/BCPL\s*-\s*([^\n]+)/) || [])[1] || '').trim();
+    var total = Number((text.match(/Total\s*Quantity\s*:\s*(\d+)/i) || [])[1] || 0);
+    var lines = p.rows.map(function (r) { return { item: Number(r.itemCode), qty: r.qty }; });
+    var sum = lines.reduce(function (a, l) { return a + l.qty; }, 0);
+    return {
+      ok: true, roNo: p.poNumber, expiry: pdfDate(p.expiryDate),
+      roDate: pdfDate((text.match(/\bDate\s*:\s*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})/) || [])[1]),
+      whRaw: whRaw, wh: matchWarehouse(whRaw, warehouses), lines: lines, sum: sum, total: total,
+      totalOk: !total || total === sum
+    };
+  }
+
+  /**
+   * The planner's open RO this PDF is: same warehouse, no RO number yet, created on one day, and exactly the
+   * same items (quantities may differ — the PDF's win). Returns { batches, roDate, diffs } or null.
+   */
+  function matchPlannerRo(pdf, openROs) {
+    var byDay = {};
+    (openROs || []).forEach(function (r) {
+      if (r.wh !== pdf.wh || r.roNo || r.status === 'Cancelled') return;
+      (byDay[r.roDate] = byDay[r.roDate] || []).push(r);
+    });
+    var want = {};
+    pdf.lines.forEach(function (l) { want[l.item] = (want[l.item] || 0) + l.qty; });
+    var days = Object.keys(byDay).sort().reverse();
+    for (var i = 0; i < days.length; i++) {
+      var rs = byDay[days[i]], have = {};
+      rs.forEach(function (r) { have[r.item] = (have[r.item] || 0) + r.qty; });
+      var hk = Object.keys(have), wk = Object.keys(want);
+      if (hk.length !== wk.length || !wk.every(function (k) { return have[k] !== undefined; })) continue;
+      var batches = [];
+      rs.forEach(function (r) { if (batches.indexOf(r.batch) < 0) batches.push(r.batch); });
+      var diffs = wk.filter(function (k) { return have[k] !== want[k]; }).map(function (k) { return { item: Number(k), from: have[k], to: want[k] }; });
+      return { batches: batches, roDate: days[i], diffs: diffs };
+    }
+    return null;
+  }
+
   return { parseInventory: parseInventory, parseBulk: parseBulk, computePlan: computePlan, fillSheetXml: fillSheetXml,
-    colLetter: colLetter, median: median };
+    colLetter: colLetter, median: median, readRoPdf: readRoPdf, matchPlannerRo: matchPlannerRo, matchWarehouse: matchWarehouse };
 })();
 if (typeof module !== 'undefined') module.exports = PlanCore;
 /* ======================= CORE-END ======================= */
@@ -344,7 +578,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var b = S.boot;
     if (S.starters === null) S.starters = !!b.settings.starters;
     $('who').innerHTML = esc(b.user.name || b.user.id) + '<br>' + esc(b.user.role);
-    var tabs = [['plan', 'New Plan'], ['log', 'RO Log'], ['add', 'Add RO'], ['dash', 'Dashboard']];
+    var tabs = [['plan', 'New Plan'], ['log', 'RO Log'], ['add', 'RO PDF'], ['dash', 'Dashboard']];
     if (can('Admin')) tabs.push(['settings', 'Settings'], ['users', 'Users']);
     tabs.push(['account', 'Account']);
     if (!can('Planner')) tabs = tabs.filter(function (t) { return t[0] !== 'plan' && t[0] !== 'add'; });
@@ -729,7 +963,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div style="flex:0 0 auto"><button class="btn p bSave">Save RO</button></div></div>' : '') +
         '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th><th class="right">Qty</th><th>Status</th>' + (edit ? '<th></th>' : '') + '</tr>' +
         rs.map(function (r) {
-          return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.sku || 'No SKU') + '<div class="small muted">by ' + esc(r.createdBy) + (r.source === 'Manual' ? ' · manual' : '') + '</div></td><td>' + r.item + '</td>' +
+          return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.sku || 'No SKU') + '<div class="small muted">by ' + esc(r.createdBy) + (r.source && r.source !== 'Plan' ? ' · ' + esc(r.source === 'PDF' ? 'from PDF' : 'manual') : '') + '</div></td><td>' + r.item + '</td>' +
             '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) + '</td>' +
             '<td><span class="pill ' + pc[r.status] + '">' + r.status + '</span></td>' +
             (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
@@ -755,12 +989,111 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
   }
 
-  /* ======================= Add RO manually ======================= */
+  /* ======================= Upload Blinkit R.O. PDFs ======================= */
+  /** PDF text the way the Shipment Manager's extractPdfText_ builds it (text items grouped into lines by y). */
+  function extractPdfText(buf) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise.then(function (pdf) {
+      var raw = '', p = 0;
+      var next = function () {
+        if (++p > pdf.numPages) return raw;
+        return pdf.getPage(p).then(function (page) { return page.getTextContent(); }).then(function (content) {
+          var lineMap = {};
+          content.items.forEach(function (item) {
+            var y = item.transform ? Math.round(item.transform[5] * 10) / 10 : 0;
+            (lineMap[y] = lineMap[y] || []).push(item.str);
+          });
+          Object.keys(lineMap).map(Number).sort(function (a, b) { return b - a; }).forEach(function (y) { raw += lineMap[y].join(' ') + '\n'; });
+          raw += '\n';
+          return next();
+        });
+      };
+      return next();
+    });
+  }
+
+  function addPdfFiles(files) {
+    Array.prototype.forEach.call(files, function (f) {
+      var e = { name: f.name, state: 'reading' };
+      S.pdfs.push(e);
+      var rd = new FileReader();
+      rd.onload = function () {
+        extractPdfText(rd.result).then(function (text) {
+          var d = PlanCore.readRoPdf(text, S.boot.warehouses);
+          if (!d.ok) { e.state = 'err'; e.msg = d.message; }
+          else {
+            e.state = 'ready'; e.d = d;
+            if (S.pdfs.some(function (x) { return x !== e && x.d && x.d.roNo === d.roNo; })) { e.state = 'err'; e.msg = 'RO ' + d.roNo + ' is already in this list.'; }
+          }
+          drawPdfs();
+        }, function (err) { e.state = 'err'; e.msg = 'Could not read the PDF: ' + (err && err.message || err); drawPdfs(); });
+      };
+      rd.readAsArrayBuffer(f);
+    });
+    drawPdfs();
+  }
+
+  function pdfMatch(e) { return e.d && e.d.wh ? PlanCore.matchPlannerRo(e.d, S.boot.openROs) : null; }
+
+  function drawPdfs() {
+    var box = $('pdfList'); if (!box) return;
+    var m = skuMap();
+    var ready = S.pdfs.filter(function (e) { return e.state === 'ready'; });
+    $('pdfAll').classList.toggle('hidden', ready.length < 2);
+    box.innerHTML = S.pdfs.map(function (e, i) {
+      if (e.state === 'reading') return '<div class="ro"><div class="h"><span class="spin"></span> Reading ' + esc(e.name) + '…</div></div>';
+      if (e.state === 'err') return '<div class="ro"><div class="h"><span class="w">' + esc(e.name) + '</span><button class="btn sm pX" data-i="' + i + '">Remove</button></div><div class="b" style="display:block">' + msgs([e.msg], 'bad') + '</div></div>';
+      var d = e.d, mt = pdfMatch(e);
+      var noGroup = d.lines.filter(function (l) { return !(m[l.item] && m[l.item].group); });
+      var notes = [];
+      if (!d.totalOk) notes.push(['bad', 'The items add up to ' + d.sum + ' but the PDF says Total Quantity ' + d.total + '. Check the PDF before saving.']);
+      if (!d.wh) notes.push(['warn', 'Warehouse "' + d.whRaw + '" is not one of the sheet\'s warehouses — choose it below.']);
+      if (noGroup.length) notes.push(['bad', 'No TBI/TBO group yet for ' + noGroup.map(function (l) { return skuText((m[l.item] || {}).sku, l.item); }).join(', ') + '. An admin sets it in Settings → SKUs, then save.']);
+      if (mt) notes.push(['info', 'This is the planner\'s RO of ' + prettyDate(mt.roDate) + ' for this warehouse: the RO number is added to it, no new RO.' +
+        (mt.diffs.length ? ' Quantities change to the PDF\'s: ' + mt.diffs.map(function (x) { return skuText((m[x.item] || {}).sku, x.item) + ' ' + x.from + ' → ' + x.to; }).join(', ') + '.' : '')]);
+      else if (d.wh && e.state === 'ready') notes.push(['info', 'Saved as a new RO (Created) dated ' + prettyDate(d.roDate) + (S.pdfLogOnly ? ' — RO Log only (Log only is ticked).' : ' — into the RO Log and the month tab.')]);
+      var done = e.state === 'saved' || e.state === 'skipped';
+      return '<div class="ro open"><div class="h"><span class="w">RO ' + esc(d.roNo) + '</span>' +
+        '<span class="small">' + esc(d.whRaw) + '</span><span class="small">RO ' + prettyDate(d.roDate) + (d.expiry ? ' · expires ' + prettyDate(d.expiry) : '') + '</span>' +
+        '<span class="small"><b>' + fmt(d.sum) + '</b> units · ' + d.lines.length + ' items ' + (d.totalOk ? '✓' : '⚠') + '</span>' +
+        (done ? '<span class="pill ' + (e.state === 'saved' ? 'ok' : 'warn') + '">' + (e.state === 'saved' ? 'Saved' : 'Skipped') + '</span>' : '') + '</div><div class="b">' +
+        (done ? msgs([e.msg], e.state === 'saved' ? 'ok' : 'warn') + msgs(e.warnings, 'warn') :
+          '<div class="row"><div><label class="f">Warehouse</label><select class="pWh" data-i="' + i + '"><option value="">Choose…</option>' + (S.boot.warehouses || []).map(function (w) { return '<option' + (d.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
+          '<div style="flex:0 0 auto"><button class="btn g pSave" data-i="' + i + '"' + (d.wh && !noGroup.length && e.state === 'ready' ? '' : ' disabled') + '>' + (e.state === 'saving' ? '<span class="spin"></span>' : 'Save') + '</button> <button class="btn pX" data-i="' + i + '">Remove</button></div></div>' +
+          notes.map(function (n) { return '<div class="msg ' + n[0] + '">' + esc(n[1]) + '</div>'; }).join('')) +
+        '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Qty</th></tr>' + d.lines.map(function (l) {
+          var x = m[l.item] || {};
+          return '<tr><td>' + esc(x.sku || 'No SKU') + '</td><td>' + l.item + '</td><td>' + esc(x.group || '—') + '</td><td class="right">' + fmt(l.qty) + '</td></tr>';
+        }).join('') + '</table></div></div></div>';
+    }).join('');
+  }
+
+  function savePdf(i) {
+    var e = S.pdfs[i]; if (!e || e.state !== 'ready' || !e.d.wh) return Promise.resolve();
+    var mt = pdfMatch(e);
+    e.state = 'saving'; drawPdfs();
+    return api('importPdfRO', S.token, { roNo: e.d.roNo, roDate: e.d.roDate, expiry: e.d.expiry, wh: e.d.wh, lines: e.d.lines }, mt ? mt.batches : [], !!S.pdfLogOnly)
+      .then(function (r) {
+        if (r.skipped) { e.state = 'skipped'; e.msg = r.message; drawPdfs(); return; }
+        S.boot.openROs = r.openROs;
+        e.state = 'saved'; e.warnings = r.warnings;
+        e.msg = r.matched ? 'RO number added to the planner\'s RO' + (r.changes.length ? '; quantities updated: ' + r.changes.join(', ') : '') + '.'
+          : 'Saved: ' + r.batches.map(function (b) { return b.group + ' ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); }).join(', ') + '.';
+        drawPdfs();
+      }, function (err) { e.state = 'ready'; e.err = err.message; drawPdfs(); toast(err.message, 6000); });
+  }
+
   function renderAdd() {
     var whs = S.boot.warehouses || [];
     var skus = (S.boot.skus || []).filter(function (s) { return s.active; });
     if (!S.manual.length) S.manual = [{ item: '', qty: '' }];
-    $('app').innerHTML = '<div class="card"><h2>Add an RO made directly on Blinkit</h2>' +
+    S.pdfs = S.pdfs || [];
+    $('app').innerHTML = '<div class="card"><h2>Upload Blinkit R.O. PDFs</h2>' +
+      '<div class="small muted">Read the same way as in the Shipment Manager. Each RO goes into the RO Log and the month tab as <b>Created</b>. A planner RO without an RO number gets the number instead of a second RO. An RO number already in the log is skipped.</div>' +
+      '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="pdfIn"><b>Choose R.O. PDFs</b><span class="small muted">one or more</span></label>' +
+      '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="pdfLogOnly"' + (S.pdfLogOnly ? ' checked' : '') + '> <b>Log only</b> — these ROs are already typed into the month tab by hand (don\'t write them there again)</label>' +
+      '<div style="margin:10px 0"><button class="btn g hidden" id="pdfAll">Save all</button></div><div id="pdfList"></div></div>' +
+      '<details class="card"><summary style="cursor:pointer;font-weight:700">Add an RO by hand instead</summary><div style="margin-top:10px">' +
       '<div class="small muted">It goes into the RO Log and the month tab like the planner\'s ROs. Items of both groups split into a TBI and a TBO RO automatically.</div>' +
       '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Warehouse</label><select id="mWh"><option value="">Choose…</option>' + whs.map(function (w) { return '<option>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
@@ -771,7 +1104,24 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">Notes</label><input type="text" id="mNote"></div></div>' +
       '<datalist id="skuList">' + skus.map(function (s) { return '<option value="' + s.item + '">' + esc(skuText(s.sku, s.item) + ' (' + (s.group || 'no group') + ')') + '</option>'; }).join('') + '</datalist>' +
       '<h3 style="margin-top:14px">Items</h3><div id="mLines"></div><button class="btn sm" id="mAdd">+ Add item</button>' +
-      '<div id="mOut"></div><div style="margin-top:12px"><button class="btn g" id="mSave">Save RO</button></div></div>';
+      '<div id="mOut"></div><div style="margin-top:12px"><button class="btn g" id="mSave">Save RO</button></div></div></details>';
+    if (typeof pdfjsLib === 'undefined') $('pdfList').innerHTML = msgs(['The PDF reader did not load (no internet?). Reload the page.'], 'bad');
+    $('pdfIn').onchange = function () { addPdfFiles(this.files); this.value = ''; };
+    $('pdfLogOnly').onchange = function () { S.pdfLogOnly = this.checked; drawPdfs(); };
+    $('pdfAll').onclick = function () {
+      var idx = S.pdfs.map(function (e, i) { return e.state === 'ready' && e.d.wh ? i : -1; }).filter(function (i) { return i >= 0; });
+      idx.reduce(function (p, i) { return p.then(function () { return savePdf(i); }); }, Promise.resolve());
+    };
+    $('pdfList').onclick = function (ev) {
+      var i = Number(ev.target.getAttribute('data-i'));
+      if (ev.target.classList.contains('pSave')) savePdf(i);
+      if (ev.target.classList.contains('pX')) { S.pdfs.splice(i, 1); drawPdfs(); }
+    };
+    $('pdfList').onchange = function (ev) {
+      if (!ev.target.classList.contains('pWh')) return;
+      var e = S.pdfs[Number(ev.target.getAttribute('data-i'))]; e.d.wh = ev.target.value; drawPdfs();
+    };
+    drawPdfs();
     var draw = function () {
       var m = skuMap();
       $('mLines').innerHTML = S.manual.map(function (l, i) {

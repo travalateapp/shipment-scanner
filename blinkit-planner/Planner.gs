@@ -54,6 +54,8 @@ const BLOCK_RE = /^(.+)-(TBI|TBO)$/;
 const RO_COLS = ['D', 'E', 'F', 'G', 'H'];
 const FIRST_RO_COL = 4; // D
 const SESSION_DAYS = 30;
+// "Month Tab" of an RO that was already typed into the month tab by hand: never written there by the app.
+const LOG_ONLY = 'Log only';
 // The daily inventory updater (Code.gs) pastes Blinkit's Inventory download here, starting at C1.
 const FORMULA_SHEET = 'Formula Sheet';
 const FORMULA_FIRST_COL = 3; // C
@@ -75,7 +77,7 @@ function doGet(e) {
 /** Functions the hosted page (GitHub Pages) may call through doPost. */
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
-  updateBatch, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
+  updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -447,7 +449,7 @@ function readLog_() {
     group: String(r[L['Group']]), item: Number(r[L['Item ID']]), sku: String(r[L['SKU']]),
     name: String(r[L['Item Name']]), qty: Number(r[L['Qty']]) || 0, status: String(r[L['Status']]),
     appt: r[L['Appointment Date']], roNo: String(r[L['Blinkit RO No.']]), source: String(r[L['Source']]),
-    notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]),
+    notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
   })).filter(r => r.key);
 }
 
@@ -460,7 +462,7 @@ function publicRo_(r) {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
     appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes,
-    tabs: r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
+    tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
 }
 
@@ -482,11 +484,22 @@ function listROs(token, filter) {
 /**
  * Logs ROs and writes them into the month tab.
  * data = { lines: [{ wh, item, sku, name, group, qty }], roDate: 'yyyy-mm-dd', status: 'Created'|'Planned',
- *          source: 'Plan'|'Manual', appt, roNo, notes }
+ *          source: 'Plan'|'Manual'|'PDF', appt, roNo, notes }
  * All lines of one warehouse + group become one RO (one column in that warehouse's block).
  */
 function createROs(token, data) {
   const u = auth_(token, 'Planner');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    return createROs_(u, data);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** createROs without the lock, for callers that already hold it. */
+function createROs_(u, data) {
   data = data || {};
   const lines = (data.lines || []).filter(l => l && l.wh && Number(l.item) && Number(l.qty) > 0);
   if (!lines.length) throw new Error('Nothing to save: no line has a quantity.');
@@ -496,9 +509,7 @@ function createROs(token, data) {
   const skuMap = {};
   getSkus_().forEach(s => { skuMap[s.item] = s; });
 
-  const lock = LockService.getScriptLock();
-  lock.waitLock(30000);
-  try {
+  {
     const now = new Date();
     const batches = {};
     lines.forEach(l => {
@@ -518,7 +529,9 @@ function createROs(token, data) {
       const b = batches[k];
       const batchId = Utilities.formatDate(now, tz_(), 'yyMMdd-HHmmss') + '-' + Utilities.getUuid().slice(0, 4);
       let ref = null;
-      if (tab) {
+      if (data.logOnly) {
+        // Already typed into the month tab by hand: only logged.
+      } else if (tab) {
         const w = writeBatch_(tab.sheet, b.wh, b.group, b.lines, roLabel_(roDate, data.roNo, appt));
         if (w.col) ref = { t: tab.name, c: w.col };
         w.warnings.forEach(x => out.warnings.push(b.wh + ' ' + b.group + ': ' + x));
@@ -542,8 +555,8 @@ function createROs(token, data) {
         r[L['Status']] = status;
         r[L['Appointment Date']] = appt || '';
         r[L['Blinkit RO No.']] = String(data.roNo || '');
-        r[L['Source']] = data.source === 'Manual' ? 'Manual' : 'Plan';
-        r[L['Month Tab']] = ref ? ref.t + ' (' + ref.c + ')' : '';
+        r[L['Source']] = ['Manual', 'PDF'].indexOf(data.source) >= 0 ? data.source : 'Plan';
+        r[L['Month Tab']] = ref ? ref.t + ' (' + ref.c + ')' : (data.logOnly ? LOG_ONLY : '');
         r[L['Notes']] = String(data.notes || '');
         r[L['Updated At']] = now;
         r[L['Updated By']] = u.name || u.id;
@@ -555,6 +568,89 @@ function createROs(token, data) {
     });
     const log = sheet_(TAB.LOG);
     log.getRange(log.getLastRow() + 1, 1, rows.length, LOG_HEAD.length).setValues(rows);
+    out.openROs = readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_);
+    return out;
+  }
+}
+
+/**
+ * Saves an RO read from a Blinkit R.O. PDF (parsed in the browser).
+ * pdf = { roNo, roDate: 'yyyy-mm-dd', expiry: 'yyyy-mm-dd', wh, lines: [{ item, qty }] }
+ * matchBatches = batch ids of the planner's RO(s) this PDF is (same warehouse, no RO number yet, same items).
+ *   Given → those lines get the RO number and the PDF's quantities (the month tab follows); nothing new is added.
+ *   Empty → saved as a new RO (status Created, source PDF).
+ * An RO number that is already in the RO Log is never saved twice.
+ * logOnly = the RO is already typed into the month tab by hand: it is only logged, the tab is not changed.
+ */
+function importPdfRO(token, pdf, matchBatches, logOnly) {
+  const u = auth_(token, 'Planner');
+  pdf = pdf || {};
+  const roNo = String(pdf.roNo || '').trim();
+  if (!/^\d{6,20}$/.test(roNo)) throw new Error('The PDF has no valid R.O. Number.');
+  if (!pdf.wh) throw new Error('Choose the warehouse for RO ' + roNo + '.');
+  const want = {};
+  (pdf.lines || []).forEach(l => { if (Number(l.item) && Number(l.qty) > 0) want[Number(l.item)] = (want[Number(l.item)] || 0) + Math.round(Number(l.qty)); });
+  if (!Object.keys(want).length) throw new Error('RO ' + roNo + ' has no items.');
+  const expiry = parseDate_(pdf.expiry);
+  const notes = expiry ? 'R.O. expiry ' + Utilities.formatDate(expiry, tz_(), 'd MMM yyyy') : '';
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const log = readLog_();
+    if (log.some(r => r.roNo === roNo && r.status !== 'Cancelled')) {
+      return { skipped: true, message: 'RO ' + roNo + ' is already in the RO Log.' };
+    }
+    const out = { roNo: roNo, matched: false, warnings: [], changes: [] };
+    if (matchBatches && matchBatches.length) {
+      const rows = log.filter(r => matchBatches.indexOf(r.batch) >= 0 && r.status !== 'Cancelled');
+      const ok = rows.length && rows.every(r => r.wh === pdf.wh && OPEN_STATUSES.indexOf(r.status) >= 0 && !r.roNo);
+      const items = {};
+      rows.forEach(r => { items[r.item] = 1; });
+      const same = ok && Object.keys(items).length === Object.keys(want).length && Object.keys(want).every(i => items[i]);
+      if (!same) throw new Error('The planner RO for RO ' + roNo + ' changed meanwhile. Reload and try again.');
+      const sh = sheet_(TAB.LOG), now = new Date(), left = Object.assign({}, want);
+      rows.forEach(r => {
+        const q = left[r.item] || 0;
+        delete left[r.item];
+        if (q !== r.qty) {
+          r.refs.forEach(ref => {
+            const tsh = SpreadsheetApp.getActive().getSheetByName(ref.t);
+            const w = tsh ? adjustCell_(tsh, r.wh, r.group, r.item, r.sku, ref.c, q - r.qty) : '';
+            if (w) out.warnings.push(w);
+          });
+          out.changes.push((r.sku || r.item) + ': ' + r.qty + ' → ' + q);
+          sh.getRange(r.row, L['Qty'] + 1).setValue(q || r.qty);
+          if (!q) sh.getRange(r.row, L['Status'] + 1).setValue('Cancelled');
+        }
+        if (q) sh.getRange(r.row, L['Status'] + 1).setValue('Created');
+        sh.getRange(r.row, L['Blinkit RO No.'] + 1).setValue(roNo);
+        if (notes) sh.getRange(r.row, L['Notes'] + 1).setValue(r.notes ? r.notes + '; ' + notes : notes);
+        sh.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, u.name || u.id]]);
+      });
+      // The RO heading in the month tab gets the RO number.
+      const seen = {};
+      rows.forEach(r => {
+        if (seen[r.batch]) return;
+        seen[r.batch] = 1;
+        const appt = r.appt instanceof Date ? r.appt : null;
+        r.refs.forEach(ref => {
+          const tsh = SpreadsheetApp.getActive().getSheetByName(ref.t);
+          if (tsh) setBatchLabel_(tsh, r.wh, r.group, ref.c, roLabel_(r.roDate instanceof Date ? r.roDate : now, roNo, appt));
+        });
+      });
+      out.matched = true;
+    } else {
+      const skuMap = {};
+      getSkus_().forEach(s => { skuMap[s.item] = s; });
+      const res = createROs_(u, {
+        lines: Object.keys(want).map(i => ({ wh: pdf.wh, item: Number(i), qty: want[i],
+          sku: (skuMap[i] || {}).sku, name: (skuMap[i] || {}).name, group: (skuMap[i] || {}).group })),
+        roDate: pdf.roDate, status: 'Created', source: 'PDF', roNo: roNo, notes: notes, logOnly: !!logOnly,
+      });
+      out.batches = res.batches;
+      out.warnings = res.warnings;
+    }
     out.openROs = readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_);
     return out;
   } finally {
@@ -825,7 +921,7 @@ function startMonth(token, month) {
     const log = readLog_();
     const todo = {};
     log.forEach(r => {
-      if (OPEN_STATUSES.indexOf(r.status) < 0 || !(r.roDate instanceof Date)) return;
+      if (OPEN_STATUSES.indexOf(r.status) < 0 || !(r.roDate instanceof Date) || r.logOnly) return;
       if (r.refs.some(x => x.t === tab.name)) return;
       const inMonth = r.roDate >= new Date(y, mi, 1) && r.roDate < nextFirst;
       const carry = r.roDate >= carryFrom && r.roDate < new Date(y, mi, 1);
@@ -882,7 +978,7 @@ function syncMonthTabs(token) {
   try {
     const byTab = {};
     readLog_().forEach(r => {
-      if (OPEN_STATUSES.indexOf(r.status) < 0 || !(r.roDate instanceof Date)) return;
+      if (OPEN_STATUSES.indexOf(r.status) < 0 || !(r.roDate instanceof Date) || r.logOnly) return;
       const tab = monthTabFor_(r.roDate);
       if (!tab || r.refs.some(x => x.t === tab.name)) return;
       const t = byTab[tab.name] = byTab[tab.name] || { tab: tab, todo: {} };
