@@ -269,6 +269,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function toast(msg, ms) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, ms || 3200); }
   function role() { return S.boot ? S.boot.user.role : 'Viewer'; }
   function can(r) { var order = ['Admin', 'Planner', 'Viewer']; return order.indexOf(role()) <= order.indexOf(r); }
+  /** Items are shown by SKU and Item ID only (no product names). */
+  function skuText(sku, item) { return (sku ? String(sku) : 'No SKU') + ' · ' + item; }
+  function skuOf(item) { var x = (S.boot.skus || []).filter(function (s) { return s.item === Number(item); })[0]; return x ? x.sku : ''; }
   function groupName(g) { return (S.boot && S.boot.groups && S.boot.groups[g]) || (g || 'No group'); }
   function msgs(list, cls) { return (list || []).map(function (w) { return '<div class="msg ' + (cls || 'warn') + '">' + esc(w) + '</div>'; }).join(''); }
 
@@ -516,11 +519,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '</div><div class="row" style="margin-top:10px">' +
       '<div><label class="f">Group</label><select id="fGroup"><option value="">TBI + TBO</option><option value="TBI"' + (S.filter.group === 'TBI' ? ' selected' : '') + '>' + esc(groupName('TBI')) + '</option><option value="TBO"' + (S.filter.group === 'TBO' ? ' selected' : '') + '>' + esc(groupName('TBO')) + '</option><option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
       '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (S.filter.only ? '' : ' selected') + '>All items</option></select></div>' +
-      '<div><label class="f">Search</label><input type="text" id="fQ" placeholder="SKU, name or item ID" value="' + esc(S.filter.q) + '"></div>' +
+      '<div><label class="f">Search</label><input type="text" id="fQ" placeholder="SKU or item ID" value="' + esc(S.filter.q) + '"></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bXls">⬇ Plan (Excel)</button></div></div>' +
       msgs(info, 'info') +
-      (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no TBI/TBO group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return r.name.replace(/^Travalate /, ''); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
-      (locked.length ? '<div class="msg warn"><b>Needed but locked on Blinkit (' + locked.length + '):</b> ' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + r.name.replace(/^Travalate /, '') + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div>' : '') +
+      (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no TBI/TBO group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
+      (locked.length ? '<div class="msg warn"><b>Needed but locked on Blinkit (' + locked.length + '):</b> ' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div>' : '') +
       '</div><div class="card" style="padding:0 0 4px" id="lines"></div>';
     out.innerHTML = html;
     $('whChips').onclick = function (e) { var c = e.target.closest('.chip'); if (!c) return; S.filter.wh = c.getAttribute('data-wh'); renderPlanOut(); };
@@ -542,7 +545,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!rows.length) { box.innerHTML = '<div class="muted" style="padding:16px">Nothing to show with these filters.</div>'; return; }
     var groups = {};
     rows.forEach(function (r) { var k = r.wh + '||' + (r.group || '?'); (groups[k] = groups[k] || []).push(r); });
-    var head = '<div class="line head"><div>Item</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right">Has now</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div><div class="right">Send</div><div class="right">Days after</div></div>';
+    var head = '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right">Has now</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div><div class="right">Send</div><div class="right">Days after</div></div>';
     var html = '';
     Object.keys(groups).sort().forEach(function (k) {
       var rs = groups[k], p = k.split('||');
@@ -554,9 +557,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var over = q > r.max || (q > 0 && r.locked);
         var inc = r.incoming + r.appIncoming;
         html += '<div class="line' + (q > 0 ? ' send' : '') + (r.locked ? ' lock' : '') + '" data-k="' + esc(r.key) + '">' +
-          '<div class="nm">' + esc(r.name.replace(/^Travalate /, '')) + ' ' + statusPill(r) +
-          '<small>' + esc(r.sku || '') + (r.sku ? ' · ' : '') + r.item + (r.tier ? ' · ' + esc(r.tier) : '') +
-          ' · stock ' + fmt(r.whStock + r.dsStock) + (inc ? ' + incoming ' + fmt(inc) : '') +
+          '<div class="nm">' + (r.sku ? esc(r.sku) : '<span class="pill warn">No SKU</span>') + ' <span class="muted" style="font-weight:400">· ' + r.item + '</span> ' + statusPill(r) +
+          '<small>' + (r.tier ? esc(r.tier) + ' · ' : '') +
+          'stock ' + fmt(r.whStock + r.dsStock) + (inc ? ' + incoming ' + fmt(inc) : '') +
           (r.note ? ' · <b>' + esc(r.note) + '</b>' : (r.locked ? ' · Locked: ' + esc(r.remarks) : '')) +
           (r.starter && !r.locked ? ' · starter ' + r.starter : '') + '</small></div>' +
           '<div class="right"><span class="lbl">Sold 7d / 30d</span>' + fmt(r.s7) + ' / ' + fmt(r.s30) + '</div>' +
@@ -661,7 +664,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
 
   function exportPlan() {
     var rows = S.plan.map(function (r) {
-      return { Warehouse: r.wh, Group: r.group, SKU: r.sku, 'Item ID': r.item, Item: r.name, Status: r.status,
+      return { Warehouse: r.wh, Group: r.group, SKU: r.sku, 'Item ID': r.item, Status: r.status,
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
         'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.round(r.daysNow * 10) / 10,
@@ -724,9 +727,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><label class="f">Appointment</label><input type="date" class="bAp" value="' + esc(r0.appt) + '"></div>' +
           '<div><label class="f">Blinkit RO No.</label><input type="text" class="bNo" value="' + esc(r0.roNo) + '"></div>' +
           '<div style="flex:0 0 auto"><button class="btn p bSave">Save RO</button></div></div>' : '') +
-        '<div class="scroll"><table class="t"><tr><th>Item</th><th>SKU</th><th class="right">Qty</th><th>Status</th>' + (edit ? '<th></th>' : '') + '</tr>' +
+        '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th><th class="right">Qty</th><th>Status</th>' + (edit ? '<th></th>' : '') + '</tr>' +
         rs.map(function (r) {
-          return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.name.replace(/^Travalate /, '') || r.item) + '<div class="small muted">' + r.item + ' · by ' + esc(r.createdBy) + (r.source === 'Manual' ? ' · manual' : '') + '</div></td><td>' + esc(r.sku) + '</td>' +
+          return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.sku || 'No SKU') + '<div class="small muted">by ' + esc(r.createdBy) + (r.source === 'Manual' ? ' · manual' : '') + '</div></td><td>' + r.item + '</td>' +
             '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) + '</td>' +
             '<td><span class="pill ' + pc[r.status] + '">' + r.status + '</span></td>' +
             (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
@@ -766,7 +769,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="row" style="margin-top:8px"><div><label class="f">Appointment (optional)</label><input type="date" id="mAp"></div>' +
       '<div><label class="f">Blinkit RO No. (optional)</label><input type="text" id="mNo"></div>' +
       '<div><label class="f">Notes</label><input type="text" id="mNote"></div></div>' +
-      '<datalist id="skuList">' + skus.map(function (s) { return '<option value="' + s.item + '">' + esc((s.sku ? s.sku + ' — ' : '') + (s.name || '') + ' (' + (s.group || 'no group') + ')') + '</option>'; }).join('') + '</datalist>' +
+      '<datalist id="skuList">' + skus.map(function (s) { return '<option value="' + s.item + '">' + esc(skuText(s.sku, s.item) + ' (' + (s.group || 'no group') + ')') + '</option>'; }).join('') + '</datalist>' +
       '<h3 style="margin-top:14px">Items</h3><div id="mLines"></div><button class="btn sm" id="mAdd">+ Add item</button>' +
       '<div id="mOut"></div><div style="margin-top:12px"><button class="btn g" id="mSave">Save RO</button></div></div>';
     var draw = function () {
@@ -774,7 +777,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('mLines').innerHTML = S.manual.map(function (l, i) {
         var s = m[Number(l.item)];
         return '<div class="row" style="margin-bottom:6px" data-i="' + i + '"><div style="flex:3 1 220px"><input type="text" class="mi" list="skuList" placeholder="Item ID or pick from the list" value="' + esc(l.item) + '">' +
-          '<div class="small muted">' + (s ? esc((s.sku ? s.sku + ' · ' : '') + (s.name || '') + ' · ' + (s.group ? groupName(s.group) : 'no group — set it in Settings')) : (l.item ? 'Not in the SKU list' : '')) + '</div></div>' +
+          '<div class="small muted">' + (s ? esc(skuText(s.sku, s.item) + ' · ' + (s.group ? groupName(s.group) : 'no group — set it in Settings')) : (l.item ? 'Not in the SKU list' : '')) + '</div></div>' +
           '<div style="flex:1 1 90px"><input type="number" class="mq" min="1" placeholder="Qty" value="' + esc(l.qty) + '"></div>' +
           '<div style="flex:0 0 auto"><button class="btn sm r mx">✕</button></div></div>';
       }).join('');
@@ -843,10 +846,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
-      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items by days of cover <span class="small muted">(lowest first' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t"><tr><th>Warehouse</th><th>Item</th><th>Group</th><th class="right">Per day</th><th class="right">Has</th><th class="right">Days</th><th class="right">Suggested</th></tr>' +
+      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items by days of cover <span class="small muted">(lowest first' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Per day</th><th class="right">Has</th><th class="right">Days</th><th class="right">Suggested</th></tr>' +
       list.slice(0, 300).map(function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(String(r.name).replace(/^Travalate /, '')) + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.pos) + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.pos) + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
       }).join('') + '</table></div></div>';
     box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
     if ($('dAll')) $('dAll').onclick = function (e) { e.preventDefault(); S.dashWh = ''; drawDash(); };
@@ -895,10 +898,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var draw = function () {
       var q = $('kQ').value.toLowerCase(), only = $('kNo').checked;
       var list = (S.boot.skus || []).filter(function (s) { return (!only || !s.group) && (!q || (s.item + ' ' + s.sku + ' ' + s.name).toLowerCase().indexOf(q) >= 0); });
-      $('kTab').innerHTML = '<tr><th>Item ID</th><th>SKU</th><th>Name</th><th>Group</th><th>Tier</th><th>Active</th></tr>' + list.map(function (s) {
+      $('kTab').innerHTML = '<tr><th>Item ID</th><th>SKU</th><th>Group</th><th>Tier</th><th>Active</th></tr>' + list.map(function (s) {
         var e = edits[s.item] || s;
-        return '<tr data-i="' + s.item + '"><td>' + s.item + '</td><td><input type="text" data-f="sku" value="' + esc(e.sku) + '" style="min-width:110px"></td>' +
-          '<td><input type="text" data-f="name" value="' + esc(e.name) + '" style="min-width:200px"></td>' +
+        return '<tr data-i="' + s.item + '"><td>' + s.item + '</td><td><input type="text" data-f="sku" value="' + esc(e.sku) + '" style="min-width:110px">' +
+          (!s.sku && s.name ? '<div class="small muted">New on Blinkit — give it a SKU: ' + esc(s.name.replace(/^Travalate /, '')) + '</div>' : '') + '</td>' +
           '<td><select data-f="group"><option value="">—</option><option' + (e.group === 'TBI' ? ' selected' : '') + '>TBI</option><option' + (e.group === 'TBO' ? ' selected' : '') + '>TBO</option></select></td>' +
           '<td><input type="text" data-f="tier" value="' + esc(e.tier) + '" style="width:70px"></td>' +
           '<td><input type="checkbox" data-f="active"' + (e.active ? ' checked' : '') + '></td></tr>';
