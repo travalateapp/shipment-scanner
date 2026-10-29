@@ -32,6 +32,7 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .btn:disabled{opacity:.5;cursor:not-allowed}.btn.sm{padding:6px 10px;font-size:12px}
 .drop{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;cursor:pointer;display:block}
 .drop.ok{border-color:#16a34a;background:var(--okbg)}
+.drop.stale{border-color:#ca8a04;background:var(--warnbg)}
 .drop input{display:none}.drop b{display:block;margin-bottom:2px}.drop span{overflow-wrap:anywhere}
 .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:var(--chip);white-space:nowrap}
 .pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.bad{background:var(--badbg);color:var(--bad)}.pill.info{background:var(--infobg);color:var(--info)}
@@ -366,11 +367,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var s = S.boot.settings;
     var html = '<div class="card"><h2>1. Upload today\'s Blinkit downloads</h2>' +
       '<div class="row">' +
-      '<label class="drop' + (S.inv ? ' ok' : '') + '" id="dInv"><input type="file" accept=".xlsx" id="fInv"><b>Inventory file</b>' +
-      '<span class="small muted">' + (S.inv ? esc(S.inv.fileName) + ' · ' + S.inv.rows.length + ' rows' + (S.inv.generatedAt ? ' · generated ' + esc(S.inv.generatedAt) : '') : 'InventoryData.xlsx (Stock On Hand)') + '</span></label>' +
+      '<label class="drop' + (S.inv ? (invIsToday() ? ' ok' : ' stale') : '') + '" id="dInv"><input type="file" accept=".xlsx" id="fInv"><b>Inventory</b>' +
+      '<span class="small muted">' + (S.invLoading ? '<span class="spin"></span> Reading Formula Sheet…' : S.inv ? (S.inv.fromSheet ? 'From Formula Sheet' : esc(S.inv.fileName)) + ' · ' + S.inv.rows.length + ' rows' + (S.inv.generatedAt ? ' · generated ' + esc(S.inv.generatedAt) : '') : 'InventoryData.xlsx (Stock On Hand)') +
+      (S.invLoading ? '' : '<br>' + (S.inv && S.inv.fromSheet ? 'Tap to upload the file instead' : 'Tap to upload, or <a href="#" id="useSheet">use Formula Sheet</a>')) + '</span></label>' +
       '<label class="drop' + (S.bulk ? ' ok' : '') + '" id="dBulk"><input type="file" accept=".xlsx" id="fBulk"><b>Bulk RO file</b>' +
       '<span class="small muted">' + (S.bulk ? esc(S.bulkName) + ' · ' + S.bulk.rows.length + ' rows' : 'SELLER_BULK_SHIPMENT_INPUT….xlsx') + '</span></label>' +
-      '</div><div class="small muted" style="margin-top:8px">Download a fresh Bulk RO file each time — Blinkit\'s max limits and locks change during the day. Either box takes either file.</div>' +
+      '</div>' + (S.inv && !invIsToday() ? '<div class="msg warn">This inventory is from ' + esc(S.inv.generatedAt || 'an unknown date') + ', not today. Run 📦 Blinkit Inventory → Upload Today\'s Inventory in the sheet, then <a href="#" id="reloadSheet">read it again</a> — or upload today\'s Inventory file here.</div>' : '') +
+      (S.invErr ? msgs([S.invErr], 'warn') : '') +
+      '<div class="small muted" style="margin-top:8px">The Inventory comes from the sheet\'s Formula Sheet, which the daily 📦 Blinkit Inventory upload fills. Download a fresh Bulk RO file each time — Blinkit\'s max limits and locks change during the day.</div>' +
       '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Days of cover</label><input type="number" id="pCover" min="1" max="120" value="' + (S.cover || s.coverDays) + '"></div>' +
       '<div><label class="f">New-listing starters</label><select id="pStart"><option value="0">No — only where it already sells</option><option value="1"' + (S.starters ? ' selected' : '') + '>Yes — add a starter qty where not live</option></select></div>' +
@@ -380,7 +384,30 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('fInv').onchange = pick; $('fBulk').onchange = pick;
     $('pCover').onchange = function () { S.cover = Math.max(1, Math.min(120, Number(this.value) || s.coverDays)); recompute(true); };
     $('pStart').onchange = function () { S.starters = this.value === '1'; recompute(true); };
+    var sheetLink = function (e) { e.preventDefault(); e.stopPropagation(); loadSheetInventory(); };
+    if ($('useSheet')) $('useSheet').onclick = sheetLink;
+    if ($('reloadSheet')) $('reloadSheet').onclick = sheetLink;
     if (S.plan) renderPlanOut();
+    if (!S.inv && !S.invTried) loadSheetInventory();
+  }
+
+  /** "2026-10-29 09:58:28" (Blinkit's generated-at) is today. */
+  function invIsToday() { return !!(S.inv && String(S.inv.generatedAt || '').slice(0, 10) === today()); }
+
+  /** Reads the Inventory that the daily updater pasted into "Formula Sheet". */
+  function loadSheetInventory() {
+    S.invTried = true; S.invLoading = true; S.invErr = '';
+    renderPlan();
+    api('getSheetInventory', S.token).then(function (rows) {
+      var inv = PlanCore.parseInventory(rows);
+      if (!inv) throw new Error('Formula Sheet does not look like a Blinkit Inventory download.');
+      inv.fromSheet = true;
+      S.inv = inv; S.invLoading = false; S.final = {};
+      renderPlan(); recompute(false);
+    }, function (e) {
+      S.invLoading = false; S.invErr = 'Could not read the Formula Sheet: ' + e.message + ' Upload the Inventory file instead.';
+      renderPlan();
+    });
   }
 
   function readFile(f) {
@@ -398,7 +425,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         if (!done) {
           for (var i = 0; i < wb.SheetNames.length && !done; i++) {
             var inv = PlanCore.parseInventory(rowsOf(wb.SheetNames[i]));
-            if (inv) { inv.fileName = f.name; S.inv = inv; done = true; }
+            if (inv) { inv.fileName = f.name; S.inv = inv; S.invErr = ''; done = true; }
           }
         }
         if (!done) throw new Error(f.name + ' is not a Blinkit Inventory or Bulk RO file.');

@@ -2,7 +2,7 @@
 
 A web app for computers and phones that plans Blinkit shipments (ROs) and keeps the **Blinkit Google Sheet** up to date by itself.
 
-- **New Plan:** upload the two Blinkit downloads. The app works out, for each warehouse × item, how much to send for **26 days of cover**, using the rules below. You can change any quantity.
+- **New Plan:** upload the Bulk RO file; the Inventory is read from the sheet's *Formula Sheet* (filled by the daily 📦 Blinkit Inventory upload). The app works out, for each warehouse × item, how much to send for **26 days of cover**, using the rules below. You can change any quantity.
 - **Create RO file:** one tap does three things:
   - downloads **Blinkit's own Bulk RO file** with *RO Quantity* and *Shipping Address* filled in, ready to upload;
   - saves every line in the **RO Log**;
@@ -65,12 +65,9 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 
 ## 2. Planning a shipment
 
-1. On the Blinkit seller portal, download:
-   - **Inventory** (*InventoryData.xlsx*, the "Stock On Hand" sheet);
-   - **Bulk RO input** (*SELLER_BULK_SHIPMENT_INPUT_….xlsx*).
-
-   Download a **fresh** Bulk RO file every time, because max limits and locks change during the day.
-2. **New Plan** → pick both files (either box takes either file).
+1. In the sheet, run **📦 Blinkit Inventory → Upload Today's Inventory** as you do every day. The planner reads the Inventory from **Formula Sheet**, so you don't upload it again.
+2. On the Blinkit seller portal, download the **Bulk RO input** (*SELLER_BULK_SHIPMENT_INPUT_….xlsx*), fresh every time, because max limits and locks change during the day. Open **New Plan** and pick it.
+   - The Inventory box turns **yellow** if Formula Sheet doesn't hold today's inventory. Upload today's inventory in the sheet and tap *read it again*, or tap the box to upload the Inventory file directly.
 3. Check the plan. Filter by warehouse, group or search, and change quantities if you need to. Lines above Blinkit's max are shown in red, and the RO can't be created until they're fixed.
 4. Click **Create RO file**, untick any warehouses you don't want, pick the date and status, then click **Save & download file**.
 5. Upload the downloaded file on Blinkit. Then open the **RO Log** and add the RO number and appointment date.
@@ -81,7 +78,7 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 | Part | Rule |
 |---|---|
 | Target | Stock now + incoming + this RO ≈ **Days of cover (26) × daily sales**, counted from today. |
-| Stock now | Blinkit warehouse stock (Bulk RO file) + darkstore + in-between (Inventory file). |
+| Stock now | Blinkit warehouse stock (Bulk RO file) + darkstore + in-between (Inventory, from Formula Sheet). |
 | Incoming | Blinkit's *Incoming Quantity*, **plus** RO Log lines Blinkit can't know about yet. That means *Planned* ROs, and *Created* ROs saved after the Bulk RO file was downloaded. So an RO is never counted twice, and never forgotten. |
 | Daily sales | 50% last 7 days + 30% last 15 days + 20% last 30 days. |
 | Recently listed | All sales in the last 7 days → the 7-day rate only. 90%+ of sales in the last 15 days → 60% × 7-day + 40% × 15-day. Days before the listing don't pull the rate down. |

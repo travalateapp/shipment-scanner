@@ -11,7 +11,7 @@
  * item that is missing from a warehouse block, and creates a new month tab by copying the last one.
  * Columns I onwards are never changed.
  */
-const SERVER_VERSION = 1;
+const SERVER_VERSION = 2;
 
 const TAB = {
   SETTINGS: 'Planner Settings',
@@ -54,6 +54,10 @@ const BLOCK_RE = /^(.+)-(TBI|TBO)$/;
 const RO_COLS = ['D', 'E', 'F', 'G', 'H'];
 const FIRST_RO_COL = 4; // D
 const SESSION_DAYS = 30;
+// The daily inventory updater (Code.gs) pastes Blinkit's Inventory download here, starting at C1.
+const FORMULA_SHEET = 'Formula Sheet';
+const FORMULA_FIRST_COL = 3; // C
+const FORMULA_COLS = 27;     // C:AC
 
 /* ---------------- Web app entry points ---------------- */
 
@@ -70,7 +74,7 @@ function doGet(e) {
 
 /** Functions the hosted page (GitHub Pages) may call through doPost. */
 const API_FUNCTIONS = {
-  publicInfo, login, logout, changePin, getBoot, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
+  publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
 };
 
@@ -358,6 +362,24 @@ function blockWarehouses_(sh) {
     if (m && out.indexOf(m[1].trim()) < 0) out.push(m[1].trim());
   });
   return out;
+}
+
+/* ---------------- Inventory from "Formula Sheet" ---------------- */
+
+/**
+ * The Blinkit Inventory download that the daily inventory updater pasted into "Formula Sheet" (C:AC), as rows,
+ * the same as reading the downloaded file itself. Saves uploading the Inventory file a second time.
+ */
+function getSheetInventory(token) {
+  auth_(token);
+  const sh = SpreadsheetApp.getActive().getSheetByName(FORMULA_SHEET);
+  if (!sh) throw new Error('There is no "' + FORMULA_SHEET + '" tab. Upload the Inventory file instead.');
+  const last = sh.getLastRow();
+  if (last < 4) throw new Error('"' + FORMULA_SHEET + '" is empty. Run 📦 Blinkit Inventory → Upload Today\'s Inventory in the sheet first.');
+  const v = sh.getRange(1, FORMULA_FIRST_COL, last, FORMULA_COLS).getValues();
+  let width = 0;
+  v.forEach(r => { for (let c = r.length - 1; c >= width; c--) if (r[c] !== '' && r[c] !== null) { width = c + 1; break; } });
+  return v.map(r => r.slice(0, width).map(x => (x instanceof Date ? fmtDate_(x) : x)));
 }
 
 /* ---------------- Snapshot (for the dashboard) ---------------- */
