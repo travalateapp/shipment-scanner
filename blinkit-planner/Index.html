@@ -1171,12 +1171,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var e = S.pdfs[Number(ev.target.getAttribute('data-i'))]; e.d.wh = ev.target.value; drawPdfs();
     };
     drawPdfs();
+    var hint = function (item) {
+      var s = skuMap()[Number(item)];
+      return s ? esc(skuText(s.sku, s.item) + ' · ' + (s.group ? groupName(s.group) : 'no group — set it in Settings')) : (item ? 'Not in the SKU list' : '');
+    };
     var draw = function () {
-      var m = skuMap();
       $('mLines').innerHTML = S.manual.map(function (l, i) {
-        var s = m[Number(l.item)];
         return '<div class="row" style="margin-bottom:6px" data-i="' + i + '"><div style="flex:3 1 220px"><input type="text" class="mi" list="skuList" placeholder="Item ID or pick from the list" value="' + esc(l.item) + '">' +
-          '<div class="small muted">' + (s ? esc(skuText(s.sku, s.item) + ' · ' + (s.group ? groupName(s.group) : 'no group — set it in Settings')) : (l.item ? 'Not in the SKU list' : '')) + '</div></div>' +
+          '<div class="small muted mh">' + hint(l.item) + '</div></div>' +
           '<div style="flex:1 1 90px"><input type="number" class="mq" min="1" placeholder="Qty" value="' + esc(l.qty) + '"></div>' +
           '<div style="flex:0 0 auto"><button class="btn sm r mx">✕</button></div></div>';
       }).join('');
@@ -1187,7 +1189,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (e.target.classList.contains('mi')) S.manual[i].item = e.target.value.trim();
       if (e.target.classList.contains('mq')) S.manual[i].qty = e.target.value;
     };
-    $('mLines').onchange = function (e) { if (e.target.classList.contains('mi')) draw(); };
+    $('mLines').onchange = function (e) {
+      if (e.target.classList.contains('mi')) e.target.closest('[data-i]').querySelector('.mh').innerHTML = hint(e.target.value.trim());
+    };
     $('mLines').onclick = function (e) {
       if (!e.target.classList.contains('mx')) return;
       S.manual.splice(Number(e.target.closest('[data-i]').getAttribute('data-i')), 1);
