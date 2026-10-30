@@ -726,6 +726,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!keepEdits) saveSnapshot();
   }
 
+  /**
+   * After an RO is saved or changed anywhere (RO PDF, by hand, RO Log), the plan on New Plan is worked out again
+   * with the new RO Log, and the Dashboard's copy is saved again. Quantities typed on the plan are kept.
+   */
+  function refreshPlanAfterRoChange() {
+    if (!S.inv || !S.bulk) return;
+    var keep = Object.keys(S.edited || {}).length > 0;
+    recompute(keep);
+    if (keep) saveSnapshot();
+  }
+
   function saveSnapshot() {
     if (!can('Planner') || !S.plan) return;
     var rows = S.plan.filter(function (r) { return r.rate > 0 || r.position > 0; }).map(function (r) {
@@ -1011,7 +1022,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var b = ro.getAttribute('data-b');
       if (e.target.closest('.h')) { ro.classList.toggle('open'); (S.openBatch = S.openBatch || {})[b] = ro.classList.contains('open'); return; }
       var out = ro.querySelector('.bmsg');
-      var done = function (r) { out.innerHTML = msgs(r && r.warnings, 'warn'); toast('Saved'); refreshBoot(); loadLog(); };
+      var done = function (r) { out.innerHTML = msgs(r && r.warnings, 'warn'); toast('Saved'); refreshBoot().then(refreshPlanAfterRoChange, function () {}); loadLog(); };
       var err = function (er) { out.innerHTML = msgs([er.message], 'bad'); };
       if (e.target.classList.contains('bSave')) {
         var ch = { appt: ro.querySelector('.bAp').value, roNo: ro.querySelector('.bNo').value.trim() };
@@ -1113,6 +1124,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       .then(function (r) {
         if (r.skipped) { e.state = 'skipped'; e.msg = r.message; drawPdfs(); return; }
         S.boot.openROs = r.openROs;
+        refreshPlanAfterRoChange();
         e.state = 'saved'; e.warnings = r.warnings;
         e.msg = r.matched ? 'RO number added to the planner\'s RO' + (r.changes.length ? '; quantities updated: ' + r.changes.join(', ') : '') + '.'
           : 'Saved: ' + r.batches.map(function (b) { return b.group + ' ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); }).join(', ') + '.';
@@ -1196,6 +1208,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         roDate: $('mDate').value || today(), status: $('mSt').value, source: 'Manual', appt: $('mAp').value, roNo: $('mNo').value.trim(), notes: $('mNote').value
       }).then(function (res) {
         S.boot.openROs = res.openROs; S.manual = [];
+        refreshPlanAfterRoChange();
         $('mSave').disabled = false;
         $('mOut').innerHTML = msgs(res.batches.map(function (b) { return 'Saved ' + b.wh + ' ' + b.group + ': ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); }), 'ok') + msgs(res.warnings, 'warn');
         draw();
