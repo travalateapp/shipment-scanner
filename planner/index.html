@@ -157,6 +157,9 @@ var PlanCore = (function () {
     return { stockDate: new Date(stock).toISOString().slice(0, 10), elapsed: Math.max(0, Math.round((now - stock) / 864e5)) };
   }
 
+  /** Warehouse names compared ignoring spaces and capitals ("Hyderabad H3 -  Feeder" = "hyderabad h3 - feeder"). */
+  function whNorm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ''); }
+
   function median(a) {
     a = a.slice().sort(function (x, y) { return x - y; });
     var n = a.length; if (!n) return 0;
@@ -191,13 +194,14 @@ var PlanCore = (function () {
       // otherwise from when it was saved in the app.
       var at = r.blinkitAt || r.createdAt;
       var count = r.status === 'Planned' || (r.status === 'Created' && (!o.bulkAt || !at || at > o.bulkAt));
-      if (count) extra[r.wh + '|' + r.item] = (extra[r.wh + '|' + r.item] || 0) + num(r.qty);
+      var k = whNorm(r.wh) + '|' + num(r.item);
+      if (count) extra[k] = (extra[k] || 0) + num(r.qty);
     });
 
     return bulk.map(function (b) {
       var x = invAt[b.whId + '|' + b.item] || null;
       var s7 = x ? x.s7 : 0, s15 = x ? x.s15 : 0, s30 = x ? x.s30 : 0;
-      var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming, app = extra[b.whName + '|' + b.item] || 0;
+      var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming, app = extra[whNorm(b.whName) + '|' + b.item] || 0;
       var pos = wh + ds + inc + app;
       var r7 = s7 / 7, r15 = s15 / 15, r30 = s30 / 30, drr, status, kind;
       if (s30 === 0) { drr = 0; status = pos === 0 ? 'Not live here' : 'In stock, no sales yet'; kind = pos === 0 ? 'notlive' : 'nosale'; }
@@ -488,7 +492,7 @@ var PlanCore = (function () {
   function matchPlannerRo(pdf, openROs) {
     var byDay = {};
     (openROs || []).forEach(function (r) {
-      if (r.wh !== pdf.wh || r.roNo || r.status === 'Cancelled') return;
+      if (whNorm(r.wh) !== whNorm(pdf.wh) || r.roNo || r.status === 'Cancelled') return;
       (byDay[r.roDate] = byDay[r.roDate] || []).push(r);
     });
     var want = {};
@@ -508,7 +512,7 @@ var PlanCore = (function () {
   }
 
   return { parseInventory: parseInventory, parseBulk: parseBulk, computePlan: computePlan, fillSheetXml: fillSheetXml,
-    colLetter: colLetter, median: median, stockInfo: stockInfo, readRoPdf: readRoPdf, matchPlannerRo: matchPlannerRo, matchWarehouse: matchWarehouse };
+    colLetter: colLetter, median: median, whNorm: whNorm, stockInfo: stockInfo, readRoPdf: readRoPdf, matchPlannerRo: matchPlannerRo, matchWarehouse: matchWarehouse };
 })();
 if (typeof module !== 'undefined') module.exports = PlanCore;
 /* ======================= CORE-END ======================= */
@@ -650,8 +654,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('app').innerHTML = html;
     var pick = function (e) { var f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; };
     $('fInv').onchange = pick; $('fBulk').onchange = pick;
-    $('pCover').onchange = function () { S.cover = Math.max(1, Math.min(120, Number(this.value) || s.coverDays)); recompute(true); };
-    $('pStart').onchange = function () { S.starters = this.value === '1'; recompute(true); };
+    $('pCover').onchange = function () { S.cover = Math.max(1, Math.min(120, Number(this.value) || s.coverDays)); freshPlan(true); };
+    $('pStart').onchange = function () { S.starters = this.value === '1'; freshPlan(true); };
     var sheetLink = function (e) { e.preventDefault(); e.stopPropagation(); loadSheetInventory(); };
     if ($('useSheet')) $('useSheet').onclick = sheetLink;
     if ($('reloadSheet')) $('reloadSheet').onclick = sheetLink;
@@ -672,7 +676,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (!inv) throw new Error('Formula Sheet does not look like a Blinkit Inventory download.');
       inv.fromSheet = true;
       S.inv = inv; S.invLoading = false; S.final = {};
-      renderPlan(); recompute(false);
+      renderPlan(); freshPlan(false);
     }, function (e) {
       S.invLoading = false; S.invErr = 'Could not read the Formula Sheet: ' + e.message + ' Upload the Inventory file instead.';
       renderPlan();
@@ -700,10 +704,23 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         if (!done) throw new Error(f.name + ' is not a Blinkit Inventory or Bulk RO file.');
         S.final = {};
         renderPlan();
-        recompute(false);
+        freshPlan(false);
       } catch (e) { $('pErr').innerHTML = msgs([e.message], 'bad'); }
     };
     rd.readAsArrayBuffer(f);
+  }
+
+  /**
+   * Works out the plan with the RO Log as it is right now (not the copy read when the page was opened), so ROs
+   * added or changed elsewhere (another device, another person, the RO Log tab itself) are always counted.
+   */
+  function freshPlan(keepEdits) {
+    if (!S.inv || !S.bulk) { recompute(keepEdits); return; }
+    if ($('planOut') && !S.plan) $('planOut').innerHTML = '<div class="card muted"><span class="spin"></span> Reading the latest RO Log…</div>';
+    refreshBoot().then(function () { recompute(keepEdits); }, function (e) {
+      recompute(keepEdits);
+      toast('Could not read the latest RO Log (' + e.message + '). The plan uses the one read when the page was opened.', 7000);
+    });
   }
 
   function skuMap() { var m = {}; (S.boot.skus || []).forEach(function (s) { m[s.item] = s; }); return m; }
@@ -907,7 +924,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="msg info">Upload the downloaded file on Blinkit (Bulk RO upload). Then add the RO number and appointment in the RO Log.</div>' +
           '<div class="row" style="margin-top:10px"><button class="btn" id="cAgain">Download file again</button><button class="btn p" id="cDone">Done</button></div>';
         $('cAgain').onclick = function () { downloadBlinkitFile(lines); };
-        $('cDone').onclick = function () { closeModal(); recompute(false); };
+        $('cDone').onclick = function () { closeModal(); freshPlan(false); };
       }, function (e) {
         $('cGo').disabled = false; $('cGo').textContent = 'Save & download file';
         $('cOut').innerHTML = msgs([e.message], 'bad') + '<button class="btn sm" id="cOnly">Download the file without saving</button>';
@@ -1243,7 +1260,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var w = byWh[r.wh] = byWh[r.wh] || { red: 0, amber: 0, items: 0, open: 0 };
       if (r.rate > 0) { w.items++; if (r.days < 7) w.red++; else if (r.days < 15) w.amber++; }
     });
-    d.openROs.forEach(function (r) { if (byWh[r.wh]) byWh[r.wh].open += r.qty; });
+    var whByNorm = {};
+    Object.keys(byWh).forEach(function (w) { whByNorm[PlanCore.whNorm(w)] = w; });
+    d.openROs.forEach(function (r) { var w = whByNorm[PlanCore.whNorm(r.wh)]; if (w) byWh[w].open += r.qty; });
     var whs = Object.keys(byWh).sort();
     var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) { return a.days - b.days; });
     box.innerHTML = '<div class="card"><h2>Days of cover</h2><div class="small muted">From the plan made ' + new Date(d.meta.at).toLocaleString('en-IN') + ' by ' + esc(d.meta.by) +

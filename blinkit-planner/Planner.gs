@@ -185,6 +185,9 @@ function sheet_(name) {
   return sh;
 }
 
+/** Warehouse names compared ignoring spaces and capitals. */
+function whNorm_(s) { return String(s || '').toLowerCase().replace(/\s+/g, ''); }
+
 function tz_() { return SpreadsheetApp.getActive().getSpreadsheetTimeZone() || Session.getScriptTimeZone(); }
 function fmtDate_(d) { return d instanceof Date && !isNaN(d) ? Utilities.formatDate(d, tz_(), 'yyyy-MM-dd') : ''; }
 function fmtStamp_(d) { return d instanceof Date && !isNaN(d) ? d.getTime() : null; }
@@ -611,7 +614,7 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
     const out = { roNo: roNo, matched: false, warnings: [], changes: [] };
     if (matchBatches && matchBatches.length) {
       const rows = log.filter(r => matchBatches.indexOf(r.batch) >= 0 && r.status !== 'Cancelled');
-      const ok = rows.length && rows.every(r => r.wh === pdf.wh && OPEN_STATUSES.indexOf(r.status) >= 0 && !r.roNo);
+      const ok = rows.length && rows.every(r => whNorm_(r.wh) === whNorm_(pdf.wh) && OPEN_STATUSES.indexOf(r.status) >= 0 && !r.roNo);
       const items = {};
       rows.forEach(r => { items[r.item] = 1; });
       const same = ok && Object.keys(items).length === Object.keys(want).length && Object.keys(want).every(i => items[i]);
