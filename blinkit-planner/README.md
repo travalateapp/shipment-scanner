@@ -83,7 +83,7 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 
 | Part | Rule |
 |---|---|
-| Target | Stock now + incoming + this RO ≈ **Days of cover (26) × daily sales**, counted from today. |
+| Target | Stock now + incoming + this RO ≈ **daily sales × (Days of cover (26) + days since the stock date)**, so the RO still covers 26 days from today. The **stock date** is the Inventory's *generated at* date − 1 (a file generated 29 Oct counts stock as of 28 Oct). *Days now*, *Days after* and the Dashboard's *Days* = days of stock − days since the stock date, so the Dashboard counts down by one every day. |
 | Stock now | **Total sellable** from the Inventory (Formula Sheet): warehouse + in-between + darkstore. The Bulk RO file's *Sellable Quantity* isn't used. Note: if an RO is received after the Inventory snapshot but before the Bulk RO download, it's in neither figure, and the plan asks for it again. Download both close together. |
 | Incoming | Blinkit's *Incoming Quantity*, **plus** RO Log lines Blinkit can't know about yet. That means *Planned* ROs, and *Created* ROs saved after the Bulk RO file was downloaded. So an RO is never counted twice, and never forgotten. |
 | Daily sales | 50% last 7 days + 30% last 15 days + 20% last 30 days. |

@@ -145,6 +145,18 @@ var PlanCore = (function () {
     };
   }
 
+  /**
+   * Blinkit's Inventory "generated at 2026-10-29 09:58:28" counts the stock as of the day before (28 Oct).
+   * Returns { stockDate: 'yyyy-mm-dd', elapsed: whole days from the stock date to todayStr }, or null.
+   */
+  function stockInfo(generatedAt, todayStr) {
+    var m = String(generatedAt || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    var t = String(todayStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m || !t) return null;
+    var stock = Date.UTC(+m[1], +m[2] - 1, +m[3] - 1), now = Date.UTC(+t[1], +t[2] - 1, +t[3]);
+    return { stockDate: new Date(stock).toISOString().slice(0, 10), elapsed: Math.max(0, Math.round((now - stock) / 864e5)) };
+  }
+
   function median(a) {
     a = a.slice().sort(function (x, y) { return x - y; });
     var n = a.length; if (!n) return 0;
@@ -153,7 +165,9 @@ var PlanCore = (function () {
 
   /**
    * The plan for every warehouse × item row of the Bulk RO file.
-   * o = { coverDays, minLine, roundTo, skus: {item: {sku, group, tier}}, openROs: [...], bulkAt: ms }
+   * o = { coverDays, minLine, roundTo, skus: {item: {sku, group, tier}}, openROs: [...], bulkAt: ms, elapsed: days }
+   *  - elapsed = days from the stock date (Inventory generated-at date − 1) to today. Those days' sales are already
+   *    gone, so the target is rate × (cover days + elapsed) and "days now" counts from today.
    *  - stock now = "Total sellable" of the Inventory file (warehouse + in-between + darkstore)
    *  - incoming  = Blinkit "Incoming Quantity" + RO Log lines Blinkit cannot know yet
    *                (Planned, or Created on Blinkit — R.O. PDF time, else app save time — after the Bulk file was downloaded)
@@ -193,7 +207,8 @@ var PlanCore = (function () {
         drr = 0.5 * r7 + 0.3 * r15 + 0.2 * r30; status = 'Established'; kind = 'est';
         if (wh + ds < 7 * r30 && r7 < 0.8 * r30) { drr = Math.max(drr, 0.5 * r15 + 0.5 * r30); status = 'Ran low – longer average used'; kind = 'low'; }
       }
-      var target = drr * COVER, need = Math.max(0, target - pos), rec = 0, note = '';
+      var EL = o.elapsed || 0;
+      var target = drr * (COVER + EL), need = Math.max(0, target - pos), rec = 0, note = '';
       if (need >= MIN / 2) { rec = Math.ceil(need / RT) * RT; if (rec < MIN) rec = MIN; }
       if (rec > b.max) { note = 'Capped at Blinkit max ' + b.max + ' (needed ' + rec + ')'; rec = b.max >= RT ? Math.floor(b.max / RT) * RT : b.max; }
       var starter = 0;
@@ -207,7 +222,8 @@ var PlanCore = (function () {
         sku: s.sku || '', group: s.group || '', tier: s.tier || '',
         s7: s7, s15: s15, s30: s30, status: status, kind: kind, rate: drr,
         whStock: wh, dsStock: ds, incoming: inc, appIncoming: app, position: pos,
-        daysNow: drr > 0 ? pos / drr : null, target: target, min: b.min, max: b.max,
+        daysAtStock: drr > 0 ? pos / drr : null, daysNow: drr > 0 ? pos / drr - EL : null, elapsed: EL,
+        target: target, min: b.min, max: b.max,
         rec: rec, starter: starter, note: note, locked: b.locked, remarks: b.remarks
       };
     });
@@ -492,7 +508,7 @@ var PlanCore = (function () {
   }
 
   return { parseInventory: parseInventory, parseBulk: parseBulk, computePlan: computePlan, fillSheetXml: fillSheetXml,
-    colLetter: colLetter, median: median, readRoPdf: readRoPdf, matchPlannerRo: matchPlannerRo, matchWarehouse: matchWarehouse };
+    colLetter: colLetter, median: median, stockInfo: stockInfo, readRoPdf: readRoPdf, matchPlannerRo: matchPlannerRo, matchWarehouse: matchWarehouse };
 })();
 if (typeof module !== 'undefined') module.exports = PlanCore;
 /* ======================= CORE-END ======================= */
@@ -644,6 +660,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   /** "2026-10-29 09:58:28" (Blinkit's generated-at) is today. */
+  function stockInfoNow() { return S.inv ? PlanCore.stockInfo(S.inv.generatedAt, today()) : null; }
   function invIsToday() { return !!(S.inv && String(S.inv.generatedAt || '').slice(0, 10) === today()); }
 
   /** Reads the Inventory that the daily updater pasted into "Formula Sheet". */
@@ -696,7 +713,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var s = S.boot.settings;
     S.plan = PlanCore.computePlan(S.inv.rows, S.bulk.rows, {
       coverDays: S.cover || s.coverDays, minLine: s.minLine, roundTo: s.roundTo, skus: skuMap(),
-      openROs: S.boot.openROs, bulkAt: S.bulkAt
+      openROs: S.boot.openROs, bulkAt: S.bulkAt, elapsed: (stockInfoNow() || {}).elapsed || 0
     });
     var old = keepEdits ? S.edited || {} : {};
     S.edited = {}; S.final = {};
@@ -713,7 +730,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!can('Planner') || !S.plan) return;
     var rows = S.plan.filter(function (r) { return r.rate > 0 || r.position > 0; }).map(function (r) {
       return [r.wh, r.item, r.name, r.group, r.status, Math.round(r.rate * 10) / 10, r.position,
-        r.daysNow == null ? '' : Math.round(r.daysNow * 10) / 10, r.rec, r.locked ? 'Yes' : '',
+        r.daysAtStock == null ? '' : Math.round(r.daysAtStock * 10) / 10, r.rec, r.locked ? 'Yes' : '',
         r.whStock + r.dsStock, r.incoming + r.appIncoming];
     });
     var items = {}; S.plan.forEach(function (r) { items[r.item] = { item: r.item, name: r.name }; });
@@ -761,6 +778,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var locked = S.plan.filter(function (r) { return r.locked && r.note; });
     var noGroup = S.plan.filter(function (r) { return !r.group && (S.final[r.key] || 0) > 0; });
     var info = [];
+    var si = stockInfoNow();
+    if (si) info.push('Stock as of ' + prettyDate(si.stockDate) + ' (Inventory generated ' + prettyDate(String(S.inv.generatedAt).slice(0, 10)) + '). ' +
+      (si.elapsed ? si.elapsed + ' day' + (si.elapsed > 1 ? 's' : '') + ' of sales since then are taken off: days count from today and the plan covers ' + (S.cover || S.boot.settings.coverDays) + ' days from today.' : ''));
+    else info.push('The Inventory has no "generated at" date, so its stock is taken as of today.');
     var inApp = S.plan.reduce(function (a, r) { return a + r.appIncoming; }, 0);
     if (inApp) info.push('Counted ' + fmt(inApp) + ' units from the RO Log that Blinkit\'s file cannot show yet (Planned, or created after this file was downloaded).');
     var html = '<div class="card"><h2>2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines</h2>' +
@@ -803,12 +824,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var u = rs.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0);
       html += '<div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head;
       rs.forEach(function (r) {
-        var q = S.final[r.key] || 0, after = r.rate > 0 ? (r.position + q) / r.rate : null;
+        var q = S.final[r.key] || 0, after = r.rate > 0 ? (r.position + q) / r.rate - r.elapsed : null;
         var over = q > r.max || (q > 0 && r.locked);
         var inc = r.incoming + r.appIncoming;
         html += '<div class="line' + (q > 0 ? ' send' : '') + (r.locked ? ' lock' : '') + '" data-k="' + esc(r.key) + '">' +
           '<div class="nm">' + (r.sku ? esc(r.sku) : '<span class="pill warn">No SKU</span>') + ' <span class="muted" style="font-weight:400">· ' + r.item + '</span> ' + statusPill(r) +
-          '<small>' + (r.tier ? esc(r.tier) + ' · ' : '') +
+          '<small>' + (r.tier ? esc(r.tier) + ' · ' : '') + (r.daysNow != null && r.daysNow < 60 ? 'runs out ~' + prettyDate(addDays(today(), Math.max(0, Math.floor(r.daysNow)))) + ' · ' : '') +
           'stock ' + fmt(r.whStock + r.dsStock) + (inc ? ' + incoming ' + fmt(inc) : '') +
           (r.note ? ' · <b>' + esc(r.note) + '</b>' : (r.locked ? ' · Locked: ' + esc(r.remarks) : '')) +
           (r.starter && !r.locked ? ' · starter ' + r.starter : '') + '</small></div>' +
@@ -917,7 +938,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return { Warehouse: r.wh, Group: r.group, SKU: r.sku, 'Item ID': r.item, Status: r.status,
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
-        'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.round(r.daysNow * 10) / 10,
+        'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.round(r.daysNow * 10) / 10, 'Days since stock date': r.elapsed,
         Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, Note: r.note, Locked: r.locked ? r.remarks : '' };
     });
     var wb = XLSX.utils.book_new();
@@ -1197,6 +1218,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       // Has = stock (Total sellable); Planned = on ROs not received yet. A snapshot from before the split has only the sum.
       has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]) }; });
     var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
+    // "Days" counts down every day from the stock date of the plan the dashboard was made from.
+    var dsi = PlanCore.stockInfo(d.meta.inventoryAt, today()), el = dsi ? dsi.elapsed : 0;
+    rows.forEach(function (r) { if (r.days != null) r.days = r.days - el; });
     var byWh = {};
     rows.forEach(function (r) {
       var w = byWh[r.wh] = byWh[r.wh] || { red: 0, amber: 0, items: 0, open: 0 };
@@ -1206,7 +1230,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var whs = Object.keys(byWh).sort();
     var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) { return a.days - b.days; });
     box.innerHTML = '<div class="card"><h2>Days of cover</h2><div class="small muted">From the plan made ' + new Date(d.meta.at).toLocaleString('en-IN') + ' by ' + esc(d.meta.by) +
-      (d.meta.inventoryAt ? ' · Blinkit inventory of ' + esc(d.meta.inventoryAt) : '') + '. ROs created since then are not counted here.</div>' +
+      (d.meta.inventoryAt ? ' · Blinkit inventory of ' + esc(d.meta.inventoryAt) : '') + (dsi ? ' · stock as of ' + prettyDate(dsi.stockDate) + ', so Days count from today (' + el + ' day' + (el === 1 ? '' : 's') + ' of sales taken off)' : '') + '. ROs created since then are not counted here.</div>' +
       (ageDays >= 2 ? '<div class="msg warn">This is ' + ageDays + ' days old — upload fresh files in New Plan.</div>' : '') +
       '<div class="stats" style="margin-top:10px">' + whs.map(function (w) {
         var x = byWh[w];
