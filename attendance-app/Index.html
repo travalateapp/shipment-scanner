@@ -1050,7 +1050,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261058;
+  var NEEDS_SERVER = 20261059;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2946,8 +2946,18 @@
       '<div id="hoOtBox" style="margin-top:8px"><label style="display:inline-flex;gap:6px;margin-right:16px"><input type="radio" name="hoOtWho" value="ALL" checked onchange="hoOtShow()"> All employees</label>' +
       '<label style="display:inline-flex;gap:6px"><input type="radio" name="hoOtWho" value="SOME" onchange="hoOtShow()"> Selected employees</label>' +
       '<div id="hoOtList" class="hidden" style="margin-top:8px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px">' +
-        (r.employees || []).map(function (e) { return '<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" class="hoOtEmp" value="' + esc(e.id) + '"> ' + esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>'; }).join('') +
+        allEmpBox('hoOtEmp') +
+        (r.employees || []).map(function (e) { return '<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" class="hoOtEmp" onchange="allEmpSync(\'hoOtEmp\')" value="' + esc(e.id) + '"> ' + esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>'; }).join('') +
       '</div></div><div class="muted small" id="hoOtNote" style="margin-top:6px"></div></div>';
+  }
+  /** "All employees" tick box at the top of an employee list: ticks / unticks every one; then untick the ones not wanted. */
+  function allEmpBox(cls) {
+    return '<label style="display:flex;gap:8px;padding:4px 0 6px;font-weight:600;border-bottom:1px solid var(--line);margin-bottom:4px">' +
+      '<input type="checkbox" id="' + cls + 'All" onchange="[].forEach.call(document.querySelectorAll(\'.' + cls + '\'),function(c){c.checked=this.checked}.bind(this))"> All employees</label>';
+  }
+  function allEmpSync(cls) {
+    var boxes = document.querySelectorAll('.' + cls), all = $(cls + 'All');
+    if (all) all.checked = boxes.length > 0 && [].every.call(boxes, function (c) { return c.checked; });
   }
   /** Who has this holiday / short day: everyone, or only the ticked employees (a normal working day for the rest). */
   function holidayForHtml(r) {
@@ -2956,7 +2966,8 @@
       '<div style="margin-top:6px"><label style="display:inline-flex;gap:6px;margin-right:16px"><input type="radio" name="hoForWho" value="ALL" checked onchange="hoForShow()"> All employees</label>' +
       '<label style="display:inline-flex;gap:6px"><input type="radio" name="hoForWho" value="SOME" onchange="hoForShow()"> Selected employees</label></div>' +
       '<div id="hoForList" class="hidden" style="margin-top:8px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px">' +
-        (r.employees || []).map(function (e) { return '<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" class="hoForEmp" value="' + esc(e.id) + '"> ' + esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>'; }).join('') +
+        allEmpBox('hoForEmp') +
+        (r.employees || []).map(function (e) { return '<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" class="hoForEmp" onchange="allEmpSync(\'hoForEmp\')" value="' + esc(e.id) + '"> ' + esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>'; }).join('') +
       '</div><div class="muted small" id="hoForNote" style="margin-top:6px"></div></div>';
   }
   function hoForShow() {
@@ -2970,7 +2981,7 @@
     var ids = x.appliesTo && x.appliesTo !== 'ALL' ? x.appliesTo.split(',') : [];
     document.querySelector('input[name=hoForWho][value=' + (ids.length ? 'SOME' : 'ALL') + ']').checked = true;
     [].forEach.call(document.querySelectorAll('.hoForEmp'), function (c) { c.checked = ids.indexOf(c.value) >= 0; });
-    hoForShow();
+    allEmpSync('hoForEmp'); hoForShow();
   }
   function hoForValue() {
     if (document.querySelector('input[name=hoForWho]:checked').value !== 'SOME') return { mode: 'ALL' };
@@ -2994,7 +3005,7 @@
     $('hoOt').checked = m !== 'NONE';
     document.querySelector('input[name=hoOtWho][value=' + (m === 'SOME' ? 'SOME' : 'ALL') + ']').checked = true;
     [].forEach.call(document.querySelectorAll('.hoOtEmp'), function (c) { c.checked = ids.indexOf(c.value) >= 0; });
-    hoOtLabel();
+    allEmpSync('hoOtEmp'); hoOtLabel();
   }
   function hoOtValue() {
     if (!$('hoOt').checked) return { mode: 'NONE' };
@@ -3135,6 +3146,8 @@
       '<button onclick="loadAdminMonth(\'' + ymShift(ym, -1) + '\')">‹</button><h2>' + esc(r.label) + '</h2>' +
       '<button onclick="loadAdminMonth(\'' + ymShift(ym, 1) + '\')">›</button></div>';
     if (r.locked) html += '<div class="msg info">🔒 Locked by ' + esc(r.locked.by) + ' on ' + esc(r.locked.at) + '. Salaries are final and entries cannot change.</div>';
+    else if (r.autoLock && r.autoLock.on) html += '<div class="msg info">🔒 Locks automatically on <b>' + esc(fmtDate(r.autoLock.on)) + '</b>. Until then entries can still be changed.</div>';
+    else if (r.autoLock && r.autoLock.waiting) html += '<div class="msg err">⚠ Automatic lock is waiting: ' + esc(r.autoLock.waiting) + ' It tries again every hour.</div>';
     html += '<div class="btns">' +
       (r.canLock ? '<button class="btn" onclick="lockMonth(\'' + ym + '\')">🔒 Lock month</button>' : '') +
       (r.canUnlock ? '<button class="btn soft-red" onclick="unlockMonth(\'' + ym + '\')">Unlock</button>' : '') +
