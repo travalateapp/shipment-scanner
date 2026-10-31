@@ -227,6 +227,7 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
 
 ### 🔄 Refresh everyone's app (super admin)
+- **Automatic:** after each update every phone reloads the new app by itself the next time it opens a screen (the server tells it a newer version is out). If GitHub Pages hasn't published the new page yet, the phone tries again every 2 minutes (up to 6 times). The button below is still there for anything else.
 - **Admin → Admins → 🔄 Refresh all phones now.** Press it after merging an update (wait about 10 minutes for GitHub Pages to publish it).
 - Every phone reloads the newest app the next time it is used, for example when someone opens it again or switches tabs. People stay logged in.
 - It never reloads during a check-in or while a pop-up is open.

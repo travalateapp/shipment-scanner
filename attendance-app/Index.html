@@ -731,6 +731,19 @@
     if (seen ? at <= seen : (at <= PAGE_LOADED_AT || load('att_reloaded') === String(at))) return;
     reloadApp(at);
   }
+  /**
+   * A newer version was deployed (the server's SERVER_VERSION is above this page's NEEDS_SERVER): load the page
+   * again by itself, no "Refresh all phones" needed. GitHub Pages can take a few minutes to publish the new page,
+   * so while this phone still gets the old one it tries again every 2 minutes, at most 6 times per version.
+   */
+  function newVersionReload(sv) {
+    var r = {};
+    try { r = JSON.parse(load('att_sv_reload') || '{}') || {}; } catch (e) { r = {}; }
+    if (r.sv !== sv) r = { sv: sv, n: 0, t: 0 };
+    if (r.n >= 6 || Date.now() - r.t < 120000 || S.reloading || S.flow || !$('modal').classList.contains('hidden')) return;
+    store('att_sv_reload', JSON.stringify({ sv: sv, n: r.n + 1, t: Date.now() }));
+    reloadApp('v' + sv);
+  }
   /** Loads the page again from a fresh URL (no cached copy), never in the middle of a check-in or a pop-up. */
   function reloadApp(at) {
     if (S.reloading || S.flow || !$('modal').classList.contains('hidden')) return;
@@ -775,6 +788,7 @@
       perfNote(fn, Date.now() - t0, res && res.ms);
       if (!res || !res.ok) throw new Error((res && res.error) || 'Something went wrong.');
       if (res.refreshAt && READ_ONLY.test(fn)) checkRefresh(res.refreshAt);
+      if (res.sv > NEEDS_SERVER && READ_ONLY.test(fn)) newVersionReload(res.sv);
       return res.result;
     }).catch(fail);
   }
@@ -1036,7 +1050,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261055;
+  var NEEDS_SERVER = 20261056;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';

@@ -39,9 +39,10 @@ const INCREMENT_HEADERS = ['Emp ID', 'Effective Month', 'Increment', 'New Salary
 
 const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
-// Raised with every change to this file. The page compares it with the version it needs and tells the
-// super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261055;
+// Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
+// compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
+// server → the page reloads itself to get the new Index.html (newVersionReload).
+const SERVER_VERSION = 20261056;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -326,7 +327,7 @@ function doPost(e) {
     // pages, which cannot, are asked to close and reopen the app.
     if (refreshAppsAt_() && !req.pv) throw new Error(OLD_PAGE_MSG);
     const result = fn.apply(null, Array.isArray(req.args) ? req.args : []);
-    json = JSON.stringify({ ok: true, result: result === undefined ? null : result, refreshAt: refreshAppsAt_(), ms: Date.now() - t0 });
+    json = JSON.stringify({ ok: true, result: result === undefined ? null : result, refreshAt: refreshAppsAt_(), sv: SERVER_VERSION, ms: Date.now() - t0 });
   } catch (err) {
     json = JSON.stringify({ ok: false, error: String((err && err.message) || err), ms: Date.now() - t0 });
   }
