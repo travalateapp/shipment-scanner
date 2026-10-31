@@ -22,6 +22,7 @@ const SHEET = {
   LOCKS: 'Payroll Locks',
   SNAPSHOTS: 'Payroll Snapshots',
   ARREARS: 'Arrears',
+  PURCHASES: 'Purchases',
   EMPLOYMENT: 'Employment History',
   INCREMENTS: 'Salary Increments',
   FACES: 'Faces',
@@ -42,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261063;
+const SERVER_VERSION = 20261064;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -95,6 +96,8 @@ const LOCK_HEADERS = ['Month', 'Locked By', 'Locked At'];
 const SNAP_HEADERS = ['Month', 'Emp ID', 'Name', 'Data (do not edit)'];
 // Arrears: money still owed to an employee from earlier months, paid with the salary of "Pay Month".
 const ARREAR_HEADERS = ['ID', 'Emp ID', 'Name', 'Date Added', 'Amount', 'Reason', 'Pay Month', 'Note', 'Auto', 'By', 'At'];
+// Purchases & debits: things an employee bought from the office (or other debits), cut from the salary of "Deduct Month".
+const PURCHASE_HEADERS = ['ID', 'Emp ID', 'Name', 'Date', 'Item', 'Quantity', 'Price', 'Total', 'Deduct Month', 'Note', 'By', 'At'];
 
 const OVERRIDE_VALUES = ['PRESENT', 'HALF_DAY', 'ABSENT', 'LEAVE'];
 /** Flags that count as "suspicious" on the admin Today screen (PROXY = marked by an admin or guard is not). */
@@ -194,7 +197,7 @@ function forget_() {
 const CACHED_SHEETS = {
   settings: 'Settings', employees: 'Employees', holidays: 'Holidays', perms: 'Admin Permissions', locks: 'Payroll Locks',
   employment: 'Employment History', increments: 'Salary Increments', faces: 'Faces', celebrations: 'Celebrations',
-  arrears: 'Arrears',
+  arrears: 'Arrears', purchases: 'Purchases',
 };
 
 /** All values of a tab (dates as 'yyyy-MM-dd', times as 'HH:mm'); null when the tab does not exist. */
@@ -313,7 +316,7 @@ const API_FUNCTIONS = {
   proxyList, proxyCheckIn, proxyCheckOut,
   adminToday, adminSummary, adminMonth, adminEmployeeMonth, adminEntryOptions, adminGetEntry, adminSaveEntry,
   adminDeleteEntry, adminBulkEntry, adminRequests, adminDecideRequest, adminDecideOt, adminClearMissed,
-  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminSaveAdvance, adminSaveArrear, adminDeleteArrear,
+  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminSaveAdvance, adminSaveArrear, adminDeleteArrear, adminSavePurchase, adminDeletePurchase,
   adminAttendanceRegister,
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
@@ -1373,7 +1376,7 @@ function payrollRows_(ctx, ym) {
 
   const rows = getEmployees_().filter(e => (employedInMonth_(e, ym) || withRecords[e.id]) && canManage_(ctx, e.id)).map(e => {
     const m = buildMonth_(e, ym);
-    return hideSplit_(Object.assign({ id: e.id, name: e.name, advances: m.advances || [], arrearItems: m.arrearItems || [],
+    return hideSplit_(Object.assign({ id: e.id, name: e.name, advances: m.advances || [], arrearItems: m.arrearItems || [], purchaseItems: m.purchaseItems || [],
       upcomingAdvances: m.upcomingAdvances || [] }, m.totals, m.pay), ctx.perms.viewSplit);
   });
   return {
@@ -1402,6 +1405,7 @@ function adminSummary(token, ym) {
     monthlySalary: sum(rows, 'salary'), earned: sum(rows, 'earned'), prorated: rows.some(r => r.prorated), otPay: sum(rows, 'otPay'),
     offDayPay: sum(rows, 'offDayPay'), arrears: sum(rows, 'arrears'), offWorkCredit: sum(rows, 'offWorkCredit'), leaveDed: sum(rows, 'leaveDed'),
     halfDayDed: sum(rows, 'halfDayDed'), lateCutDed: sum(rows, 'lateCutDed'), shortCutDed: sum(rows, 'shortCutDed'), advance: sum(rows, 'advance'),
+    purchases: sum(rows, 'purchaseDed'),
     total: sum(rows, 'net'),
     present: sum(rows, 'present'), absent: rows.reduce((a, r) => a + r.absent + r.notJoined, 0), halfDay: sum(rows, 'halfDay'),
     leave: sum(rows, 'leave'), late: sum(rows, 'late'), lateMin: sum(rows, 'lateMin'), earlyMin: sum(rows, 'earlyMin'),
@@ -1965,6 +1969,83 @@ function adminDeleteArrear(token, id) {
   return adminAdvances(token);
 }
 
+/* ------------------------ Purchases & debits ----------------------- */
+
+/** [{ id, empId, name, date, item, qty, price, amount, month, note, row }] */
+function readPurchases_() {
+  return memo_('purchases', () => (sheetValues_(SHEET.PURCHASES) || []).slice(1).map((r, i) => ({
+    id: String(r[0]).trim(), empId: String(r[1]).trim().toUpperCase(), name: String(r[2] || ''), date: toDateStr_(r[3]),
+    item: String(r[4] || '').trim(), qty: Number(r[5]) || 0, price: round2_(Number(r[6]) || 0), amount: round2_(Number(r[7]) || 0),
+    month: toYm_(r[8]), note: String(r[9] || ''), row: i + 2,
+  })).filter(x => x.id && x.empId && x.amount > 0 && x.month));
+}
+
+/** Purchases / debits cut from emp's salary of ym. */
+function purchasesFor_(empId, ym) {
+  return readPurchases_().filter(x => x.empId === empId && x.month === ym);
+}
+
+/** x = { id (edit) | empId (new), item, qty, price, date, month ('yyyy-MM'), note }. Total = quantity × price. */
+function adminSavePurchase(token, x) {
+  const ctx = authAdmin_(token, 'manageAdvances');
+  x = x || {};
+  const item = String(x.item || '').trim().slice(0, 120);
+  const qty = round2_(Number(x.qty));
+  const price = round2_(Number(x.price));
+  const amount = round2_(qty * price);
+  const date = toDateStr_(x.date) || todayStr_();
+  const month = toYm_(x.month);
+  if (!item) throw new Error('Enter the item.');
+  if (!(qty > 0)) throw new Error('Enter the quantity.');
+  if (!(price > 0)) throw new Error('Enter the price.');
+  if (!month) throw new Error('Choose the month whose salary it is cut from.');
+  if (isLocked_(month)) throw new Error('Payroll for ' + ymLabel_(month) + ' is locked. Choose a later month.');
+  const note = String(x.note || '').slice(0, 200), stamp = Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    forget_('purchases');
+    if (x.id) {
+      const old = readPurchases_().filter(p => p.id === x.id)[0];
+      if (!old) throw new Error('Purchase not found. Reload and try again.');
+      managedEmployee_(ctx, old.empId, true);
+      if (isLocked_(old.month)) throw new Error('Already cut from the ' + ymLabel_(old.month) + ' salary (locked).');
+      sheet_(SHEET.PURCHASES).getRange(old.row, 4, 1, 7).setValues([["'" + date, item, qty, price, amount, "'" + month, note]]);
+      forget_('purchases');
+      audit_(ctx.emp, 'EDIT_PURCHASE', old.empId, month + '-01', old.item + ' ' + old.amount + ' → ' + item + ' ' + qty + ' × ' + price + ' = ' + amount);
+    } else {
+      const emp = managedEmployee_(ctx, x.empId, true);
+      const id = 'P' + Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+      sheetOrCreate_(SHEET.PURCHASES, PURCHASE_HEADERS).appendRow([id, emp.id, emp.name, "'" + date, item, qty, price, amount, "'" + month, note,
+        ctx.emp.id + ' ' + ctx.emp.name, stamp]);
+      forget_('purchases');
+      audit_(ctx.emp, 'ADD_PURCHASE', emp.id, month + '-01', item + ' ' + qty + ' × ' + price + ' = ' + amount);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+  return adminAdvances(token);
+}
+
+function adminDeletePurchase(token, id) {
+  const ctx = authAdmin_(token, 'manageAdvances');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    forget_('purchases');
+    const old = readPurchases_().filter(p => p.id === id)[0];
+    if (!old) throw new Error('Purchase not found. Reload and try again.');
+    managedEmployee_(ctx, old.empId, true);
+    if (isLocked_(old.month)) throw new Error('Already cut from the ' + ymLabel_(old.month) + ' salary (locked).');
+    sheet_(SHEET.PURCHASES).deleteRow(old.row);
+    forget_('purchases');
+    audit_(ctx.emp, 'DELETE_PURCHASE', old.empId, old.month + '-01', old.item + ' ' + old.amount);
+  } finally {
+    lock.releaseLock();
+  }
+  return adminAdvances(token);
+}
+
 /** Unlocking a month: remember what each employee was paid (the locked gross), for correctionArrears_. */
 function rememberLockedPay_(ym) {
   const props = PropertiesService.getScriptProperties(), key = 'paidBefore_' + ym;
@@ -2048,8 +2129,12 @@ function adminAdvances(token) {
   const arrears = readArrears_().filter(a => names[a.empId] && (a.payMonth >= since || !isLocked_(a.payMonth)))
     .map(a => Object.assign({}, a, { name: names[a.empId], paid: isLocked_(a.payMonth) }))
     .sort((x, y) => (x.date < y.date ? 1 : x.date > y.date ? -1 : y.row - x.row)); // newest first
+  // Purchases & debits: pending ones, and deducted ones from the last 6 months.
+  const purchases = readPurchases_().filter(x => names[x.empId] && (x.month >= since || !isLocked_(x.month)))
+    .map(x => Object.assign({}, x, { name: names[x.empId], deducted: isLocked_(x.month) }))
+    .sort((a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : b.row - a.row));
   return {
-    currency: s.currency, currentMonth: ym, list: list, arrears: arrears,
+    currency: s.currency, currentMonth: ym, list: list, arrears: arrears, purchases: purchases,
     employees: emps.filter(e => e.active).map(e => ({ id: e.id, name: e.name, ongoing: ongoing[e.id] || 0 })),
   };
 }
@@ -2363,7 +2448,7 @@ function lockMonthCore_(by, ym) {
     const rows = getEmployees_().filter(e => employedInMonth_(e, ym) || withRecords[e.id]).map(e => {
       const m = computeMonth_(e, ym);
       lockedNow[e.id] = m.pay.gross;
-      return ["'" + ym, e.id, e.name, JSON.stringify({ totals: m.totals, pay: m.pay, days: m.days, advances: m.advances, arrearItems: m.arrearItems })];
+      return ["'" + ym, e.id, e.name, JSON.stringify({ totals: m.totals, pay: m.pay, days: m.days, advances: m.advances, arrearItems: m.arrearItems, purchaseItems: m.purchaseItems })];
     });
     const snap = sheetOrCreate_(SHEET.SNAPSHOTS, SNAP_HEADERS);
     if (rows.length) snap.getRange(snap.getLastRow() + 1, 1, rows.length, 4).setValues(rows);
@@ -2520,7 +2605,7 @@ function adminExportPayroll(token, ym) {
   const header = ['Emp ID', 'Name', 'Monthly Salary', 'Days Counted', 'Salary Earned', 'Present', 'Half Days',
     'Absent (Leaves)', 'Paid Leave', 'Week Off', 'Holidays', 'Worked on Off-Day', 'Late Marks', 'Late Mins',
     'Early Leaving Mins', 'OT Mins (gross)', 'OT Taken for Late/Early (mins)', 'OT Mins (net)', 'OT Hrs (net)', 'Per Day', 'Per Hour', 'Per Min',
-    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Arrears', 'Arrears Reason', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut', 'Advance Deduction', 'Gross Payable',
+    'OT Pay', 'Week-Off Work Days', 'Week-Off Work Pay', 'Arrears', 'Arrears Reason', 'Leave Deduction', 'Half Day Deduction', 'Late Cut Deduction', 'Late/Early Cut', 'Advance Deduction', 'Purchases', 'Purchase Items', 'Gross Payable',
     'PF', 'Basic Salary (PF)', 'PF Employee', 'PF Employer']
     .concat(split ? ['In Bank', 'In Cash'] : []).concat(['Total Salary']);
   const rows = data.rows.map(r => [r.id, r.name, r.salary,
@@ -2528,7 +2613,8 @@ function adminExportPayroll(token, ym) {
     r.earned === undefined ? r.salary : r.earned, r.present, r.halfDay, r.absent + r.notJoined, r.leave,
     r.weekOff, r.holiday, r.offWork, r.late, r.lateMin, r.earlyMin || 0, otGross_(r), otGross_(r) - r.otMin, r.otMin, r.otHours, r.perDay,
     r.hourly, r.perMin, r.otPay, r.offWorkCredit || 0, r.offDayPay || 0, r.arrears || 0,
-    (r.arrearItems || []).map(a => a.reason + ' ' + a.amount).join('; '), r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.gross,
+    (r.arrearItems || []).map(a => a.reason + ' ' + a.amount).join('; '), r.leaveDed, r.halfDayDed, r.lateCutDed, r.shortCutDed || 0, r.advance || 0, r.purchaseDed || 0,
+    (r.purchaseItems || []).map(x => x.item + ' ' + x.qty + ' × ' + x.price).join('; '), r.gross,
     r.pf ? 'Yes' : 'No', r.pf ? r.pfBankSalary : '', r.pf ? r.pfEmployee : '', r.pf ? r.pfEmployer : '',
   ].concat(split ? [r.pf ? r.bank : '', r.pf ? r.cash : ''] : []).concat([r.net]));
   const status = data.locked ? 'Final (locked by ' + data.locked.by + ' on ' + data.locked.at + ')'
@@ -2543,7 +2629,7 @@ function adminExportPayroll(token, ym) {
     header: header,
     rows: rows,
     formulas: data.rows.map(r => payrollFormulas_(r, split)), // per row: { column: '=… [Other Column] …' }
-    textCols: ['Emp ID', 'Name', 'Days Counted', 'PF', 'Arrears Reason'],
+    textCols: ['Emp ID', 'Name', 'Days Counted', 'PF', 'Arrears Reason', 'Purchase Items'],
   };
 }
 
@@ -2584,22 +2670,23 @@ function payrollFormulas_(r, split) {
   add('Gross Payable', 'ROUND([Salary Earned]-MIN([Salary Earned],[Leave Deduction]+[Half Day Deduction]+[Late Cut Deduction]+[Late/Early Cut])+[OT Pay]+[Week-Off Work Pay]+[Arrears],2)',
     round2_(r.earned - Math.min(r.earned, r.leaveDed + r.halfDayDed + r.lateCutDed + (r.shortCutDed || 0)) + r.otPay + (r.offDayPay || 0) + (r.arrears || 0)), r.gross);
   if (!r.pf) {
-    add('Total Salary', 'ROUND([Gross Payable]-[Advance Deduction],2)', round2_(r.gross - (r.advance || 0)), r.net);
+    add('Total Salary', 'ROUND([Gross Payable]-[Purchases]-[Advance Deduction],2)', round2_(r.gross - (r.purchaseDed || 0) - (r.advance || 0)), r.net);
     return f;
   }
   // PF: bank / cash as in calcPay_ (a part that goes below zero is taken from the other part).
   const bank = s.adjustIn === 'BANK';
   const erD = r.pfEmployerDed !== undefined, erF = erD ? '-[PF Employer]' : '', erV = erD ? r.pfEmployer : 0; // PF Employer from the salary
-  const c1 = bank ? '([Salary Earned]-[Basic Salary (PF)])' : '([Gross Payable]-[Basic Salary (PF)]-[Advance Deduction])';
-  const b1 = bank ? '([Gross Payable]-' + c1 + '-[PF Employee]' + erF + '-[Advance Deduction])' : '([Basic Salary (PF)]-[PF Employee]' + erF + ')';
-  const cv = bank ? r.earned - r.pfBankSalary : r.gross - r.pfBankSalary - (r.advance || 0);
-  const bv = bank ? r.gross - cv - r.pfEmployee - erV - (r.advance || 0) : r.pfBankSalary - r.pfEmployee - erV;
+  const take = (r.purchaseDed || 0) + (r.advance || 0); // purchases + advance
+  const c1 = bank ? '([Salary Earned]-[Basic Salary (PF)])' : '([Gross Payable]-[Basic Salary (PF)]-[Purchases]-[Advance Deduction])';
+  const b1 = bank ? '([Gross Payable]-' + c1 + '-[PF Employee]' + erF + '-[Purchases]-[Advance Deduction])' : '([Basic Salary (PF)]-[PF Employee]' + erF + ')';
+  const cv = bank ? r.earned - r.pfBankSalary : r.gross - r.pfBankSalary - take;
+  const bv = bank ? r.gross - cv - r.pfEmployee - erV - take : r.pfBankSalary - r.pfEmployee - erV;
   if (split) {
     add('In Bank', 'ROUND(MAX(0,' + b1 + '+MIN(0,' + c1 + ')),2)', round2_(Math.max(0, bv + Math.min(0, cv))), r.bank);
     add('In Cash', 'ROUND(MAX(0,MAX(0,' + c1 + ')+MIN(0,' + b1 + '+MIN(0,' + c1 + '))),2)', round2_(Math.max(0, Math.max(0, cv) + Math.min(0, bv + Math.min(0, cv)))), r.cash);
     add('Total Salary', 'ROUND([In Bank]+[In Cash],2)', round2_((r.bank || 0) + (r.cash || 0)), r.net);
   } else {
-    add('Total Salary', 'ROUND(MAX(0,[Gross Payable]-[PF Employee]' + erF + '-[Advance Deduction]),2)', round2_(Math.max(0, r.gross - r.pfEmployee - erV - (r.advance || 0))), r.net);
+    add('Total Salary', 'ROUND(MAX(0,[Gross Payable]-[PF Employee]' + erF + '-[Purchases]-[Advance Deduction]),2)', round2_(Math.max(0, r.gross - r.pfEmployee - erV - take)), r.net);
   }
   return f;
 }
@@ -2911,9 +2998,11 @@ function computeMonth_(emp, ym) {
   const att = readAttendance_().filter(r => r.date.indexOf(ym) === 0);
   const adv = advancesForMonth_(emp.id, ym);
   emp = Object.assign({}, emp, { salary: salaryFor_(emp, ym), baseSalary: baseSalary_(emp) }); // increments in effect that month
-  const arr = arrearsFor_(emp.id, ym);
-  const m = monthSummary_(emp, ym, s, byDate_(att, emp.id), getHolidays_(), adv.total, arr.reduce((n, a) => n + a.amount, 0));
+  const arr = arrearsFor_(emp.id, ym), pur = purchasesFor_(emp.id, ym);
+  const m = monthSummary_(emp, ym, s, byDate_(att, emp.id), getHolidays_(), adv.total, arr.reduce((n, a) => n + a.amount, 0),
+    pur.reduce((n, x) => n + x.amount, 0));
   m.arrearItems = arr.map(a => ({ id: a.id, amount: a.amount, reason: a.reason, auto: a.auto }));
+  m.purchaseItems = pur.map(x => ({ id: x.id, item: x.item, qty: x.qty, price: x.price, amount: x.amount, date: x.date }));
   // The salary may not cover every instalment: recover what it can, in order.
   let left = m.pay.advance;
   adv.items.forEach(a => {
@@ -3024,7 +3113,7 @@ function evaluateDay_(rec, s, offType, isToday) {
   return d;
 }
 
-function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTotal) {
+function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTotal, purchasesTotal) {
   const y = Number(ym.slice(0, 4));
   const m = Number(ym.slice(5, 7));
   const dim = new Date(y, m, 0).getDate();
@@ -3145,7 +3234,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
   }
   t.elapsedUntil = t.elapsedDays ? ym + '-' + pad2_(t.elapsedDays) : '';
 
-  return { totals: t, pay: calcPay_(emp, s, t, dim, advanceTotal || 0, arrearsTotal || 0), days: days };
+  return { totals: t, pay: calcPay_(emp, s, t, dim, advanceTotal || 0, arrearsTotal || 0, purchasesTotal || 0), days: days };
 }
 
 /**
@@ -3153,12 +3242,13 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
  *   Per day = salary ÷ Salary Days Basis (30), per hour = per day ÷ Standard Hours, per minute = per hour ÷ 60.
  *   Earned  = salary × days passed ÷ days in month (the full salary once the month is over).
  *   Gross   = earned + OT pay + week-off work pay − leave − half-day − late-cut deductions.
- *   Net     = Gross − advance instalment (− PF Employee − PF Employer for PF employees: the salary is the CTC).
+ *   Net     = Gross − purchases & debits − advance instalment (− PF Employee − PF Employer for PF employees: the salary is the CTC).
+ *   Purchases are cut first, then the advance, each only as far as the salary goes (purchaseShort = not cut).
  * PF employees: Bank = PF Bank Salary − PF Employee − PF Employer, Cash = Salary − PF Bank Salary, and OT/deductions/advance
  * (Basic Salary and both PF shares are for the days paid only: absent / not-yet-joined days reduce them in proportion)
  * are applied to Cash (or Bank, per the "OT & Deductions Paid In" setting).
  */
-function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
+function calcPay_(emp, s, t, dim, advanceWanted, arrears, purchases) {
   s = empSettings_(emp, s);
   const R = s.roundRupee ? Math.round : round2_;
   const basis = s.salaryDays > 0 ? s.salaryDays : dim;
@@ -3188,12 +3278,18 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
     perDay: round2_(perDay), hourly: round2_(perHour), perMin: round2_(perMin),
     leaveDed: leaveDed, halfDayDed: halfDayDed, lateCutDed: lateCutDed, shortCutDed: shortCutDed, deduction: round2_(deduction),
     otPay: otPay, offDayPay: offDayPay, arrears: arrears, gross: gross, advance: 0,
+    purchases: round2_(purchases || 0), purchaseDed: 0, purchaseShort: 0,
     pf: false, pfBankSalary: 0, pfEmployee: 0, pfEmployer: 0, bank: 0, cash: 0, net: gross,
   };
 
+  const takeOff = left => { // purchases first, then the advance, as far as `left` goes
+    pay.purchaseDed = round2_(Math.min(pay.purchases, Math.max(0, left)));
+    pay.purchaseShort = round2_(pay.purchases - pay.purchaseDed);
+    pay.advance = round2_(Math.min(advanceWanted, Math.max(0, left - pay.purchaseDed)));
+    return pay.purchaseDed + pay.advance;
+  };
   if (!emp.pf.active) {
-    pay.advance = round2_(Math.min(advanceWanted, Math.max(0, gross)));
-    pay.net = round2_(gross - pay.advance);
+    pay.net = round2_(gross - takeOff(gross));
     return pay;
   }
 
@@ -3206,14 +3302,14 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
     : Math.max(0, Math.min(1, (elapsed - unpaid) * perDay / emp.salary));
   const bankSalary = R(pf.bankSalary * pfShare), pfEmp = R(pf.employee * pfShare), pfEr = R(pf.employer * pfShare);
   // PF Employer is part of the salary (CTC): taken from the bank part, like PF Employee.
-  pay.advance = round2_(Math.min(advanceWanted, Math.max(0, gross - pfEmp - pfEr)));
+  const taken = takeOff(gross - pfEmp - pfEr); // purchases + advance
   let bank, cash;
   if (s.adjustIn === 'BANK') {
     cash = earned - bankSalary;
-    bank = gross - cash - pfEmp - pfEr - pay.advance;
+    bank = gross - cash - pfEmp - pfEr - taken;
   } else {
     bank = bankSalary - pfEmp - pfEr;
-    cash = gross - bankSalary - pay.advance;
+    cash = gross - bankSalary - taken;
   }
   // If deductions are bigger than one part, take the rest from the other part.
   if (cash < 0) { bank += cash; cash = 0; }
@@ -3413,12 +3509,14 @@ function payslipHtml_(emp, m) {
     row('Half Days (' + t.halfDay + ')', money(p.halfDayDed));
   if (p.lateCutDed) ded += row('Late marks', money(p.lateCutDed));
   if (p.shortCutDed) ded += row('Late coming / early leaving (' + mins(t.shortMin) + ')', money(p.shortCutDed));
+  (m.purchaseItems || []).forEach(x => { ded += row('Purchase – ' + e(x.item) + ' (' + x.qty + ' × ' + money(x.price) + ')', money(x.amount)); });
+  if (p.purchaseShort) ded += row('Purchases not cut (salary too low)', '−' + money(p.purchaseShort));
   if (p.advance) ded += row('Advance recovery', money(p.advance));
   if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + (p.pfPaidDays !== undefined ? ' for ' + p.pfPaidDays + ' of ' + p.daysInMonth + ' days' : '') + ')', money(p.pfEmployee));
   // pfEmployerDed: PF Employer taken from the salary (months locked before that keep it as company-paid).
   const erDed = p.pf && p.pfEmployerDed !== undefined;
   if (erDed) ded += row('PF Employer', money(p.pfEmployer));
-  const totalDed = p.deduction + (p.advance || 0) + (p.pf ? p.pfEmployee : 0) + (erDed ? p.pfEmployer : 0);
+  const totalDed = p.deduction + (p.purchaseDed || 0) + (p.advance || 0) + (p.pf ? p.pfEmployee : 0) + (erDed ? p.pfEmployer : 0);
 
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
     'body{font-family:Arial,Helvetica,sans-serif;color:#1b2333;margin:24px;font-size:13px}' +

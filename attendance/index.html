@@ -481,7 +481,8 @@
     'Send this leave request?': 'यह छुट्टी का अनुरोध भेजें?', 'Unpaid leave · {d}': 'बिना वेतन छुट्टी · {d}', 'Correction · {d} · {i} → {o}': 'सुधार · {d} · {i} → {o}',
     'today': 'आज', 'Leaves': 'छुट्टियाँ', '{n} days': '{n} दिन', 'Late marks cut': 'देर से आने की कटौती',
     'PF Employee': 'PF कर्मचारी', 'PF Employer': 'PF नियोक्ता', 'Basic Salary {b}': 'बेसिक वेतन {b}', 'Basic Salary {b} for {d} of {n} days': 'बेसिक वेतन {b} ({n} में से {d} दिन)',
-    '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Preparing PDF…': 'PDF तैयार हो रहा है…', 'Opening WhatsApp with the PDF…': 'PDF के साथ WhatsApp खुल रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
+    '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Purchases': 'खरीदारी',
+    'Purchases cut from this salary: {list}': 'इस तनख्वाह से कटी खरीदारी: {list}', '{amt} could not be cut (salary too low).': '{amt} नहीं कट सका (तनख्वाह कम है)।', 'Preparing PDF…': 'PDF तैयार हो रहा है…', 'Opening WhatsApp with the PDF…': 'PDF के साथ WhatsApp खुल रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
     'Update the app to send the PDF on WhatsApp (sending the details as a message now).': 'WhatsApp पर PDF भेजने के लिए ऐप अपडेट करें (अभी विवरण संदेश में भेजा जा रहा है)।',
     'This browser cannot send files. Sending the details as a message; use Download PDF to attach the file.': 'यह ब्राउज़र फ़ाइल नहीं भेज सकता। विवरण संदेश में भेजा जा रहा है; फ़ाइल के लिए Download PDF दबाएँ।', 'Salary slip – {label}': 'वेतन पर्ची – {label}', 'company contribution': 'कंपनी का योगदान',
     // guard: Mark Attendance
@@ -1053,7 +1054,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261063;
+  var NEEDS_SERVER = 20261064;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2111,7 +2112,11 @@
         payLine(t('Half Days') + ' <span class="muted">(' + tt.halfDay + ')</span>', '− ' + money(p.halfDayDed, cur), 'red') +
         (p.lateCutDed ? payLine(t('Late marks cut') + ' <span class="muted">(' + t('{n} days', { n: num(tt.lateCutDays) }) + ')</span>', '− ' + money(p.lateCutDed, cur), 'red') : '') +
         (p.shortCutDed ? payLine(t('Late coming / early leaving') + ' <span class="muted">(' + mins(tt.shortMin) + ')</span>', '− ' + money(p.shortCutDed, cur), 'red') : '') +
+        (p.purchaseDed ? payLine(t('Purchases') + ((m.purchaseItems || []).length ? ' <span class="muted">(' + m.purchaseItems.length + ')</span>' : ''), '− ' + money(p.purchaseDed, cur), 'red') : '') +
         (p.advance ? payLine(t('Advance recovery'), '− ' + money(p.advance, cur), 'red') : '');
+      if ((m.purchaseItems || []).length) html += '<p class="muted small" style="margin:6px 0 0">' + t('Purchases cut from this salary: {list}', {
+        list: m.purchaseItems.map(function (x) { return esc(x.item) + ' ' + num(x.qty) + ' × ' + money(x.price, cur) + ' = ' + money(x.amount, cur); }).join(' · ') }) +
+        (p.purchaseShort ? ' <b style="color:var(--red)">' + t('{amt} could not be cut (salary too low).', { amt: money(p.purchaseShort, cur) }) + '</b>' : '') + '</p>';
       if ((m.arrearItems || []).length) html += '<p class="muted small" style="margin:6px 0 0">' + t('Arrears with this salary: {list}', {
         list: m.arrearItems.map(function (a) { return esc(a.reason) + ' ' + money(a.amount, cur); }).join(' · ') }) + '</p>';
       (m.advances || []).forEach(function (a, ai) {
@@ -3134,6 +3139,7 @@
       payLine('Half-day deductions', '− ' + money(t.halfDayDed, cur), 'red') +
       (t.lateCutDed ? payLine('Late-mark deductions', '− ' + money(t.lateCutDed, cur), 'red') : '') +
       (t.shortCutDed ? payLine('Late / early cut', '− ' + money(t.shortCutDed, cur), 'red') : '') +
+      (t.purchases ? payLine('Purchases & debits', '− ' + money(t.purchases, cur), 'red') : '') +
       (t.advance ? payLine('Advances recovered', '− ' + money(t.advance, cur), 'red') : '') +
       (t.pfEmployee ? payLine('PF employee share', '− ' + money(t.pfEmployee, cur), 'red') : '') +
       '</div></div>';
@@ -3227,7 +3233,8 @@
       html += '<div class="list-item" data-q="' + esc((e.name + ' ' + e.id).toLowerCase()) + '" onclick="openEmployee(\'' + esc(e.id) + '\',\'' + ym + '\')" style="cursor:pointer">' +
         '<div><div class="name">' + esc(e.name) + ' <span class="muted" style="font-weight:400">' + esc(e.id) + '</span></div>' +
         '<div class="sub">P ' + e.present + ' · ½ ' + e.halfDay + ' · A ' + (e.absent + e.notJoined) + ' · Late ' + e.late + ' · OT ' + mins(e.otMin) + (e.pf ? ' · <span class="chip s-PF">PF</span>' : '') + '</div>' +
-        (e.advance || e.arrears ? '<div class="sub">' + [e.advance ? 'Advance − ' + money(e.advance, cur) : '',
+        (e.advance || e.arrears || e.purchaseDed ? '<div class="sub">' + [e.advance ? 'Advance − ' + money(e.advance, cur) : '',
+          e.purchaseDed ? 'Purchases − ' + money(e.purchaseDed, cur) : '',
           e.arrears ? '<b style="color:var(--green)">Arrears + ' + money(e.arrears, cur) + '</b>' : ''].filter(String).join(' · ') + '</div>' : '') +
         (e.missedCheckouts ? '<div class="sub" style="color:var(--red)">⚠ ' + e.missedCheckouts + ' missed check-out(s)</div>' : '') + '</div>' +
         '<div class="right"><b>' + money(e.net, cur) + '</b>' + (e.pf
@@ -3925,15 +3932,19 @@
       'It is added to the salary of the month you choose, and shows on the payroll, the payslip and the employee\'s own salary.</p>' +
       '<button class="btn" style="background:var(--green)" onclick="openArrear()">＋ Add arrears</button></div>';
 
-    html += '<div class="card"><h2>Advances &amp; arrears</h2>';
-    if (!r.list.length && !(r.arrears || []).length) html += '<p class="muted">No advances yet.</p>';
+    html += '<div class="card"><h2>🛒 Purchases &amp; debits</h2><p class="muted small" style="margin:-6px 0 8px">Things an employee bought from the office (or any other debit): ' +
+      'item, quantity and price. The total is cut from the salary of the month you choose, and shows on the payroll, the payslip and the employee\'s own salary.</p>' +
+      '<button class="btn" style="background:#b45309" onclick="openPurchase()">＋ Add purchase</button></div>';
+
+    html += '<div class="card"><h2>Advances, arrears &amp; purchases</h2>';
+    if (!r.list.length && !(r.arrears || []).length && !(r.purchases || []).length) html += '<p class="muted">No advances yet.</p>';
     // One card per employee: every payment as a row, then the combined amounts.
     var groups = [], byEmp = {};
     r.list.forEach(function (a, i) {
       if (!byEmp[a.empId]) { byEmp[a.empId] = { empId: a.empId, name: a.name, items: [] }; groups.push(byEmp[a.empId]); }
       byEmp[a.empId].items.push({ a: a, i: i });
     });
-    (r.arrears || []).forEach(function (x) {
+    (r.arrears || []).concat(r.purchases || []).forEach(function (x) {
       if (!byEmp[x.empId]) { byEmp[x.empId] = { empId: x.empId, name: x.name, items: [] }; groups.push(byEmp[x.empId]); }
     });
     groups.forEach(function (g) {
@@ -3959,9 +3970,10 @@
         '<div><b>' + money(thisMonth, cur) + '</b><span>This month</span></div>' +
         '<div class="k-red"><b>' + money(after, cur) + '</b><span>Balance after</span></div></div>' +
         (recovered ? '<p class="muted small" style="margin:6px 0 0">Recovered so far: ' + money(recovered, cur) + '</p>' : '');
-      html += arrearsBlockHtml(r, g.empId, cur) + '<div class="btns">' +
+      html += arrearsBlockHtml(r, g.empId, cur) + purchasesBlockHtml(r, g.empId, cur) + '<div class="btns">' +
         (g.items.length ? '<button class="btn small ghost" onclick="advAddMore(\'' + esc(g.empId) + '\')">＋ Add more</button>' : '') +
-        '<button class="btn small" style="background:var(--green)" onclick="openArrear(\'' + esc(g.empId) + '\')">＋ Add arrears</button></div>';
+        '<button class="btn small" style="background:var(--green)" onclick="openArrear(\'' + esc(g.empId) + '\')">＋ Add arrears</button>' +
+        '<button class="btn small" style="background:#b45309" onclick="openPurchase(\'' + esc(g.empId) + '\')">＋ Add purchase</button></div>';
       html += '</div>';
     });
     html += '</div><p class="muted small center">Tap a <b>Status</b> to change a month, change the monthly deduction, pause or close that advance. <b>Add more</b> adds a new amount to a running advance (one balance, one deduction). ' +
@@ -3990,6 +4002,65 @@
       '<div class="kv" style="margin-top:8px">' + Object.keys(byMonth).sort().map(function (k) {
         return '<div><b style="color:var(--green)">+ ' + money(byMonth[k], cur) + '</b><span>With ' + esc(monthName(k)) + ' salary</span></div>'; }).join('') +
       (paid.length ? '<div><b>' + money(sum(paid), cur) + '</b><span>Paid earlier</span></div>' : '') + '</div></div>';
+  }
+
+  /** An employee's purchases & debits on their Advances card: pending ones (tap to edit / delete) and recently cut ones. */
+  function purchasesBlockHtml(r, empId, cur) {
+    var list = (r.purchases || []).map(function (x, i) { return { x: x, i: i }; }).filter(function (u) { return u.x.empId === empId; });
+    if (!list.length) return '';
+    var pending = list.filter(function (u) { return !u.x.deducted; }), done = list.filter(function (u) { return u.x.deducted; });
+    var sum = function (l) { return l.reduce(function (n, u) { return n + u.x.amount; }, 0); };
+    var byMonth = {}; pending.forEach(function (u) { byMonth[u.x.month] = (byMonth[u.x.month] || 0) + u.x.amount; });
+    return '<div style="margin-top:12px;padding:10px;border-radius:12px;background:#fff7ed;border:1px solid #fbd38d">' +
+      '<div class="row"><b>🛒 Purchases &amp; debits (cut from salary)</b>' + (pending.length ? '<span class="chip s-LATE">Pending ' + money(sum(pending), cur) + '</span>' : '') + '</div>' +
+      '<table class="given"><tr><th>Date</th><th>Item</th><th class="r">Total</th><th>Cut from</th><th>Status</th></tr>' +
+      list.map(function (u) {
+        var x = u.x;
+        return '<tr' + (x.deducted ? ' style="opacity:.6"' : '') + '><td>' + esc(fmtDate(x.date)) + '</td><td>' + esc(x.item) +
+          '<div class="muted small">' + num(x.qty) + ' × ' + money(x.price, cur) + (x.note ? ' · ' + esc(x.note) : '') + '</div></td>' +
+          '<td class="r"><b>' + money(x.amount, cur) + '</b></td><td>' + esc(monthName(x.month)) + '</td>' +
+          '<td>' + (x.deducted ? '✓ Cut' : '<button class="link adv-st" onclick="openPurchase(null,' + u.i + ')">Pending ›</button>') + '</td></tr>';
+      }).join('') + '</table>' +
+      '<div class="kv" style="margin-top:8px">' + Object.keys(byMonth).sort().map(function (k) {
+        return '<div><b style="color:var(--red)">− ' + money(byMonth[k], cur) + '</b><span>From ' + esc(monthName(k)) + ' salary</span></div>'; }).join('') +
+      (done.length ? '<div><b>' + money(sum(done), cur) + '</b><span>Cut earlier</span></div>' : '') + '</div></div>';
+  }
+
+  /** Add (empId given or chosen) or edit (index into S.adv.purchases) a purchase / debit. Total = quantity × price. */
+  function openPurchase(empId, i) {
+    var r = S.adv, x = i != null ? r.purchases[i] : null;
+    var emp = x ? x.empId : empId;
+    var name = x ? x.name : emp ? ((r.employees.filter(function (e) { return e.id === emp; })[0] || {}).name || emp) : '';
+    openModal('<div class="row"><h2 style="margin:0">' + (x ? 'Purchase – ' : 'Add purchase' + (emp ? ' – ' : '')) + esc(name) + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small" style="margin:6px 0 10px">Bought from the office (or another debit). The total is cut from the salary of the month you choose.</p>' +
+      (emp ? '' : '<div class="field"><label>Employee</label><select id="puEmp" class="inp">' + r.employees.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.name) + ' (' + esc(e.id) + ')</option>'; }).join('') + '</select></div>') +
+      '<div class="field"><label>Item</label><input id="puItem" class="inp" maxlength="120" placeholder="e.g. Office T-shirt" value="' + (x ? esc(x.item) : '') + '"></div>' +
+      '<div class="grid2"><div class="field"><label>Quantity</label><input id="puQty" class="inp" inputmode="decimal" placeholder="e.g. 2" value="' + (x ? esc(x.qty) : '1') + '" oninput="puTotal()"></div>' +
+      '<div class="field"><label>Price (each)</label><input id="puPrice" class="inp" inputmode="decimal" placeholder="e.g. 350" value="' + (x ? esc(x.price) : '') + '" oninput="puTotal()"></div></div>' +
+      '<div class="field"><label>Total amount</label><div id="puTot" class="inp" style="background:var(--soft,#f4f6fb);font-weight:700">–</div></div>' +
+      '<div class="grid2"><div class="field"><label>Date</label><input id="puDate" class="inp" type="date" value="' + (x ? x.date : todayLocal()) + '"></div>' +
+      '<div class="field"><label>Cut from salary of</label><input id="puMonth" class="inp" type="month" min="' + r.currentMonth + '" value="' + (x ? x.month : r.currentMonth) + '"></div></div>' +
+      '<div class="field"><label>Note (optional)</label><input id="puNote" class="inp" maxlength="200" placeholder="e.g. Bill no. 112" value="' + (x ? esc(x.note) : '') + '"></div>' +
+      '<div id="puMsg"></div><button class="btn" id="puBtn" style="background:#b45309" onclick="savePurchase(' + (x ? '\'' + esc(x.id) + '\'' : 'null') + ',' + (emp ? '\'' + esc(emp) + '\'' : 'null') + ')">' + (x ? 'Save changes' : 'Save purchase') + '</button>' +
+      (x ? '<button class="btn soft-red" onclick="deletePurchase(\'' + esc(x.id) + '\')">Delete</button>' : '') +
+      '<button class="btn ghost" onclick="closeModal()">Cancel</button>');
+    puTotal();
+  }
+  function puTotal() {
+    var q = Number($('puQty').value), p = Number($('puPrice').value), box = $('puTot');
+    box.textContent = q > 0 && p > 0 ? num(q) + ' × ' + money(p, S.adv.currency) + ' = ' + money(Math.round(q * p * 100) / 100, S.adv.currency) : '–';
+  }
+  function savePurchase(id, empId) {
+    var x = { id: id || undefined, empId: empId || ($('puEmp') && $('puEmp').value), item: $('puItem').value, qty: $('puQty').value, price: $('puPrice').value,
+      date: $('puDate').value, month: $('puMonth').value, note: $('puNote').value };
+    $('puBtn').disabled = true;
+    api('adminSavePurchase', S.token, x).then(function (r) { closeModal(); renderAdvances(r); toast('Purchase saved'); })
+      .catch(function (e) { $('puBtn').disabled = false; $('puMsg').innerHTML = errBox(e); });
+  }
+  function deletePurchase(id) {
+    if (!confirm('Delete this purchase?')) return;
+    api('adminDeletePurchase', S.token, id).then(function (r) { closeModal(); renderAdvances(r); toast('Deleted'); })
+      .catch(function (e) { $('puMsg').innerHTML = errBox(e); });
   }
 
   /** Add (empId given or chosen) or edit (index into S.adv.arrears) an arrears entry. */
