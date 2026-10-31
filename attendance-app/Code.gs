@@ -42,7 +42,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261059;
+const SERVER_VERSION = 20261060;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -1034,7 +1034,10 @@ function getPayslip(token, ym, empId, asPdf) {
   }
   const m = hideSplit_(buildMonth_(emp, validYm_(ym)), permsFor_(me).viewSplit);
   const html = payslipHtml_(emp, m);
-  const out = { html: html, fileName: 'Payslip_' + emp.id + '_' + m.ym + '.pdf' };
+  const out = { html: html, fileName: 'Payslip_' + emp.id + '_' + m.ym + '.pdf',
+    // For "Share on WhatsApp": a short text, and the employee's phone when an admin shares someone else's slip.
+    share: { name: emp.name, label: m.label, net: m.pay.net, currency: getSettings_().currency, company: getSettings_().company,
+      phone: emp.id !== me.id ? String(emp.phone || '').replace(/\D/g, '') : '' } };
   if (asPdf) {
     const pdf = Utilities.newBlob(html, 'text/html', 'payslip.html').getAs('application/pdf');
     out.pdf = Utilities.base64Encode(pdf.getBytes());
@@ -3135,6 +3138,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
  *   Gross   = earned + OT pay + week-off work pay − leave − half-day − late-cut deductions.
  *   Net     = Gross − advance instalment (− PF Employee − PF Employer for PF employees: the salary is the CTC).
  * PF employees: Bank = PF Bank Salary − PF Employee − PF Employer, Cash = Salary − PF Bank Salary, and OT/deductions/advance
+ * (Basic Salary and both PF shares are for the days paid only: absent / not-yet-joined days reduce them in proportion)
  * are applied to Cash (or Bank, per the "OT & Deductions Paid In" setting).
  */
 function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
@@ -3177,8 +3181,13 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
   }
 
   const pf = pfAmounts_(emp, s);
-  // PF and Basic Salary are counted for the same days as the salary.
-  const bankSalary = R(pf.bankSalary * ratio), pfEmp = R(pf.employee * ratio), pfEr = R(pf.employer * ratio);
+  // PF and Basic Salary are counted only for the days paid: absent days and days before joining / after leaving
+  // (½ for a half day) reduce them in proportion. Finished month: Basic × (days − unpaid days) ÷ days in month;
+  // month in progress: (days passed − unpaid days) × the day rate, like the salary.
+  const unpaid = (t.absent || 0) + (t.notJoined || 0) + 0.5 * (t.halfDay || 0);
+  const pfShare = !(emp.salary > 0) ? 1 : elapsed >= dim ? Math.max(0, (dim - unpaid) / dim)
+    : Math.max(0, Math.min(1, (elapsed - unpaid) * perDay / emp.salary));
+  const bankSalary = R(pf.bankSalary * pfShare), pfEmp = R(pf.employee * pfShare), pfEr = R(pf.employer * pfShare);
   // PF Employer is part of the salary (CTC): taken from the bank part, like PF Employee.
   pay.advance = round2_(Math.min(advanceWanted, Math.max(0, gross - pfEmp - pfEr)));
   let bank, cash;
@@ -3196,6 +3205,7 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
 
   return Object.assign(pay, {
     pf: true, pfBankSalary: bankSalary, pfEmployee: pfEmp, pfEmployer: pfEr, pfEmployerDed: pfEr,
+    pfFullBasic: R(pf.bankSalary), pfPaidDays: elapsed >= dim && unpaid > 0 ? round2_(dim - unpaid) : undefined,
     bank: round2_(bank), cash: round2_(cash), net: round2_(bank + cash),
   });
 }
@@ -3387,7 +3397,7 @@ function payslipHtml_(emp, m) {
   if (p.lateCutDed) ded += row('Late marks', money(p.lateCutDed));
   if (p.shortCutDed) ded += row('Late coming / early leaving (' + mins(t.shortMin) + ')', money(p.shortCutDed));
   if (p.advance) ded += row('Advance recovery', money(p.advance));
-  if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + ')', money(p.pfEmployee));
+  if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + (p.pfPaidDays !== undefined ? ' for ' + p.pfPaidDays + ' of ' + p.daysInMonth + ' days' : '') + ')', money(p.pfEmployee));
   // pfEmployerDed: PF Employer taken from the salary (months locked before that keep it as company-paid).
   const erDed = p.pf && p.pfEmployerDed !== undefined;
   if (erDed) ded += row('PF Employer', money(p.pfEmployer));

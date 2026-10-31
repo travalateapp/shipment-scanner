@@ -157,8 +157,8 @@ Changes to the app reach iPhones automatically too.
 | OT Block (min) | 0 | Only for weekly-off / holiday OT. `0` counts every minute, `30` full 30-minute blocks |
 | Max OT Per Day (min) | 0 | Only for weekly-off / holiday OT. Cap per day (`0` = no cap) |
 | OT Needs Approval | No | Only for weekly-off / holiday OT: `Yes` = it counts after an admin approves it |
-| Late Minutes Reduce OT | Yes | Not used any more: coming late already lowers the time worked in the month |
-| Early Leaving Reduces OT | Yes | Not used any more: leaving early already lowers the time worked in the month |
+| Late Minutes Reduce OT | Yes | Not used any more (no effect): late time is always taken from the month's OT; beyond the OT it is cut from the salary |
+| Early Leaving Reduces OT | Yes | Not used any more (no effect), same as above |
 | Weekly Off | Sunday | For example `Sunday` or `Saturday,Sunday` |
 | Off-Day Work Is OT | Yes | Holidays (and weekly offs when *Week-Off Full Day Hours* = 0): all hours worked count as OT |
 | Week-Off Shift Start | 09:30 | Working on the weekly off (Sunday): start of the day hours |
@@ -225,6 +225,10 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Speed:** the face models (~7 MB) download once per phone from jsDelivr and stay cached; after that a scan takes well under a second on a normal phone.
 - **Setting:** *Face Match Max Distance* (default 0.42): lower = stricter. Same person is usually 0.1–0.35, different people from about 0.48. The guard's scanner also needs the best match to be clearly closer than the next person and to show up in 2 looks in a row. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
+
+### 📲 Share payslip on WhatsApp
+- Payslip → **📲 Share on WhatsApp**. In the Android app (new version) the PDF goes straight to WhatsApp (or WhatsApp Business), where you pick the chat. In a phone browser the share list opens with the PDF; pick WhatsApp.
+- On a computer, or in older Android app versions, WhatsApp opens with a short text (month, name, Total Salary) instead of the file; when an admin shares an employee's slip it opens that employee's chat (their Phone in Employees).
 
 ### 🔒 Automatic payroll lock
 - On the **8th** of every month (setting *Auto-Lock Payroll Day*, 0 = off) the previous month is locked automatically by the hourly trigger, so salaries paid by the 7th can still be corrected until then. The Payroll page shows "🔒 Locks automatically on 8 Nov".
@@ -324,6 +328,8 @@ outside 09:30–17:00 is added to the OT. Employees with *Hourly OT* off get onl
 | **In Bank** = Basic Salary − PF Employee − PF Employer | 13,500 − 1,721 − 1,755 = **10,024** |
 | **In Cash** = Salary − Basic Salary + OT − Leaves − Half Days − Advance | 15,000 − 13,500 = **1,500** |
 | **Total Salary** = In Bank + In Cash | **11,524** |
+
+**PF for the days paid only:** Basic Salary, PF Employee and PF Employer are reduced in proportion to absent days and days before joining / after leaving (a half day counts ½). Example: Basic ₹13,500, 10 absent days in a 31-day month → Basic 13,500 × 21/31 = ₹9,145, PF Employee 12% = ₹1,097. The salary card shows "Basic Salary ₹9,145 for 21 of 31 days". Locked months keep what was paid.
 
 Employees, and admins without the *View Bank / Cash Split* permission, see only **Total Salary**: in the app, on payslips and in the payroll export. "Basic Salary" is the *PF Bank Salary* column in the Employees tab.
 

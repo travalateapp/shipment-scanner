@@ -281,6 +281,23 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void shareDownload(byte[] data, String name, String mime, String text) {
+        try {
+            File f = new File(ShareProvider.dir(this), name);
+            try (OutputStream out = new FileOutputStream(f)) { out.write(data); }
+            Intent send = new Intent(Intent.ACTION_SEND).setType(mime)
+                    .putExtra(Intent.EXTRA_STREAM, ShareProvider.uri(this, name))
+                    .putExtra(Intent.EXTRA_TEXT, text == null ? "" : text)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            for (String pkg : new String[]{"com.whatsapp", "com.whatsapp.w4b"}) { // WhatsApp, then WhatsApp Business
+                try { startActivity(new Intent(send).setPackage(pkg)); return; } catch (Exception ignored) { }
+            }
+            startActivity(Intent.createChooser(send, "Share payslip"));
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not share the payslip: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     private void printHtml(String html, String jobName) {
         printView = new WebView(this);
         printView.setWebViewClient(new WebViewClient() {
@@ -301,6 +318,14 @@ public class MainActivity extends Activity {
             final PendingFile f = new PendingFile(Base64.decode(base64, Base64.DEFAULT),
                     name.replaceAll("[\\\\/:*?\"<>|]", "_"), mime);
             runOnUiThread(() -> saveDownload(f));
+        }
+
+        /** Payslip → WhatsApp (or the share list when WhatsApp is not installed). */
+        @JavascriptInterface
+        public void shareFile(String base64, String name, String mime, String text) {
+            final byte[] data = Base64.decode(base64, Base64.DEFAULT);
+            final String safe = name.replaceAll("[\\\\/:*?\"<>|]", "_");
+            runOnUiThread(() -> shareDownload(data, safe, mime, text));
         }
 
         @JavascriptInterface
