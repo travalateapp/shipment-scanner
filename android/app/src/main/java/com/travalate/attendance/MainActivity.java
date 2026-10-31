@@ -285,10 +285,13 @@ public class MainActivity extends Activity {
         try {
             File f = new File(ShareProvider.dir(this), name);
             try (OutputStream out = new FileOutputStream(f)) { out.write(data); }
+            Uri file = ShareProvider.uri(this, name);
             Intent send = new Intent(Intent.ACTION_SEND).setType(mime)
-                    .putExtra(Intent.EXTRA_STREAM, ShareProvider.uri(this, name))
-                    .putExtra(Intent.EXTRA_TEXT, text == null ? "" : text)
+                    .putExtra(Intent.EXTRA_STREAM, file)
                     .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            send.setClipData(android.content.ClipData.newRawUri(name, file)); // read permission for the receiving app
+            // A caption only when given: next to a document WhatsApp may send the text and drop the file.
+            if (text != null && !text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
             for (String pkg : new String[]{"com.whatsapp", "com.whatsapp.w4b"}) { // WhatsApp, then WhatsApp Business
                 try { startActivity(new Intent(send).setPackage(pkg)); return; } catch (Exception ignored) { }
             }

@@ -481,7 +481,7 @@
     'Send this leave request?': 'यह छुट्टी का अनुरोध भेजें?', 'Unpaid leave · {d}': 'बिना वेतन छुट्टी · {d}', 'Correction · {d} · {i} → {o}': 'सुधार · {d} · {i} → {o}',
     'today': 'आज', 'Leaves': 'छुट्टियाँ', '{n} days': '{n} दिन', 'Late marks cut': 'देर से आने की कटौती',
     'PF Employee': 'PF कर्मचारी', 'PF Employer': 'PF नियोक्ता', 'Basic Salary {b}': 'बेसिक वेतन {b}', 'Basic Salary {b} for {d} of {n} days': 'बेसिक वेतन {b} ({n} में से {d} दिन)',
-    '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Preparing PDF…': 'PDF तैयार हो रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
+    '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Preparing PDF…': 'PDF तैयार हो रहा है…', 'Opening WhatsApp with the PDF…': 'PDF के साथ WhatsApp खुल रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
     'Update the app to send the PDF on WhatsApp (sending the details as a message now).': 'WhatsApp पर PDF भेजने के लिए ऐप अपडेट करें (अभी विवरण संदेश में भेजा जा रहा है)।',
     'This browser cannot send files. Sending the details as a message; use Download PDF to attach the file.': 'यह ब्राउज़र फ़ाइल नहीं भेज सकता। विवरण संदेश में भेजा जा रहा है; फ़ाइल के लिए Download PDF दबाएँ।', 'Salary slip – {label}': 'वेतन पर्ची – {label}', 'company contribution': 'कंपनी का योगदान',
     // guard: Mark Attendance
@@ -1053,7 +1053,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261062;
+  var NEEDS_SERVER = 20261063;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2325,7 +2325,8 @@
     };
     if (NATIVE && NATIVE.shareFile) { // Android app 1.14+
       label(t('Preparing PDF…'), true);
-      slipPdf().then(function (r) { NATIVE.shareFile(r.pdf, r.fileName, 'application/pdf', text); })
+      // No caption: with a text next to the file, WhatsApp may send only the text.
+      slipPdf().then(function (r) { toast(t('Opening WhatsApp with the PDF…')); NATIVE.shareFile(r.pdf, r.fileName, 'application/pdf', ''); })
         .catch(function (e) { toast(e.message); }).then(function () { label(t('📲 Share on WhatsApp')); });
       return;
     }
