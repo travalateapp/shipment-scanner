@@ -1050,7 +1050,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261057;
+  var NEEDS_SERVER = 20261058;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2836,7 +2836,7 @@
       '<div class="field"><label>Type</label><select id="hoType" class="inp" onchange="$(\'hoCloseBox\').classList.toggle(\'hidden\', this.value!==\'Short Day\');hoOtLabel()">' + typeOpts + '</select></div></div>' +
       '<div class="field hidden" id="hoCloseBox"><label>Office closes at</label><input id="hoClose" class="inp" type="time" value="16:30"></div>' +
       '<div class="field"><label>Name</label><input id="hoName" class="inp" placeholder="e.g. Diwali, Republic Day"></div>' +
-      holidayOtHtml(r) +
+      holidayForHtml(r) + holidayOtHtml(r) +
       '<button class="btn" id="hoBtn" onclick="saveHoliday()">Add holiday</button><div id="hoMsg"></div></div>';
     html += '<div class="card"><div class="month-nav"><button onclick="loadHolidays(' + (y - 1) + ')">‹</button><h2>Holidays ' + y + '</h2>' +
       '<button onclick="loadHolidays(' + (y + 1) + ')">›</button></div>';
@@ -2847,6 +2847,7 @@
         '<div class="sub">' + esc(fmtDate(x.date)) + ' · ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(x.date + 'T00:00:00').getDay()] + '</div></div>' +
         '<div class="right">' + (x.closeAt ? '<span class="chip s-LATE">🕓 Closes ' + esc(x.closeAt) + '</span>' : '<span class="chip s-HOLIDAY">' + esc(x.type) + '</span>') +
         ' <span class="chip ' + (holidayOtMode(x, r) === 'NONE' ? 's-ABSENT' : 's-OT') + '">' + esc(holidayOtText(x, r)) + '</span>' +
+        (x.appliesTo && x.appliesTo !== 'ALL' ? ' <span class="chip s-WEEK_OFF">👥 ' + x.appliesTo.split(',').length + ' employee' + (x.appliesTo.split(',').length === 1 ? '' : 's') + '</span>' : '') +
         '<div><button class="link" onclick="editHoliday(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteHoliday(' + i + ')">Delete</button></div></div></div>';
     });
     adminBody(html + '</div>');
@@ -2948,10 +2949,37 @@
         (r.employees || []).map(function (e) { return '<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" class="hoOtEmp" value="' + esc(e.id) + '"> ' + esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>'; }).join('') +
       '</div></div><div class="muted small" id="hoOtNote" style="margin-top:6px"></div></div>';
   }
+  /** Who has this holiday / short day: everyone, or only the ticked employees (a normal working day for the rest). */
+  function holidayForHtml(r) {
+    return '<div class="field" style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">' +
+      '<div style="font-weight:600" id="hoForLabel">This holiday is for</div>' +
+      '<div style="margin-top:6px"><label style="display:inline-flex;gap:6px;margin-right:16px"><input type="radio" name="hoForWho" value="ALL" checked onchange="hoForShow()"> All employees</label>' +
+      '<label style="display:inline-flex;gap:6px"><input type="radio" name="hoForWho" value="SOME" onchange="hoForShow()"> Selected employees</label></div>' +
+      '<div id="hoForList" class="hidden" style="margin-top:8px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px">' +
+        (r.employees || []).map(function (e) { return '<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" class="hoForEmp" value="' + esc(e.id) + '"> ' + esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>'; }).join('') +
+      '</div><div class="muted small" id="hoForNote" style="margin-top:6px"></div></div>';
+  }
+  function hoForShow() {
+    var some = document.querySelector('input[name=hoForWho]:checked').value === 'SOME', short = $('hoType').value === 'Short Day';
+    $('hoForLabel').textContent = short ? 'This short day is for' : 'This holiday is for';
+    $('hoForList').classList.toggle('hidden', !some);
+    $('hoForNote').textContent = some ? 'Only the ticked employees get this ' + (short ? 'short day' : 'holiday') + '. For everyone else it is a normal working day (absent if they don\'t come).'
+      : 'Everyone gets this ' + (short ? 'short day.' : 'holiday.');
+  }
+  function hoForSet(x) {
+    var ids = x.appliesTo && x.appliesTo !== 'ALL' ? x.appliesTo.split(',') : [];
+    document.querySelector('input[name=hoForWho][value=' + (ids.length ? 'SOME' : 'ALL') + ']').checked = true;
+    [].forEach.call(document.querySelectorAll('.hoForEmp'), function (c) { c.checked = ids.indexOf(c.value) >= 0; });
+    hoForShow();
+  }
+  function hoForValue() {
+    if (document.querySelector('input[name=hoForWho]:checked').value !== 'SOME') return { mode: 'ALL' };
+    return { mode: 'SOME', ids: [].filter.call(document.querySelectorAll('.hoForEmp'), function (c) { return c.checked; }).map(function (c) { return c.value; }) };
+  }
   function hoOtLabel() {
     var short = $('hoType').value === 'Short Day';
     $('hoOtLabel').textContent = short ? 'Give OT for work after closing time' : 'Give OT for work on this holiday';
-    hoOtShow();
+    hoOtShow(); if ($('hoForLabel')) hoForShow();
   }
   function hoOtShow() {
     var on = $('hoOt').checked, some = on && document.querySelector('input[name=hoOtWho]:checked').value === 'SOME', short = $('hoType').value === 'Short Day';
@@ -2975,7 +3003,7 @@
   }
 
   function saveHoliday() {
-    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value, closeAt: $('hoClose').value, ot: hoOtValue() };
+    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value, closeAt: $('hoClose').value, ot: hoOtValue(), appliesTo: hoForValue() };
     $('hoBtn').disabled = true;
     api('adminSaveHoliday', S.token, h).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday saved: ' + h.name); })
       .catch(function (e) { $('hoBtn').disabled = false; $('hoMsg').innerHTML = errBox(e); });
@@ -2984,7 +3012,7 @@
     var x = S.holidays.list[i];
     $('hoDate').value = x.date; $('hoName').value = x.name; $('hoType').value = x.type;
     $('hoCloseBox').classList.toggle('hidden', x.type !== 'Short Day'); if (x.closeAt) $('hoClose').value = x.closeAt;
-    hoOtSet(x);
+    hoOtSet(x); hoForSet(x);
     $('hoBtn').textContent = 'Save holiday';
     $('hoName').focus(); window.scrollTo(0, 0);
   }

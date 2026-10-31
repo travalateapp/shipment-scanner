@@ -42,7 +42,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261057;
+const SERVER_VERSION = 20261058;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -69,7 +69,7 @@ const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
   'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut', 'Birth Date'];
-const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type', 'Close At', 'OT For'];
+const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type', 'Close At', 'OT For', 'Applies To'];
 // Type 'Short Day' + Close At (e.g. 16:30): a working day on which the office closes early (see shortenDay_).
 const SHORT_DAY = 'Short Day';
 const HOLIDAY_TYPES = ['National', 'Festival', 'Company'];
@@ -594,7 +594,7 @@ function getHome(token) {
   const today = todayStr_();
   const holidays = getHolidays_();
   const rec = byDate_(readAttendance_(), emp.id)[today];
-  const offType = offType_(today, s, holidays);
+  const offType = offType_(today, s, holidays, emp.id);
   const day = rec ? evaluateDay_(rec, s, offType, true) : { status: offType || 'NOT_MARKED' };
   const open = openOvernight_(emp, s);
   return {
@@ -615,12 +615,12 @@ function getHome(token) {
     checkoutLocation: s.checkoutLocation,
     anywhere: !!emp.anywhere,
     shiftStart: minutesToStr_(empSettings_(emp, s).shiftStartMin),
-    closeEarly: shortDays_()[today] || null, // office closes early today
+    closeEarly: (holidayAppliesTo_(today, emp.id) && shortDays_()[today]) || null, // office closes early today (for them)
     react: reactRules_(emp, s, today, offType), // late / early-leaving GIF, shown the moment Save is tapped
     celebration: celebrationOn_(today),
     birthday: birthdayOn_(today, emp),
     standardHours: empSettings_(emp, s).standardHours,
-    upcomingHolidays: upcomingHolidays_(today, 45, 3),
+    upcomingHolidays: upcomingHolidays_(today, 45, 3, emp.id),
     face: readFaces_()[emp.id] ? readFaces_()[emp.id].d : null, // registered face: check in / out by face
     faceDistance: s.faceDistance,
     leaders: homeLeaders_(emp, today),
@@ -767,7 +767,7 @@ function checkIn(token, lat, lng, accuracy, selfieDataUrl, phoneClock, face) {
  */
 function reactRules_(emp, s, today, offType) {
   if (offType || (!s.lateGif && !s.earlyGif)) return null;
-  const es = shortenDay_(empSettings_(emp, s), today);
+  const es = shortenDay_(empSettings_(emp, s), today, emp.id);
   return { startMin: es.shiftStartMin, graceMin: es.lateGrace, endMin: es.shiftStartMin + Math.round(es.standardHours * 60),
     lateGif: s.lateGif, earlyGif: s.earlyGif };
 }
@@ -810,7 +810,7 @@ function checkInCore_(emp, s, loc, selfieDataUrl, byEmp, face) {
     forget_('att');
     const rec = existing();
     if (rec && rec.in) throw new Error(who + ' already checked in today.');
-    const offType = offType_(today, s, getHolidays_());
+    const offType = offType_(today, s, getHolidays_(), emp.id);
     const es = empSettings_(emp, s);
     const late = !offType && toMinutes_(now) > es.shiftStartMin + es.lateGrace;
     // One phone marks many people from the same spot, so the "same GPS" checks don't apply to proxy marks.
@@ -900,8 +900,8 @@ function checkOut(token, lat, lng, accuracy, phoneClock, photo, face) {
   const loc = s.checkoutLocation || emp.anywhere ? checkLocation_(s, lat, lng, accuracy, emp.anywhere) : null;
   const r = checkOutCore_(emp, s, loc, null, photo, face);
   // Leaving before the shift ends (on a short day: before closing) on a working day → a reaction on their own phone.
-  if (r.date === todayStr_() && !offType_(r.date, s, getHolidays_())) {
-    const es = shortenDay_(empSettings_(emp, s), r.date), end = es.shiftStartMin + Math.round(es.standardHours * 60);
+  if (r.date === todayStr_() && !offType_(r.date, s, getHolidays_(), emp.id)) {
+    const es = shortenDay_(empSettings_(emp, s), r.date, emp.id), end = es.shiftStartMin + Math.round(es.standardHours * 60);
     const out = toMinutes_(r.time);
     r.earlyMin = out > es.shiftStartMin && out < end ? end - out : 0;
     if (r.earlyMin && s.earlyGif) r.gif = s.earlyGif;
@@ -947,7 +947,7 @@ function checkOutCore_(emp, s, loc, byEmp, photo, face) {
 
     const now = Utilities.formatDate(new Date(), tz_(), 'HH:mm');
     rec.out = now;
-    const d = evaluateDay_(rec, s, offType_(rec.date, s, getHolidays_()), false);
+    const d = evaluateDay_(rec, s, offType_(rec.date, s, getHolidays_(), rec.empId), false);
 
     const sh = sheet_(SHEET.ATTENDANCE);
     sh.getRange(rec.row, COL.OUT + 1, 1, 5).setValues([["'" + now, d.worked, d.status, d.late ? 'Yes' : '', d.ot]]);
@@ -1152,7 +1152,7 @@ function proxyList(token) {
       if (open) r = open;
       return {
         id: e.id, name: e.name, in: r ? r.in : '', out: r ? r.out : '', date: r ? r.date : today,
-        status: r ? evaluateDay_(r, s, offType, r.date === today).status : (offType || 'NOT_MARKED'),
+        status: r ? evaluateDay_(r, s, offType_(r.date, s, getHolidays_(), e.id), r.date === today).status : (offType_(today, s, getHolidays_(), e.id) || 'NOT_MARKED'),
         byOther: !!(r && /PROXY/.test(r.flags)), markedBy: markedBy_(r), breaks: r ? r.breaks || '' : '',
       };
     }).sort((a, b) => a.name.localeCompare(b.name)),
@@ -1318,7 +1318,8 @@ function adminToday(token, date) {
   const counts = { total: 0, in: 0, late: 0, out: 0, notMarked: 0, flagged: 0 };
   const list = getEmployees_().filter(e => employedOn_(e, day) && canManage_(ctx, e.id)).map(e => {
     const r = recs[e.id];
-    const d = r ? evaluateDay_(r, s, offType, isToday) : { status: offType || (isToday ? 'NOT_MARKED' : 'ABSENT') };
+    const off = offType_(day, s, getHolidays_(), e.id); // a holiday only for some: a normal day for the rest
+    const d = r ? evaluateDay_(r, s, off, isToday) : { status: off || (isToday ? 'NOT_MARKED' : 'ABSENT') };
     const flags = r && r.flags ? r.flags.split(/\s+/).filter(String) : [];
     if (r && r.in && s.selfieRequired && !r.selfie && !/PROXY/.test(r.flags) && !/replaced|Entered by|marked by/i.test(String(r.note))) flags.push('NO_SELFIE');
     counts.total++;
@@ -1451,7 +1452,7 @@ function adminGetEntry(token, empId, date) {
   const emp = managedEmployee_(ctx, empId, true);
   date = checkEntryDate_(ctx, date);
   const s = getSettings_();
-  const off = offType_(date, s, getHolidays_());
+  const off = offType_(date, s, getHolidays_(), emp.id);
   const rec = byDate_(readAttendance_(), emp.id)[date];
   return {
     empId: emp.id, name: emp.name, date: date, offType: off,
@@ -1528,7 +1529,7 @@ function adminBulkEntry(token, opts) {
 
   const dates = [];
   for (let d = from; d <= to; d = addDays_(d, 1)) {
-    if (opts.skipOff !== false && offType_(d, s, holidays)) continue;
+    if (opts.skipOff !== false && emps.every(emp => offType_(d, s, holidays, emp.id))) continue; // off for all of them
     dates.push(d);
     if (dates.length > 62) throw new Error('Please fill at most 62 days at a time.');
   }
@@ -1539,7 +1540,7 @@ function adminBulkEntry(token, opts) {
     let added = 0, updated = 0, skipped = 0;
     const data = entryContext_();
     emps.forEach(emp => dates.forEach(date => {
-      if (!employedOn_(emp, date)) { skipped++; return; }
+      if (!employedOn_(emp, date) || (opts.skipOff !== false && offType_(date, s, holidays, emp.id))) { skipped++; return; }
       const r = upsertEntry_(data, emp, date, e, ctx.emp, !!opts.overwrite);
       if (r.skipped) skipped++; else if (r.created) added++; else updated++;
     }));
@@ -1591,7 +1592,7 @@ function adminRequests(token) {
     readAttendance_().forEach(r => {
       if (r.date < since || r.otApproved || !r.out || !emps[r.empId] || !canEditEmployee_(ctx, r.empId)) return;
       if (isLocked_(r.date.slice(0, 7))) return;
-      const d = evaluateDay_(r, s, offType_(r.date, s, holidays), false);
+      const d = evaluateDay_(r, s, offType_(r.date, s, holidays, r.empId), false);
       if (d.otPending > 0) {
         out.ot.push({ empId: r.empId, name: emps[r.empId].name, date: r.date, in: r.in, out: r.out, otMin: d.otPending });
       }
@@ -1647,7 +1648,7 @@ function adminDecideRequest(token, id, approve, remark, leaveType, adv) {
         const worked = [];
         for (let d = r.from; d <= r.to; d = addDays_(d, 1)) {
           assertUnlocked_(d);
-          if (offType_(d, s, data.holidays)) continue;
+          if (offType_(d, s, data.holidays, emp.id)) continue;
           const rec = data.map[emp.id + '|' + d];
           // A day the employee already checked in on is kept as worked, never turned into leave.
           if (rec && rec.in) { worked.push(d); continue; }
@@ -2215,7 +2216,7 @@ function sweepOpenEntries_(waitForLock) {
     let n = 0;
     readAttendance_().filter(stillOpen).forEach(r => {
       if (isLocked_(r.date.slice(0, 7))) return;
-      const d = evaluateDay_(r, s, offType_(r.date, s, holidays), false);
+      const d = evaluateDay_(r, s, offType_(r.date, s, holidays, r.empId), false);
       sh.getRange(r.row, COL.STATUS + 1).setValue(d.status);
       sh.getRange(r.row, COL.FLAGS + 1).setValue((r.flags + ' NO_CHECKOUT').trim());
       sh.getRange(r.row, COL.REVIEW + 1).setValue('AUTO_CHECKOUT');
@@ -2269,7 +2270,7 @@ function adminClearMissed(token, empId, date, outTime, note) {
       const e = cleanEntry_({ in: rec.in, out: out, override: rec.override });
       const s = getSettings_();
       const d = evaluateDay_({ empId: emp.id, date: date, in: e.in, out: e.out, override: e.override, breaks: rec.breaks, otApproved: rec.otApproved }, s,
-        offType_(date, s, getHolidays_()), false);
+        offType_(date, s, getHolidays_(), emp.id), false);
       sh.getRange(rec.row, COL.OUT + 1, 1, 5).setValues([["'" + out, d.worked, d.status, d.late ? 'Yes' : '', d.ot]]);
       detail = 'check-out set to ' + out + ' → ' + d.status;
     }
@@ -2763,7 +2764,7 @@ function upsertEntry_(data, emp, date, e, byEmp, overwrite) {
 
   const breaks = e.breaks !== undefined ? e.breaks : (rec ? rec.breaks || '' : '');
   const calc = evaluateDay_({ empId: emp.id, date: date, in: e.in, out: e.out, override: e.override, breaks: breaks, otApproved: e.otApproved || (rec ? rec.otApproved : '') },
-    data.s, offType_(date, data.s, data.holidays), date === todayStr_());
+    data.s, offType_(date, data.s, data.holidays, emp.id), date === todayStr_());
   const note = e.note || ('Entered by ' + byEmp.name);
   const status = [e.in ? "'" + e.in : '', e.out ? "'" + e.out : '', calc.worked, calc.status, calc.late ? 'Yes' : '', calc.ot];
 
@@ -2965,7 +2966,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
   const firstJoin = (per[0] || {}).from || '';
   for (let day = 1; day <= dim; day++) {
     const ds = ym + '-' + pad2_(day);
-    const off = offType_(ds, s, holidays);
+    const off = offType_(ds, s, holidays, emp.id);
     const rec = attByDate[ds];
     let d;
     if (!employedOn_(emp, ds, per)) d = { status: ds < firstJoin ? 'NOT_JOINED' : 'INACTIVE', planned: ds >= today }; // today+ not counted yet
@@ -3955,11 +3956,12 @@ function shortDays_() {
  * Settings for one day: on a short day the shift ends at the closing time, so Standard Hours shrink and the
  * full / half-day minimums shrink in proportion (e.g. 09:30–18:30 closing 16:30 → 7 h shift, full day from
  * 6.2 h). Everything else (early leaving, OT after closing, monthly OT, late cut) then follows from them.
- * With empId: when the short day's "OT For" leaves this employee out, otEndMin = the closing time (no OT after it).
+ * With empId: a short day whose "Applies To" leaves this employee out is a normal day; when its "OT For" leaves them
+ * out, otEndMin = the closing time (no OT after it).
  */
 function shortenDay_(es, date, empId) {
   const sd = date ? shortDays_()[date] : null;
-  if (!sd) return es;
+  if (!sd || (empId && !holidayAppliesTo_(date, empId))) return es; // short day not for this employee: normal day
   // (The "Allow Overnight Shift" setting only lets a check-out after midnight close the day before; it must not
   // switch short days off. A shift that does not include the closing time is simply left as it is.)
   const start = es.shiftStartMin, end = start + es.standardHours * 60;
@@ -3988,13 +3990,26 @@ function holidayOtFor_(date, empId, dflt) {
   return v.split(',').indexOf(String(empId || '').toUpperCase()) >= 0;
 }
 
+/**
+ * Whether a holiday / short day applies to empId, from its "Applies To" column: blank / ALL = everyone, else a
+ * list of employee IDs. For the others the date is a normal working day (attendance, salary and OT as usual).
+ */
+function holidayAppliesTo_(date, empId) {
+  const v = memo_('holidayFor', () => {
+    const map = {};
+    holidayList_().forEach(x => { if (x.appliesTo && x.appliesTo !== 'ALL') map[x.date] = x.appliesTo.split(','); });
+    return map;
+  })[date];
+  return !v || v.indexOf(String(empId || '').toUpperCase()) >= 0;
+}
+
 /** "OT For" as typed in the form: { mode: 'ALL' | 'NONE' | 'SOME', ids } → ALL, NONE or "E001,E004". */
-function otForValue_(ot) {
+function otForValue_(ot, emptyMsg) {
   if (!ot || !ot.mode) return '';
   if (ot.mode === 'NONE') return 'NONE';
   if (ot.mode !== 'SOME') return 'ALL';
   const ids = (Array.isArray(ot.ids) ? ot.ids : []).map(x => String(x).trim().toUpperCase()).filter(x => /^[\w-]{1,20}$/.test(x));
-  if (!ids.length) throw new Error('Choose the employees who get OT, or choose All / None.');
+  if (!ids.length) throw new Error(emptyMsg || 'Choose the employees who get OT, or choose All / None.');
   return ids.join(',');
 }
 
@@ -4005,15 +4020,16 @@ function holidayList_() {
     return values.slice(1).map((r, i) => {
       const closeAt = toTimeStr_(r[3]);
       return { date: toDateStr_(r[0]), name: String(r[1] || 'Holiday').trim(), closeAt: closeAt,
-        type: closeAt ? SHORT_DAY : (String(r[2] || '').trim() || 'Festival'), otFor: String(r[4] || '').trim().toUpperCase(), row: i + 2 };
+        type: closeAt ? SHORT_DAY : (String(r[2] || '').trim() || 'Festival'), otFor: String(r[4] || '').trim().toUpperCase(),
+        appliesTo: String(r[5] || '').trim().toUpperCase(), row: i + 2 };
     }).filter(x => x.date)
       .sort((a, b) => (a.date < b.date ? -1 : 1));
   });
 }
 
-function upcomingHolidays_(from, days, max) {
+function upcomingHolidays_(from, days, max, empId) {
   const to = addDays_(from, days);
-  return holidayList_().filter(x => x.date >= from && x.date <= to).slice(0, max)
+  return holidayList_().filter(x => x.date >= from && x.date <= to && (!empId || holidayAppliesTo_(x.date, empId))).slice(0, max)
     .map(x => ({ date: x.date, name: x.name, type: x.type, closeAt: x.closeAt }));
 }
 
@@ -4188,12 +4204,13 @@ function adminHolidays(token, year) {
   const s = getSettings_();
   return { year: year, types: HOLIDAY_TYPES, holidayOtDefault: !!s.offDayOt,
     employees: getEmployees_().filter(e => e.active).map(e => ({ id: e.id, name: e.name })),
-    list: holidayList_().filter(x => x.date.slice(0, 4) === year).map(x => ({ date: x.date, name: x.name, type: x.type, closeAt: x.closeAt, otFor: x.otFor })) };
+    list: holidayList_().filter(x => x.date.slice(0, 4) === year).map(x => ({ date: x.date, name: x.name, type: x.type, closeAt: x.closeAt, otFor: x.otFor, appliesTo: x.appliesTo })) };
 }
 
 /**
  * h = { date, name, type, closeAt, ot }. closeAt (HH:mm) makes it a short day: a working day closing early.
  * ot = { mode: ALL | NONE | SOME, ids }: who gets OT for work that day (holiday) / after closing (short day).
+ * appliesTo = { mode: ALL | SOME, ids }: who has the holiday / short day; for the others it is a normal day.
  */
 function adminSaveHoliday(token, h) {
   const ctx = authAdmin_(token, 'manageHolidays');
@@ -4206,20 +4223,21 @@ function adminSaveHoliday(token, h) {
   if (!date) throw new Error('Choose the date.');
   if (!name) throw new Error('Enter the holiday name.');
   const otFor = otForValue_(h.ot);
+  const appliesTo = h.appliesTo && h.appliesTo.mode === 'SOME' ? otForValue_(h.appliesTo, 'Tick the employees this holiday / short day is for, or choose All employees.') : '';
   assertUnlocked_(date);
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     const sh = sheetOrCreate_(SHEET.HOLIDAYS, HOLIDAY_HEADERS);
     ensureHeaders_(sh, HOLIDAY_HEADERS);
-    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt');
+    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt', 'holidayFor');
     const old = holidayList_().filter(x => x.date === date)[0];
-    const row = ["'" + date, name, type, closeAt ? "'" + closeAt : '', otFor];
-    if (old) sh.getRange(old.row, 1, 1, 5).setValues([row]);
+    const row = ["'" + date, name, type, closeAt ? "'" + closeAt : '', otFor, appliesTo];
+    if (old) sh.getRange(old.row, 1, 1, 6).setValues([row]);
     else sh.appendRow(row);
-    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt');
+    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt', 'holidayFor');
     audit_(ctx.emp, old ? 'EDIT_HOLIDAY' : 'ADD_HOLIDAY', '', date, (old ? old.name + ' → ' : '') + name + ' (' + type + (closeAt ? ', closes ' + closeAt : '') +
-      (otFor ? ', OT: ' + (otFor === 'ALL' ? 'all' : otFor === 'NONE' ? 'none' : otFor) : '') + ')');
+      (otFor ? ', OT: ' + (otFor === 'ALL' ? 'all' : otFor === 'NONE' ? 'none' : otFor) : '') + (appliesTo ? ', only for ' + appliesTo : '') + ')');
   } finally {
     lock.releaseLock();
   }
@@ -4233,11 +4251,11 @@ function adminDeleteHoliday(token, date) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt');
+    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt', 'holidayFor');
     const old = holidayList_().filter(x => x.date === date)[0];
     if (!old) throw new Error('No holiday on this date.');
     sheet_(SHEET.HOLIDAYS).deleteRow(old.row);
-    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt');
+    forget_('holidays', 'holidayList', 'shortDays', 'holidayOt', 'holidayFor');
     audit_(ctx.emp, 'DELETE_HOLIDAY', '', date, old.name);
   } finally {
     lock.releaseLock();
@@ -4245,8 +4263,9 @@ function adminDeleteHoliday(token, date) {
   return adminHolidays(token, date.slice(0, 4));
 }
 
-function offType_(dateStr, s, holidays) {
-  if (holidays[dateStr]) return 'HOLIDAY';
+/** WEEK_OFF / HOLIDAY / ''. With empId: a holiday that does not apply to this employee is a normal day for them. */
+function offType_(dateStr, s, holidays, empId) {
+  if (holidays[dateStr] && (!empId || holidayAppliesTo_(dateStr, empId))) return 'HOLIDAY';
   const p = dateStr.split('-').map(Number);
   return s.weeklyOff.indexOf(new Date(p[0], p[1] - 1, p[2]).getDay()) >= 0 ? 'WEEK_OFF' : '';
 }
