@@ -224,6 +224,12 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Setting:** *Face Match Max Distance* (default 0.42): lower = stricter. Same person is usually 0.1–0.35, different people from about 0.48. The guard's scanner also needs the best match to be clearly closer than the next person and to show up in 2 looks in a row. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
 
+### 🛒 Purchases & debits
+- Admin → Advances → **🛒 Purchases & debits → ＋ Add purchase** (or **＋ Add purchase** on an employee's card): Item, Quantity, Price (each) — the **Total** is worked out (quantity × price) — plus Date, the month whose salary it is cut from, and a note.
+- It is cut from that month's salary: on the employee's salary card ("Purchases (2) − ₹850" with the items listed), the payslip (one line per item), the payroll (columns *Purchases* and *Purchase Items*; Total Salary formulas include it) and the Monthly Summary.
+- Order: purchases first, then the advance instalment, each only as far as the salary goes. If the salary is too low the rest shows as "could not be cut" — edit the purchase to a later month for the rest.
+- Pending ones can be edited or deleted (tap **Pending ›**); once the month is locked they show "✓ Cut". Stored in the *Purchases* tab.
+
 ### 📲 Share payslip on WhatsApp
 - Payslip → **📲 Share on WhatsApp**. In the Android app (new version) the PDF goes straight to WhatsApp (or WhatsApp Business), where you pick the chat. In a phone browser the share list opens with the PDF; pick WhatsApp.
 - On a computer, or in older Android app versions, WhatsApp opens with a short text (month, name, Total Salary) instead of the file; when an admin shares an employee's slip it opens that employee's chat (their Phone in Employees).
