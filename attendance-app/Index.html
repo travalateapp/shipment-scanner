@@ -1050,7 +1050,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261056;
+  var NEEDS_SERVER = 20261057;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2833,9 +2833,10 @@
       '<p class="muted small" style="margin:-6px 0 0">Holiday: employees are not marked absent, and the day is paid. Anyone who works on it gets the holiday OT rule.<br>' +
       '<b>Short day</b> (e.g. Dussehra, closing 16:30): a normal working day whose shift ends at the closing time. Leaving at that time is a full day with no early leaving or cut; full / half day hours shrink in the same proportion, and only time after closing is OT.</p>' +
       '<div class="grid2"><div class="field"><label>Date</label><input id="hoDate" class="inp" type="date" value="' + todayLocal() + '"></div>' +
-      '<div class="field"><label>Type</label><select id="hoType" class="inp" onchange="$(\'hoCloseBox\').classList.toggle(\'hidden\', this.value!==\'Short Day\')">' + typeOpts + '</select></div></div>' +
+      '<div class="field"><label>Type</label><select id="hoType" class="inp" onchange="$(\'hoCloseBox\').classList.toggle(\'hidden\', this.value!==\'Short Day\');hoOtLabel()">' + typeOpts + '</select></div></div>' +
       '<div class="field hidden" id="hoCloseBox"><label>Office closes at</label><input id="hoClose" class="inp" type="time" value="16:30"></div>' +
       '<div class="field"><label>Name</label><input id="hoName" class="inp" placeholder="e.g. Diwali, Republic Day"></div>' +
+      holidayOtHtml(r) +
       '<button class="btn" id="hoBtn" onclick="saveHoliday()">Add holiday</button><div id="hoMsg"></div></div>';
     html += '<div class="card"><div class="month-nav"><button onclick="loadHolidays(' + (y - 1) + ')">‹</button><h2>Holidays ' + y + '</h2>' +
       '<button onclick="loadHolidays(' + (y + 1) + ')">›</button></div>';
@@ -2845,9 +2846,11 @@
       html += '<div class="list-item"' + (past ? ' style="opacity:.6"' : '') + '><div><div class="name">' + esc(x.name) + '</div>' +
         '<div class="sub">' + esc(fmtDate(x.date)) + ' · ' + ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(x.date + 'T00:00:00').getDay()] + '</div></div>' +
         '<div class="right">' + (x.closeAt ? '<span class="chip s-LATE">🕓 Closes ' + esc(x.closeAt) + '</span>' : '<span class="chip s-HOLIDAY">' + esc(x.type) + '</span>') +
+        ' <span class="chip ' + (holidayOtMode(x, r) === 'NONE' ? 's-ABSENT' : 's-OT') + '">' + esc(holidayOtText(x, r)) + '</span>' +
         '<div><button class="link" onclick="editHoliday(' + i + ')">Edit</button> · <button class="link" style="color:var(--red)" onclick="deleteHoliday(' + i + ')">Delete</button></div></div></div>';
     });
     adminBody(html + '</div>');
+    if ($('hoOt')) { $('hoOt').checked = !!r.holidayOtDefault; hoOtLabel(); } // a new holiday starts with the "Off-Day Work Is OT" setting
     api('adminCelebrations', S.token).then(renderCelebrations).catch(function (e) { var b = $('celebBox'); if (b) b.innerHTML = '<h2>🎉 Celebrations</h2>' + errBox(e); });
   }
 
@@ -2922,8 +2925,57 @@
     api('adminDeleteCelebration', S.token, c.row).then(function (r) { renderCelebrations(r); toast('Deleted'); }).catch(function (e) { toast(e.message); });
   }
 
+  /**
+   * "Give OT" for a holiday (all hours worked) / short day (time after closing): unticked = no one, ticked = all
+   * employees or only the ones chosen. Stored in the Holidays tab's "OT For" column (blank = the old default).
+   */
+  function holidayOtMode(x, r) {
+    var v = x.otFor || '';
+    if (v === 'ALL' || v === 'NONE') return v;
+    if (v) return 'SOME';
+    return x.closeAt || r.holidayOtDefault ? 'ALL' : 'NONE';
+  }
+  function holidayOtText(x, r) {
+    var m = holidayOtMode(x, r);
+    return m === 'ALL' ? 'OT: all' : m === 'NONE' ? 'No OT' : 'OT: ' + x.otFor.split(',').length + ' employee' + (x.otFor.split(',').length === 1 ? '' : 's');
+  }
+  function holidayOtHtml(r) {
+    return '<div class="field" style="border:1px solid var(--line);border-radius:12px;padding:10px 12px">' +
+      '<label style="display:flex;gap:8px;align-items:center;font-weight:600;margin:0"><input type="checkbox" id="hoOt" checked onchange="hoOtShow()"> <span id="hoOtLabel">Give OT for work on this holiday</span></label>' +
+      '<div id="hoOtBox" style="margin-top:8px"><label style="display:inline-flex;gap:6px;margin-right:16px"><input type="radio" name="hoOtWho" value="ALL" checked onchange="hoOtShow()"> All employees</label>' +
+      '<label style="display:inline-flex;gap:6px"><input type="radio" name="hoOtWho" value="SOME" onchange="hoOtShow()"> Selected employees</label>' +
+      '<div id="hoOtList" class="hidden" style="margin-top:8px;max-height:220px;overflow:auto;border-top:1px dashed var(--line);padding-top:6px">' +
+        (r.employees || []).map(function (e) { return '<label style="display:flex;gap:8px;padding:4px 0"><input type="checkbox" class="hoOtEmp" value="' + esc(e.id) + '"> ' + esc(e.name) + ' <span class="muted">' + esc(e.id) + '</span></label>'; }).join('') +
+      '</div></div><div class="muted small" id="hoOtNote" style="margin-top:6px"></div></div>';
+  }
+  function hoOtLabel() {
+    var short = $('hoType').value === 'Short Day';
+    $('hoOtLabel').textContent = short ? 'Give OT for work after closing time' : 'Give OT for work on this holiday';
+    hoOtShow();
+  }
+  function hoOtShow() {
+    var on = $('hoOt').checked, some = on && document.querySelector('input[name=hoOtWho]:checked').value === 'SOME', short = $('hoType').value === 'Short Day';
+    $('hoOtBox').classList.toggle('hidden', !on);
+    $('hoOtList').classList.toggle('hidden', !some);
+    $('hoOtNote').textContent = !on ? (short ? 'No one gets OT for staying after closing time that day.' : 'No one gets OT for working on this holiday (the day itself is still paid).')
+      : some ? 'Only the ticked employees get OT' + (short ? ' after closing time.' : ' for working on this holiday.')
+      : (short ? 'Everyone gets OT for time after closing.' : 'Everyone who works on this holiday gets all those hours as OT.');
+  }
+  function hoOtSet(x) {
+    var m = holidayOtMode(x, S.holidays), ids = m === 'SOME' ? x.otFor.split(',') : [];
+    $('hoOt').checked = m !== 'NONE';
+    document.querySelector('input[name=hoOtWho][value=' + (m === 'SOME' ? 'SOME' : 'ALL') + ']').checked = true;
+    [].forEach.call(document.querySelectorAll('.hoOtEmp'), function (c) { c.checked = ids.indexOf(c.value) >= 0; });
+    hoOtLabel();
+  }
+  function hoOtValue() {
+    if (!$('hoOt').checked) return { mode: 'NONE' };
+    if (document.querySelector('input[name=hoOtWho]:checked').value !== 'SOME') return { mode: 'ALL' };
+    return { mode: 'SOME', ids: [].filter.call(document.querySelectorAll('.hoOtEmp'), function (c) { return c.checked; }).map(function (c) { return c.value; }) };
+  }
+
   function saveHoliday() {
-    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value, closeAt: $('hoClose').value };
+    var h = { date: $('hoDate').value, name: $('hoName').value, type: $('hoType').value, closeAt: $('hoClose').value, ot: hoOtValue() };
     $('hoBtn').disabled = true;
     api('adminSaveHoliday', S.token, h).then(function (r) { S.monthCache = {}; renderHolidays(r); toast('Holiday saved: ' + h.name); })
       .catch(function (e) { $('hoBtn').disabled = false; $('hoMsg').innerHTML = errBox(e); });
@@ -2932,6 +2984,7 @@
     var x = S.holidays.list[i];
     $('hoDate').value = x.date; $('hoName').value = x.name; $('hoType').value = x.type;
     $('hoCloseBox').classList.toggle('hidden', x.type !== 'Short Day'); if (x.closeAt) $('hoClose').value = x.closeAt;
+    hoOtSet(x);
     $('hoBtn').textContent = 'Save holiday';
     $('hoName').focus(); window.scrollTo(0, 0);
   }
