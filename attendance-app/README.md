@@ -157,8 +157,6 @@ Changes to the app reach iPhones automatically too.
 | OT Block (min) | 0 | Only for weekly-off / holiday OT. `0` counts every minute, `30` full 30-minute blocks |
 | Max OT Per Day (min) | 0 | Only for weekly-off / holiday OT. Cap per day (`0` = no cap) |
 | OT Needs Approval | No | Only for weekly-off / holiday OT: `Yes` = it counts after an admin approves it |
-| Late Minutes Reduce OT | Yes | Not used any more: coming late already lowers the time worked in the month |
-| Early Leaving Reduces OT | Yes | Not used any more: leaving early already lowers the time worked in the month |
 | Weekly Off | Sunday | For example `Sunday` or `Saturday,Sunday` |
 | Off-Day Work Is OT | Yes | Holidays (and weekly offs when *Week-Off Full Day Hours* = 0): all hours worked count as OT |
 | Week-Off Shift Start | 09:30 | Working on the weekly off (Sunday): start of the day hours |
@@ -225,6 +223,10 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Speed:** the face models (~7 MB) download once per phone from jsDelivr and stay cached; after that a scan takes well under a second on a normal phone.
 - **Setting:** *Face Match Max Distance* (default 0.42): lower = stricter. Same person is usually 0.1–0.35, different people from about 0.48. The guard's scanner also needs the best match to be clearly closer than the next person and to show up in 2 looks in a row. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
+
+### 📲 Share payslip on WhatsApp
+- Payslip → **📲 Share on WhatsApp**. In the Android app (new version) the PDF goes straight to WhatsApp (or WhatsApp Business), where you pick the chat. In a phone browser the share list opens with the PDF; pick WhatsApp.
+- On a computer, or in older Android app versions, WhatsApp opens with a short text (month, name, Total Salary) instead of the file; when an admin shares an employee's slip it opens that employee's chat (their Phone in Employees).
 
 ### 🔒 Automatic payroll lock
 - On the **8th** of every month (setting *Auto-Lock Payroll Day*, 0 = off) the previous month is locked automatically by the hourly trigger, so salaries paid by the 7th can still be corrected until then. The Payroll page shows "🔒 Locks automatically on 8 Nov".
@@ -325,6 +327,8 @@ outside 09:30–17:00 is added to the OT. Employees with *Hourly OT* off get onl
 | **In Cash** = Salary − Basic Salary + OT − Leaves − Half Days − Advance | 15,000 − 13,500 = **1,500** |
 | **Total Salary** = In Bank + In Cash | **11,524** |
 
+**PF for the days paid only:** Basic Salary, PF Employee and PF Employer are reduced in proportion to absent days and days before joining / after leaving (a half day counts ½). Example: Basic ₹13,500, 10 absent days in a 31-day month → Basic 13,500 × 21/31 = ₹9,145, PF Employee 12% = ₹1,097. The salary card shows "Basic Salary ₹9,145 for 21 of 31 days". Locked months keep what was paid.
+
 Employees, and admins without the *View Bank / Cash Split* permission, see only **Total Salary**: in the app, on payslips and in the payroll export. "Basic Salary" is the *PF Bank Salary* column in the Employees tab.
 
 If the deductions are more than the cash part, the rest comes out of the bank part. (With a ₹2,000 advance instalment: cash 0, bank 9,524.)
@@ -332,7 +336,7 @@ If the deductions are more than the cash part, the rest comes out of the bank pa
 Months locked before PF Employer was deducted keep their paid amounts (PF Employer shown there as company-paid).
 
 - **Short day** (Holidays → Type *Short day – office closes early*, with the closing time, e.g. Dussehra 16:30): a normal working day whose shift ends at the closing time. Leaving at that time is a full day (no early leaving, no cut). Leaving before the closing time counts as early leaving, measured from the closing time. This works the same whether or not "Allow Overnight Shift" is on. the full / half-day minimums shrink in the same proportion; only time after closing is OT, and the month's OT target counts the shorter day. Employees see "🕓 Office closes at 16:30 today" on their home screen.
-- **OT on holidays and short days** (Holidays → Add / Edit → *Give OT …*): ticked = OT for **all employees** or only **selected employees**, unticked = **no one**. Holiday: all hours worked that day are OT (the day itself is always paid). Short day: time after the closing time is OT; for anyone left out, work after closing is not counted (time before closing still counts as usual). Stored in the Holidays tab's *OT For* column (ALL, NONE or employee IDs); blank = the old rule (holidays follow *Off-Day Work Is OT*, short days give OT to all). The list shows "OT: all", "No OT" or "OT: 2 employees". Both employee lists have an **All employees** tick box at the top: tick it to select everyone, then untick the ones not wanted.
+- **OT on holidays and short days** (Holidays → Add / Edit → *Give OT …*): ticked = OT for **all employees** or only **selected employees**, unticked = **no one**. Holiday: all hours worked that day are OT (the day itself is always paid). Short day: time after the closing time is OT; for anyone left out, staying after closing earns no OT but still makes up for coming late (e.g. 14 min late, left 18:12 on a 17:00 short day → no cut, no OT). Stored in the Holidays tab's *OT For* column (ALL, NONE or employee IDs); blank = the old rule (holidays follow *Off-Day Work Is OT*, short days give OT to all). The list shows "OT: all", "No OT" or "OT: 2 employees". Both employee lists have an **All employees** tick box at the top: tick it to select everyone, then untick the ones not wanted.
 - **Holiday / short day for some employees only** (Holidays → *This holiday is for*: All employees / Selected employees): only the ticked employees get the holiday or short day. For everyone else the date is a normal working day: they are marked absent if they don't come, the normal shift times apply, and OT works as on any day. Stored in the *Applies To* column (blank = everyone). Their home screen doesn't show it, and the list shows "👥 3 employees".
 
 ### Forgotten check-outs (automatic at midnight)

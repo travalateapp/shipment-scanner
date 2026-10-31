@@ -55,9 +55,9 @@
     .field label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 6px; }
     .field input:not([type=checkbox]):not([type=radio]) { width: 100%; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font-size: 17px; }
     .field input:focus { outline: 2px solid var(--brand-soft); border-color: var(--brand); }
-    .inp { width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font-size: 16px; color: var(--text); }
+    .inp { width: 100%; min-width: 0; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: #fff; font-size: 16px; color: var(--text); }
     textarea.inp { min-height: 70px; resize: vertical; }
-    .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 0 10px; }
+    .grid2 { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 10px; } /* minmax: date / time boxes may shrink on narrow phones */
 
     .btn { display: block; width: 100%; padding: 15px; border-radius: 14px; font-weight: 600; font-size: 16px;
       background: var(--brand); color: #fff; margin-top: 16px; }
@@ -480,7 +480,8 @@
     'Paid leave · {d}': 'सवेतन छुट्टी · {d}', 'Leave · {d}': 'छुट्टी · {d}', 'Leave for <b>{n} day(s)</b>: {d}': '<b>{n} दिन</b> की छुट्टी: {d}',
     'Send this leave request?': 'यह छुट्टी का अनुरोध भेजें?', 'Unpaid leave · {d}': 'बिना वेतन छुट्टी · {d}', 'Correction · {d} · {i} → {o}': 'सुधार · {d} · {i} → {o}',
     'today': 'आज', 'Leaves': 'छुट्टियाँ', '{n} days': '{n} दिन', 'Late marks cut': 'देर से आने की कटौती',
-    'PF Employee': 'PF कर्मचारी', 'PF Employer': 'PF नियोक्ता', 'Basic Salary {b}': 'बेसिक वेतन {b}', 'company contribution': 'कंपनी का योगदान',
+    'PF Employee': 'PF कर्मचारी', 'PF Employer': 'PF नियोक्ता', 'Basic Salary {b}': 'बेसिक वेतन {b}', 'Basic Salary {b} for {d} of {n} days': 'बेसिक वेतन {b} ({n} में से {d} दिन)',
+    '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Salary slip – {label}': 'वेतन पर्ची – {label}', 'company contribution': 'कंपनी का योगदान',
     // guard: Mark Attendance
     'Mark Attendance': 'हाज़िरी लगाएँ', 'Mark attendance for others': 'दूसरों की हाज़िरी लगाएँ',
     'proxy.info': 'जिन कर्मचारियों के पास स्मार्टफ़ोन नहीं है या जो फ़ोन भूल गए हैं, उनके लिए। यह फ़ोन ऑफिस में होना चाहिए। चेक-इन के समय कर्मचारी की फ़ोटो ली जाती है। हर एंट्री में आपका नाम दर्ज होता है।',
@@ -1050,7 +1051,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261059;
+  var NEEDS_SERVER = 20261061;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2121,7 +2122,9 @@
         else if (a.changed) html += '<p class="muted small" style="margin:6px 0 0">' + t('Advance deduction changed to {amt} for this month{note}.', { amt: money(a.wanted, cur), note: a.changeNote ? ' (' + esc(a.changeNote) + ')' : '' }) + '</p>';
       });
       if (p.pf) {
-        html += payLine(t('PF Employee') + ' <span class="muted">(' + t('Basic Salary {b}', { b: money(p.pfBankSalary, cur) }) + ')</span>', '− ' + money(p.pfEmployee, cur), 'red') +
+        html += payLine(t('PF Employee') + ' <span class="muted">(' + (p.pfPaidDays !== undefined // reduced for absent / not-yet-joined days
+            ? t('Basic Salary {b} for {d} of {n} days', { b: money(p.pfBankSalary, cur), d: num(p.pfPaidDays), n: p.daysInMonth })
+            : t('Basic Salary {b}', { b: money(p.pfBankSalary, cur) })) + ')</span>', '− ' + money(p.pfEmployee, cur), 'red') +
           (p.pfEmployerDed !== undefined // taken from the salary (CTC); months locked before that: paid by the company
             ? payLine(t('PF Employer'), '− ' + money(p.pfEmployer, cur), 'red')
             : payLine(t('PF Employer') + ' <span class="muted">(' + t('company contribution') + ')</span>', money(p.pfEmployer, cur), 'blue'));
@@ -2258,7 +2261,9 @@
       openModal('<iframe id="slipFrame" class="slip"></iframe>' +
         '<div class="btns"><button class="btn" id="slipPdf" onclick="downloadPayslip()">' + t('⬇ Download PDF') + '</button>' +
         '<button class="btn ghost" onclick="printPayslip()">' + t('🖨 Print') + '</button></div>' +
+        '<button class="btn" id="slipWa" style="background:#25d366;width:100%;margin-top:8px" onclick="sharePayslip()">' + t('📲 Share on WhatsApp') + '</button>' +
         '<button class="btn ghost" onclick="closeModal()">' + t('Close') + '</button>');
+      S.slip.share = r.share;
       $('slipFrame').srcdoc = r.html;
     }).catch(function (e) { openModal(errBox(e) + '<button class="btn ghost" onclick="closeModal()">' + t('Close') + '</button>'); });
   }
@@ -2281,6 +2286,35 @@
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(function () { URL.revokeObjectURL(url); }, 30000);
     }).catch(function (e) { toast(e.message); }).then(function () { var b = $('slipPdf'); if (b) b.disabled = false; });
+  }
+
+  /**
+   * Share the payslip PDF on WhatsApp: inside the Android app through the app (AttendanceApp.shareFile, newer
+   * versions); in a phone browser through the share sheet (pick WhatsApp). Where files can't be shared
+   * (computer, older Android app), WhatsApp opens with a short text instead — to the employee's number
+   * when an admin shares someone else's slip.
+   */
+  function sharePayslip() {
+    var sl = S.slip, b = $('slipWa'); if (b) b.disabled = true;
+    var sh = sl.share || {}, text = t('Salary slip – {label}', { label: sh.label || '' }) + ' · ' + (sh.name || '') +
+      (sh.net !== undefined ? ' · ' + t('Total Salary') + ' ' + money(sh.net, sh.currency || '₹') : '') + (sh.company ? '\n' + sh.company : '');
+    var textOnly = function () {
+      var phone = sh.phone || ''; if (phone.length === 10) phone = '91' + phone; // India numbers saved without the country code
+      window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(text), '_blank');
+    };
+    api('getPayslip', S.token, sl.ym, sl.empId, true).then(function (r) {
+      if (NATIVE && NATIVE.shareFile) { NATIVE.shareFile(r.pdf, r.fileName, 'application/pdf', text); return; }
+      var file = null;
+      try {
+        var bin = atob(r.pdf), bytes = new Uint8Array(bin.length);
+        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+        file = new File([bytes], r.fileName, { type: 'application/pdf' });
+      } catch (e) { file = null; }
+      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
+        return navigator.share({ files: [file], title: r.fileName, text: text }).catch(function (e) { if (e && e.name !== 'AbortError') textOnly(); });
+      }
+      textOnly();
+    }).catch(function (e) { toast(e.message); }).then(function () { var x = $('slipWa'); if (x) x.disabled = false; });
   }
 
   /* ---------------- Employee requests ---------------- */
@@ -4150,8 +4184,8 @@
     var box = $('perfBox'); if (!box) return;
     var L = S.perf || [], s = function (ms) { return ms == null ? '–' : (ms / 1000).toFixed(1) + ' s'; };
     box.innerHTML = !L.length ? '<p class="muted small">No requests yet.</p>' :
-      '<table class="given"><tr><th>Time</th><th>Request</th><th class="r">Total</th><th class="r">Google</th><th class="r">Phone + net</th></tr>' +
-      L.map(function (x) { return '<tr><td>' + x.at + '</td><td>' + esc(x.fn) + '</td><td class="r"><b>' + s(x.total) + '</b></td><td class="r">' + s(x.server) + '</td><td class="r">' + (x.server == null ? '–' : s(x.total - x.server)) + '</td></tr>'; }).join('') + '</table>';
+      '<div style="overflow-x:auto"><table class="given"><tr><th>Time</th><th>Request</th><th class="r">Total</th><th class="r">Google</th><th class="r">Phone + net</th></tr>' +
+      L.map(function (x) { return '<tr><td>' + x.at + '</td><td>' + esc(x.fn) + '</td><td class="r"><b>' + s(x.total) + '</b></td><td class="r">' + s(x.server) + '</td><td class="r">' + (x.server == null ? '–' : s(x.total - x.server)) + '</td></tr>'; }).join('') + '</table></div>';
   }
   function refreshAllApps() {
     if (!confirm('Reload the app on every phone (employees, admins, guards) the next time they use it?')) return;

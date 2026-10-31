@@ -42,7 +42,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261059;
+const SERVER_VERSION = 20261061;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -124,8 +124,6 @@ const DEFAULT_SETTINGS = [
   ['OT Block (min)', 0, 'Daily OT counted only in complete blocks of this many minutes (0 = every minute)'],
   ['Max OT Per Day (min)', 0, 'Cap on OT counted per day (0 = no cap)'],
   ['OT Needs Approval', 'No', 'Yes = OT counts only after an admin approves it'],
-  ['Late Minutes Reduce OT', 'Yes', 'Monthly OT minutes − total late minutes (minutes after Shift Start on late days)'],
-  ['Early Leaving Reduces OT', 'Yes', 'Monthly OT minutes − minutes left before shift end (on present days)'],
   ['Weekly Off', 'Sunday', 'Comma separated, e.g. Sunday  or  Saturday,Sunday'],
   ['Off-Day Work Is OT', 'Yes', 'Holidays (and weekly offs when "Week-Off Full Day Hours" is 0): all hours worked count as OT'],
   ['Week-Off Shift Start', '09:30', 'Working on the weekly off (e.g. Sunday): day hours start (24-hour HH:mm)'],
@@ -157,6 +155,20 @@ const DEFAULT_SETTINGS = [
   ['Keep Selfies (days)', 60, 'Check-in photos older than this are moved to the Drive trash once a day (0 = keep all)'],
   ['Auto-Lock Payroll Day', 8, 'On this day of the month the previous month is locked automatically (0 = off). A month unlocked later is not locked again automatically'],
 ];
+
+/** Settings rows that no longer do anything; removed from the Settings tab once (setup / hourly trigger). */
+const RETIRED_SETTINGS = ['Late Minutes Reduce OT', 'Early Leaving Reduces OT'];
+function removeRetiredSettings_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('retiredSettings') === RETIRED_SETTINGS.join('|')) return;
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.SETTINGS);
+  if (sh) {
+    const names = sh.getDataRange().getValues().map(r => String(r[0]).trim());
+    for (let i = names.length - 1; i >= 1; i--) if (RETIRED_SETTINGS.indexOf(names[i]) >= 0) sh.deleteRow(i + 1);
+    forget_('settings');
+  }
+  props.setProperty('retiredSettings', RETIRED_SETTINGS.join('|'));
+}
 
 /** Per-execution cache so each request reads every tab at most once. */
 const MEMO = {};
@@ -401,6 +413,7 @@ function setup() {
   DEFAULT_SETTINGS.forEach(row => {
     if (existing.indexOf(row[0]) < 0) sh.appendRow([row[0], String(row[1]), row[2]]);
   });
+  removeRetiredSettings_();
   sh.setColumnWidth(1, 220).setColumnWidth(2, 160).setColumnWidth(3, 520);
 
   // Employees
@@ -1034,7 +1047,10 @@ function getPayslip(token, ym, empId, asPdf) {
   }
   const m = hideSplit_(buildMonth_(emp, validYm_(ym)), permsFor_(me).viewSplit);
   const html = payslipHtml_(emp, m);
-  const out = { html: html, fileName: 'Payslip_' + emp.id + '_' + m.ym + '.pdf' };
+  const out = { html: html, fileName: 'Payslip_' + emp.id + '_' + m.ym + '.pdf',
+    // For "Share on WhatsApp": a short text, and the employee's phone when an admin shares someone else's slip.
+    share: { name: emp.name, label: m.label, net: m.pay.net, currency: getSettings_().currency, company: getSettings_().company,
+      phone: emp.id !== me.id ? String(emp.phone || '').replace(/\D/g, '') : '' } };
   if (asPdf) {
     const pdf = Utilities.newBlob(html, 'text/html', 'payslip.html').getAs('application/pdf');
     out.pdf = Utilities.base64Encode(pdf.getBytes());
@@ -2165,6 +2181,7 @@ function adminSetAdvanceStatus(token, id, status) {
  */
 function autoCheckout() {
   sweepOpenEntries_(true);
+  try { removeRetiredSettings_(); } catch (e) { Logger.log('Retired settings: ' + e); }
   try { autoLockMonth_(); } catch (e) { Logger.log('Auto-lock: ' + e); }
   try { cleanupSelfies_(); } catch (e) { Logger.log('Selfie clean-up: ' + e); }
 }
@@ -2882,7 +2899,7 @@ function buildMonth_(emp, ym) {
     lateGrace: s.lateGrace, standardHours: es.standardHours, fullDayHours: es.fullDayHours, halfDayHours: es.halfDayHours,
     hourlyOt: es.hourlyOt !== false, morningOt: es.morningOt !== false, monthlyOt: true,
     otMultiplier: s.otMultiplier, latesPerHalfDay: s.latesPerHalfDay, salaryDays: s.salaryDays,
-    lateReducesOt: s.lateReducesOt, earlyReducesOt: s.earlyReducesOt, adjustIn: s.adjustIn, otApproval: s.otApproval,
+    adjustIn: s.adjustIn, otApproval: s.otApproval,
     noCheckoutStatus: s.noCheckoutStatus,
     weekOff: s.woFullHours > 0 ? { start: minutesToStr_(s.woStartMin), end: minutesToStr_(s.woEndMin), half: s.woHalfHours, full: s.woFullHours } : null,
   };
@@ -2934,9 +2951,12 @@ function dayWorkedMin_(rec, es) {
     return 0;
   }
   if (outMin <= inMin && es.overnight) outMin += 1440;
-  if (es.otEndMin != null) outMin = Math.min(outMin, Math.max(es.otEndMin, inMin)); // short day without OT: stop at closing
   const from = es.morningOt === false ? Math.max(inMin, es.shiftStartMin) : inMin;
-  return Math.max(0, outMin - from - breakOverlap_(rec.breaks, from, outMin));
+  const w = Math.max(0, outMin - from - breakOverlap_(rec.breaks, from, outMin));
+  // Short day without OT for this employee (otEndMin): time after closing still makes up for coming late /
+  // time away, but never adds OT: the day counts at most the shift (plus any morning OT before the start).
+  if (es.otEndMin != null) return Math.min(w, shift + (es.morningOt === false ? 0 : Math.max(0, es.shiftStartMin - inMin)));
+  return w;
 }
 
 /**
@@ -3135,6 +3155,7 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
  *   Gross   = earned + OT pay + week-off work pay − leave − half-day − late-cut deductions.
  *   Net     = Gross − advance instalment (− PF Employee − PF Employer for PF employees: the salary is the CTC).
  * PF employees: Bank = PF Bank Salary − PF Employee − PF Employer, Cash = Salary − PF Bank Salary, and OT/deductions/advance
+ * (Basic Salary and both PF shares are for the days paid only: absent / not-yet-joined days reduce them in proportion)
  * are applied to Cash (or Bank, per the "OT & Deductions Paid In" setting).
  */
 function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
@@ -3177,8 +3198,13 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
   }
 
   const pf = pfAmounts_(emp, s);
-  // PF and Basic Salary are counted for the same days as the salary.
-  const bankSalary = R(pf.bankSalary * ratio), pfEmp = R(pf.employee * ratio), pfEr = R(pf.employer * ratio);
+  // PF and Basic Salary are counted only for the days paid: absent days and days before joining / after leaving
+  // (½ for a half day) reduce them in proportion. Finished month: Basic × (days − unpaid days) ÷ days in month;
+  // month in progress: (days passed − unpaid days) × the day rate, like the salary.
+  const unpaid = (t.absent || 0) + (t.notJoined || 0) + 0.5 * (t.halfDay || 0);
+  const pfShare = !(emp.salary > 0) ? 1 : elapsed >= dim ? Math.max(0, (dim - unpaid) / dim)
+    : Math.max(0, Math.min(1, (elapsed - unpaid) * perDay / emp.salary));
+  const bankSalary = R(pf.bankSalary * pfShare), pfEmp = R(pf.employee * pfShare), pfEr = R(pf.employer * pfShare);
   // PF Employer is part of the salary (CTC): taken from the bank part, like PF Employee.
   pay.advance = round2_(Math.min(advanceWanted, Math.max(0, gross - pfEmp - pfEr)));
   let bank, cash;
@@ -3196,6 +3222,7 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
 
   return Object.assign(pay, {
     pf: true, pfBankSalary: bankSalary, pfEmployee: pfEmp, pfEmployer: pfEr, pfEmployerDed: pfEr,
+    pfFullBasic: R(pf.bankSalary), pfPaidDays: elapsed >= dim && unpaid > 0 ? round2_(dim - unpaid) : undefined,
     bank: round2_(bank), cash: round2_(cash), net: round2_(bank + cash),
   });
 }
@@ -3387,7 +3414,7 @@ function payslipHtml_(emp, m) {
   if (p.lateCutDed) ded += row('Late marks', money(p.lateCutDed));
   if (p.shortCutDed) ded += row('Late coming / early leaving (' + mins(t.shortMin) + ')', money(p.shortCutDed));
   if (p.advance) ded += row('Advance recovery', money(p.advance));
-  if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + ')', money(p.pfEmployee));
+  if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + (p.pfPaidDays !== undefined ? ' for ' + p.pfPaidDays + ' of ' + p.daysInMonth + ' days' : '') + ')', money(p.pfEmployee));
   // pfEmployerDed: PF Employer taken from the salary (months locked before that keep it as company-paid).
   const erDed = p.pf && p.pfEmployerDed !== undefined;
   if (erDed) ded += row('PF Employer', money(p.pfEmployer));
@@ -3569,8 +3596,6 @@ function getSettings_() {
       maxOtPerDay: num('Max OT Per Day (min)', 0),
       otApproval: yes('OT Needs Approval', false),
       salaryDays: num('Salary Days Basis', 30),
-      lateReducesOt: yes('Late Minutes Reduce OT', true),
-      earlyReducesOt: yes('Early Leaving Reduces OT', true),
       clockTolerance: num('Phone Time Tolerance (min)', 3),
       pfBankPct: num('Default PF Bank Salary %', 90),
       pfEmployeePct: num('Default PF Employee %', 12),
@@ -4013,7 +4038,7 @@ function shortDays_() {
  * full / half-day minimums shrink in proportion (e.g. 09:30–18:30 closing 16:30 → 7 h shift, full day from
  * 6.2 h). Everything else (early leaving, OT after closing, monthly OT, late cut) then follows from them.
  * With empId: a short day whose "Applies To" leaves this employee out is a normal day; when its "OT For" leaves them
- * out, otEndMin = the closing time (no OT after it).
+ * out, otEndMin = the closing time: work after it makes up for coming late but earns no OT (dayWorkedMin_).
  */
 function shortenDay_(es, date, empId) {
   const sd = date ? shortDays_()[date] : null;
