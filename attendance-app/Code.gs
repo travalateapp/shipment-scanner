@@ -42,7 +42,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261058;
+const SERVER_VERSION = 20261059;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -155,6 +155,7 @@ const DEFAULT_SETTINGS = [
   ['Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk', 'Where the "Update now" button downloads the newest Android app'],
   ['Selfie Folder ID', '', 'Filled automatically'],
   ['Keep Selfies (days)', 60, 'Check-in photos older than this are moved to the Drive trash once a day (0 = keep all)'],
+  ['Auto-Lock Payroll Day', 8, 'On this day of the month the previous month is locked automatically (0 = off). A month unlocked later is not locked again automatically'],
 ];
 
 /** Per-execution cache so each request reads every tab at most once. */
@@ -1364,6 +1365,7 @@ function payrollRows_(ctx, ym) {
     locked: lock ? { by: lock.by, at: lock.at } : null,
     canLock: !lock && ym < todayStr_().slice(0, 7) && !!ctx.perms.lockPayroll,
     canUnlock: !!lock && ctx.perms.superAdmin,
+    autoLock: autoLockInfo_(ym),
   };
 }
 
@@ -2163,6 +2165,7 @@ function adminSetAdvanceStatus(token, id, status) {
  */
 function autoCheckout() {
   sweepOpenEntries_(true);
+  try { autoLockMonth_(); } catch (e) { Logger.log('Auto-lock: ' + e); }
   try { cleanupSelfies_(); } catch (e) { Logger.log('Selfie clean-up: ' + e); }
 }
 
@@ -2321,6 +2324,12 @@ function installAutoCheckoutTrigger_() {
 function adminLockMonth(token, ym) {
   const ctx = authAdmin_(token, 'lockPayroll');
   ym = validYm_(ym);
+  lockMonthCore_(ctx.emp, ym);
+  return adminMonth(token, ym);
+}
+
+/** Locks month ym (by = the admin, or AUTO_LOCKER for the automatic lock). Throws when it cannot be locked yet. */
+function lockMonthCore_(by, ym) {
   if (ym >= todayStr_().slice(0, 7)) throw new Error('Only finished months can be locked.');
   if (isLocked_(ym)) throw new Error(ymLabel_(ym) + ' is already locked.');
   const missed = readAttendance_().filter(r => r.review === 'PENDING' && r.date.indexOf(ym) === 0);
@@ -2341,15 +2350,61 @@ function adminLockMonth(token, ym) {
     });
     const snap = sheetOrCreate_(SHEET.SNAPSHOTS, SNAP_HEADERS);
     if (rows.length) snap.getRange(snap.getLastRow() + 1, 1, rows.length, 4).setValues(rows);
-    sheetOrCreate_(SHEET.LOCKS, LOCK_HEADERS).appendRow(["'" + ym, ctx.emp.id + ' ' + ctx.emp.name,
+    sheetOrCreate_(SHEET.LOCKS, LOCK_HEADERS).appendRow(["'" + ym, by.id + ' ' + by.name,
       Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm')]);
     forget_('locks', 'snapshots');
-    audit_(ctx.emp, 'LOCK_MONTH', '', ym, rows.length + ' employees');
-    correctionArrears_(ctx, ym, lockedNow);
+    audit_(by, 'LOCK_MONTH', '', ym, rows.length + ' employees');
+    correctionArrears_({ emp: by }, ym, lockedNow);
   } finally {
     lock.releaseLock();
   }
-  return adminMonth(token, ym);
+}
+
+const AUTO_LOCKER = { id: 'AUTO', name: 'Auto-lock' };
+
+/**
+ * From the hourly trigger: on/after "Auto-Lock Payroll Day" (default 8) the previous month is locked, once.
+ * If it cannot be locked yet (e.g. missed check-outs still to clear), the reason is kept for the Payroll page
+ * and it tries again the next hour. A month that was locked once (by hand or automatically) and unlocked
+ * later is left open: whoever unlocked it locks it again.
+ */
+function autoLockMonth_() {
+  const s = getSettings_(), today = todayStr_();
+  if (!(s.autoLockDay > 0) || Number(today.slice(8, 10)) < Math.min(28, s.autoLockDay)) return;
+  const ym = prevYm_(today.slice(0, 7)), props = PropertiesService.getScriptProperties(), key = 'autoLockDone_' + ym;
+  if (props.getProperty(key)) return;
+  // Only lock days that come after the automatic lock was switched on (never a month someone left open before).
+  if (today.slice(0, 7) + '-' + pad2_(Math.min(28, s.autoLockDay)) < autoLockSince_(props)) return;
+  forget_('locks');
+  if (isLocked_(ym)) { props.setProperty(key, 'locked before'); return; }
+  try {
+    lockMonthCore_(AUTO_LOCKER, ym);
+    props.setProperty(key, 'auto ' + today);
+    props.deleteProperty('autoLockWait');
+  } catch (e) {
+    props.setProperty('autoLockWait', JSON.stringify({ ym: ym, reason: String(e.message || e) }));
+  }
+}
+
+/** For the Payroll page: when month ym locks by itself, or why the automatic lock is waiting. null = nothing to say. */
+function autoLockInfo_(ym) {
+  const s = getSettings_(), thisYm = todayStr_().slice(0, 7);
+  if (!(s.autoLockDay > 0) || isLocked_(ym) || ym >= thisYm) return null;
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('autoLockDone_' + ym)) return null; // locked once and unlocked since: manual from now on
+  const wait = JSON.parse(props.getProperty('autoLockWait') || 'null');
+  if (wait && wait.ym === ym) return { waiting: wait.reason };
+  if (ym !== prevYm_(thisYm)) return null; // older months are not locked automatically
+  const on = thisYm + '-' + pad2_(Math.min(28, s.autoLockDay));
+  if (on < autoLockSince_(props)) return null; // the lock day passed before the automatic lock existed
+  return { on: on };
+}
+
+/** The day the automatic lock first ran (set on first use), so months whose lock day was already over stay as they are. */
+function autoLockSince_(props) {
+  let v = props.getProperty('autoLockSince');
+  if (!v) { v = todayStr_(); props.setProperty('autoLockSince', v); }
+  return v;
 }
 
 function superUnlockMonth(token, ym) {
@@ -3546,6 +3601,7 @@ function getSettings_() {
       appLink: str('Android App Link', 'https://github.com/travalateapp/shipment-scanner/releases/latest/download/Attendance.apk'),
       selfieFolderId: str('Selfie Folder ID', ''),
       keepSelfieDays: num('Keep Selfies (days)', 60),
+      autoLockDay: num('Auto-Lock Payroll Day', 8),
     };
   });
 }
