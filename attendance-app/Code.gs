@@ -42,7 +42,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261060;
+const SERVER_VERSION = 20261061;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -124,8 +124,6 @@ const DEFAULT_SETTINGS = [
   ['OT Block (min)', 0, 'Daily OT counted only in complete blocks of this many minutes (0 = every minute)'],
   ['Max OT Per Day (min)', 0, 'Cap on OT counted per day (0 = no cap)'],
   ['OT Needs Approval', 'No', 'Yes = OT counts only after an admin approves it'],
-  ['Late Minutes Reduce OT', 'Yes', 'Monthly OT minutes − total late minutes (minutes after Shift Start on late days)'],
-  ['Early Leaving Reduces OT', 'Yes', 'Monthly OT minutes − minutes left before shift end (on present days)'],
   ['Weekly Off', 'Sunday', 'Comma separated, e.g. Sunday  or  Saturday,Sunday'],
   ['Off-Day Work Is OT', 'Yes', 'Holidays (and weekly offs when "Week-Off Full Day Hours" is 0): all hours worked count as OT'],
   ['Week-Off Shift Start', '09:30', 'Working on the weekly off (e.g. Sunday): day hours start (24-hour HH:mm)'],
@@ -157,6 +155,20 @@ const DEFAULT_SETTINGS = [
   ['Keep Selfies (days)', 60, 'Check-in photos older than this are moved to the Drive trash once a day (0 = keep all)'],
   ['Auto-Lock Payroll Day', 8, 'On this day of the month the previous month is locked automatically (0 = off). A month unlocked later is not locked again automatically'],
 ];
+
+/** Settings rows that no longer do anything; removed from the Settings tab once (setup / hourly trigger). */
+const RETIRED_SETTINGS = ['Late Minutes Reduce OT', 'Early Leaving Reduces OT'];
+function removeRetiredSettings_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('retiredSettings') === RETIRED_SETTINGS.join('|')) return;
+  const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.SETTINGS);
+  if (sh) {
+    const names = sh.getDataRange().getValues().map(r => String(r[0]).trim());
+    for (let i = names.length - 1; i >= 1; i--) if (RETIRED_SETTINGS.indexOf(names[i]) >= 0) sh.deleteRow(i + 1);
+    forget_('settings');
+  }
+  props.setProperty('retiredSettings', RETIRED_SETTINGS.join('|'));
+}
 
 /** Per-execution cache so each request reads every tab at most once. */
 const MEMO = {};
@@ -401,6 +413,7 @@ function setup() {
   DEFAULT_SETTINGS.forEach(row => {
     if (existing.indexOf(row[0]) < 0) sh.appendRow([row[0], String(row[1]), row[2]]);
   });
+  removeRetiredSettings_();
   sh.setColumnWidth(1, 220).setColumnWidth(2, 160).setColumnWidth(3, 520);
 
   // Employees
@@ -2168,6 +2181,7 @@ function adminSetAdvanceStatus(token, id, status) {
  */
 function autoCheckout() {
   sweepOpenEntries_(true);
+  try { removeRetiredSettings_(); } catch (e) { Logger.log('Retired settings: ' + e); }
   try { autoLockMonth_(); } catch (e) { Logger.log('Auto-lock: ' + e); }
   try { cleanupSelfies_(); } catch (e) { Logger.log('Selfie clean-up: ' + e); }
 }
@@ -2885,7 +2899,7 @@ function buildMonth_(emp, ym) {
     lateGrace: s.lateGrace, standardHours: es.standardHours, fullDayHours: es.fullDayHours, halfDayHours: es.halfDayHours,
     hourlyOt: es.hourlyOt !== false, morningOt: es.morningOt !== false, monthlyOt: true,
     otMultiplier: s.otMultiplier, latesPerHalfDay: s.latesPerHalfDay, salaryDays: s.salaryDays,
-    lateReducesOt: s.lateReducesOt, earlyReducesOt: s.earlyReducesOt, adjustIn: s.adjustIn, otApproval: s.otApproval,
+    adjustIn: s.adjustIn, otApproval: s.otApproval,
     noCheckoutStatus: s.noCheckoutStatus,
     weekOff: s.woFullHours > 0 ? { start: minutesToStr_(s.woStartMin), end: minutesToStr_(s.woEndMin), half: s.woHalfHours, full: s.woFullHours } : null,
   };
@@ -2937,9 +2951,12 @@ function dayWorkedMin_(rec, es) {
     return 0;
   }
   if (outMin <= inMin && es.overnight) outMin += 1440;
-  if (es.otEndMin != null) outMin = Math.min(outMin, Math.max(es.otEndMin, inMin)); // short day without OT: stop at closing
   const from = es.morningOt === false ? Math.max(inMin, es.shiftStartMin) : inMin;
-  return Math.max(0, outMin - from - breakOverlap_(rec.breaks, from, outMin));
+  const w = Math.max(0, outMin - from - breakOverlap_(rec.breaks, from, outMin));
+  // Short day without OT for this employee (otEndMin): time after closing still makes up for coming late /
+  // time away, but never adds OT: the day counts at most the shift (plus any morning OT before the start).
+  if (es.otEndMin != null) return Math.min(w, shift + (es.morningOt === false ? 0 : Math.max(0, es.shiftStartMin - inMin)));
+  return w;
 }
 
 /**
@@ -3579,8 +3596,6 @@ function getSettings_() {
       maxOtPerDay: num('Max OT Per Day (min)', 0),
       otApproval: yes('OT Needs Approval', false),
       salaryDays: num('Salary Days Basis', 30),
-      lateReducesOt: yes('Late Minutes Reduce OT', true),
-      earlyReducesOt: yes('Early Leaving Reduces OT', true),
       clockTolerance: num('Phone Time Tolerance (min)', 3),
       pfBankPct: num('Default PF Bank Salary %', 90),
       pfEmployeePct: num('Default PF Employee %', 12),
@@ -4023,7 +4038,7 @@ function shortDays_() {
  * full / half-day minimums shrink in proportion (e.g. 09:30–18:30 closing 16:30 → 7 h shift, full day from
  * 6.2 h). Everything else (early leaving, OT after closing, monthly OT, late cut) then follows from them.
  * With empId: a short day whose "Applies To" leaves this employee out is a normal day; when its "OT For" leaves them
- * out, otEndMin = the closing time (no OT after it).
+ * out, otEndMin = the closing time: work after it makes up for coming late but earns no OT (dayWorkedMin_).
  */
 function shortenDay_(es, date, empId) {
   const sd = date ? shortDays_()[date] : null;
