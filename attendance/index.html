@@ -481,7 +481,9 @@
     'Send this leave request?': 'यह छुट्टी का अनुरोध भेजें?', 'Unpaid leave · {d}': 'बिना वेतन छुट्टी · {d}', 'Correction · {d} · {i} → {o}': 'सुधार · {d} · {i} → {o}',
     'today': 'आज', 'Leaves': 'छुट्टियाँ', '{n} days': '{n} दिन', 'Late marks cut': 'देर से आने की कटौती',
     'PF Employee': 'PF कर्मचारी', 'PF Employer': 'PF नियोक्ता', 'Basic Salary {b}': 'बेसिक वेतन {b}', 'Basic Salary {b} for {d} of {n} days': 'बेसिक वेतन {b} ({n} में से {d} दिन)',
-    '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Salary slip – {label}': 'वेतन पर्ची – {label}', 'company contribution': 'कंपनी का योगदान',
+    '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Preparing PDF…': 'PDF तैयार हो रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
+    'Update the app to send the PDF on WhatsApp (sending the details as a message now).': 'WhatsApp पर PDF भेजने के लिए ऐप अपडेट करें (अभी विवरण संदेश में भेजा जा रहा है)।',
+    'This browser cannot send files. Sending the details as a message; use Download PDF to attach the file.': 'यह ब्राउज़र फ़ाइल नहीं भेज सकता। विवरण संदेश में भेजा जा रहा है; फ़ाइल के लिए Download PDF दबाएँ।', 'Salary slip – {label}': 'वेतन पर्ची – {label}', 'company contribution': 'कंपनी का योगदान',
     // guard: Mark Attendance
     'Mark Attendance': 'हाज़िरी लगाएँ', 'Mark attendance for others': 'दूसरों की हाज़िरी लगाएँ',
     'proxy.info': 'जिन कर्मचारियों के पास स्मार्टफ़ोन नहीं है या जो फ़ोन भूल गए हैं, उनके लिए। यह फ़ोन ऑफिस में होना चाहिए। चेक-इन के समय कर्मचारी की फ़ोटो ली जाती है। हर एंट्री में आपका नाम दर्ज होता है।',
@@ -1051,7 +1053,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261061;
+  var NEEDS_SERVER = 20261062;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2265,6 +2267,8 @@
         '<button class="btn ghost" onclick="closeModal()">' + t('Close') + '</button>');
       S.slip.share = r.share;
       $('slipFrame').srcdoc = r.html;
+      slipPdf().catch(function () {}); // make the PDF now, so Share / Download send it at once
+
     }).catch(function (e) { openModal(errBox(e) + '<button class="btn ghost" onclick="closeModal()">' + t('Close') + '</button>'); });
   }
   /** Inside the Android app (APK) files and printing go through the app; see android/MainActivity.java. */
@@ -2277,7 +2281,7 @@
   }
   function downloadPayslip() {
     var sl = S.slip; $('slipPdf').disabled = true;
-    api('getPayslip', S.token, sl.ym, sl.empId, true).then(function (r) {
+    slipPdf().then(function (r) {
       if (NATIVE) { NATIVE.saveFile(r.pdf, r.fileName, 'application/pdf'); return; }
       var bin = atob(r.pdf), bytes = new Uint8Array(bin.length);
       for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -2288,33 +2292,61 @@
     }).catch(function (e) { toast(e.message); }).then(function () { var b = $('slipPdf'); if (b) b.disabled = false; });
   }
 
+  /** The payslip PDF { pdf (base64), fileName }, made once per opened payslip (Google needs a few seconds). */
+  function slipPdf() {
+    var sl = S.slip;
+    if (!sl.pdfP) sl.pdfP = api('getPayslip', S.token, sl.ym, sl.empId, true).then(function (r) { sl.pdf = r; return r; },
+      function (e) { sl.pdfP = null; throw e; });
+    return sl.pdfP;
+  }
+  function pdfFile(r) {
+    var bin = atob(r.pdf), bytes = new Uint8Array(bin.length);
+    for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return new File([bytes], r.fileName, { type: 'application/pdf' });
+  }
   /**
-   * Share the payslip PDF on WhatsApp: inside the Android app through the app (AttendanceApp.shareFile, newer
-   * versions); in a phone browser through the share sheet (pick WhatsApp). Where files can't be shared
-   * (computer, older Android app), WhatsApp opens with a short text instead — to the employee's number
-   * when an admin shares someone else's slip.
+   * Share the payslip PDF on WhatsApp.
+   * - Android app 1.14+: the app sends the PDF straight to WhatsApp (AttendanceApp.shareFile).
+   * - Phone browser: the share list with the PDF (pick WhatsApp). The browser only allows this right after a
+   *   tap, so the PDF is made in advance (slipPdf when the payslip opens); if it is not ready yet the button
+   *   says "Preparing PDF…" and then "PDF ready – tap to share".
+   * - Where files can't be shared (computer, older Android app): WhatsApp opens with a short text, and the
+   *   page says why (update the app / use Download PDF).
    */
   function sharePayslip() {
-    var sl = S.slip, b = $('slipWa'); if (b) b.disabled = true;
+    var sl = S.slip, b = $('slipWa');
     var sh = sl.share || {}, text = t('Salary slip – {label}', { label: sh.label || '' }) + ' · ' + (sh.name || '') +
       (sh.net !== undefined ? ' · ' + t('Total Salary') + ' ' + money(sh.net, sh.currency || '₹') : '') + (sh.company ? '\n' + sh.company : '');
-    var textOnly = function () {
+    var label = function (txt, off) { if (b) { b.textContent = txt; b.disabled = !!off; } };
+    var textOnly = function (why) {
+      if (why) toast(why);
       var phone = sh.phone || ''; if (phone.length === 10) phone = '91' + phone; // India numbers saved without the country code
       window.open('https://wa.me/' + phone + '?text=' + encodeURIComponent(text), '_blank');
     };
-    api('getPayslip', S.token, sl.ym, sl.empId, true).then(function (r) {
-      if (NATIVE && NATIVE.shareFile) { NATIVE.shareFile(r.pdf, r.fileName, 'application/pdf', text); return; }
-      var file = null;
-      try {
-        var bin = atob(r.pdf), bytes = new Uint8Array(bin.length);
-        for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-        file = new File([bytes], r.fileName, { type: 'application/pdf' });
-      } catch (e) { file = null; }
-      if (file && navigator.canShare && navigator.canShare({ files: [file] })) {
-        return navigator.share({ files: [file], title: r.fileName, text: text }).catch(function (e) { if (e && e.name !== 'AbortError') textOnly(); });
-      }
-      textOnly();
-    }).catch(function (e) { toast(e.message); }).then(function () { var x = $('slipWa'); if (x) x.disabled = false; });
+    if (NATIVE && NATIVE.shareFile) { // Android app 1.14+
+      label(t('Preparing PDF…'), true);
+      slipPdf().then(function (r) { NATIVE.shareFile(r.pdf, r.fileName, 'application/pdf', text); })
+        .catch(function (e) { toast(e.message); }).then(function () { label(t('📲 Share on WhatsApp')); });
+      return;
+    }
+    var canFiles = false;
+    try { canFiles = !!(navigator.canShare && navigator.canShare({ files: [new File([new Uint8Array(1)], 'test.pdf', { type: 'application/pdf' })] })); } catch (e) { canFiles = false; }
+    if (!canFiles) {
+      textOnly(NATIVE ? t('Update the app to send the PDF on WhatsApp (sending the details as a message now).')
+        : t('This browser cannot send files. Sending the details as a message; use Download PDF to attach the file.'));
+      return;
+    }
+    if (!sl.pdf) { // still being made: get it, then ask for one more tap (the browser needs a fresh tap to share)
+      label(t('Preparing PDF…'), true);
+      slipPdf().then(function () { label(t('📲 PDF ready – tap to share')); })
+        .catch(function (e) { label(t('📲 Share on WhatsApp')); toast(e.message); });
+      return;
+    }
+    // Only the file (no text): with text added, some phones send the text alone.
+    navigator.share({ files: [pdfFile(sl.pdf)], title: sl.pdf.fileName }).then(function () { label(t('📲 Share on WhatsApp')); }).catch(function (e) {
+      if (e && e.name === 'NotAllowedError') label(t('📲 PDF ready – tap to share'));
+      else if (e && e.name !== 'AbortError') toast(e.message);
+    });
   }
 
   /* ---------------- Employee requests ---------------- */
