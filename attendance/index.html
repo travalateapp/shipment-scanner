@@ -1036,7 +1036,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261054;
+  var NEEDS_SERVER = 20261055;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2108,7 +2108,9 @@
       });
       if (p.pf) {
         html += payLine(t('PF Employee') + ' <span class="muted">(' + t('Basic Salary {b}', { b: money(p.pfBankSalary, cur) }) + ')</span>', '− ' + money(p.pfEmployee, cur), 'red') +
-          payLine(t('PF Employer') + ' <span class="muted">(' + t('company contribution') + ')</span>', money(p.pfEmployer, cur), 'blue');
+          (p.pfEmployerDed !== undefined // taken from the salary (CTC); months locked before that: paid by the company
+            ? payLine(t('PF Employer'), '− ' + money(p.pfEmployer, cur), 'red')
+            : payLine(t('PF Employer') + ' <span class="muted">(' + t('company contribution') + ')</span>', money(p.pfEmployer, cur), 'blue'));
       }
       if (p.pf && p.bank !== undefined) {
         // Only for admins with the "View Bank / Cash Split" permission.
