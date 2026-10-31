@@ -41,7 +41,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 
 // Raised with every change to this file. The page compares it with the version it needs and tells the
 // super admin to deploy the new Code.gs when Apps Script still runs an older copy.
-const SERVER_VERSION = 20261054;
+const SERVER_VERSION = 20261055;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -2515,16 +2515,17 @@ function payrollFormulas_(r, split) {
   }
   // PF: bank / cash as in calcPay_ (a part that goes below zero is taken from the other part).
   const bank = s.adjustIn === 'BANK';
+  const erD = r.pfEmployerDed !== undefined, erF = erD ? '-[PF Employer]' : '', erV = erD ? r.pfEmployer : 0; // PF Employer from the salary
   const c1 = bank ? '([Salary Earned]-[Basic Salary (PF)])' : '([Gross Payable]-[Basic Salary (PF)]-[Advance Deduction])';
-  const b1 = bank ? '([Gross Payable]-' + c1 + '-[PF Employee]-[Advance Deduction])' : '([Basic Salary (PF)]-[PF Employee])';
+  const b1 = bank ? '([Gross Payable]-' + c1 + '-[PF Employee]' + erF + '-[Advance Deduction])' : '([Basic Salary (PF)]-[PF Employee]' + erF + ')';
   const cv = bank ? r.earned - r.pfBankSalary : r.gross - r.pfBankSalary - (r.advance || 0);
-  const bv = bank ? r.gross - cv - r.pfEmployee - (r.advance || 0) : r.pfBankSalary - r.pfEmployee;
+  const bv = bank ? r.gross - cv - r.pfEmployee - erV - (r.advance || 0) : r.pfBankSalary - r.pfEmployee - erV;
   if (split) {
     add('In Bank', 'ROUND(MAX(0,' + b1 + '+MIN(0,' + c1 + ')),2)', round2_(Math.max(0, bv + Math.min(0, cv))), r.bank);
     add('In Cash', 'ROUND(MAX(0,MAX(0,' + c1 + ')+MIN(0,' + b1 + '+MIN(0,' + c1 + '))),2)', round2_(Math.max(0, Math.max(0, cv) + Math.min(0, bv + Math.min(0, cv)))), r.cash);
     add('Total Salary', 'ROUND([In Bank]+[In Cash],2)', round2_((r.bank || 0) + (r.cash || 0)), r.net);
   } else {
-    add('Total Salary', 'ROUND(MAX(0,[Gross Payable]-[PF Employee]-[Advance Deduction]),2)', round2_(Math.max(0, r.gross - r.pfEmployee - (r.advance || 0))), r.net);
+    add('Total Salary', 'ROUND(MAX(0,[Gross Payable]-[PF Employee]' + erF + '-[Advance Deduction]),2)', round2_(Math.max(0, r.gross - r.pfEmployee - erV - (r.advance || 0))), r.net);
   }
   return f;
 }
@@ -3071,8 +3072,8 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
  *   Per day = salary ÷ Salary Days Basis (30), per hour = per day ÷ Standard Hours, per minute = per hour ÷ 60.
  *   Earned  = salary × days passed ÷ days in month (the full salary once the month is over).
  *   Gross   = earned + OT pay + week-off work pay − leave − half-day − late-cut deductions.
- *   Net     = Gross − advance instalment (− PF employee for PF employees).
- * PF employees: Bank = PF Bank Salary − PF Employee, Cash = Salary − PF Bank Salary, and OT/deductions/advance
+ *   Net     = Gross − advance instalment (− PF Employee − PF Employer for PF employees: the salary is the CTC).
+ * PF employees: Bank = PF Bank Salary − PF Employee − PF Employer, Cash = Salary − PF Bank Salary, and OT/deductions/advance
  * are applied to Cash (or Bank, per the "OT & Deductions Paid In" setting).
  */
 function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
@@ -3117,13 +3118,14 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
   const pf = pfAmounts_(emp, s);
   // PF and Basic Salary are counted for the same days as the salary.
   const bankSalary = R(pf.bankSalary * ratio), pfEmp = R(pf.employee * ratio), pfEr = R(pf.employer * ratio);
-  pay.advance = round2_(Math.min(advanceWanted, Math.max(0, gross - pfEmp)));
+  // PF Employer is part of the salary (CTC): taken from the bank part, like PF Employee.
+  pay.advance = round2_(Math.min(advanceWanted, Math.max(0, gross - pfEmp - pfEr)));
   let bank, cash;
   if (s.adjustIn === 'BANK') {
     cash = earned - bankSalary;
-    bank = gross - cash - pfEmp - pay.advance;
+    bank = gross - cash - pfEmp - pfEr - pay.advance;
   } else {
-    bank = bankSalary - pfEmp;
+    bank = bankSalary - pfEmp - pfEr;
     cash = gross - bankSalary - pay.advance;
   }
   // If deductions are bigger than one part, take the rest from the other part.
@@ -3132,7 +3134,7 @@ function calcPay_(emp, s, t, dim, advanceWanted, arrears) {
   cash = Math.max(0, cash);
 
   return Object.assign(pay, {
-    pf: true, pfBankSalary: bankSalary, pfEmployee: pfEmp, pfEmployer: pfEr,
+    pf: true, pfBankSalary: bankSalary, pfEmployee: pfEmp, pfEmployer: pfEr, pfEmployerDed: pfEr,
     bank: round2_(bank), cash: round2_(cash), net: round2_(bank + cash),
   });
 }
@@ -3325,7 +3327,10 @@ function payslipHtml_(emp, m) {
   if (p.shortCutDed) ded += row('Late coming / early leaving (' + mins(t.shortMin) + ')', money(p.shortCutDed));
   if (p.advance) ded += row('Advance recovery', money(p.advance));
   if (p.pf) ded += row('PF Employee (Basic Salary ' + money(p.pfBankSalary) + ')', money(p.pfEmployee));
-  const totalDed = p.deduction + (p.advance || 0) + (p.pf ? p.pfEmployee : 0);
+  // pfEmployerDed: PF Employer taken from the salary (months locked before that keep it as company-paid).
+  const erDed = p.pf && p.pfEmployerDed !== undefined;
+  if (erDed) ded += row('PF Employer', money(p.pfEmployer));
+  const totalDed = p.deduction + (p.advance || 0) + (p.pf ? p.pfEmployee : 0) + (erDed ? p.pfEmployer : 0);
 
   return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>' +
     'body{font-family:Arial,Helvetica,sans-serif;color:#1b2333;margin:24px;font-size:13px}' +
@@ -3344,7 +3349,7 @@ function payslipHtml_(emp, m) {
       'OT ' + mins(t.otMin)].map(x => '<span class="box">' + x + '</span>').join('') + '</div>' +
     '<h2>Earnings</h2><table>' + earn + '</table>' +
     '<h2>Deductions</h2><table>' + ded + '<tr class="tot"><td>Total deductions</td><td class="r">' + money(totalDed) + '</td></tr></table>' +
-    (p.pf ? '<h2>PF</h2><table>' + row('PF Employer contribution (paid by company)', money(p.pfEmployer)) + '</table>' : '') +
+    (p.pf && !erDed ? '<h2>PF</h2><table>' + row('PF Employer contribution (paid by company)', money(p.pfEmployer)) + '</table>' : '') +
     (p.pf && p.bank !== undefined ? '<h2>Payment split</h2><table>' + row('In Bank', money(p.bank)) + row('In Cash', money(p.cash)) + '</table>' : '') +
     '<table style="margin-top:14px"><tr class="tot"><td>Total Salary</td><td class="r">' + money(p.net) + '</td></tr></table>' +
     ((m.advances || []).length ? '<p class="muted">Advance balance after this month: ' +

@@ -297,7 +297,7 @@ OT pay        = OT mins × Per minute × OT Multiplier
 Leaves     = Absent days × Per day
 Half Days  = Half days × ½ × Per day
 Gross      = Total Salary + OT pay − Leaves − Half Days
-Net        = Gross − advance instalment (− PF Employee for PF employees)
+Net        = Gross − advance instalment (− PF Employee − PF Employer for PF employees)
 ```
 
 **OT example (October: 27 working days, all present, 9 h shift):** working time = 27 × 9 h = 243 h.
@@ -314,14 +314,16 @@ outside 09:30–17:00 is added to the OT. Employees with *Hourly OT* off get onl
 | Total Salary | 15,000 |
 | OT / Leaves / Half Days | per calculation |
 | PF Employee | 1,721 (deducted) |
-| PF Employer | 1,755 (company contribution, shown only) |
-| **In Bank** = Basic Salary − PF Employee | 13,500 − 1,721 = **11,779** |
+| PF Employer | 1,755 (deducted: the salary is the CTC) |
+| **In Bank** = Basic Salary − PF Employee − PF Employer | 13,500 − 1,721 − 1,755 = **10,024** |
 | **In Cash** = Salary − Basic Salary + OT − Leaves − Half Days − Advance | 15,000 − 13,500 = **1,500** |
-| **Total Salary** = In Bank + In Cash | **13,279** |
+| **Total Salary** = In Bank + In Cash | **11,524** |
 
 Employees, and admins without the *View Bank / Cash Split* permission, see only **Total Salary**: in the app, on payslips and in the payroll export. "Basic Salary" is the *PF Bank Salary* column in the Employees tab.
 
-If the deductions are more than the cash part, the rest comes out of the bank part. (With a ₹2,000 advance instalment: cash 0, bank 11,279.)
+If the deductions are more than the cash part, the rest comes out of the bank part. (With a ₹2,000 advance instalment: cash 0, bank 9,524.)
+
+Months locked before PF Employer was deducted keep their paid amounts (PF Employer shown there as company-paid).
 
 - **Short day** (Holidays → Type *Short day – office closes early*, with the closing time, e.g. Dussehra 16:30): a normal working day whose shift ends at the closing time. Leaving at that time is a full day (no early leaving, no cut). Leaving before the closing time counts as early leaving, measured from the closing time. This works the same whether or not "Allow Overnight Shift" is on. the full / half-day minimums shrink in the same proportion; only time after closing is OT, and the month's OT target counts the shorter day. Employees see "🕓 Office closes at 16:30 today" on their home screen.
 
