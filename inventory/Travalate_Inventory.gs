@@ -31,9 +31,19 @@ const REPORT_EMAILS = [
 //    Column B onward: Component SKU 1, Component SKU 2, Component SKU 3 ...
 //    (a row can have 2 or more components, trailing cells left blank)
 //
+//  QUANTITY PER COMPONENT ("Set of N" / multi-pack):
+//    A component cell may carry a quantity suffix " x N", e.g.
+//      Combo SKU: TR-Blanket-Black-(Set of 2) | Component 1: TR-Blanket-Black x2
+//    Selling 1 unit of that set deducts 2 units of TR-Blanket-Black.
+//    A cell with no suffix means quantity 1 (all existing combos keep
+//    working unchanged). Repeating the same SKU in several cells is
+//    also understood — the quantities are simply added together.
+//
 //  A combo SKU is NOT independently stocked. Selling/using 1 unit
-//  of a combo deducts 1 unit from EACH of its component SKUs.
-//  The combo's displayed stock = MIN(component stocks).
+//  of a combo deducts <qty> units from EACH of its component SKUs.
+//  The combo's displayed stock = MIN(FLOOR(component stock / qty)).
+//  A combo must contain at least 2 units in total — either 2+
+//  different components, or a single component with qty 2 or more.
 //  Combo entries are OUTWARD ONLY.
 // ─────────────────────────────────────────────────────────────
 
@@ -52,7 +62,24 @@ function getOrCreateCombosSheet() {
   return sh;
 }
 
-/** Reads the Combos sheet and returns { "COMBO-SKU": ["COMP1","COMP2",...], ... } */
+/** Parses one Combos-sheet component cell, e.g. "TR-Blanket-Black x2"
+ *  → { sku: "TR-Blanket-Black", qty: 2 }. No suffix → qty 1. */
+function parseComboComponentCell_(cell) {
+  const text = String(cell || "").trim();
+  if (!text) return null;
+  const m = text.match(/^(.*\S)\s+[xX×]\s*(\d+)$/);
+  if (m && Number(m[2]) > 0) return { sku: m[1].trim(), qty: Number(m[2]) };
+  return { sku: text, qty: 1 };
+}
+
+/** Formats a component for storage in the Combos sheet ("SKU" or "SKU x2"). */
+function formatComboComponentCell_(sku, qty) {
+  return qty > 1 ? sku + " x" + qty : sku;
+}
+
+/** Reads the Combos sheet and returns
+ *  { "COMBO-SKU": [{ sku: "COMP1", qty: 1 }, { sku: "COMP2", qty: 2 }, ...], ... }
+ *  Duplicate component cells within a row are merged (quantities added). */
 function loadCombos() {
   const sh   = getOrCreateCombosSheet();
   const data = sh.getDataRange().getValues();
@@ -60,20 +87,36 @@ function loadCombos() {
   for (let r = 1; r < data.length; r++) {
     const comboName = String(data[r][0] || "").trim();
     if (!comboName) continue;
-    const components = data[r].slice(1)
-      .map(c => String(c || "").trim())
-      .filter(c => c.length > 0);
-    if (components.length >= 2) {
+    const merged = {}; // UPPER sku -> { sku, qty }
+    const order  = [];
+    data[r].slice(1).forEach(cell => {
+      const comp = parseComboComponentCell_(cell);
+      if (!comp) return;
+      const key = comp.sku.toUpperCase();
+      if (!merged[key]) { merged[key] = { sku: comp.sku, qty: 0 }; order.push(key); }
+      merged[key].qty += comp.qty;
+    });
+    const components = order.map(k => merged[k]);
+    const totalUnits = components.reduce((sum, c) => sum + c.qty, 0);
+    if (totalUnits >= 2) {
       map[comboName.toUpperCase()] = components;
     }
   }
   return map;
 }
 
+/** Combo stock from its components' stock values:
+ *  MIN over components of FLOOR(stock / qty-per-combo).
+ *  compEntries = [{ stock, qty }, ...] */
+function comboStockFromComponents_(compEntries) {
+  return Math.min(...compEntries.map(e => Math.floor((Number(e.stock) || 0) / (e.qty || 1))));
+}
+
 function isComboSKU(sku, preloadedCombos) {
   const combos = preloadedCombos || loadCombos();
   return Object.prototype.hasOwnProperty.call(combos, String(sku).trim().toUpperCase());
 }
+/** Returns [{ sku, qty }, ...] for a combo SKU (empty array if not a combo). */
 function getComboComponents(sku, preloadedCombos) {
   const combos = preloadedCombos || loadCombos();
   return combos[String(sku).trim().toUpperCase()] || [];
@@ -457,16 +500,17 @@ function processInventoryEntry(payload) {
       }
     }
 
-    // Expand: each combo line becomes one entry per component SKU (same qty),
+    // Expand: each combo line becomes one entry per component SKU
+    // (combo qty × that component's qty-per-combo, e.g. 3 × "Set of 2" = 6),
     // tagged so the note clearly shows it came from the combo.
     const expandedItems = [];
     payload.items.forEach(item => {
       if (isComboSKU(item.sku, allCombosForEntry)) {
         const components = getComboComponents(item.sku, allCombosForEntry);
-        components.forEach(compSku => {
+        components.forEach(comp => {
           expandedItems.push({
-            sku: compSku,
-            qty: item.qty,
+            sku: comp.sku,
+            qty: (Number(item.qty) || 0) * comp.qty,
             comment: item.comment || "",
             comboSource: item.sku   // tag for note formatting
           });
@@ -648,7 +692,7 @@ function updateStockRegister(srSh, entryDate, type, employee, items) {
     });
   }
 
-  // ── Recalculate Combo SKU rows = MIN(component stocks) ─────
+  // ── Recalculate Combo SKU rows = MIN(FLOOR(component stock / qty)) ─────
   // Runs across every affected column (target date + all cascaded future dates)
   // so combo display values always stay in sync with their components.
   const allCombos = loadCombos();
@@ -656,15 +700,15 @@ function updateStockRegister(srSh, entryDate, type, employee, items) {
     const comboRowIdx = skuRowMap[comboKey];
     if (comboRowIdx === undefined) return; // combo SKU not present as a row — skip
 
-    const componentRowIdxs = allCombos[comboKey]
-      .map(c => skuRowMap[String(c).trim().toUpperCase()])
-      .filter(idx => idx !== undefined);
+    const compRefs = allCombos[comboKey]
+      .map(c => ({ idx: skuRowMap[String(c.sku).trim().toUpperCase()], qty: c.qty }))
+      .filter(c => c.idx !== undefined);
 
-    if (!componentRowIdxs.length) return;
+    if (!compRefs.length) return;
 
     [targetCol, ...futureCols].forEach(col => {
-      const compVals = componentRowIdxs.map(idx => Number(data[idx][col]) || 0);
-      data[comboRowIdx][col] = Math.min(...compVals);
+      data[comboRowIdx][col] = comboStockFromComponents_(
+        compRefs.map(c => ({ stock: data[c.idx][col], qty: c.qty })));
     });
   });
 
@@ -1627,27 +1671,27 @@ function recalculateSkuCascadeFromDate(srSh, fromDate, skuKey, preloadedSrData, 
   // Recalculate any combo that depends on this SKU
   const allCombos = preloadedCombos || loadCombos();
   Object.keys(allCombos).forEach(comboKey => {
-    if (!allCombos[comboKey].some(c => c.trim().toUpperCase() === skuKey)) return;
+    if (!allCombos[comboKey].some(c => c.sku.trim().toUpperCase() === skuKey)) return;
     let comboRowIdx = -1;
     for (let r = 1; r < data.length; r++) {
       if (String(data[r][0] || "").trim().toUpperCase() === comboKey) { comboRowIdx = r; break; }
     }
     if (comboRowIdx === -1) return;
-    const componentKeys = allCombos[comboKey].map(c => c.trim().toUpperCase());
     // Reuse the same in-memory `data` (already up to date from the
     // write above) instead of re-reading the whole sheet again.
-    const compRowIdxs = componentKeys.map(ck => {
+    const compRefs = allCombos[comboKey].map(c => {
+      const ck = c.sku.trim().toUpperCase();
       for (let r = 1; r < data.length; r++) {
-        if (String(data[r][0] || "").trim().toUpperCase() === ck) return r;
+        if (String(data[r][0] || "").trim().toUpperCase() === ck) return { idx: r, qty: c.qty };
       }
-      return -1;
-    }).filter(idx => idx !== -1);
-    if (!compRowIdxs.length) return;
+      return { idx: -1, qty: c.qty };
+    }).filter(c => c.idx !== -1);
+    if (!compRefs.length) return;
 
     const comboValRow = [];
     colsToUpdate.forEach(col => {
-      const compVals = compRowIdxs.map(idx => Number(data[idx][col]) || 0);
-      comboValRow.push(Math.min(...compVals));
+      comboValRow.push(comboStockFromComponents_(
+        compRefs.map(c => ({ stock: data[c.idx][col], qty: c.qty }))));
     });
     const comboRange = srSh.getRange(comboRowIdx + 1, firstCol + 1, 1, lastCol - firstCol + 1);
     comboRange.setValues([comboValRow]);
@@ -2138,6 +2182,8 @@ function getCurrentStock(sku) {
 //    type "single" → regular SKU with an opening quantity
 //    type "combo"  → combo SKU defined by 2+ component SKUs
 //                    (no opening qty — value is always MIN of components)
+//    type "set"    → "Set of N" of ONE component SKU
+//                    (no opening qty — value is FLOOR(component stock / N))
 // ─────────────────────────────────────────────────────────────
 function addNewSKU(payload) {
   /*
@@ -2157,9 +2203,18 @@ function addNewSKU(payload) {
       employee:   "Harshit",
       date:       "2026-06-18"
     }
+    SET payload (multi-pack of ONE SKU) = {
+      type: "set",
+      skuName:    "TR-Blanket-Black-(Set of 2)",
+      components: [{ sku: "TR-Blanket-Black", qty: 2 }],
+      comment:    "New set added",
+      employee:   "Harshit",
+      date:       "2026-06-18"
+    }
+    (Combo components may also be given as { sku, qty } objects.)
   */
   try {
-    if (payload.type === "combo") {
+    if (payload.type === "combo" || payload.type === "set") {
       return addNewComboSKU(payload);
     }
     return addNewSingleSKU(payload);
@@ -2264,14 +2319,41 @@ function addNewComboSKU(payload) {
   const combosSh = getOrCreateCombosSheet();
 
   const skuName    = String(payload.skuName).trim();
-  const components = (payload.components || [])
-    .map(c => String(c).trim())
-    .filter(c => c.length > 0);
+  const isSet      = payload.type === "set";
+  // Components may arrive as plain strings (qty 1) or { sku, qty }.
+  // Same SKU listed twice is merged into one entry with qty added.
+  const compMap = {}, compOrder = [];
+  (payload.components || []).forEach(c => {
+    const sku = String(typeof c === "object" && c !== null ? c.sku : c).trim();
+    const qty = typeof c === "object" && c !== null ? Math.floor(Number(c.qty)) : 1;
+    if (!sku) return;
+    if (!(qty >= 1)) return;
+    const key = sku.toUpperCase();
+    if (!compMap[key]) { compMap[key] = { sku, qty: 0 }; compOrder.push(key); }
+    compMap[key].qty += qty;
+  });
+  const compList   = compOrder.map(k => compMap[k]);
+  const components = compList.map(c => c.sku);
+  const totalUnits = compList.reduce((s, c) => s + c.qty, 0);
+  const compLabel  = c => c.qty > 1 ? c.sku + " x" + c.qty : c.sku;
   const entryDate  = new Date(payload.date + "T00:00:00");
   const timestamp  = new Date();
 
-  if (components.length < 2) {
+  if (isSet) {
+    if (compList.length !== 1 || compList[0].qty < 2) {
+      return { success: false, error: "A set needs exactly 1 component SKU with a quantity of 2 or more." };
+    }
+  } else if (totalUnits < 2) {
     return { success: false, error: "A combo needs at least 2 component SKUs." };
+  }
+  if (components.some(c => c.toUpperCase() === skuName.toUpperCase())) {
+    return { success: false, error: "A combo/set cannot include itself as a component." };
+  }
+  // Only one level of expansion is supported — a component must be a real stocked SKU.
+  const existingCombos = loadCombos();
+  const nestedCombos = components.filter(c => isComboSKU(c, existingCombos));
+  if (nestedCombos.length) {
+    return { success: false, error: "Component(s) are themselves Combo/Set SKUs, which isn't supported: " + nestedCombos.join(", ") };
   }
 
   // ── 1. Check for duplicate combo / SKU name ───────────────
@@ -2300,7 +2382,7 @@ function addNewComboSKU(payload) {
               .setFontWeight("bold").setBackground("#1a73e8").setFontColor("#FFFFFF");
     }
   }
-  const comboRow = [skuName, ...components];
+  const comboRow = [skuName, ...compList.map(c => formatComboComponentCell_(c.sku, c.qty))];
   combosSh.getRange(combosSh.getLastRow() + 1, 1, 1, comboRow.length).setValues([comboRow]);
 
   // ── 5. Add new row to Stock Register, value = MIN(components) ──
@@ -2325,11 +2407,11 @@ function addNewComboSKU(payload) {
     const s = String(srData[r][0] || "").trim().toUpperCase();
     if (s) skuRowMap[s] = r;
   }
-  const compStocks = components.map(c => {
-    const rIdx = skuRowMap[c.toUpperCase()];
-    return rIdx !== undefined ? Number(srData[rIdx][targetCol]) || 0 : 0;
+  const compStocks = compList.map(c => {
+    const rIdx = skuRowMap[c.sku.toUpperCase()];
+    return { stock: rIdx !== undefined ? Number(srData[rIdx][targetCol]) || 0 : 0, qty: c.qty };
   });
-  const comboQty = compStocks.length ? Math.min(...compStocks) : 0;
+  const comboQty = compStocks.length ? comboStockFromComponents_(compStocks) : 0;
 
   const newRow = new Array(numCols).fill("");
   newRow[0] = skuName;
@@ -2346,7 +2428,9 @@ function addNewComboSKU(payload) {
   }
 
   const note = payload_timestamp() + " | " + payload.employee +
-               " | New Combo SKU (= MIN of " + components.join(" + ") + ")" +
+               (isSet
+                 ? " | New Set SKU (= " + compList[0].sku + " ÷ " + compList[0].qty + ")"
+                 : " | New Combo SKU (= MIN of " + compList.map(compLabel).join(" + ") + ")") +
                (payload.comment ? " | " + payload.comment : "");
   qtyCell.setNote(note);
 
@@ -2359,7 +2443,9 @@ function addNewComboSKU(payload) {
     "Combo Created",
     skuName,
     0,
-    (payload.comment ? payload.comment + " | " : "") + "Components: " + components.join(", "),
+    (payload.comment ? payload.comment + " | " : "") +
+      (isSet ? "Set of " + compList[0].qty + " x " + compList[0].sku
+             : "Components: " + compList.map(compLabel).join(", ")),
     Utilities.getUuid(),
     false
   ]);
@@ -2754,14 +2840,14 @@ function recalcAllCombos() {
   Object.keys(allCombos).forEach(comboKey => {
     const comboRowIdx = skuRowMap[comboKey];
     if (comboRowIdx === undefined) return;
-    const componentRowIdxs = allCombos[comboKey]
-      .map(c => skuRowMap[String(c).trim().toUpperCase()])
-      .filter(idx => idx !== undefined);
-    if (!componentRowIdxs.length) return;
+    const compRefs = allCombos[comboKey]
+      .map(c => ({ idx: skuRowMap[String(c.sku).trim().toUpperCase()], qty: c.qty }))
+      .filter(c => c.idx !== undefined);
+    if (!compRefs.length) return;
 
     for (let c = 1; c < numCols; c++) {
-      const compVals = componentRowIdxs.map(idx => Number(data[idx][c]) || 0);
-      data[comboRowIdx][c] = Math.min(...compVals);
+      data[comboRowIdx][c] = comboStockFromComponents_(
+        compRefs.map(ref => ({ stock: data[ref.idx][c], qty: ref.qty })));
     }
   });
 
@@ -2978,8 +3064,8 @@ function syncShipmentToInventory(shipmentId, desiredSkuQtyMap, entryDate, employ
       const qty = Number(desiredSkuQtyMap[sku]) || 0;
       if (isComboSKU(sku, allCombosForSync)) {
         addDesired(sku, "", qty); // the combo's own row — note only
-        getComboComponents(sku, allCombosForSync).forEach(compSku => {
-          addDesired(compSku, sku, qty);
+        getComboComponents(sku, allCombosForSync).forEach(comp => {
+          addDesired(comp.sku, sku, qty * comp.qty);
         });
       } else {
         addDesired(sku, "", qty);
@@ -3143,8 +3229,8 @@ function applyShipmentAdjustmentToInventory(shipmentId, itemsQtyMap, entryDate, 
       const qty = Number(itemsQtyMap[sku]) || 0;
       if (qty <= 0) return;
       if (isComboSKU(sku, allCombosForAdj)) {
-        getComboComponents(sku, allCombosForAdj).forEach(compSku => {
-          expandedQtyMap[compSku] = (expandedQtyMap[compSku] || 0) + qty;
+        getComboComponents(sku, allCombosForAdj).forEach(comp => {
+          expandedQtyMap[comp.sku] = (expandedQtyMap[comp.sku] || 0) + qty * comp.qty;
         });
       } else {
         expandedQtyMap[sku] = (expandedQtyMap[sku] || 0) + qty;

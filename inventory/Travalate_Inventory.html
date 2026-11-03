@@ -729,6 +729,8 @@
                       onclick="setNewSkuType('single')">Single Product</button>
               <button type="button" class="type-btn" id="btnSkuCombo"
                       onclick="setNewSkuType('combo')">Combo Product</button>
+              <button type="button" class="type-btn" id="btnSkuSet"
+                      onclick="setNewSkuType('set')">Set (Multi-Pack)</button>
             </div>
           </div>
 
@@ -753,6 +755,31 @@
             <div id="comboComponentList" style="display:flex;flex-direction:column;gap:8px;"></div>
             <button type="button" class="add-btn" style="margin-top:8px;"
                     onclick="addComboComponentRow()">＋ Add Component</button>
+          </div>
+
+          <!-- SET: one Component SKU × Quantity (hidden by default) -->
+          <div id="setComponentGroup" style="display:none;">
+            <div class="form-group">
+              <label>Component SKU <span style="color:#c0392b;">*</span></label>
+              <div class="combo-comp-search-wrap sku-search-wrap">
+                <input type="text" class="sku-input" id="skuInput_setComp"
+                       placeholder="Type to search component SKU…"
+                       autocomplete="off"
+                       oninput="filterSKU(this, 'setComp')"
+                       onkeydown="navigateSKU(event, 'setComp')"
+                       onfocus="openDropdown('setComp')"/>
+                <input type="hidden" id="skuValue_setComp"/>
+                <div class="sku-dropdown" id="skuDrop_setComp"></div>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="qty_setComp">Quantity in Set <span style="color:#c0392b;">*</span> <span style="font-weight:400;color:#888;">(minimum 2)</span></label>
+              <input type="number" id="qty_setComp" placeholder="e.g. 2" min="2" step="1" value="2"
+                     oninput="suggestSetName()"/>
+              <div style="font-size:.8rem;color:#888;margin-top:6px;" id="setHelpText">
+                Selling 1 set deducts this many units of the component SKU.
+              </div>
+            </div>
           </div>
 
           <div class="form-group">
@@ -1911,6 +1938,9 @@ function selectSKU(id, sku) {
   const qtyEl = document.getElementById("qty_" + id);
   if (qtyEl) qtyEl.focus();
 
+  // Set (Multi-Pack) modal: suggest "<SKU>-(Set of N)" as the name
+  if (id === "setComp") suggestSetName();
+
   const stockEl = document.getElementById("stockDisplay_" + id);
   if (!stockEl) return; // no stock display for this field — nothing more to do
 
@@ -1985,8 +2015,9 @@ function highlight(str, query) {
 }
 
 // ── New SKU Modal ─────────────────────────────────────────────
-let newSkuType = "single"; // "single" | "combo"
+let newSkuType = "single"; // "single" | "combo" | "set"
 let comboCompRowCount = 0;
+let lastSuggestedSetName = ""; // so we only overwrite a name WE filled in
 
 function setNewSkuType(type) {
   newSkuType = type;
@@ -1994,13 +2025,20 @@ function setNewSkuType(type) {
     "type-btn" + (type === "single" ? " active-In" : "");
   document.getElementById("btnSkuCombo").className =
     "type-btn" + (type === "combo" ? " active-Out" : "");
+  document.getElementById("btnSkuSet").className =
+    "type-btn" + (type === "set" ? " active-Out" : "");
 
   const isCombo = type === "combo";
-  document.getElementById("newSkuQtyGroup").style.display        = isCombo ? "none" : "";
+  const isSet   = type === "set";
+  document.getElementById("newSkuQtyGroup").style.display        = (isCombo || isSet) ? "none" : "";
   document.getElementById("comboComponentsGroup").style.display  = isCombo ? "" : "none";
-  document.getElementById("modalTitle").textContent = isCombo ? "✦ Add New Combo Product" : "✦ Add New SKU";
+  document.getElementById("setComponentGroup").style.display     = isSet ? "" : "none";
+  document.getElementById("modalTitle").textContent =
+    isCombo ? "✦ Add New Combo Product" : isSet ? "✦ Add New Set (Multi-Pack)" : "✦ Add New SKU";
   document.getElementById("newSkuNameLabel").innerHTML =
-    (isCombo ? "Combo SKU Name " : "SKU Name ") + '<span style="color:#c0392b;">*</span>';
+    (isCombo ? "Combo SKU Name " : isSet ? "Set SKU Name " : "SKU Name ") + '<span style="color:#c0392b;">*</span>';
+  document.getElementById("newSkuName").placeholder =
+    isSet ? "e.g. TR-Blanket-Black-(Set of 2)" : "e.g. TR1323 BLACK";
 
   if (isCombo && document.getElementById("comboComponentList").children.length === 0) {
     addComboComponentRow();
@@ -2018,6 +2056,10 @@ function openNewSkuModal() {
   document.getElementById("newSkuComment").style.borderColor = "#d0d7de";
   document.getElementById("comboComponentList").innerHTML = "";
   comboCompRowCount = 0;
+  document.getElementById("skuInput_setComp").value = "";
+  document.getElementById("skuValue_setComp").value = "";
+  document.getElementById("qty_setComp").value = "2";
+  lastSuggestedSetName = "";
   document.getElementById("modalSubmitBtn").disabled = false;
   document.getElementById("modalSubmitBtn").textContent = "Add SKU";
   document.getElementById("modalSubmitBtn").onclick = submitNewSku;
@@ -2076,8 +2118,90 @@ function removeComboComponentRow(id) {
   if (el) el.remove();
 }
 
+// ── Set (Multi-Pack) helpers ──────────────────────────────────
+// Auto-fills the Set SKU Name as "<Component>-(Set of N)" — but only
+// while the name box is empty or still holds our own earlier suggestion,
+// so a name the employee typed by hand is never overwritten.
+function suggestSetName() {
+  const comp = document.getElementById("skuValue_setComp").value.trim();
+  const qty  = parseInt(document.getElementById("qty_setComp").value, 10);
+  if (!comp || isNaN(qty) || qty < 2) return;
+  const nameEl  = document.getElementById("newSkuName");
+  const current = nameEl.value.trim();
+  if (current && current !== lastSuggestedSetName) return;
+  lastSuggestedSetName = comp + "-(Set of " + qty + ")";
+  nameEl.value = lastSuggestedSetName;
+}
+
+function submitNewSetSku() {
+  const skuName = document.getElementById("newSkuName").value.trim();
+  const comment = document.getElementById("newSkuComment").value.trim();
+  const compSku = document.getElementById("skuValue_setComp").value.trim();
+  const qtyRaw  = document.getElementById("qty_setComp").value.trim();
+  const qty     = parseInt(qtyRaw, 10);
+
+  if (!compSku) {
+    highlightFieldError(document.getElementById("skuInput_setComp"));
+    showModalStatus("Please select the component SKU from the dropdown.", "error"); return;
+  }
+  if (!qtyRaw || isNaN(qty) || qty < 2 || String(qty) !== qtyRaw) {
+    highlightFieldError(document.getElementById("qty_setComp"));
+    showModalStatus("Quantity in set must be a whole number, 2 or more.", "error"); return;
+  }
+  if (!skuName) {
+    document.getElementById("newSkuName").style.borderColor = "#c0392b";
+    document.getElementById("newSkuName").focus();
+    showModalStatus("Set SKU Name is required.", "error"); return;
+  }
+  if (allSKUs.map(s => s.toUpperCase()).includes(skuName.toUpperCase())) {
+    document.getElementById("newSkuName").style.borderColor = "#c0392b";
+    document.getElementById("newSkuName").focus();
+    showModalStatus("This SKU already exists in the system.", "error"); return;
+  }
+  if (compSku.toUpperCase() === skuName.toUpperCase()) {
+    showModalStatus("A set cannot include itself as the component.", "error"); return;
+  }
+  if (!comment) {
+    document.getElementById("newSkuComment").style.borderColor = "#c0392b";
+    document.getElementById("newSkuComment").focus();
+    showModalStatus("Comment is required.", "error"); return;
+  }
+
+  const employee = document.getElementById("employee").value;
+  const date     = document.getElementById("entryDate").value;
+  if (!employee || !pinVerified) {
+    showModalStatus("Please select your employee name and verify your PIN on the main form first.", "error");
+    return;
+  }
+
+  document.getElementById("modalSubmitBtn").disabled = true;
+  showModalStatus("Adding new set… please wait.", "loading");
+
+  google.script.run
+    .withSuccessHandler(result => {
+      if (result.success) {
+        showModalStatus("✅ Set '" + skuName + "' (" + qty + " × " + compSku + ") added successfully!", "success");
+        allSKUs.push(skuName);
+        allSKUs.sort();
+        const btn = document.getElementById("modalSubmitBtn");
+        btn.disabled = false;
+        btn.textContent = "✓ Done";
+        btn.onclick = function() { closeNewSkuModal(); resetForm(); };
+      } else {
+        showModalStatus("❌ Error: " + (result.error || "Unknown error."), "error");
+        document.getElementById("modalSubmitBtn").disabled = false;
+      }
+    })
+    .withFailureHandler(err => {
+      showModalStatus("❌ Error: " + err.message, "error");
+      document.getElementById("modalSubmitBtn").disabled = false;
+    })
+    .addNewSKU({ type: "set", skuName, components: [{ sku: compSku, qty }], comment, employee, date });
+}
+
 function submitNewSku() {
   if (newSkuType === "combo") { submitNewComboSku(); return; }
+  if (newSkuType === "set")   { submitNewSetSku();   return; }
 
   const skuName  = document.getElementById("newSkuName").value.trim();
   const qtyRaw   = document.getElementById("newSkuQty").value.trim();
