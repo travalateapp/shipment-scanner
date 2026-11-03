@@ -224,6 +224,16 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Setting:** *Face Match Max Distance* (default 0.42): lower = stricter. Same person is usually 0.1–0.35, different people from about 0.48. The guard's scanner also needs the best match to be clearly closer than the next person and to show up in 2 looks in a row. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
 
+### 🖥 Computer (desktop) layout
+On a screen at least 1100 px wide (laptop / desktop browser) the app switches to a full-page layout; phones and the Android app keep the phone layout exactly as before.
+- **Menu on the left**, grouped: Overview (Dashboard, Live attendance), Attendance (Daily register, Mark attendance, Requests, Entries), Payroll (Payroll, Advances & purchases, Monthly summary, PF setup), People (Employees, Holidays, Admins, Activity log) and Me (own attendance, month, requests). Only what the admin is allowed to use is shown. **☰** in the top bar collapses it to icons (remembered on that computer).
+- **Top bar:** page name, **search (Ctrl + K)** for any page or employee (Enter opens that employee's month), Hindi / English, PIN and Logout.
+- **Dashboard** (start page for admins): present / late / not in today, OT this month, last month's payroll and lock date, an attendance chart for the last 30 days, OT by employee, today's list, "Needs your attention" (missed check-outs, requests waiting, suspicious check-ins, a waiting automatic lock, birthdays) and quick actions.
+- **Live attendance:** In office / Not in / Left, large clock, refreshes every minute, ⛶ full screen for an office TV.
+- **Daily register** and **Payroll** as tables: click a heading to sort, click a row to see the day / the salary in a panel on the right (Edit entry, photos, payslip). Keyboard: ↑ ↓ next / previous person, **E** edit (register) or open the month (payroll), Enter open, **Esc** close.
+- **☰ Columns:** choose which columns are shown (All, Default or any choice; remembered). **🖨 Print** asks the same and prints on A4 (landscape when wide) with the company, month, status and a totals row.
+- Other screens are the same as on the phone, laid out in two columns; their pop-ups open as the panel on the right.
+
 ### 🛒 Purchases & debits
 - Admin → Advances → **🛒 Purchases & debits → ＋ Add purchase** (or **＋ Add purchase** on an employee's card): Item, Quantity, Price (each) — the **Total** is worked out (quantity × price) — plus Date, the month whose salary it is cut from, and a note.
 - It is cut from that month's salary: on the employee's salary card ("Purchases (2) − ₹850" with the items listed), the payslip (one line per item), the payroll (columns *Purchases* and *Purchase Items*; Total Salary formulas include it) and the Monthly Summary.

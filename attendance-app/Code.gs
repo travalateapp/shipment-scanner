@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261064;
+const SERVER_VERSION = 20261065;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -314,7 +314,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome, checkIn, checkOut, getMyMonth, getPayslip,
   submitRequest, myRequests, cancelRequest,
   proxyList, proxyCheckIn, proxyCheckOut,
-  adminToday, adminSummary, adminMonth, adminEmployeeMonth, adminEntryOptions, adminGetEntry, adminSaveEntry,
+  adminToday, adminDashboard, adminSummary, adminMonth, adminEmployeeMonth, adminEntryOptions, adminGetEntry, adminSaveEntry,
   adminDeleteEntry, adminBulkEntry, adminRequests, adminDecideRequest, adminDecideOt, adminClearMissed,
   adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminSaveAdvance, adminSaveArrear, adminDeleteArrear, adminSavePurchase, adminDeletePurchase,
   adminAttendanceRegister,
@@ -1360,6 +1360,57 @@ function adminToday(token, date) {
     date: day, today: today, isToday: isToday, offType: offType, counts: counts, list: list,
     missed: missedFor_(ctx), canClear: !!(ctx.perms.editAttendance || ctx.perms.approveRequests),
   };
+}
+
+/**
+ * Desktop dashboard in one request: today's register (adminToday), a 30-day attendance trend, OT by employee
+ * and the payroll totals of this / last month (with "View Payroll"), and the counts that need attention.
+ */
+function adminDashboard(token) {
+  const ctx = authAdmin_(token, 'viewToday');
+  const s = getSettings_(), today = todayStr_(), ym = today.slice(0, 7);
+  const out = { today: adminToday(token), trend: attendanceTrend_(ctx, 30), currency: s.currency };
+  if (ctx.perms.viewPayroll) {
+    const cur = payrollRows_(ctx, ym), prev = payrollRows_(ctx, prevYm_(ym));
+    const total = d => round2_(d.rows.reduce((n, r) => n + (Number(r.net) || 0), 0));
+    out.ot = cur.rows.filter(r => r.otMin > 0).map(r => ({ id: r.id, name: r.name, otMin: r.otMin, otPay: r.otPay }))
+      .sort((a, b) => b.otMin - a.otMin).slice(0, 12);
+    out.otTotal = { min: cur.rows.reduce((n, r) => n + (r.otMin || 0), 0), pay: round2_(cur.rows.reduce((n, r) => n + (r.otPay || 0), 0)) };
+    out.month = { ym: ym, label: cur.label, total: total(cur) };
+    out.prev = { ym: prev.ym, label: prev.label, total: total(prev), locked: prev.locked, autoLock: prev.autoLock };
+  }
+  if (ctx.perms.approveRequests || ctx.perms.manageAdvances) {
+    const allowed = r => (r.type === 'ADVANCE' ? ctx.perms.manageAdvances : ctx.perms.approveRequests);
+    const pend = readRequests_().filter(r => r.status === 'PENDING' && allowed(r) && canEditEmployee_(ctx, r.empId));
+    out.requests = { total: pend.length, leave: pend.filter(r => r.type === 'LEAVE').length,
+      correction: pend.filter(r => r.type === 'CORRECTION').length, advance: pend.filter(r => r.type === 'ADVANCE').length };
+  }
+  const b = birthdayOn_(today, ctx.emp);
+  if (b) out.birthdays = (b.me ? [ctx.emp.name] : []).concat(b.names);
+  out.employees = getEmployees_().filter(e => e.active && canManage_(ctx, e.id)).map(e => ({ id: e.id, name: e.name })); // for search
+  return out;
+}
+
+/** Last `days` days (today included): per day how many were present, late, absent and on leave (working days only). */
+function attendanceTrend_(ctx, days) {
+  const s = getSettings_(), holidays = getHolidays_(), today = todayStr_(), from = addDays_(today, -(days - 1));
+  const emps = getEmployees_().filter(e => canManage_(ctx, e.id));
+  const recs = {};
+  readAttendance_().forEach(r => { if (r.date >= from && r.date <= today) recs[r.empId + '|' + r.date] = r; });
+  const out = [];
+  for (let d = from; d <= today; d = addDays_(d, 1)) {
+    const c = { date: d, present: 0, late: 0, absent: 0, leave: 0, off: !!offType_(d, s, holidays) };
+    emps.forEach(e => {
+      if (!employedOn_(e, d)) return;
+      const off = offType_(d, s, holidays, e.id), r = recs[e.id + '|' + d];
+      const st = r ? evaluateDay_(r, s, off, d === today) : { status: off || (d === today ? 'NOT_MARKED' : 'ABSENT') };
+      if (st.status === 'LEAVE') c.leave++;
+      else if (st.status === 'ABSENT') c.absent++;
+      else if (['PRESENT', 'WORKING', 'HALF_DAY', 'OFF_WORK'].indexOf(st.status) >= 0) { c.present++; if (st.late) c.late++; }
+    });
+    out.push(c);
+  }
+  return out;
 }
 
 function adminMonth(token, ym) {
