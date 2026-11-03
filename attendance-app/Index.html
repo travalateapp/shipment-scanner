@@ -258,6 +258,107 @@
 
     .toast { position: fixed; left: 50%; bottom: 90px; transform: translateX(-50%); background: #1b2333; color: #fff;
       padding: 12px 18px; border-radius: 12px; font-size: 14px; z-index: 20; max-width: 90%; text-align: center; }
+
+    /* ============ Desktop (computer, ≥ 1100 px wide; never in the Android app). Phones never get body.desk. ============ */
+    .dside, .dtop { display: none; }
+    body.desk #appView:not(.hidden) { display: grid; grid-template-columns: 248px minmax(0, 1fr); grid-auto-rows: max-content; min-height: 100vh; }
+    body.desk.dcol #appView:not(.hidden) { grid-template-columns: 70px minmax(0, 1fr); }
+    body.desk #appView > * { grid-column: 2; }
+    body.desk .top, body.desk .nav, body.desk #content > .tabs { display: none !important; }
+    body.desk #appView > .dside { display: flex; flex-direction: column; grid-column: 1; grid-row: 1 / span 20; position: sticky; top: 0; height: 100vh;
+      overflow-y: auto; background: #0e1a33; color: #aab6d3; padding: 16px 12px; font-size: 14px; }
+    .dside .logo { display: flex; align-items: center; gap: 10px; color: #fff; font-weight: 800; font-size: 16px; padding: 2px 6px 12px; }
+    .dside .logo i { width: 34px; height: 34px; border-radius: 10px; background: linear-gradient(135deg, #3b82f6, #7c3aed); display: grid; place-items: center; font-style: normal; flex: none; }
+    .dside .logo small { display: block; font-weight: 500; font-size: 11px; color: #aab6d3; }
+    .dside .grp { font-size: 10.5px; letter-spacing: .09em; text-transform: uppercase; color: #6f7fa6; margin: 12px 10px 4px; }
+    .duser { display: flex; align-items: center; gap: 9px; padding-left: 12px; border-left: 1px solid var(--line); font-size: 13px; }
+    .duser small { display: block; color: var(--muted); font-size: 11.5px; text-transform: capitalize; }
+    .dside a { display: flex; align-items: center; gap: 11px; padding: 7px 10px; border-radius: 9px; color: #aab6d3; text-decoration: none; font-weight: 500; margin-bottom: 2px; cursor: pointer; white-space: nowrap; }
+    .dside a .ic { width: 20px; text-align: center; flex: none; }
+    .dside a:hover { background: #16264a; }
+    .dside a.on { background: var(--brand); color: #fff; box-shadow: 0 4px 14px rgba(47,95,227,.4); }
+    .dside a .bd { margin-left: auto; background: #ef4444; color: #fff; border-radius: 20px; font-size: 11px; padding: 1px 7px; font-weight: 700; }
+    .dside .me { margin-top: auto; padding: 10px; border-radius: 12px; background: #16264a; color: #fff; }
+    .dside .me small { display: block; color: #aab6d3; font-size: 11.5px; }
+    .dside .me .acts { display: flex; gap: 6px; margin-top: 8px; }
+    .dside .me .acts button { flex: 1; background: rgba(255,255,255,.1); color: #fff; border-radius: 8px; padding: 6px; font-size: 12px; }
+    body.dcol .dside .lbl, body.dcol .dside .grp, body.dcol .dside .logo div, body.dcol .dside a .bd { display: none; }
+    body.dcol .dside a { justify-content: center; padding: 10px 0; }
+    body.dcol .dside .me .acts { flex-direction: column; }
+    body.desk .dtop { display: flex; align-items: center; gap: 12px; height: 64px; padding: 0 26px; background: #fff; border-bottom: 1px solid var(--line);
+      position: sticky; top: 0; z-index: 6; }
+    .dtop h1 { font-size: 19px; margin: 0; } .dtop .crumb { color: var(--muted); font-size: 12px; }
+    .dtop .dsearch { margin-left: auto; position: relative; }
+    .dtop .dsearch input { width: 300px; padding: 9px 12px 9px 34px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%236b7486' stroke-width='2'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='m21 21-4.3-4.3'/%3E%3C/svg%3E") no-repeat 11px center; font-size: 13.5px; }
+    .dtop .dsearch kbd { position: absolute; right: 9px; top: 8px; border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; font-size: 11px; background: #fff; color: var(--muted); }
+    .dres { position: absolute; top: 44px; right: 0; width: 360px; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(14,26,51,.15); padding: 6px; max-height: 420px; overflow: auto; }
+    .dres a { display: flex; gap: 10px; align-items: center; padding: 8px 10px; border-radius: 8px; cursor: pointer; color: var(--text); }
+    .dres a.on, .dres a:hover { background: var(--brand-soft); }
+    .dtop .tbtn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 12px; font-size: 13px; font-weight: 600; color: var(--text); }
+    body.desk #content.wrap { max-width: none; margin: 0; padding: 22px 26px 40px; }
+    body.desk.panel #content.wrap { margin-right: 436px; }
+    body.desk #content.cols #adminBody, body.desk #content.cols.mine { columns: 2 460px; column-gap: 18px; }
+    body.desk #content.cols #adminBody > *, body.desk #content.cols.mine > * { break-inside: avoid; }
+    body.desk #content.cols #adminBody > .dfull { column-span: all; }
+    /* Pop-ups become a panel on the right; the page next to it stays usable. */
+    body.desk .modal { background: transparent; pointer-events: none; justify-content: flex-end; align-items: stretch; z-index: 20; }
+    body.desk .modal .sheet { pointer-events: auto; width: 420px; max-width: 420px; height: 100vh; max-height: none; border-radius: 0; padding: 22px;
+      box-shadow: -12px 0 32px rgba(14,26,51,.16); border-left: 1px solid var(--line); animation: dslide .18s ease-out; }
+    @keyframes dslide { from { transform: translateX(30px); opacity: .4; } to { transform: none; opacity: 1; } }
+    /* Desktop pages */
+    .dk { display: grid; gap: 16px; }
+    .dkpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; }
+    .dkpi { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 15px 16px 13px; position: relative; overflow: hidden; }
+    .dkpi:before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c, var(--brand)); }
+    .dkpi .l { color: var(--muted); font-size: 12.5px; font-weight: 600; } .dkpi .v { font-size: 26px; font-weight: 800; margin-top: 4px; white-space: nowrap; }
+    .dkpi .s { font-size: 12px; color: var(--muted); margin-top: 2px; }
+    .dcard { background: #fff; border: 1px solid var(--line); border-radius: 16px; padding: 16px 18px; min-width: 0; }
+    .dcard h3 { font-size: 15px; margin: 0 0 10px; display: flex; align-items: center; gap: 8px; }
+    .dcard h3 .more { margin-left: auto; font-size: 12.5px; color: var(--brand); font-weight: 600; cursor: pointer; }
+    .dtool { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .dtabs { display: flex; gap: 3px; background: #eef1f7; border-radius: 11px; padding: 4px; }
+    .dtabs button { background: none; padding: 6px 12px; border-radius: 8px; font-weight: 600; font-size: 13px; color: var(--muted); white-space: nowrap; }
+    .dtabs button.on { background: #fff; color: var(--text); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+    .dbtn { border: 1px solid var(--line); background: #fff; border-radius: 10px; padding: 8px 13px; font-weight: 600; font-size: 13px; white-space: nowrap; color: var(--text); }
+    .dbtn.pri { background: var(--brand); color: #fff; border-color: var(--brand); } .dbtn.red { background: var(--red-soft); color: var(--red); border-color: transparent; }
+    .dbtn:disabled { opacity: .55; }
+    .dsrch { padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 13.5px; width: 230px; }
+    .dtw { overflow: auto; max-height: calc(100vh - 250px); border: 1px solid var(--line); border-radius: 12px; }
+    table.dt { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+    table.dt th { position: sticky; top: 0; z-index: 1; background: #f7f8fc; text-align: left; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em;
+      color: var(--muted); padding: 9px 10px; border-bottom: 1px solid var(--line); white-space: nowrap; cursor: pointer; user-select: none; }
+    table.dt th:hover { color: var(--text); } table.dt th .ar { font-size: 10px; margin-left: 3px; }
+    table.dt td { padding: 8px 10px; border-bottom: 1px solid #eef1f7; white-space: nowrap; }
+    table.dt tbody tr { cursor: pointer; } table.dt tbody tr:hover td { background: #f8faff; }
+    table.dt tbody tr.sel td { background: #e8eefc; }
+    table.dt .n { text-align: right; font-variant-numeric: tabular-nums; }
+    table.dt th:first-child, table.dt td:first-child { position: sticky; left: 0; z-index: 2; background: #fff; box-shadow: 1px 0 0 var(--line); }
+    table.dt th:first-child { background: #f7f8fc; z-index: 3; } table.dt tbody tr.sel td:first-child { background: #e8eefc; } table.dt tfoot td:first-child { background: #f2f4fa; z-index: 3; }
+    table.dt tfoot td { position: sticky; bottom: 0; background: #f2f4fa; font-weight: 800; border-top: 1px solid var(--line); }
+    .demp { display: flex; align-items: center; gap: 9px; } .demp small { display: block; color: var(--muted); font-size: 11.5px; }
+    .dav { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 700; color: #fff; font-size: 11.5px; flex: none; }
+    .dcols { position: absolute; z-index: 8; background: #fff; border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 12px 30px rgba(14,26,51,.15);
+      padding: 12px; width: 520px; columns: 2; }
+    .dcols label { display: flex; gap: 7px; align-items: center; padding: 3px 0; font-size: 13px; break-inside: avoid; }
+    .dalert { display: flex; gap: 10px; padding: 10px 12px; border-radius: 12px; margin-top: 8px; font-size: 13px; cursor: pointer; }
+    .dalert b { display: block; }
+    .da-red { background: #fef2f2; border: 1px solid #fecaca; } .da-amber { background: #fffbeb; border: 1px solid #fde68a; }
+    .da-blue { background: #eff6ff; border: 1px solid #bfdbfe; } .da-green { background: #f0fdf4; border: 1px solid #bbf7d0; }
+    .dqa { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .dqa button { background: var(--brand-soft); color: var(--brand); border-radius: 10px; padding: 9px; font-weight: 600; text-align: left; }
+    .dlegend { display: flex; gap: 14px; font-size: 12px; color: var(--muted); margin-top: 6px; flex-wrap: wrap; } .dlegend i { display: inline-block; width: 10px; height: 10px; border-radius: 3px; margin-right: 5px; }
+    .dhbar { display: flex; align-items: center; gap: 10px; font-size: 13px; margin: 6px 0; cursor: pointer; }
+    .dhbar .nm { width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .dhbar .tr { flex: 1; background: #eef1f7; border-radius: 6px; height: 14px; overflow: hidden; }
+    .dhbar .tr i { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #7c3aed); border-radius: 6px; } .dhbar .vl { width: 64px; text-align: right; font-weight: 600; }
+    /* Live board */
+    .live { display: grid; gap: 16px; }
+    .live .clock { font-size: 44px; font-weight: 800; letter-spacing: .02em; }
+    .live .lanes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+    .live .lane h3 { margin: 0 0 10px; font-size: 16px; display: flex; gap: 8px; align-items: center; }
+    .live .pcards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+    .live .pc { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 12px; display: flex; gap: 10px; align-items: center; }
+    .live .pc b { display: block; font-size: 14px; } .live .pc small { color: var(--muted); }
+    .live .pc.in { border-left: 5px solid var(--green); } .live .pc.late { border-left: 5px solid var(--amber); } .live .pc.out { border-left: 5px solid var(--gray); } .live .pc.not { border-left: 5px solid var(--red); opacity: .85; }
   </style>
 </head>
 <body>
@@ -285,6 +386,8 @@
 
 <!-- ============ APP ============ -->
 <div id="appView" class="hidden">
+  <aside class="dside" id="dside"></aside>
+  <div class="dtop" id="dtop"></div>
   <div class="top">
     <div class="wrap">
       <div>
@@ -896,6 +999,7 @@
     $('appView').classList.remove('hidden');
     applyLang();
     S.navStack = [];
+    deskInit();
     go('home', true);
   }
 
@@ -933,6 +1037,10 @@
     if (tab === 'month') loadMonth(S.month || ymNow());
     if (tab === 'requests') loadMyRequests();
     if (tab === 'admin') renderAdmin();
+    if (tab === 'dash') loadDash();
+    if (tab === 'live') loadLive();
+    if (tab !== 'live') clearTimeout(S.liveTimer);
+    deskSync();
   }
 
   function setLoading(msg) {
@@ -991,7 +1099,12 @@
       $('reqBadge').classList.toggle('hidden', !h.pendingRequests);
       $('adminBadge').textContent = h.adminMissed ? '!' : '';
       $('adminBadge').classList.toggle('hidden', !h.adminMissed);
-      if (S.tab === 'home') renderHome();
+      // Computer: admins start on the Dashboard (once per opening).
+      var toDash = isDesk() && !S.deskStarted && S.tab === 'home' && can('viewToday');
+      S.deskStarted = true;
+      if (toDash) go('dash', true);
+      else if (S.tab === 'home') renderHome();
+      deskSync();
       if (h.face && faceSupported() && !S.faceLoad) setTimeout(function () { loadFace().catch(function () {}); }, 1500); // models ready before Check In
       if (!h.fromPhone) prefetchTabs();
   }
@@ -1054,7 +1167,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261064;
+  var NEEDS_SERVER = 20261065;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2473,7 +2586,12 @@
     tabs.filter(function (t) { return t.key === a.tab; })[0].load();
   }
   function adminTab(tb) { if (S.admin.tab !== tb) navPush(); S.admin.tab = tb; renderAdmin(); }
-  function adminBody(html) { var el = $('adminBody'); if (el) el.innerHTML = html; }
+  function adminBody(html) {
+    var el = $('adminBody'); if (!el) return;
+    el.innerHTML = html;
+    // Computer: desktop pages (class dk) use the full width; other admin screens are laid out in two columns.
+    if (isDesk()) $('content').classList.toggle('cols', html.indexOf('<div class="dk') !== 0);
+  }
 
   /**
    * Loads an admin screen. A screen seen before is drawn at once from the last answer, then quietly
@@ -2784,6 +2902,7 @@
   function todayShift(days) { loadAdminToday(addDaysLocal(S.todayView.date || todayLocal(), days)); }
 
   function renderAdminToday(r) {
+      if (isDesk()) return deskToday(r);
       var c = r.counts, v = S.todayView;
       v.date = r.date;
       S.adminTodayData = r;
@@ -3214,6 +3333,7 @@
   }
 
   function renderAdminMonth(r) {
+    if (isDesk()) return deskPayroll(r);
     var cur = r.currency, total = 0, ym = r.ym;
     var html = '<div class="card"><div class="month-nav">' +
       '<button onclick="loadAdminMonth(\'' + ymShift(ym, -1) + '\')">‹</button><h2>' + esc(r.label) + '</h2>' +
@@ -4371,9 +4491,466 @@
     }).catch(adminErr);
   }
 
+  /* ================= Desktop (computer) layout =================
+   * On a screen at least 1100 px wide (never inside the Android app) the page gets body.desk: a menu on the left,
+   * a top bar with search (Ctrl K), pop-ups as a panel on the right, and desktop pages for the Dashboard, Live
+   * attendance, Daily register and Payroll (sortable tables, keyboard, column choice, A4 print). Every other screen
+   * is the phone screen laid out in two columns. Phones are not touched: nothing here runs without body.desk.
+   */
+  var DESK_MQ = window.matchMedia ? window.matchMedia('(min-width: 1100px)') : null;
+  function isDesk() { return !NATIVE && !!(DESK_MQ && DESK_MQ.matches); }
+  var DNAV = [
+    ['Overview', [{ k: 'dash', ic: '🏠', l: 'Dashboard', p: 'viewToday' }, { k: 'live', ic: '🟢', l: 'Live attendance', p: 'viewToday' }]],
+    ['Attendance', [{ k: 'a:today', ic: '📋', l: 'Daily register', p: 'viewToday' }, { k: 'a:mark', ic: '📷', l: 'Mark attendance', p: 'markOthers' },
+      { k: 'a:requests', ic: '📝', l: 'Requests', p: ['approveRequests', 'manageAdvances'], badge: 'req' }, { k: 'a:entries', ic: '✏️', l: 'Entries', p: 'editAttendance' }]],
+    ['Payroll', [{ k: 'a:payroll', ic: '💰', l: 'Payroll', p: 'viewPayroll' }, { k: 'a:advances', ic: '💳', l: 'Advances & purchases', p: 'manageAdvances' },
+      { k: 'a:summary', ic: '📊', l: 'Monthly summary', p: 'viewSummary' }, { k: 'a:pf', ic: '🏛', l: 'PF setup', p: 'editPf' }]],
+    ['People', [{ k: 'a:staff', ic: '👥', l: 'Employees', p: 'manageEmployees' }, { k: 'a:holidays', ic: '🎉', l: 'Holidays & short days', p: 'manageHolidays' },
+      { k: 'a:admins', ic: '🛡', l: 'Admins & speed', p: 'superAdmin' }, { k: 'a:log', ic: '🕘', l: 'Activity log', p: 'superAdmin' }]],
+    ['Me', [{ k: 'home', ic: '⏱', l: 'My attendance', me: 1 }, { k: 'month', ic: '📅', l: 'My month', me: 1 }, { k: 'requests', ic: '✉️', l: 'My requests', me: 1 }]]
+  ];
+  function dItems() {
+    var guard = S.home && S.home.guard, out = [];
+    DNAV.forEach(function (g) {
+      var items = g[1].filter(function (i) { return guard ? i.k === 'a:mark' : i.me ? true : can(i.p); });
+      if (items.length) out.push([g[0], items]);
+    });
+    return out;
+  }
+  function dKey() { return S.tab === 'admin' ? 'a:' + S.admin.tab : S.tab; }
+  function dgo(k) {
+    $('dres') && $('dres').classList.add('hidden');
+    if (k.indexOf('a:') === 0) {
+      var tb = k.slice(2);
+      if (S.tab !== 'admin' || S.admin.tab !== tb) navPush();
+      S.admin.tab = tb; closeModal(); go('admin', true);
+    } else { closeModal(); go(k); }
+  }
+  /** Turns the desktop layout on / off (window resized across 1100 px) and draws the menu and top bar. */
+  function deskInit() {
+    var on = isDesk();
+    document.body.classList.toggle('desk', on);
+    try { document.body.classList.toggle('dcol', on && load('att_dcol') === '1'); } catch (e) {}
+    if (DESK_MQ && !S.deskMqHooked) {
+      S.deskMqHooked = true;
+      var h = function () { var was = document.body.classList.contains('desk'); deskInit(); if (was !== isDesk() && S.token && S.tab) go(S.tab, true); };
+      if (DESK_MQ.addEventListener) DESK_MQ.addEventListener('change', h); else if (DESK_MQ.addListener) DESK_MQ.addListener(h);
+      document.addEventListener('keydown', deskKey);
+    }
+    deskSync();
+  }
+  function deskSync() {
+    if (!isDesk() || !S.token) return;
+    var key = dKey(), cur = null, p = S.profile || {};
+    var html = '<div class="logo"><i>🦶</i><div>' + esc((S.home && S.home.company) || 'Attendance') + '<small>Attendance &amp; Payroll</small></div></div>';
+    dItems().forEach(function (g) {
+      html += '<div class="grp">' + esc(t(g[0])) + '</div>';
+      g[1].forEach(function (i) {
+        if (i.k === key) cur = i;
+        var np = i.badge === 'req' && S.dash && S.dash.requests ? S.dash.requests.total : 0, bd = np ? '<span class="bd">' + np + '</span>' : '';
+        html += '<a class="' + (i.k === key ? 'on' : '') + '" title="' + esc(t(i.l)) + '" onclick="dgo(\'' + i.k + '\')"><span class="ic">' + i.ic + '</span><span class="lbl">' + esc(t(i.l)) + '</span>' + bd + '</a>';
+      });
+    });
+    $('dside').innerHTML = html;
+    var title = cur ? t(cur.l) : '', group = '';
+    dItems().forEach(function (g) { if (g[1].indexOf(cur) >= 0) group = t(g[0]); });
+    var hi = load('att_lang') === 'hi';
+    $('dtop').innerHTML = '<button class="tbtn" title="' + (document.body.classList.contains('dcol') ? 'Show the menu' : 'Collapse the menu') + '" onclick="deskCollapse()">☰</button>' +
+      '<div><div class="crumb">' + esc(group) + (group ? ' › ' : '') + esc(fmtDate(todayLocal())) + '</div><h1>' + esc(title) + '</h1></div>' +
+      '<div class="dsearch"><input id="dq" placeholder="Search people, pages…" autocomplete="off" oninput="deskSearch(this.value)" onfocus="deskSearch(this.value)" onkeydown="deskSearchKey(event)">' +
+      '<kbd>Ctrl K</kbd><div class="dres hidden" id="dres"></div></div>' +
+      '<button class="tbtn" onclick="setLang(\'' + (hi ? 'en' : 'hi') + '\')">' + (hi ? 'English' : 'हिंदी') + '</button>' +
+      '<div class="duser">' + dav(p.name || '?', p.id) + '<div><b>' + esc(p.name || '') + '</b><small>' + esc((p.role || '').replace('_', ' ').toLowerCase()) + ' · ' + esc(p.id || '') + '</small></div>' +
+      '<button class="tbtn" onclick="openChangePin()" title="Change PIN">🔑 PIN</button><button class="tbtn" onclick="doLogout()" title="Logout">⏻</button></div>';
+    // Phone screens laid out in two columns; desktop pages (class dk) use the full width.
+    var c = $('content');
+    c.classList.toggle('mine', S.tab === 'home' || S.tab === 'month' || S.tab === 'requests');
+    if (S.tab !== 'admin') c.classList.toggle('cols', S.tab !== 'dash' && S.tab !== 'live'); // admin screens: set by adminBody()
+  }
+  function deskCollapse() {
+    var on = !document.body.classList.contains('dcol');
+    document.body.classList.toggle('dcol', on); store('att_dcol', on ? '1' : null); deskSync();
+  }
+  /* ---- Search (Ctrl K): pages and employees ---- */
+  function deskSearch(q) {
+    q = String(q || '').toLowerCase().trim();
+    var res = [], box = $('dres');
+    dItems().forEach(function (g) { g[1].forEach(function (i) { if (!q || t(i.l).toLowerCase().indexOf(q) >= 0) res.push({ ic: i.ic, label: t(i.l), sub: t(g[0]), go: "dgo('" + i.k + "')" }); }); });
+    var emps = (S.dash && S.dash.employees) || (S.adminTodayData && S.adminTodayData.list) || [];
+    if (q && can(['viewPayroll', 'viewSummary', 'editAttendance', 'approveRequests'])) emps.forEach(function (e) {
+      if (e.name.toLowerCase().indexOf(q) >= 0 || e.id.toLowerCase().indexOf(q) >= 0) res.push({ ic: '👤', label: e.name, sub: e.id + ' · open month', go: "deskOpenEmp('" + esc(e.id) + "')" });
+    });
+    res = res.slice(0, 14); S.dres = res; S.dresSel = 0;
+    box.innerHTML = res.length ? res.map(function (r, i) { return '<a class="' + (i ? '' : 'on') + '" onmousedown="' + r.go + '"><span>' + r.ic + '</span><span>' + esc(r.label) + '<br><small class="muted">' + esc(r.sub) + '</small></span></a>'; }).join('') : '<div class="muted small" style="padding:10px">No match</div>';
+    box.classList.remove('hidden');
+  }
+  function deskSearchKey(ev) {
+    var box = $('dres'), n = (S.dres || []).length;
+    if (ev.key === 'Escape') { box.classList.add('hidden'); ev.target.blur(); return; }
+    if (!n) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); S.dresSel = (S.dresSel + (ev.key === 'ArrowDown' ? 1 : n - 1)) % n;
+      [].forEach.call(box.querySelectorAll('a'), function (a, i) { a.classList.toggle('on', i === S.dresSel); }); }
+    if (ev.key === 'Enter') { ev.preventDefault(); ev.target.blur(); box.classList.add('hidden'); (new Function(S.dres[S.dresSel].go))(); }
+  }
+  document.addEventListener('click', function (e) { var b = $('dres'); if (b && !e.target.closest('.dsearch')) b.classList.add('hidden'); });
+  function deskOpenEmp(id) {
+    $('dres').classList.add('hidden');
+    S.admin.tab = can('viewPayroll') ? 'payroll' : 'today'; navPush(); go('admin', true);
+    openEmployee(id, ymNow());
+  }
+  /* ---- Keyboard: Ctrl K search · ↑ ↓ rows · Enter open · E edit · Esc close ---- */
+  function deskKey(ev) {
+    if (!isDesk()) return;
+    if ((ev.ctrlKey || ev.metaKey) && (ev.key === 'k' || ev.key === 'K')) { ev.preventDefault(); var q = $('dq'); if (q) { q.focus(); q.select(); } return; }
+    var typing = /INPUT|TEXTAREA|SELECT/.test((document.activeElement || {}).tagName || '');
+    if (ev.key === 'Escape' && !typing && !$('modal').classList.contains('hidden')) { closeModal(); return; }
+    if (typing || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    var T = S.dtActive && DT[S.dtActive];
+    if (!T || !document.getElementById('dt-' + S.dtActive)) return;
+    if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') { ev.preventDefault(); dtMove(S.dtActive, ev.key === 'ArrowDown' ? 1 : -1); }
+    else if (ev.key === 'Enter' && T.sel >= 0) dtOpen(S.dtActive, T.sel);
+    else if ((ev.key === 'e' || ev.key === 'E') && T.sel >= 0 && T.onEdit) T.onEdit(T.view[T.sel]);
+  }
+
+  /* ---- Sortable table: DT[id] = { cols, rows, view, sort, dir, sel, vis, onOpen, onEdit, filter } ----
+   * col = { k, l (label), v (sort value), f (cell html), n (number: right-aligned, totals), sum (total in the footer), fixed, def (shown by default) }
+   */
+  var DT = {};
+  function dtSetup(id, o) {
+    var old = DT[id] || {}, vis = {};
+    try { vis = JSON.parse(load('att_cols_' + id) || 'null') || null; } catch (e) { vis = null; }
+    if (!vis) { vis = {}; o.cols.forEach(function (c) { vis[c.k] = c.def !== false; }); }
+    DT[id] = Object.assign({ sort: old.sort || o.sort || null, dir: old.dir || o.dir || 1, sel: -1, q: old.q || '', tab: old.tab || o.tab || '' }, o, { vis: vis });
+    S.dtActive = id;
+  }
+  function dtCols(id) { var T = DT[id]; return T.cols.filter(function (c) { return c.fixed || T.vis[c.k] !== false; }); }
+  function dtHtml(id) {
+    var T = DT[id], cols = dtCols(id), q = (T.q || '').toLowerCase();
+    var rows = T.rows.filter(function (r) { return (!T.filter || T.filter(r, T.tab)) && (!q || (r.name + ' ' + r.id).toLowerCase().indexOf(q) >= 0); });
+    if (T.sort) {
+      var c = T.cols.filter(function (x) { return x.k === T.sort; })[0];
+      if (c) rows.sort(function (a, b) { var x = c.v(a), y = c.v(b); if (typeof x === 'string' || typeof y === 'string') return String(x).localeCompare(String(y)) * T.dir; return ((x || 0) - (y || 0)) * T.dir; });
+    }
+    T.view = rows;
+    var html = '<table class="dt"><thead><tr>' + cols.map(function (c) {
+      return '<th class="' + (c.n ? 'n' : '') + '" onclick="dtSort(\'' + id + '\',\'' + c.k + '\')" title="Sort">' + esc(c.l) + (T.sort === c.k ? '<span class="ar">' + (T.dir > 0 ? '▲' : '▼') + '</span>' : '') + '</th>';
+    }).join('') + '</tr></thead><tbody>' + rows.map(function (r, i) {
+      return '<tr class="' + (i === T.sel ? 'sel' : '') + '" onclick="dtOpen(\'' + id + '\',' + i + ')">' + cols.map(function (c) { return '<td class="' + (c.n ? 'n' : '') + '">' + c.f(r) + '</td>'; }).join('') + '</tr>';
+    }).join('') + '</tbody>';
+    if (T.totals && rows.length) html += '<tfoot><tr>' + cols.map(function (c, ci) {
+      if (ci === 0) return '<td>Total (' + rows.length + ')</td>';
+      if (!c.sum) return '<td></td>';
+      var s = rows.reduce(function (n, r) { return n + (Number(c.v(r)) || 0); }, 0);
+      return '<td class="n">' + (c.sumF ? c.sumF(s) : num(s)) + '</td>';
+    }).join('') + '</tr></tfoot>';
+    if (!rows.length) html += '<tbody><tr><td colspan="' + cols.length + '" class="muted" style="text-align:center;padding:24px">Nothing to show</td></tr></tbody>';
+    return html + '</table>';
+  }
+  function dtDraw(id) { var el = $('dt-' + id); if (el) el.innerHTML = dtHtml(id); var c = $('dtc-' + id); if (c) c.textContent = (DT[id].view || []).length; }
+  function dtSort(id, k) { var T = DT[id]; T.dir = T.sort === k ? -T.dir : (T.cols.filter(function (c) { return c.k === k; })[0].n ? -1 : 1); T.sort = k; T.sel = -1; dtDraw(id); }
+  function dtOpen(id, i) { var T = DT[id]; T.sel = i; S.dtActive = id; dtDraw(id); if (T.onOpen && T.view[i]) T.onOpen(T.view[i]); }
+  function dtMove(id, d) {
+    var T = DT[id], n = (T.view || []).length; if (!n) return;
+    dtOpen(id, T.sel < 0 ? 0 : Math.max(0, Math.min(n - 1, T.sel + d)));
+    var tr = document.querySelector('#dt-' + id + ' tbody tr.sel'); if (tr && tr.scrollIntoView) tr.scrollIntoView({ block: 'nearest' });
+  }
+  function dtQ(id, v) { DT[id].q = v; DT[id].sel = -1; dtDraw(id); }
+  function dtTab(id, tab) { DT[id].tab = tab; DT[id].sel = -1; dtDraw(id);
+    [].forEach.call(document.querySelectorAll('[data-dtab="' + id + '"] button'), function (b) { b.classList.toggle('on', b.getAttribute('data-t') === tab); }); }
+  function dtTabs(id, list) {
+    return '<div class="dtabs" data-dtab="' + id + '">' + list.map(function (x) { return '<button data-t="' + x[0] + '" class="' + (DT[id].tab === x[0] ? 'on' : '') + '" onclick="dtTab(\'' + id + '\',\'' + x[0] + '\')">' + x[1] + '</button>'; }).join('') + '</div>';
+  }
+  /** Column chooser: All / a choice of columns, remembered on this computer. forPrint = print with these columns afterwards. */
+  function dtChooser(id, btn, forPrint) {
+    var T = DT[id], old = $('dcols'); if (old) { old.remove(); if (!forPrint && old.getAttribute('data-p') !== '1') return; }
+    var opt = T.cols.filter(function (c) { return !c.fixed; });
+    var all = opt.every(function (c) { return T.vis[c.k] !== false; });
+    var box = document.createElement('div'); box.id = 'dcols'; box.className = 'dcols'; box.setAttribute('data-p', forPrint ? '1' : '');
+    box.innerHTML = '<label style="font-weight:700;column-span:all"><input type="checkbox" id="dcAll"' + (all ? ' checked' : '') + ' onchange="dtAll(\'' + id + '\',this.checked)"> All columns</label>' +
+      opt.map(function (c) { return '<label><input type="checkbox" class="dcOne" data-k="' + c.k + '"' + (T.vis[c.k] !== false ? ' checked' : '') + ' onchange="dtVis(\'' + id + '\',\'' + c.k + '\',this.checked)"> ' + esc(c.l) + '</label>'; }).join('') +
+      '<div style="column-span:all;display:flex;gap:8px;margin-top:10px"><button class="dbtn" onclick="dtDefault(\'' + id + '\')">Default</button>' +
+      (forPrint ? '<button class="dbtn pri" onclick="$(\'dcols\').remove();dtPrint(\'' + id + '\')">🖨 Print these columns</button>' : '') +
+      '<button class="dbtn" style="margin-left:auto" onclick="$(\'dcols\').remove()">Close</button></div>';
+    var r = btn.getBoundingClientRect();
+    box.style.top = (r.bottom + window.scrollY + 6) + 'px'; box.style.left = Math.max(10, Math.min(r.left, window.innerWidth - 540)) + 'px';
+    document.body.appendChild(box);
+  }
+  function dtSave(id) { store('att_cols_' + id, JSON.stringify(DT[id].vis)); dtDraw(id); var b = $('dcb-' + id); if (b) b.textContent = '☰ Columns (' + (dtCols(id).length) + '/' + DT[id].cols.length + ')'; }
+  function dtVis(id, k, on) { DT[id].vis[k] = on; var all = $('dcAll'); if (all) all.checked = [].every.call(document.querySelectorAll('.dcOne'), function (c) { return c.checked; }); dtSave(id); }
+  function dtAll(id, on) { DT[id].cols.forEach(function (c) { if (!c.fixed) DT[id].vis[c.k] = on; }); [].forEach.call(document.querySelectorAll('.dcOne'), function (c) { c.checked = on; }); dtSave(id); }
+  function dtDefault(id) { DT[id].cols.forEach(function (c) { DT[id].vis[c.k] = c.def !== false; }); [].forEach.call(document.querySelectorAll('.dcOne'), function (c) { c.checked = DT[id].vis[c.getAttribute('data-k')]; });
+    var all = $('dcAll'); if (all) all.checked = false; dtSave(id); }
+  /** A4 print of the table as it is shown (filter, sort, chosen columns), landscape when it is wide. */
+  function dtPrint(id) {
+    var T = DT[id], cols = dtCols(id), rows = T.view || [];
+    var txt = function (h) { var d = document.createElement('div'); d.innerHTML = h; return d.textContent; };
+    var land = cols.length > 7, fs = cols.length > 16 ? 8 : cols.length > 11 ? 9 : 10.5;
+    var body = '<table><thead><tr>' + cols.map(function (c) { return '<th class="' + (c.n ? 'n' : '') + '">' + esc(c.l) + '</th>'; }).join('') + '</tr></thead><tbody>' +
+      rows.map(function (r) { return '<tr>' + cols.map(function (c) { return '<td class="' + (c.n ? 'n' : '') + '">' + esc(c.p ? c.p(r) : txt(c.f(r))) + '</td>'; }).join('') + '</tr>'; }).join('') + '</tbody>';
+    if (T.totals) body += '<tfoot><tr>' + cols.map(function (c, ci) {
+      if (ci === 0) return '<td>Total (' + rows.length + ')</td>';
+      if (!c.sum) return '<td></td>';
+      var s = rows.reduce(function (n, r) { return n + (Number(c.v(r)) || 0); }, 0);
+      return '<td class="n">' + esc(txt(c.sumF ? c.sumF(s) : num(s))) + '</td>';
+    }).join('') + '</tr></tfoot>';
+    var doc = '<!DOCTYPE html><html><head><meta charset="utf-8"><title>' + esc(T.title || '') + '</title><style>' +
+      '@page{size:A4 ' + (land ? 'landscape' : 'portrait') + ';margin:10mm}body{font-family:Arial,Helvetica,sans-serif;color:#111;font-size:' + fs + 'px}' +
+      'h1{font-size:15px;margin:0}p{margin:2px 0 8px;color:#555}table{width:100%;border-collapse:collapse}th,td{border:1px solid #bbb;padding:3px 4px;text-align:left}' +
+      'th{background:#eef1f7}td.n,th.n{text-align:right}tfoot td{font-weight:bold;background:#f5f5f5}thead{display:table-header-group}tr{page-break-inside:avoid}</style></head><body>' +
+      '<h1>' + esc(T.title || '') + '</h1><p>' + esc(T.sub || '') + ' · printed ' + esc(fmtDate(todayLocal())) + '</p>' + body + '</table></body></html>';
+    var f = document.createElement('iframe'); f.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0';
+    document.body.appendChild(f);
+    f.contentDocument.open(); f.contentDocument.write(doc); f.contentDocument.close();
+    // print() waits until the print dialog closes; then the frame goes and the keyboard is back on the page (Ctrl K, ↑ ↓).
+    setTimeout(function () { try { f.contentWindow.focus(); f.contentWindow.print(); } catch (e) { toast('Printing is not available here.'); } setTimeout(function () { f.remove(); window.focus(); }, 500); }, 300);
+  }
+
+  var DCOL = ['#2f5fe3', '#0d9488', '#7c3aed', '#d97706', '#db2777', '#16a34a', '#0891b2', '#9333ea'];
+  function dav(name, id) {
+    var h = 0; String(id || name).split('').forEach(function (c) { h = (h * 31 + c.charCodeAt(0)) % 997; });
+    return '<div class="dav" style="background:' + DCOL[h % DCOL.length] + '">' + esc(String(name || '?').split(' ').map(function (w) { return w.charAt(0); }).join('').slice(0, 2).toUpperCase()) + '</div>';
+  }
+  function demp(e) { return '<div class="demp">' + dav(e.name, e.id) + '<div>' + esc(e.name) + '<small>' + esc(e.id) + '</small></div></div>'; }
+  function dkpi(c, label, value, sub) { return '<div class="dkpi" style="--c:' + c + '"><div class="l">' + label + '</div><div class="v">' + value + '</div>' + (sub ? '<div class="s">' + sub + '</div>' : '') + '</div>'; }
+
+  /* ---- Dashboard ---- */
+  function loadDash() {
+    S.viewCache = S.viewCache || {};
+    var cached = S.viewCache.dash;
+    if (cached) renderDash(JSON.parse(cached)); else $('content').innerHTML = '<div class="dcard center"><div class="spinner"></div></div>';
+    api('adminDashboard', S.token).then(function (r) { var j = JSON.stringify(r); if (S.tab !== 'dash' || j === cached) return; S.viewCache.dash = j; renderDash(r); })
+      .catch(function (e) { if (S.tab === 'dash' && !cached) setError(e, 'loadDash()'); });
+  }
+  function renderDash(r) {
+    S.dash = r;
+    var td = r.today, c = td.counts, cur = r.currency || '₹', name = ((S.profile && S.profile.name) || '').split(' ')[0];
+    var hr = new Date().getHours(), hello = hr < 12 ? 'Good morning' : hr < 17 ? 'Good afternoon' : 'Good evening';
+    var present = td.list.filter(function (e) { return e.in; }).length;
+    var leave = td.list.filter(function (e) { return e.status === 'LEAVE'; }).length;
+    var notIn = td.list.filter(function (e) { return !e.in && ['LEAVE', 'WEEK_OFF', 'HOLIDAY'].indexOf(e.status) < 0; });
+    var pct = c.total ? Math.round(present / c.total * 100) : 0;
+    var html = '<div class="dk"><div class="row"><h2 style="margin:0;font-size:20px">' + hello + ', ' + esc(name) + ' 👋</h2><span class="muted">' + (td.offType ? chip(td.offType) + ' ' : '') +
+      esc(fmtDate(td.date)) + ' · <button class="link" onclick="S.viewCache.dash=null;loadDash()">↻ Refresh</button></span></div>';
+    html += '<div class="dkpis">' +
+      dkpi('#16a34a', 'Present today', present + '<span class="muted" style="font-size:15px"> / ' + c.total + '</span>', pct + '% checked in' + (c.out ? ' · ' + c.out + ' left' : '')) +
+      dkpi('#d97706', 'Late today', c.late, td.list.filter(function (e) { return e.late; }).slice(0, 3).map(function (e) { return esc(e.name.split(' ')[0]); }).join(', ') || 'No one late') +
+      dkpi('#dc2626', 'Not in yet', notIn.length, notIn.slice(0, 3).map(function (e) { return esc(e.name.split(' ')[0]); }).join(', ') + (leave ? ' · ' + leave + ' on leave' : '')) +
+      (r.otTotal ? dkpi('#7c3aed', 'OT this month', mins(r.otTotal.min), '≈ ' + money(r.otTotal.pay, cur) + ' to pay') : '') +
+      (r.prev ? dkpi('#2f5fe3', 'Payroll ' + esc(r.prev.label), money(r.prev.total, cur), r.prev.locked ? '🔒 Locked' : r.prev.autoLock && r.prev.autoLock.on ? '🔒 Locks automatically ' + esc(fmtDate(r.prev.autoLock.on)) : r.prev.autoLock && r.prev.autoLock.waiting ? '⚠ Lock waiting' : 'Not locked yet') : '') +
+      '</div>';
+    // Charts
+    html += '<div style="display:grid;grid-template-columns:' + (r.ot ? '1.6fr 1fr' : '1fr') + ';gap:16px">' +
+      '<div class="dcard"><h3>📈 Attendance – last 30 days</h3>' + trendSvg(r.trend) +
+      '<div class="dlegend"><span><i style="background:#22c55e"></i>Present (on time)</span><span><i style="background:#f59e0b"></i>Late</span><span><i style="background:#a78bfa"></i>Leave</span><span><i style="background:#ef4444"></i>Absent</span><span><i style="background:#eef1f7"></i>Sunday / holiday</span></div></div>' +
+      (r.ot ? '<div class="dcard"><h3>⏱ OT by employee – ' + esc(r.month.label) + '<span class="more" onclick="dgo(\'a:payroll\')">Payroll →</span></h3>' +
+        (r.ot.length ? r.ot.map(function (o) { var w = Math.max(3, Math.round(o.otMin / r.ot[0].otMin * 100));
+          return '<div class="dhbar" onclick="deskOpenEmp(\'' + esc(o.id) + '\')"><span class="nm">' + esc(o.name) + '</span><span class="tr"><i style="width:' + w + '%"></i></span><span class="vl">' + mins(o.otMin) + '</span></div>'; }).join('')
+          : '<p class="muted">No OT yet this month.</p>') + '</div>' : '') + '</div>';
+    // Today + attention
+    var att = [];
+    if (td.missed && td.missed.length) att.push(['da-red', '⏰', td.missed.length + ' missed check-out(s)', 'Clear them' + (r.prev && !r.prev.locked ? ' before ' + esc(r.prev.label) + ' locks' : ''), "dgo('a:today')"]);
+    if (r.requests && r.requests.total) att.push(['da-amber', '📝', r.requests.total + ' request(s) waiting', [r.requests.leave ? r.requests.leave + ' leave' : '', r.requests.correction ? r.requests.correction + ' correction' : '', r.requests.advance ? r.requests.advance + ' advance' : ''].filter(String).join(' · '), "dgo('a:requests')"]);
+    if (c.flagged) att.push(['da-red', '⚠', c.flagged + ' suspicious check-in(s)', 'Check their selfies in the Daily register', "dgo('a:today')"]);
+    if (r.prev && r.prev.autoLock && r.prev.autoLock.waiting) att.push(['da-red', '🔒', 'Automatic lock of ' + esc(r.prev.label) + ' is waiting', esc(r.prev.autoLock.waiting), "dgo('a:payroll')"]);
+    if (r.birthdays && r.birthdays.length) att.push(['da-green', '🎂', 'Birthday today: ' + esc(r.birthdays.join(', ')), 'Wishes show on everyone\'s app', '']);
+    if (!att.length) att.push(['da-green', '✅', 'All clear', 'Nothing waiting for you right now', '']);
+    var qa = [['📷 Mark attendance', "dgo('a:mark')", 'markOthers'], ['💳 Give advance', "dgo('a:advances')", 'manageAdvances'], ['🛒 Add purchase', "dgo('a:advances')", 'manageAdvances'],
+      ['🎉 Add holiday', "dgo('a:holidays')", 'manageHolidays'], ['⬇ Payroll', "dgo('a:payroll')", 'viewPayroll'], ['👤 Employees', "dgo('a:staff')", 'manageEmployees'], ['🟢 Live board', "dgo('live')", 'viewToday']]
+      .filter(function (q) { return can(q[2]); });
+    html += '<div style="display:grid;grid-template-columns:1.6fr 1fr;gap:16px;align-items:start">' +
+      '<div class="dcard"><h3>📋 Today<span class="more" onclick="dgo(\'a:today\')">Open daily register →</span></h3><div class="dtw" style="max-height:420px"><table class="dt"><thead><tr><th>Employee</th><th>In</th><th>Out</th><th>Status</th></tr></thead><tbody>' +
+      td.list.slice().sort(function (a, b) { return (a.in ? 0 : 1) - (b.in ? 0 : 1) || String(a.in).localeCompare(String(b.in)); }).map(function (e) {
+        return '<tr onclick="deskOpenEmp(\'' + esc(e.id) + '\')"><td>' + demp(e) + '</td><td>' + esc(e.in || '—') + '</td><td>' + esc(e.out || '—') + '</td><td>' + chip(e.status) + lateChip(e.late) + '</td></tr>'; }).join('') +
+      '</tbody></table></div></div>' +
+      '<div style="display:grid;gap:16px"><div class="dcard"><h3>⚡ Needs your attention</h3>' + att.map(function (a) {
+        return '<div class="dalert ' + a[0] + '"' + (a[4] ? ' onclick="' + a[4] + '"' : '') + '><span>' + a[1] + '</span><div><b>' + a[2] + '</b>' + a[3] + '</div></div>'; }).join('') + '</div>' +
+      (qa.length ? '<div class="dcard"><h3>⚡ Quick actions</h3><div class="dqa">' + qa.map(function (q) { return '<button onclick="' + q[1] + '">' + q[0] + '</button>'; }).join('') + '</div></div>' : '') +
+      '</div></div></div>';
+    $('content').innerHTML = html;
+    deskSync(); // menu badge (requests waiting)
+  }
+  /** Stacked bars per day: present on time, late, leave, absent (working days); Sundays / holidays as light bars. */
+  function trendSvg(tr) {
+    if (!tr || !tr.length) return '<p class="muted">No data yet.</p>';
+    var W = 760, H = 210, pad = 26, bw = (W - pad) / tr.length, max = 1;
+    tr.forEach(function (d) { max = Math.max(max, d.present + d.absent + d.leave); });
+    var y = function (v) { return (H - 22) * v / max; };
+    var svg = '<svg viewBox="0 0 ' + W + ' ' + H + '" style="width:100%;height:auto;display:block">';
+    for (var g = 0; g <= 4; g++) { var gy = H - 22 - (H - 22) * g / 4; svg += '<line x1="' + pad + '" x2="' + W + '" y1="' + gy + '" y2="' + gy + '" stroke="#eef1f7"/><text x="0" y="' + Math.max(10, gy + 4) + '" font-size="10" fill="#8a93a5">' + Math.round(max * g / 4) + '</text>'; }
+    tr.forEach(function (d, i) {
+      var x = pad + i * bw + 2, w = Math.max(2, bw - 4), base = H - 22, parts = [[d.present - d.late, '#22c55e'], [d.late, '#f59e0b'], [d.leave, '#a78bfa'], [d.absent, '#ef4444']];
+      if (d.off && !d.present) svg += '<rect x="' + x + '" y="' + (base - y(max)) + '" width="' + w + '" height="' + y(max) + '" fill="#f3f5fa" rx="3"/>';
+      parts.forEach(function (p) { if (p[0] > 0) { var h = y(p[0]); base -= h; svg += '<rect x="' + x + '" y="' + base + '" width="' + w + '" height="' + h + '" fill="' + p[1] + '" rx="2"><title>' + esc(fmtDate(d.date)) + ': ' + d.present + ' present (' + d.late + ' late), ' + d.leave + ' leave, ' + d.absent + ' absent</title></rect>'; } });
+      if (i % 5 === 0 || i === tr.length - 1) svg += '<text x="' + (x + w / 2) + '" y="' + (H - 6) + '" font-size="10" text-anchor="middle" fill="#8a93a5">' + d.date.slice(8) + '/' + d.date.slice(5, 7) + '</text>';
+    });
+    return svg + '</svg>';
+  }
+
+  /* ---- Live attendance (office screen): refreshes every minute ---- */
+  function loadLive() {
+    clearTimeout(S.liveTimer);
+    if (!S.liveData) $('content').innerHTML = '<div class="dcard center"><div class="spinner"></div></div>';
+    api('adminToday', S.token, null).then(function (r) { S.liveData = r; S.liveAt = new Date(); if (S.tab === 'live') renderLive(); })
+      .catch(function (e) { if (S.tab === 'live' && !S.liveData) setError(e, 'loadLive()'); })
+      .then(function () { if (S.tab === 'live') S.liveTimer = setTimeout(loadLive, 60000); });
+  }
+  function renderLive() {
+    var r = S.liveData, L = r.list;
+    var inside = L.filter(function (e) { return e.in && !e.out; }), left = L.filter(function (e) { return e.in && e.out; });
+    var notIn = L.filter(function (e) { return !e.in; });
+    var pc = function (e, cls, sub) { return '<div class="pc ' + cls + '">' + dav(e.name, e.id) + '<div><b>' + esc(e.name) + '</b><small>' + sub + '</small></div></div>'; };
+    var lane = function (title, list, f, empty) { return '<div class="lane dcard"><h3>' + title + ' <span class="chip s-NOT_MARKED">' + list.length + '</span></h3><div class="pcards">' + (list.length ? list.map(f).join('') : '<p class="muted">' + empty + '</p>') + '</div></div>'; };
+    var now = new Date();
+    var html = '<div class="live"><div class="row"><div><div class="clock" id="liveClock">' + pad(now.getHours()) + ':' + pad(now.getMinutes()) + '</div><div class="muted">' + esc(fmtDate(r.date)) +
+      (r.offType ? ' · ' + chip(r.offType) : '') + ' · updated ' + pad(S.liveAt.getHours()) + ':' + pad(S.liveAt.getMinutes()) + ' · refreshes every minute</div></div>' +
+      '<div class="dkpis" style="flex:1;max-width:760px;margin-left:30px">' + dkpi('#16a34a', 'In office', inside.length) + dkpi('#d97706', 'Late', r.counts.late) + dkpi('#6b7486', 'Left', left.length) + dkpi('#dc2626', 'Not in', notIn.length) + '</div>' +
+      '<button class="dbtn" onclick="liveFull()">⛶ Full screen</button></div>' +
+      '<div class="lanes">' +
+      lane('🟢 In office', inside.sort(function (a, b) { return a.in.localeCompare(b.in); }), function (e) { return pc(e, e.late ? 'late' : 'in', 'In ' + esc(e.in) + (e.late ? ' · late' : '')); }, 'No one checked in yet') +
+      lane('⚪ Not in', notIn, function (e) { return pc(e, 'not', e.status === 'LEAVE' ? 'On leave' : e.status === 'NOT_MARKED' ? 'Not marked' : esc(STATUS[e.status] || e.status)); }, 'Everyone is in 🎉') +
+      lane('🏠 Left', left.sort(function (a, b) { return b.out.localeCompare(a.out); }), function (e) { return pc(e, 'out', esc(e.in) + ' → ' + esc(e.out)); }, 'No one has left yet') +
+      '</div></div>';
+    $('content').innerHTML = html;
+    clearInterval(S.liveClock);
+    S.liveClock = setInterval(function () { var c = $('liveClock'); if (!c || S.tab !== 'live') return clearInterval(S.liveClock); var n = new Date(); c.textContent = pad(n.getHours()) + ':' + pad(n.getMinutes()); }, 10000);
+  }
+  function liveFull() { var el = document.documentElement; if (document.fullscreenElement) document.exitFullscreen(); else if (el.requestFullscreen) el.requestFullscreen(); }
+
+  /* ---- Daily register (desktop) ---- */
+  function deskToday(r) {
+    S.adminTodayData = r; S.adminToday = r.list;
+    var c = r.counts, isToday = r.isToday !== undefined ? r.isToday : true;
+    var notIn = function (e) { return !e.in; };
+    dtSetup('reg', {
+      title: 'Daily register – ' + fmtDate(r.date), sub: c.in + ' of ' + c.total + ' checked in', tab: (DT.reg && DT.reg.tab) || 'ALL',
+      rows: r.list.map(function (e, i) { return Object.assign({ _i: i }, e); }),
+      filter: function (e, tab) { return tab === 'IN' ? !!e.in : tab === 'LATE' ? e.late : tab === 'NOT' ? notIn(e) : tab === 'FLAG' ? e.flags.some(function (f) { return f !== 'PROXY' && f !== 'FACE'; }) : true; },
+      cols: [
+        { k: 'name', l: 'Employee', fixed: true, v: function (e) { return e.name; }, f: demp, p: function (e) { return e.name + ' (' + e.id + ')'; } },
+        { k: 'in', l: 'In', v: function (e) { return e.in || '~'; }, f: function (e) { return esc(e.in || '—'); } },
+        { k: 'out', l: 'Out', v: function (e) { return e.out || '~'; }, f: function (e) { return esc(e.out || '—'); } },
+        { k: 'worked', l: 'Worked', n: 1, v: function (e) { return e.worked || 0; }, f: function (e) { return e.worked ? hrs(e.worked) : '–'; } },
+        { k: 'status', l: 'Status', v: function (e) { return (e.late ? 'A' : 'B') + e.status; }, f: function (e) { return chip(e.status) + lateChip(e.late); }, p: function (e) { return (STATUS[e.status] || e.status) + (e.late ? ', late' : ''); } },
+        { k: 'dist', l: 'Distance', n: 1, v: function (e) { return e.distance === '' ? 1e9 : Number(e.distance); }, f: function (e) { return e.distance !== '' ? esc(dist(e.distance)) + (e.accuracy !== '' ? ' <span class="muted">±' + esc(e.accuracy) + ' m</span>' : '') : '–'; } },
+        { k: 'marked', l: 'Marked by', v: function (e) { return e.markedBy || ''; }, f: function (e) { return e.flags.length ? flagChips(e.flags, e.markedBy) : e.in ? '<span class="muted">Own phone</span>' : '–'; } },
+        { k: 'photo', l: 'Photos', def: true, v: function (e) { return (e.hasSelfie ? 1 : 0) + (e.hasOutPhoto ? 1 : 0); },
+          f: function (e) { return (e.hasSelfie ? '<button class="link" onclick="event.stopPropagation();viewSelfie(' + e._i + ')">📷 In</button> ' : '') + (e.hasOutPhoto ? '<button class="link" onclick="event.stopPropagation();viewSelfie(' + e._i + ',\'out\')">📷 Out</button>' : '') || '–'; }, p: function (e) { return e.hasSelfie ? 'yes' : ''; } }
+      ],
+      onOpen: function (e) { deskRegPanel(e); },
+      onEdit: function (e) { if (can('editAttendance')) { S.entry = { empId: e.id, name: e.name }; openEntryEditor(e.id, r.date); } }
+    });
+    var html = '<div class="dk">' + missedCard(r) + '<div class="dkpis">' +
+      dkpi('#16a34a', 'Checked in', c.in + '<span class="muted" style="font-size:15px"> / ' + c.total + '</span>') + dkpi('#d97706', 'Late', c.late) +
+      dkpi('#dc2626', isToday ? 'Not marked' : 'Not marked / absent', c.notMarked) + dkpi('#6b7486', 'Checked out', c.out) + dkpi('#b91c1c', '⚠ Flagged', c.flagged) + '</div>' +
+      '<div class="dcard"><div class="dtool"><div class="month-nav" style="margin:0;gap:6px"><button onclick="todayShift(-1)">‹</button>' +
+      '<input type="date" class="month-select" value="' + esc(r.date) + '" max="' + esc(r.today || todayLocal()) + '" onchange="if(this.value)loadAdminToday(this.value)">' +
+      '<button onclick="todayShift(1)"' + (isToday ? ' disabled style="opacity:.35"' : '') + '>›</button></div>' + (r.offType ? chip(r.offType) : '') +
+      (isToday ? '' : '<button class="dbtn" onclick="loadAdminToday(todayLocal())">Today</button>') +
+      dtTabs('reg', [['ALL', 'All ' + c.total], ['IN', 'Checked in ' + c.in], ['LATE', 'Late ' + c.late], ['NOT', 'Not marked ' + c.notMarked], ['FLAG', '⚠ Flagged ' + c.flagged]]) +
+      '<input class="dsrch" placeholder="🔍 Name or ID" value="' + esc(DT.reg.q) + '" oninput="dtQ(\'reg\',this.value)">' +
+      '<span style="margin-left:auto"></span><button class="dbtn" id="dcb-reg" onclick="dtChooser(\'reg\',this)">☰ Columns (' + dtCols('reg').length + '/' + DT.reg.cols.length + ')</button>' +
+      '<button class="dbtn" onclick="dtChooser(\'reg\',this,true)">🖨 Print</button><button class="dbtn" onclick="loadAdminToday()">↻</button>' +
+      (can('editAttendance') ? '<button class="dbtn pri" onclick="dgo(\'a:entries\')">＋ Add entry</button>' : '') + '</div>' +
+      '<div class="dtw" id="dt-reg"></div><p class="muted small" style="margin:8px 0 0">Click a row for the day on the right · ↑ ↓ move between people · E edit · Esc close · click a heading to sort · ⚠ = weak GPS, a repeated GPS point or a missing selfie</p></div></div>';
+    adminBody(html);
+    dtDraw('reg');
+  }
+  function deskRegPanel(e) {
+    var r = S.adminTodayData;
+    var html = '<div class="row" style="align-items:flex-start">' + demp(e) + '<button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p style="margin:10px 0">' + chip(e.status) + lateChip(e.late) + ' <span class="muted">' + esc(fmtDate(r.date)) + '</span></p>' +
+      '<div class="kv"><div><b>' + esc(e.in || '—') + '</b><span>In</span></div><div><b>' + esc(e.out || '—') + '</b><span>Out</span></div><div><b>' + (e.worked ? hrs(e.worked) : '–') + '</b><span>Worked</span></div></div>' +
+      (e.distance !== '' ? '<p class="muted small">📍 ' + esc(dist(e.distance)) + ' from the office' + (e.accuracy !== '' ? ' · GPS ±' + esc(e.accuracy) + ' m' : '') + '</p>' : '') +
+      (e.flags.length ? '<p>' + flagChips(e.flags, e.markedBy) + '</p>' : '') +
+      '<div class="btns" style="margin-top:12px">' +
+      (can('editAttendance') ? '<button class="btn" onclick="S.entry={empId:\'' + esc(e.id) + '\',name:\'' + esc(e.name).replace(/'/g, '') + '\'};openEntryEditor(\'' + esc(e.id) + '\',\'' + r.date + '\')">✏️ Edit entry (E)</button>' : '') +
+      (e.hasSelfie ? '<button class="btn ghost" onclick="viewSelfie(' + e._i + ')">📷 Check-in photo</button>' : '') +
+      (e.hasOutPhoto ? '<button class="btn ghost" onclick="viewSelfie(' + e._i + ',\'out\')">📷 Check-out photo</button>' : '') +
+      (can(['viewPayroll', 'viewSummary', 'editAttendance', 'approveRequests']) ? '<button class="btn ghost" onclick="closeModal();navPush();openEmployee(\'' + esc(e.id) + '\',\'' + r.date.slice(0, 7) + '\')">📅 Month & salary</button>' : '') +
+      '</div><p class="muted small" style="margin-top:14px">↑ ↓ next / previous person · Esc close</p>';
+    openModal(html);
+  }
+
+  /* ---- Payroll (desktop) ---- */
+  function deskPayroll(r) {
+    var cur = r.currency, ym = r.ym, split = r.rows.some(function (e) { return e.bank !== undefined; });
+    var m = function (k, label, o) { return Object.assign({ k: k, l: label, n: 1, sum: 1, v: function (e) { return Number(e[k]) || 0; }, f: function (e) { return e[k] ? money(e[k], cur) : '<span class="muted">–</span>'; }, sumF: function (s) { return money(s, cur); } }, o || {}); };
+    var cnt = function (k, label, o) { return Object.assign({ k: k, l: label, n: 1, sum: 1, v: function (e) { return Number(e[k]) || 0; }, f: function (e) { return num(e[k] || 0); } }, o || {}); };
+    var cols = [
+      { k: 'name', l: 'Employee', fixed: true, v: function (e) { return e.name; }, f: function (e) { return '<div class="demp">' + dav(e.name, e.id) + '<div>' + esc(e.name) + (e.pf ? ' <span class="chip s-PF">PF</span>' : '') + '<small>' + esc(e.id) + '</small></div></div>'; }, p: function (e) { return e.name + ' (' + e.id + ')'; } },
+      m('salary', 'Monthly salary'),
+      cnt('present', 'Present'), cnt('halfDay', 'Half days', { def: false }),
+      cnt('absent', 'Absent', { v: function (e) { return (e.absent || 0) + (e.notJoined || 0); }, f: function (e) { return num((e.absent || 0) + (e.notJoined || 0)); } }),
+      cnt('leave', 'Paid leave', { def: false }), cnt('late', 'Late marks', { def: false }),
+      cnt('lateMin', 'Late mins', { def: false, f: function (e) { return mins(e.lateMin); }, sumF: mins }),
+      cnt('otMin', 'OT', { f: function (e) { return e.otMin ? mins(e.otMin) : '–'; }, sumF: mins }),
+      m('earned', 'Salary earned', { def: false }),
+      m('otPay', 'OT pay', { f: function (e) { return e.otPay ? '<span style="color:var(--green)">' + money(e.otPay, cur) + '</span>' : '–'; } }),
+      m('offDayPay', 'Week-off pay'), m('arrears', 'Arrears', { def: false }),
+      m('leaveDed', 'Leave cut', { f: function (e) { return e.leaveDed ? '<span style="color:var(--red)">' + money(e.leaveDed, cur) + '</span>' : '–'; } }),
+      m('halfDayDed', 'Half-day cut', { def: false }), m('lateCutDed', 'Late-mark cut', { def: false }),
+      m('shortCutDed', 'Late/early cut'), m('gross', 'Gross', { def: false }),
+      m('pfEmployee', 'PF employee'), m('pfEmployer', 'PF employer', { def: false }),
+      m('advance', 'Advance'), m('purchaseDed', 'Purchases')
+    ];
+    if (split) cols.push(m('bank', 'In bank'), m('cash', 'In cash'));
+    cols.push(m('net', 'Total salary', { fixed: true, f: function (e) { return '<b>' + money(e.net, cur) + '</b>'; } }));
+    dtSetup('pay', {
+      title: ((S.home && S.home.company) || '') + ' – Payroll ' + r.label, sub: r.locked ? 'Final (locked by ' + r.locked.by + ' on ' + r.locked.at + ')' : 'Provisional – not locked',
+      rows: r.rows, cols: cols, totals: true, tab: (DT.pay && DT.pay.tab) || 'ALL',
+      filter: function (e, tab) { return tab === 'PF' ? e.pf : tab === 'ADV' ? e.advance > 0 : tab === 'PUR' ? e.purchaseDed > 0 : tab === 'CUT' ? (e.deduction > 0) : tab === 'OT' ? e.otMin > 0 : true; },
+      onOpen: function (e) { deskPayPanel(e, r); }, onEdit: function (e) { closeModal(); navPush(); openEmployee(e.id, ym); }
+    });
+    S.payRows = r;
+    var sum = function (k) { return r.rows.reduce(function (n, e) { return n + (Number(e[k]) || 0); }, 0); };
+    var html = '<div class="dk">' +
+      (r.locked ? '<div class="msg info" style="margin:0">🔒 Locked by ' + esc(r.locked.by) + ' on ' + esc(r.locked.at) + '. Salaries are final and entries cannot change.</div>'
+        : r.autoLock && r.autoLock.on ? '<div class="msg info" style="margin:0">🔒 Locks automatically on <b>' + esc(fmtDate(r.autoLock.on)) + '</b>. Until then entries can still be changed.</div>'
+        : r.autoLock && r.autoLock.waiting ? '<div class="msg err" style="margin:0">⚠ Automatic lock is waiting: ' + esc(r.autoLock.waiting) + '</div>' : '') +
+      '<div class="dkpis">' + dkpi('#2f5fe3', 'Total payroll', money(sum('net'), cur), r.rows.length + ' employees') +
+      (split ? dkpi('#16a34a', '🏦 In bank', money(sum('bank'), cur), r.rows.filter(function (e) { return e.pf; }).length + ' PF employees') + dkpi('#d97706', '💵 In cash', money(sum('cash'), cur)) : '') +
+      dkpi('#7c3aed', 'OT', mins(sum('otMin')), money(sum('otPay'), cur)) +
+      dkpi('#dc2626', 'Recovered', money(sum('advance') + sum('purchaseDed'), cur), 'advances ' + money(sum('advance'), cur) + ' · purchases ' + money(sum('purchaseDed'), cur)) + '</div>' +
+      '<div class="dcard"><div class="dtool"><div class="month-nav" style="margin:0;gap:6px"><button onclick="loadAdminMonth(\'' + ymShift(ym, -1) + '\')">‹</button><b style="min-width:120px;text-align:center">' + esc(r.label) + '</b>' +
+      '<button onclick="loadAdminMonth(\'' + ymShift(ym, 1) + '\')">›</button></div>' +
+      dtTabs('pay', [['ALL', 'All'], ['PF', 'PF'], ['OT', 'With OT'], ['ADV', 'With advance'], ['PUR', 'With purchases'], ['CUT', 'With cuts']]) +
+      '<input class="dsrch" placeholder="🔍 Name or ID" value="' + esc(DT.pay.q) + '" oninput="dtQ(\'pay\',this.value)">' +
+      '<span style="margin-left:auto"></span><button class="dbtn" id="dcb-pay" onclick="dtChooser(\'pay\',this)">☰ Columns (' + dtCols('pay').length + '/' + cols.length + ')</button>' +
+      '<button class="dbtn" onclick="dtChooser(\'pay\',this,true)">🖨 Print</button>' +
+      (can('exportPayroll') ? '<button class="dbtn" id="exportBtn" onclick="exportPayroll(\'' + ym + '\')">⬇ Excel</button>' : '') +
+      '<button class="dbtn" id="regBtn" onclick="downloadRegister(\'' + ym + '\')">⬇ Register</button>' +
+      (r.canLock ? '<button class="dbtn pri" onclick="lockMonth(\'' + ym + '\')">🔒 Lock ' + esc(monthName(ym)) + '</button>' : '') +
+      (r.canUnlock ? '<button class="dbtn red" onclick="unlockMonth(\'' + ym + '\')">Unlock</button>' : '') + '</div>' +
+      '<div id="exportMsg"></div><div id="regMsg"></div><div class="dtw" id="dt-pay"></div>' +
+      '<p class="muted small" style="margin:8px 0 0">Click a row for the salary on the right · ↑ ↓ move · E opens the employee\'s month · click a heading to sort · ☰ Columns chooses what is shown and printed</p></div></div>';
+    adminBody(html);
+    dtDraw('pay');
+  }
+  function deskPayPanel(e, r) {
+    var cur = r.currency, ym = r.ym, pl = function (l, v, c) { return '<div class="pay-line"><span>' + l + '</span><b' + (c ? ' style="color:var(--' + c + ')"' : '') + '>' + v + '</b></div>'; };
+    var html = '<div class="row" style="align-items:flex-start">' + demp(e) + '<button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small" style="margin:6px 0 10px">' + esc(r.label) + (e.pf ? ' · PF' : '') + (r.locked ? ' · 🔒 locked' : '') + '</p>' +
+      '<div class="kv"><div><b>' + num(e.present) + '</b><span>Present</span></div><div><b>' + num((e.absent || 0) + (e.notJoined || 0)) + '</b><span>Absent</span></div><div><b>' + mins(e.otMin) + '</b><span>OT</span></div></div>' +
+      '<div style="margin-top:10px">' + pl(e.prorated ? 'Salary earned (' + e.elapsedDays + '/' + e.daysInMonth + ' days)' : 'Monthly salary', money(e.prorated ? e.earned : e.salary, cur)) +
+      (e.otPay ? pl('OT (' + mins(e.otMin) + ')', '+ ' + money(e.otPay, cur), 'green') : '') + (e.offDayPay ? pl('Week-off work', '+ ' + money(e.offDayPay, cur), 'green') : '') +
+      (e.arrears ? pl('Arrears', '+ ' + money(e.arrears, cur), 'green') : '') + (e.leaveDed ? pl('Leaves', '− ' + money(e.leaveDed, cur), 'red') : '') +
+      (e.halfDayDed ? pl('Half days', '− ' + money(e.halfDayDed, cur), 'red') : '') + (e.lateCutDed ? pl('Late marks', '− ' + money(e.lateCutDed, cur), 'red') : '') +
+      (e.shortCutDed ? pl('Late / early cut', '− ' + money(e.shortCutDed, cur), 'red') : '') +
+      (e.pf ? pl('PF Employee' + (e.pfPaidDays !== undefined ? ' (' + num(e.pfPaidDays) + '/' + e.daysInMonth + ' days)' : ''), '− ' + money(e.pfEmployee, cur), 'red') +
+        (e.pfEmployerDed !== undefined ? pl('PF Employer', '− ' + money(e.pfEmployer, cur), 'red') : '') : '') +
+      (e.purchaseDed ? pl('Purchases', '− ' + money(e.purchaseDed, cur), 'red') : '') + (e.advance ? pl('Advance recovery', '− ' + money(e.advance, cur), 'red') : '') + '</div>' +
+      (e.bank !== undefined && e.pf ? '<div class="split"><div><span>🏦 In Bank</span><b>' + money(e.bank, cur) + '</b></div><div><span>💵 In Cash</span><b>' + money(e.cash, cur) + '</b></div></div>' : '') +
+      '<div class="total-tile"><span>Total Salary</span><b>' + money(e.net, cur) + '</b></div>' +
+      '<div class="btns" style="margin-top:12px"><button class="btn" onclick="openPayslip(\'' + ym + '\',\'' + esc(e.id) + '\')">📄 Payslip</button>' +
+      '<button class="btn ghost" onclick="closeModal();navPush();openEmployee(\'' + esc(e.id) + '\',\'' + ym + '\')">📅 Days (E)</button></div>' +
+      '<p class="muted small" style="margin-top:14px">↑ ↓ next / previous person · Esc close</p>';
+    openModal(html);
+  }
+
   /* ---------------- Modal ---------------- */
-  function openModal(html) { $('modalBody').innerHTML = html; $('modal').classList.remove('hidden'); }
-  function closeModal() { stopCamera(); $('modal').classList.add('hidden'); }
+  // On a computer (body.desk) the same pop-up is shown as a panel on the right (CSS); the page next to it stays usable.
+  function openModal(html) { $('modalBody').innerHTML = html; $('modal').classList.remove('hidden'); document.body.classList.toggle('panel', isDesk()); }
+  function closeModal() { stopCamera(); $('modal').classList.add('hidden'); document.body.classList.remove('panel'); }
 
   /* ---------------- Boot ---------------- */
   (function boot() {
