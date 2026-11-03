@@ -1160,6 +1160,7 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
       </div>
       <div id="poUploadStep2" style="display:none">
         <div style="font-weight:600;font-size:13.5px;margin-bottom:8px" id="poPreviewTitle"></div>
+        <div id="poWarehouseDetectBanner" style="display:none;padding:8px 10px;border-radius:7px;font-size:12px;margin-bottom:10px;line-height:1.5"></div>
         <div id="poUnmappedWarning" style="display:none;background:#fef2f2;color:#b91c1c;border:1px solid #fca5a5;padding:8px 10px;border-radius:7px;font-size:12px;margin-bottom:10px;line-height:1.5"></div>
         <div id="poSkippedWarning" style="display:none;background:#fffbeb;color:#92400e;border:1px solid #fcd34d;padding:8px 10px;border-radius:7px;font-size:12px;margin-bottom:10px;line-height:1.5"></div>
         <div style="overflow-x:auto;margin-bottom:12px">
@@ -7875,7 +7876,6 @@ function parsePoPdf_() {
   const errEl = document.getElementById('poUploadError');
   errEl.style.display = 'none';
   if (!file) { errEl.textContent='Please select a PDF file.'; errEl.style.display='block'; return; }
-  if (!warehouse) { errEl.textContent='Please select a warehouse.'; errEl.style.display='block'; return; }
   if (typeof pdfjsLib === 'undefined') { errEl.textContent='PDF reader library not loaded  -  check internet connection.'; errEl.style.display='block'; return; }
 
   const btn = document.getElementById('poParseBtn');
@@ -8005,7 +8005,24 @@ function sendRawTextToServer_(rawText, warehouse, btn, errEl) {
     .withSuccessHandler(function(res) {
       btn.disabled=false; btn.textContent='Parse PDF →';
       if (res.success) {
-        showPoPreview_(res, warehouse);
+        const dw = res.detectedWarehouse;
+        let finalWarehouse = warehouse;
+        let detectHint = '';
+        if (!warehouse) {
+          if (dw && dw.matched) {
+            finalWarehouse = dw.warehouseKey;
+            document.getElementById('poWarehouseSelect').value = dw.warehouseKey;
+            detectHint = { kind:'match', text: '✅ Auto-detected warehouse from the PDF: <b>' + dw.warehouseKey + '</b>  -  double-check it, or change the dropdown above if it\'s wrong.' };
+          } else {
+            errEl.textContent = 'Please select a warehouse.' + ((dw && (dw.facilityCode || dw.gstin)) ?
+              ' (Could not auto-match it to a saved warehouse  -  the PDF shows facility "' + (dw.facilityCode || '?') + '"' + (dw.gstin ? ' / GST ' + dw.gstin : '') + '. Pick the right warehouse, or add this as its Code in the Warehouses tab so future uploads from this facility auto-detect.)' : '');
+            errEl.style.display = 'block';
+            return;
+          }
+        } else if (dw && dw.matched && dw.warehouseKey !== warehouse) {
+          detectHint = { kind:'mismatch', text: '⚠️ Heads up: this PO\'s PDF looks like it belongs to <b>' + dw.warehouseKey + '</b>, but you selected <b>' + warehouse + '</b>. Double-check before saving.' };
+        }
+        showPoPreview_(res, finalWarehouse, detectHint);
       } else {
         errEl.textContent = res.message || 'Could not parse the PDF.'; errEl.style.display='block';
         document.getElementById('poRawTextWrap').style.display='';
@@ -8049,11 +8066,21 @@ function renderSkippedPoWarning_(elId, skippedItemCodes) {
     + '<br><br>Open the original PO PDF and check these item(s) manually  -  if they\'re genuinely on the PO, add them to the shipment by hand.';
 }
 
-function showPoPreview_(res, warehouse) {
+function showPoPreview_(res, warehouse, detectHint) {
   parsedPoData_ = res; parsedPoData_.warehouseName = warehouse;
   document.getElementById('poUploadStep1').style.display = 'none';
   document.getElementById('poUploadStep2').style.display = '';
   document.getElementById('poPreviewTitle').textContent = 'PO '+res.poNumber+'  -  '+res.rows.length+' items'+(res.expiryDate?' | Expiry: '+formatDDMMYYYY_(res.expiryDate):'')+' | Warehouse: '+warehouse;
+  const banner = document.getElementById('poWarehouseDetectBanner');
+  if (detectHint && detectHint.text) {
+    banner.style.display = 'block';
+    banner.innerHTML = detectHint.text;
+    banner.style.background = detectHint.kind === 'mismatch' ? '#fffbeb' : '#f0fdf4';
+    banner.style.border = '1px solid ' + (detectHint.kind === 'mismatch' ? '#fcd34d' : '#86efac');
+    banner.style.color = detectHint.kind === 'mismatch' ? '#92400e' : '#166534';
+  } else {
+    banner.style.display = 'none';
+  }
   const unmappedSet = new Set((res.unmappedItemCodes||[]).map(u=>u.itemCode));
   document.getElementById('poPreviewTbody').innerHTML = res.rows.map(r=>{
     const isUnmapped = unmappedSet.has(r.itemCode);

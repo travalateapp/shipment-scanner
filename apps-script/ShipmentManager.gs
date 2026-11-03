@@ -3313,6 +3313,103 @@ function toDateString_(val) {
  *  that recovers Qty from Total Amt = Landing Rate × Qty using the
  *  decimal points, which survive extraction more reliably than spaces.
  */
+
+/** Attempts to auto-detect which saved warehouse a freshly-parsed PO
+ *  belongs to, from facility-identifying text that's already present in
+ *  every PO PDF — a Blinkit facility name line ("BCPL - Hyderabad H3
+ *  Feeder warehouse"), a Zepto bracketed facility code ("(BLR135M)"),
+ *  or a Swiggy "Pod Name" field ("Pod Name: MUM FC22"). GST No./GSTIN
+ *  and pincode are pulled too, as a secondary cross-check.
+ *
+ *  Matches, in order of trust: (1) the facility text against a saved
+ *  warehouse's CODE (exact, case-insensitive — this is what CODE is
+ *  for), (2) the facility text against a warehouse's NAME as a loose
+ *  substring match (needed for Blinkit, whose facility line is a full
+ *  phrase rather than a short code; narrowed by GST No. if more than
+ *  one NAME matches), (3) GST No. + pincode together, as a last resort
+ *  when neither CODE nor NAME line up with anything saved.
+ *
+ *  Never guesses past one confident match — if a tier finds zero or
+ *  more than one candidate it falls through to the next tier, and if
+ *  all three tiers come up empty this returns matched:false (but still
+ *  reports whatever facility text/GST/pincode WAS found, so the upload
+ *  UI can show it as a hint even when it can't auto-select anything —
+ *  that's also how an admin knows what to put in a warehouse's CODE
+ *  field to make future uploads from that facility auto-detect). This
+ *  only ever pre-fills the warehouse dropdown — it's never used to skip
+ *  warehouse selection outright, so a wrong/no match just falls back to
+ *  today's fully-manual picker. */
+function matchWarehouseFromPoText_(platform, text) {
+  const t = (text || "").toString();
+  let facilityCode = "", gstin = "", pincode = "";
+
+  if (platform === 'blinkit') {
+    const spocIdx = t.search(/Blinkit\s*SPOC\s*Name/i);
+    const header = spocIdx > 0 ? t.slice(0, spocIdx) : t.slice(0, 400);
+    const facMatch = header.match(/-\s*([A-Za-z0-9.&() ]*?\bwarehouse\b)/i);
+    if (facMatch) facilityCode = facMatch[1].trim();
+    const deliveredIdx = t.search(/Delivered\s*To/i);
+    const itemsIdx = t.search(/Item\s*\n?\s*Code\s*\n?\s*HSN/i);
+    const seg = deliveredIdx >= 0 ? t.slice(deliveredIdx, itemsIdx > deliveredIdx ? itemsIdx : deliveredIdx + 600) : "";
+    const gstMatch = seg.match(/GST\s*No\.?\s*:?\s*([0-9A-Z]{15})/i);
+    if (gstMatch) gstin = gstMatch[1].trim().toUpperCase();
+    const pinMatches = seg.match(/\b\d{6}\b/g);
+    if (pinMatches && pinMatches.length) pincode = pinMatches[pinMatches.length - 1];
+  } else if (platform === 'zepto') {
+    const shipIdx = t.search(/Shipping\s*Address/i);
+    const itemsIdx = t.search(/\bSr\.?\s*Material\s*Code/i);
+    const seg = shipIdx >= 0 ? t.slice(shipIdx, itemsIdx > shipIdx ? itemsIdx : shipIdx + 500) : t.slice(0, 800);
+    const codeMatch = seg.match(/\(([A-Z]{2,6}\d{1,4}[A-Z]?)\)/);
+    if (codeMatch) facilityCode = codeMatch[1].trim().toUpperCase();
+    const gstMatch = seg.match(/GSTIN\s*:?\s*([0-9A-Z]{15})/i);
+    if (gstMatch) gstin = gstMatch[1].trim().toUpperCase();
+    const pinMatches = seg.match(/\b\d{6}\b/g);
+    if (pinMatches && pinMatches.length) pincode = pinMatches[pinMatches.length - 1];
+  } else if (platform === 'swiggy') {
+    const podMatch = t.match(/Pod\s*Name\s*:?\s*([A-Za-z0-9 \-]+?)(?=\s*GSTIN|\n|$)/i);
+    if (podMatch) facilityCode = podMatch[1].trim();
+    const podIdx = podMatch ? t.indexOf(podMatch[0]) : -1;
+    const seg = podIdx >= 0 ? t.slice(Math.max(0, podIdx - 300), podIdx + 300) : t.slice(0, 800);
+    const gstMatch = seg.match(/GSTIN\s*:?\s*([0-9A-Z]{15})/i);
+    if (gstMatch) gstin = gstMatch[1].trim().toUpperCase();
+    const pinMatches = seg.match(/\b\d{6}\b/g);
+    if (pinMatches && pinMatches.length) pincode = pinMatches[pinMatches.length - 1];
+  } else {
+    return { matched: false };
+  }
+
+  const platUpper = platform.toUpperCase();
+  const candidates = getBlinkitWarehouses().filter(w => !w.platforms.length || w.platforms.includes(platUpper));
+  const pickUnique = list => list.length === 1 ? list[0] : null;
+
+  let match = null;
+  if (facilityCode) {
+    match = pickUnique(candidates.filter(w => w.code && w.code.toLowerCase() === facilityCode.toLowerCase()));
+  }
+  if (!match && facilityCode) {
+    const fcLower = facilityCode.toLowerCase();
+    let nameMatches = candidates.filter(w => w.name && (fcLower.includes(w.name.toLowerCase()) || w.name.toLowerCase().includes(fcLower)));
+    if (nameMatches.length > 1 && gstin) {
+      const narrowed = nameMatches.filter(w => w.gst && w.gst.toUpperCase() === gstin);
+      if (narrowed.length) nameMatches = narrowed;
+    }
+    match = pickUnique(nameMatches);
+  }
+  if (!match && gstin) {
+    let gstMatches = candidates.filter(w => w.gst && w.gst.toUpperCase() === gstin);
+    if (gstMatches.length > 1 && pincode) {
+      const narrowed = gstMatches.filter(w => w.pincode === pincode);
+      if (narrowed.length) gstMatches = narrowed;
+    }
+    match = pickUnique(gstMatches);
+  }
+
+  if (match) {
+    return { matched: true, warehouseKey: warehouseDisplayKey_(match), name: match.name, code: match.code, facilityCode, gstin, pincode };
+  }
+  return { matched: false, facilityCode, gstin, pincode };
+}
+
 function parseBlinkitRoPdf_(rawText) {
   try {
     const text = rawText.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
@@ -3330,7 +3427,8 @@ function parseBlinkitRoPdf_(rawText) {
 
     rows.sort((a,b)=>a.itemCode.localeCompare(b.itemCode));
     if (!rows.length) return {success:false,message:"PDF text extracted but no item rows could be parsed. Raw text shown below.",poNumber,expiryDate,rawText:text.slice(0,3000)};
-    return {success:true,poNumber,expiryDate,rows};
+    const detectedWarehouse = matchWarehouseFromPoText_('blinkit', text);
+    return {success:true,poNumber,expiryDate,rows,detectedWarehouse};
   } catch(err) {
     return {success:false,message:"Parse error: "+err.message};
   }
@@ -3615,7 +3713,8 @@ function parseZeptoPo_(rawText) {
 
     const rows = parseZeptoRows_(text);
     if (!rows.length) return {success:false,message:"PDF text extracted but no item rows could be parsed. Raw text shown below.",poNumber,expiryDate,rawText:text.slice(0,3000)};
-    return {success:true,poNumber,expiryDate,rows};
+    const detectedWarehouse = matchWarehouseFromPoText_('zepto', text);
+    return {success:true,poNumber,expiryDate,rows,detectedWarehouse};
   } catch(err) {
     return {success:false,message:"Parse error: "+err.message};
   }
@@ -3877,7 +3976,8 @@ function parseSwiggyPo_(rawText) {
     const expiryDate = expiryMatch ? expiryMatch[1].trim() : "";
 
     if (!rows.length) return {success:false,message:"PDF text extracted but no item rows could be parsed. Raw text shown below.",poNumber,expiryDate,rawText:flatText.slice(0,3000)};
-    return {success:true,poNumber,expiryDate,rows,skippedItemCodes};
+    const detectedWarehouse = matchWarehouseFromPoText_('swiggy', flatText);
+    return {success:true,poNumber,expiryDate,rows,skippedItemCodes,detectedWarehouse};
   } catch(err) {
     return {success:false,message:"Parse error: "+err.message};
   }
