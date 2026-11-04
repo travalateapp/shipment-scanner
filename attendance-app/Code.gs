@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261066;
+const SERVER_VERSION = 20261067;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -3265,9 +3265,9 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
         t.targetMin += shift;
         t.workedMin += w;
         d.dayOtMin = hourly ? w - shift : 0;
-        // No hourly OT: there is no OT to take short time from, so late coming / early leaving on a full day
-        // is cut from the salary by the minute (unless "Late Cut" is off for this employee).
-        if (!hourly && es.lateCut !== false && w < shift) { t.shortMin += shift - w; d.shortCutMin = shift - w; }
+        // No hourly OT: late coming / early leaving is cut from the salary by the minute (unless "Late Cut" is off),
+        // on the month's balance: extra time on other full days covers short days (it is never paid). See below.
+        if (!hourly && es.lateCut !== false) { t.lateCutBalance = true; if (w < shift) d.shortCutMin = shift - w; }
       } else if (d.status === 'HALF_DAY') {
         const w = dayWorkedMin_(rec, esD);
         t.halfDayExtraMin += Math.max(0, w - Math.round(shift / 2));
@@ -3293,6 +3293,8 @@ function monthSummary_(emp, ym, s, attByDate, holidays, advanceTotal, arrearsTot
   t.otMin = Math.max(0, otBalance);
   t.lateOverOtMin = es.hourlyOt === false ? 0 : Math.max(0, -otBalance);
   t.shortMin += t.lateOverOtMin;
+  // No hourly OT: only a shortfall for the whole month is cut (all full days' worked time vs their shift time).
+  if (t.lateCutBalance) { t.monthShortMin = Math.max(0, t.targetMin - t.workedMin); t.shortMin += t.monthShortMin; }
   t.otMinGross = (es.hourlyOt === false ? 0 : t.otExtraMin) + t.earlyExitOtMin + t.offDayOtMin;
   t.otCutMin = t.otMinGross - t.otMin;
   t.otHours = round2_(t.otMin / 60);

@@ -621,6 +621,8 @@
     '🔊 Tap for music': '🔊 संगीत के लिए टैप करें', '😳 Leaving {m} early?!': '😳 {m} पहले जा रहे हैं?!', '⏰ You\'re late by {m}!': '⏰ आप {m} देर से आए हैं!', 'Tap to close': 'बंद करने के लिए टैप करें', 'That is you ({n}). Mark your own attendance on your Attendance screen.': 'यह आप हैं ({n})। अपनी हाज़िरी अपनी Attendance स्क्रीन पर लगाएँ।', 'Come a little closer to the camera': 'कैमरे के थोड़ा और पास आएँ', '🏹 Happy Dussehra! 🔥': '🏹 शुभ दशहरा! 🔥', '🔇 Stop music': '🔇 संगीत बंद करें',
     'Late coming / early leaving': 'देर से आना / जल्दी जाना',
     'day.shortcut': 'शिफ्ट से {m} कम काम। इस कर्मचारी का घंटे वाला ओवरटाइम नहीं है, इसलिए यह तनख्वाह से कटता है।',
+    'day.shortcovered': 'शिफ्ट से {m} कम काम, लेकिन इस महीने बाकी दिनों का ज़्यादा समय इसे पूरा कर देता है, इसलिए कोई कटौती नहीं।',
+    'day.shortmonth': 'शिफ्ट से {m} कम काम। ज़्यादा समय वाले दिन इसे पूरा करते हैं; इस महीने कुल {t} कम है, जो तनख्वाह से कटता है।',
     'Salary for the day': 'दिन की तनख्वाह', 'OT amount': 'ओवरटाइम राशि', 'Total for the day': 'दिन का कुल',
     'day.short': 'शिफ्ट से {m} कम काम। यह महीने के बाकी दिनों के ओवरटाइम से कटता है (शून्य से कम नहीं)।',
     'Late + early leaving': 'देर + जल्दी जाना', 'Early leaving': 'जल्दी जाना', 'Short time': 'कम समय',
@@ -674,6 +676,8 @@
     'missed.days': '⚠ {n} day(s) without check-out',
     'again.info': '↩ Went out and came back? Check in again with the guard or an admin. After that you can check out from your phone. The time away is not counted as worked.',
     'day.shortcut': 'Worked {m} less than the shift. No hourly OT for this employee, so it is cut from the salary.',
+    'day.shortcovered': 'Worked {m} less than the shift, but extra time on other days this month covers it, so nothing is cut.',
+    'day.shortmonth': 'Worked {m} less than the shift. Extra time on other days covers short days; the month is {t} short in total, and that is cut from the salary.',
     'day.short': 'Worked {m} less than the shift. This is cut from the OT of other days in the month (never below zero).',
     'day.absentot': 'Too few hours for a half day: the day\'s salary is cut, the time worked is paid as OT.',
     'ot.month': 'OT = time worked on full days {w} − working time ({n} full days × {h} h) = {x}. Absent and half days do not cut OT (their salary is already cut).',
@@ -1174,7 +1178,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261066;
+  var NEEDS_SERVER = 20261067;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2335,14 +2339,17 @@
     var salary = Math.round(p.perDay * share);
     var otMin = d.dayOtMin !== undefined ? d.dayOtMin : (d.otMin || 0);
     var ot = Math.round(otMin * (p.hourly || 0) / 60 * ((m.rules && m.rules.otMultiplier) || 1));
-    if (d.shortCutMin) { otMin = -d.shortCutMin; ot = -Math.round(d.shortCutMin * (p.hourly || 0) / 60); } // cut from salary (no hourly OT)
+    // No hourly OT: a short day is cut only when the whole month is short (extra time on other days covers it).
+    var covered = d.shortCutMin && m.totals && m.totals.lateCutBalance && !(m.totals.monthShortMin > 0);
+    if (d.shortCutMin && !covered) { otMin = -d.shortCutMin; ot = -Math.round(d.shortCutMin * (p.hourly || 0) / 60); }
     var sign = function (n) { return (n < 0 ? '−' : '') + money(Math.abs(n), cur); };
     var html = '<div class="kv" style="margin-top:10px">' +
       '<div><b>' + money(salary, cur) + '</b><span>' + t('Salary for the day') + '</span></div>' +
       (ot < 0 ? '<div><b style="color:var(--red)">' + sign(ot) + '</b><span>' + t(shortLabel(d)) + ' (' + mins(-otMin) + ')</span></div>'
         : '<div class="k-ot"><b>' + sign(ot) + '</b><span>' + t('OT amount') + '</span></div>') +
       '<div><b style="color:var(' + (salary + ot < 0 ? '--red' : '--green') + ')">' + sign(salary + ot) + '</b><span>' + t('Total for the day') + '</span></div></div>';
-    if (d.shortCutMin) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.shortcut', { m: mins(d.shortCutMin) }) + '</p>';
+    if (covered) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.shortcovered', { m: mins(d.shortCutMin) }) + '</p>';
+    else if (d.shortCutMin) html += '<p class="muted small" style="margin:6px 0 0">' + t(m.totals && m.totals.lateCutBalance ? 'day.shortmonth' : 'day.shortcut', { m: mins(d.shortCutMin), t: mins(m.totals.monthShortMin || 0) }) + '</p>';
     else if (otMin < 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.short', { m: mins(-otMin) }) + '</p>';
     else if (d.status === 'ABSENT' && otMin > 0) html += '<p class="muted small" style="margin:6px 0 0">' + t('day.absentot') + '</p>';
     return html;
@@ -3917,7 +3924,7 @@
         '<div class="field"><label>Shift end</label><input id="sfShiftEnd" class="inp" type="time" value="' + esc(e.shiftEnd || '') + '"></div></div>' +
         '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked;$(\'sfLateCut\').disabled=this.checked"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
         '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + '> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label>' +
-        '<label class="check"><input type="checkbox" id="sfLateCut"' + (e.lateCut === false ? '' : ' checked') + (e.hourlyOt === false ? '' : ' disabled') + '> Cut late coming / early leaving from salary, by the minute (only without hourly OT; with hourly OT it is taken from the OT)</label></div>') +
+        '<label class="check"><input type="checkbox" id="sfLateCut"' + (e.lateCut === false ? '' : ' checked') + (e.hourlyOt === false ? '' : ' disabled') + '> Cut late coming / early leaving from salary, by the minute, on the month\'s balance: extra time on other days covers short days, but is not paid (only without hourly OT; with hourly OT it is taken from the OT)</label></div>') +
       (e.role === 'GUARD' ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfAnywhere"' + (e.anywhere ? ' checked' : '') + '> Can mark from anywhere (outstation): no office distance check, location still recorded</label>') +
       (isNew ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfActive"' + (e.active ? ' checked' : '') + ' onchange="staffActiveChanged(' + i + ')"> Active (untick when someone leaves the company)</label>' +
         '<div id="sfActiveDate" class="field hidden"><label id="sfActiveLabel"></label><input id="sfActiveOn" class="inp" type="date"></div>' +
