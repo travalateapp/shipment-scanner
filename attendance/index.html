@@ -350,6 +350,13 @@
     .dhbar { display: flex; align-items: center; gap: 10px; font-size: 13px; margin: 6px 0; cursor: pointer; }
     .dhbar .nm { width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } .dhbar .tr { flex: 1; background: #eef1f7; border-radius: 6px; height: 14px; overflow: hidden; }
     .dhbar .tr i { display: block; height: 100%; background: linear-gradient(90deg, #6366f1, #7c3aed); border-radius: 6px; } .dhbar .vl { width: 64px; text-align: right; font-weight: 600; }
+    .advg { border: 1px solid var(--line); border-radius: 12px; margin-bottom: 8px; background: #fff; }
+    .advh { display: flex; align-items: center; gap: 10px; padding: 10px 12px; cursor: pointer; border-radius: 12px; }
+    .advh:hover { background: #f8faff; } .advh .advs { margin-left: auto; display: flex; gap: 6px; flex-wrap: wrap; justify-content: flex-end; }
+    .advh .caret { color: var(--muted); transition: transform .15s; } .advh.open .caret { transform: rotate(90deg); }
+    .advh.open { border-bottom: 1px solid var(--line); border-radius: 12px 12px 0 0; background: #f8faff; }
+    .advb > .list-item { border: 0; margin: 0; }
+    .advb > .list-item > .row:first-child { display: none; } /* name and status are already in the row above */
     /* Live board */
     .live { display: grid; gap: 16px; }
     .live .clock { font-size: 44px; font-weight: 800; letter-spacing: .02em; }
@@ -1167,7 +1174,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261065;
+  var NEEDS_SERVER = 20261066;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -4040,8 +4047,8 @@
     var cur = r.currency;
     var html = '<div class="card"><h2>Give an advance</h2>' +
       '<div class="field"><label>Employee</label><select id="avEmp" class="inp" onchange="advEmpHint()">' + r.employees.map(function (e) { return '<option value="' + esc(e.id) + '">' + esc(e.name) + ' (' + esc(e.id) + ')' + (e.ongoing ? ' – advance running' : '') + '</option>'; }).join('') + '</select></div>' +
-      '<div id="avHint"></div>' +
-      '<div class="grid2"><div class="field"><label>Amount</label><input id="avAmt" class="inp" inputmode="decimal" placeholder="e.g. 10000"></div>' +
+      '<div id="avHint"></div><div id="avInfo"></div>' +
+      '<div class="grid2"><div class="field"><label>Amount</label><input id="avAmt" class="inp" inputmode="decimal" placeholder="e.g. 10000" oninput="advAmtCheck()"></div>' +
       '<div class="field"><label>Deduct per month</label><input id="avMon" class="inp" inputmode="decimal" placeholder="e.g. 2000"></div>' +
       '<div class="field"><label>Start deducting from</label><input id="avStart" class="inp" type="month" value="' + r.currentMonth + '"></div>' +
       '<div class="field"><label>Date given</label><input id="avDate" class="inp" type="date" value="' + todayLocal() + '"></div></div>' +
@@ -4067,7 +4074,13 @@
     (r.arrears || []).concat(r.purchases || []).forEach(function (x) {
       if (!byEmp[x.empId]) { byEmp[x.empId] = { empId: x.empId, name: x.name, items: [] }; groups.push(byEmp[x.empId]); }
     });
+    var desk = isDesk();
+    if (desk && groups.length) html += '<div class="dtool"><input class="dsrch" id="advQ" placeholder="🔍 Name or ID" oninput="advFilter(S.advF)">' +
+      '<div class="dtabs" id="advTabs">' + [['all', 'All'], ['run', 'Running advance'], ['pur', 'Purchases'], ['arr', 'Arrears'], ['rep', 'Repaid']].map(function (x) {
+        return '<button data-f="' + x[0] + '" class="' + ((S.advF || 'all') === x[0] ? 'on' : '') + '" onclick="advFilter(\'' + x[0] + '\')">' + x[1] + '</button>'; }).join('') + '</div>' +
+      '<button class="dbtn" onclick="advAll(true)">Expand all</button><button class="dbtn" onclick="advAll(false)">Collapse all</button></div>';
     groups.forEach(function (g) {
+      var start = html.length;
       var sum = function (k) { return g.items.reduce(function (n, x) { return n + (Number(x.a[k]) || 0); }, 0); };
       var total = sum('amount'), thisMonth = sum('thisMonth'), after = sum('balanceAfter'), recovered = sum('deductedBefore');
       // Repaid only when an admin marked it (status Closed); until then it is Active (or Paused).
@@ -4095,11 +4108,25 @@
         '<button class="btn small" style="background:var(--green)" onclick="openArrear(\'' + esc(g.empId) + '\')">＋ Add arrears</button>' +
         '<button class="btn small" style="background:#b45309" onclick="openPurchase(\'' + esc(g.empId) + '\')">＋ Add purchase</button></div>';
       html += '</div>';
+      if (desk) { // collapsed row: name, what is owed / pending, status; the card above opens below it
+        var body = html.slice(start); html = html.slice(0, start);
+        var pend = function (list, k, done) { return (list || []).filter(function (x) { return x.empId === g.empId && !x[done]; }).reduce(function (n, x) { return n + x[k]; }, 0); };
+        var owe = g.items.filter(function (x) { return x.a.status !== 'CLOSED'; }).reduce(function (n, x) { return n + (x.a.balanceAfter || 0) + (x.a.thisMonth || 0); }, 0);
+        var arP = pend(r.arrears, 'amount', 'paid'), puP = pend(r.purchases, 'amount', 'deducted');
+        var f = (running ? 'run ' : '') + (puP ? 'pur ' : '') + (arP ? 'arr ' : '') + (allClosed ? 'rep' : '');
+        var open = S.advOpen && S.advOpen[g.empId];
+        html += '<div class="advg" data-id="' + esc(g.empId) + '" data-f="' + f + '" data-n="' + esc((g.name + ' ' + g.empId).toLowerCase()) + '">' +
+          '<div class="advh' + (open ? ' open' : '') + '" id="advh-' + esc(g.empId) + '" onclick="advToggle(\'' + esc(g.empId) + '\')">' + demp({ name: g.name, id: g.empId }) +
+          '<span class="advs">' + (owe ? '<span class="chip s-ABSENT">Owes ' + money(owe, cur) + '</span>' : '') + (thisMonth ? '<span class="chip s-NOT_MARKED">' + money(thisMonth, cur) + ' this month</span>' : '') +
+          (puP ? '<span class="chip s-LATE">🛒 ' + money(puP, cur) + '</span>' : '') + (arP ? '<span class="chip s-PRESENT">💰 + ' + money(arP, cur) + '</span>' : '') + st + '</span><span class="caret">▸</span></div>' +
+          '<div class="advb' + (open ? '' : ' hidden') + '" id="advb-' + esc(g.empId) + '">' + body + '</div></div>';
+      }
     });
     html += '</div><p class="muted small center">Tap a <b>Status</b> to change a month, change the monthly deduction, pause or close that advance. <b>Add more</b> adds a new amount to a running advance (one balance, one deduction). ' +
       'Saving a new advance above instead keeps it separate, with its own deduction (both are deducted each month). <b>Change a month</b> sets a different amount (or no deduction) for one month only; the balance moves to later months. ' +
       'Pause skips every month until resumed. <b>Mark as repaid</b> closes it (also when repaid in cash); until then it shows as Active. Locked months keep what was actually deducted.</p>';
     adminBody(html);
+    if (desk && S.advF) advFilter(S.advF);
     advEmpHint();
   }
 
@@ -4262,11 +4289,74 @@
   /** Tells the admin when the selected employee already has an advance running. */
   function advEmpHint() {
     var sel = $('avEmp'); if (!sel || !S.adv) return;
+    advInfo(sel.value);
     var e = S.adv.employees.filter(function (x) { return x.id === sel.value; })[0];
     $('avHint').innerHTML = e && e.ongoing
       ? '<div class="msg info">' + esc(e.name) + ' already has an advance running (balance ' + money(e.ongoing, S.adv.currency) + '). ' +
         'Saving here makes a <b>separate</b> advance with its own deduction. To add to the existing one, use <b>＋ Add more</b> on it below.</div>'
       : '';
+  }
+
+  /**
+   * Under the employee in "Give an advance": salary earned this month so far (and what is left to pay after
+   * PF, purchases and this month's instalment) and what they already owe. Fetched once per employee per visit.
+   */
+  function advInfo(empId) {
+    S.advInfo = S.advInfo || {};
+    var box = $('avInfo'); if (!box) return;
+    var show = function (x) {
+      if (!$('avEmp') || $('avEmp').value !== empId) return;
+      var cur = x.currency, row = function (l, v, c) { return '<div class="pay-line"><span>' + l + '</span><b' + (c ? ' style="color:var(--' + c + ')"' : '') + '>' + v + '</b></div>'; };
+      box.innerHTML = '<div style="margin-top:10px;padding:10px 12px;border-radius:12px;background:#f5f7fd;border:1px solid var(--line)">' +
+        '<div class="row"><b>💰 ' + esc(x.label) + ' so far</b><span class="muted small">' + (x.elapsedUntil ? 'till ' + esc(fmtDate(x.elapsedUntil)) + ' · ' : '') + x.elapsedDays + ' of ' + x.daysInMonth + ' days</span></div>' +
+        row('Salary earned (of ' + money(x.salary, cur) + ')', money(x.earned, cur)) +
+        (x.otPay ? row('OT', '+ ' + money(x.otPay, cur), 'green') : '') + (x.cuts ? row('Leaves / late cuts', '− ' + money(x.cuts, cur), 'red') : '') +
+        (x.pf ? row('PF', '− ' + money(x.pf, cur), 'red') : '') + (x.purchasesThisMonth ? row('Purchases', '− ' + money(x.purchasesThisMonth, cur), 'red') : '') +
+        (x.advanceThisMonth ? row('This month\'s advance deduction', '− ' + money(x.advanceThisMonth, cur), 'red') : '') +
+        row('<b>Payable so far</b>', money(x.net, cur)) +
+        '<div class="row" style="margin-top:8px;gap:8px;flex-wrap:wrap">' +
+        '<span class="chip ' + (x.owedTotal ? 's-ABSENT' : 's-PRESENT') + '">Advance owed ' + money(x.owedTotal, cur) + '</span>' +
+        (x.purchasesPending ? '<span class="chip s-LATE">Purchases pending ' + money(x.purchasesPending, cur) + '</span>' : '') +
+        (x.arrearsPending ? '<span class="chip s-PRESENT">Arrears to pay ' + money(x.arrearsPending, cur) + '</span>' : '') + '</div>' +
+        (x.owed.length ? '<div class="muted small" style="margin-top:6px">' + x.owed.map(function (a) { return money(a.balance, cur) + ' left of ' + money(a.amount, cur) +
+          (a.note ? ' (' + esc(a.note) + ')' : '') + ' · ' + money(a.monthly, cur) + '/month' + (a.status === 'PAUSED' ? ' · paused' : '') + (a.startMonth > todayLocal().slice(0, 7) ? ' · from ' + esc(monthName(a.startMonth)) : ''); }).join('<br>') + '</div>' : '') +
+        '</div><div id="avWarn"></div>';
+      advAmtCheck();
+    };
+    if (S.advInfo[empId]) return show(S.advInfo[empId]);
+    box.innerHTML = '<div class="muted small" style="margin-top:8px"><span class="spinner" style="width:14px;height:14px;border-width:2px"></span> Salary so far and amounts owed…</div>';
+    api('adminAdvanceInfo', S.token, empId).then(function (x) { S.advInfo[empId] = x; show(x); })
+      .catch(function (e) { if ($('avEmp') && $('avEmp').value === empId) box.innerHTML = errBox(e); });
+  }
+  /** Warns when the advance is more than the salary payable so far this month. */
+  function advAmtCheck() {
+    var w = $('avWarn'), sel = $('avEmp'), x = sel && S.advInfo && S.advInfo[sel.value], amt = Number(($('avAmt') || {}).value);
+    if (!w) return;
+    w.innerHTML = x && amt > 0 && amt > x.net ? '<div class="msg warn" style="margin-top:8px">⚠ ' + money(amt, x.currency) + ' is more than the ' + money(x.net, x.currency) +
+      ' payable so far this month' + (x.owedTotal ? ', and ' + money(x.owedTotal, x.currency) + ' is already owed' : '') + '.</div>' : '';
+  }
+
+  /** Desktop: one row per employee, opened with a click (remembered while on this screen). */
+  function advToggle(empId) {
+    S.advOpen = S.advOpen || {};
+    S.advOpen[empId] = !S.advOpen[empId];
+    var b = $('advb-' + empId), h = $('advh-' + empId);
+    if (b) b.classList.toggle('hidden', !S.advOpen[empId]);
+    if (h) h.classList.toggle('open', !!S.advOpen[empId]);
+  }
+  function advAll(open) {
+    S.advOpen = S.advOpen || {};
+    [].forEach.call(document.querySelectorAll('.advg:not(.hidden)'), function (g) { var id = g.getAttribute('data-id'); S.advOpen[id] = open;
+      $('advb-' + id).classList.toggle('hidden', !open); $('advh-' + id).classList.toggle('open', open); });
+  }
+  function advFilter(f) {
+    S.advF = f;
+    var q = String(($('advQ') || {}).value || '').toLowerCase().trim();
+    [].forEach.call(document.querySelectorAll('.advg'), function (g) {
+      var ok = (!f || f === 'all' || g.getAttribute('data-f').indexOf(f) >= 0) && (!q || g.getAttribute('data-n').indexOf(q) >= 0);
+      g.classList.toggle('hidden', !ok);
+    });
+    [].forEach.call(document.querySelectorAll('#advTabs button'), function (b) { b.classList.toggle('on', b.getAttribute('data-f') === (f || 'all')); });
   }
 
   /** Adds more money to a running advance. */

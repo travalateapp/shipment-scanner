@@ -224,6 +224,9 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 - **Setting:** *Face Match Max Distance* (default 0.42): lower = stricter. Same person is usually 0.1–0.35, different people from about 0.48. The guard's scanner also needs the best match to be clearly closer than the next person and to show up in 2 looks in a row. It isn't a liveness check: a good photo of someone could fool it, so the proof photos are kept.
 - Admin → Today shows **🙂 Check-in by face / Check-out by face** and both proof photos.
 
+### 💳 Giving an advance: salary so far and what is owed
+Choosing the employee in **Give an advance** shows this month so far (salary earned, OT, cuts, PF, purchases, this month's advance deduction and **payable so far**) and what they already owe (running advances with balance and monthly deduction, purchases pending, arrears to be paid). Typing an amount above the payable so far shows a warning (saving is still allowed).
+
 ### 🖥 Computer (desktop) layout
 On a screen at least 1100 px wide (laptop / desktop browser) the app switches to a full-page layout; phones and the Android app keep the phone layout exactly as before.
 - **Menu on the left**, grouped: Overview (Dashboard, Live attendance), Attendance (Daily register, Mark attendance, Requests, Entries), Payroll (Payroll, Advances & purchases, Monthly summary, PF setup), People (Employees, Holidays, Admins, Activity log) and Me (own attendance, month, requests). Only what the admin is allowed to use is shown. **☰** in the top bar collapses it to icons (remembered on that computer).
@@ -233,6 +236,7 @@ On a screen at least 1100 px wide (laptop / desktop browser) the app switches to
 - **Daily register** and **Payroll** as tables: click a heading to sort, click a row to see the day / the salary in a panel on the right (Edit entry, photos, payslip). Keyboard: ↑ ↓ next / previous person, **E** edit (register) or open the month (payroll), Enter open, **Esc** close.
 - **☰ Columns:** choose which columns are shown (All, Default or any choice; remembered). **🖨 Print** asks the same and prints on A4 (landscape when wide) with the company, month, status and a totals row.
 - Other screens are the same as on the phone, laid out in two columns; their pop-ups open as the panel on the right.
+- **Advances & purchases:** one row per employee (Owes ₹…, this month's deduction, purchases 🛒, arrears 💰, status); click to open the details. Search, filters (Running advance / Purchases / Arrears / Repaid) and Expand all / Collapse all.
 
 ### 🛒 Purchases & debits
 - Admin → Advances → **🛒 Purchases & debits → ＋ Add purchase** (or **＋ Add purchase** on an employee's card): Item, Quantity, Price (each) — the **Total** is worked out (quantity × price) — plus Date, the month whose salary it is cut from, and a note.
