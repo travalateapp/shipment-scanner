@@ -5634,6 +5634,25 @@ function buildRoInvoiceHtml_(invoice, shipment) {
   return pages;
 }
 
+/** HTML-attribute-safe escaping for values interpolated into
+ *  `<td>`/`<option value="...">`/onclick-string-literal template
+ *  contexts throughout this file (cancelled-invoice rows, the Live
+ *  Inventory Snapshot table, the QZ Tray printer dropdown, etc.) — was
+ *  called in 9 places but never actually defined anywhere in this
+ *  file, which silently broke all of them (ReferenceError, caught by
+ *  whichever try/catch or .catch() happened to wrap that call site —
+ *  e.g. it's what made a successful QZ Tray connection still show as
+ *  "QZ Tray not connected", since populating the printer <select> is
+ *  what actually threw). */
+function escAttr_(val) {
+  return String(val == null ? '' : val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 function formatDDMMYYYY_(isoDate) {
   if (!isoDate) return '';
   const d = new Date(isoDate + 'T00:00:00');
