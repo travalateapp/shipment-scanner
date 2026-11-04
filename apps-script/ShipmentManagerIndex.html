@@ -8561,7 +8561,22 @@ function initQzTrayForLabels_() {
     ]);
   }
 
-  withTimeout(qz.websocket.connect(), 8000, 'qz.websocket.connect()').then(() => {
+  // qz.websocket.connect() throws "An open connection with QZ Tray
+  // already exists" if the library already thinks a connection is open
+  // OR still in progress — which includes our own case right here:
+  // withTimeout()'s race only makes OUR code stop waiting after 8s, it
+  // can't actually cancel the real connect() call underneath, so a
+  // previous timed-out (or merely slow) attempt leaves qz-tray.js
+  // believing one is still pending. isActive() true means we're
+  // genuinely already connected (not an error at all — just proceed);
+  // otherwise force-clear whatever state is stuck via disconnect()
+  // (safe to call even when nothing's open) before trying again.
+  function connectQz_() {
+    if (qz.websocket.isActive()) return Promise.resolve();
+    return qz.websocket.disconnect().catch(function () {}).then(function () { return qz.websocket.connect(); });
+  }
+
+  withTimeout(connectQz_(), 8000, 'qz.websocket.connect()').then(() => {
     qzLabelConnected_ = true;
     if (hint) hint.textContent = 'QZ Tray connected, listing printers…';
     return withTimeout(qz.printers.find(), 8000, 'qz.printers.find()');
