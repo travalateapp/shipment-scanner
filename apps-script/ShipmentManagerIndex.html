@@ -1143,9 +1143,10 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
           </div>
           <div style="font-size:11px;color:#64748b;margin-top:4px">Select the Blinkit RO PDF downloaded from Seller Hub.</div>
         </div>
-        <div class="form-group">
+        <div class="form-group" id="poWarehouseFormGroup" style="display:none">
           <label>Link to Warehouse *</label>
           <select id="poWarehouseSelect" style="width:100%" onchange="onPoWarehouseSelectChange_()"><option value=""> -  select warehouse  - </option></select>
+          <div style="font-size:11px;color:#64748b;margin-top:4px">Couldn't auto-detect this PO's warehouse from the PDF — pick it manually, then click Parse PDF again.</div>
         </div>
         <div class="form-group" id="poDummyOrderWrap" style="display:none">
           <label style="display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-weight:400">
@@ -7779,6 +7780,12 @@ function openPoUploadModal() {
   const dummyCheckbox = document.getElementById('poDummyOrderCheckbox');
   if (dummyCheckbox) dummyCheckbox.checked = false;
   if (dummyWrap) dummyWrap.style.display = (poUploadPlatform_ === 'blinkit') ? '' : 'none';
+  // Hidden by default — most POs auto-detect their warehouse from the
+  // PDF (see sendRawTextToServer_), so asking upfront is one less step
+  // for the common case. Only revealed if a Parse attempt can't
+  // confidently auto-detect one.
+  const warehouseGroup = document.getElementById('poWarehouseFormGroup');
+  if (warehouseGroup) warehouseGroup.style.display = 'none';
   const sel = document.getElementById('poWarehouseSelect');
   sel.innerHTML = '<option value=""> -  select warehouse  - </option>';
   google.script.run
@@ -8034,8 +8041,10 @@ function sendRawTextToServer_(rawText, warehouse, btn, errEl) {
             document.getElementById('poWarehouseSelect').value = dw.warehouseKey;
             detectHint = { kind:'match', text: '✅ Auto-detected warehouse from the PDF: <b>' + dw.warehouseKey + '</b>  -  double-check it, or change the dropdown above if it\'s wrong.' };
           } else {
-            errEl.textContent = 'Please select a warehouse.' + ((dw && (dw.facilityCode || dw.gstin)) ?
-              ' (Could not auto-match it to a saved warehouse  -  the PDF shows facility "' + (dw.facilityCode || '?') + '"' + (dw.gstin ? ' / GST ' + dw.gstin : '') + '. Pick the right warehouse, or add this as its Code in the Warehouses tab so future uploads from this facility auto-detect.)' : '');
+            const warehouseGroup = document.getElementById('poWarehouseFormGroup');
+            if (warehouseGroup) warehouseGroup.style.display = '';
+            errEl.textContent = 'Could not auto-detect this PO\'s warehouse  -  please select it below.' + ((dw && (dw.facilityCode || dw.gstin)) ?
+              ' (The PDF shows facility "' + (dw.facilityCode || '?') + '"' + (dw.gstin ? ' / GST ' + dw.gstin : '') + '. Pick the right warehouse, or add this as its Code in the Warehouses tab so future uploads from this facility auto-detect.)' : '');
             errEl.style.display = 'block';
             return;
           }
