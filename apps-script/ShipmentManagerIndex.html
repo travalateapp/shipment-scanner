@@ -1458,6 +1458,7 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
         <div class="form-group" style="margin-bottom:6px">
           <select id="labelPrinterSelect" disabled onchange="onLabelPrinterSelected_()"><option value="">Checking for QZ Tray…</option></select>
           <div class="hint" id="labelPrinterStatusHint" style="font-size:11px;color:#64748b;margin-top:4px">Connecting to QZ Tray…</div>
+          <button type="button" id="labelPrinterRetryBtn" class="btn btn-secondary btn-sm" style="display:none;margin-top:6px" onclick="retryQzTrayConnect_()">🔄 Retry QZ Tray connection</button>
         </div>
       </div>
     </div>
@@ -8527,6 +8528,10 @@ function initQzTrayForLabels_() {
   qzLabelInitStarted_ = true;
   const sel = document.getElementById('labelPrinterSelect');
   const hint = document.getElementById('labelPrinterStatusHint');
+  const retryBtn = document.getElementById('labelPrinterRetryBtn');
+  if (retryBtn) retryBtn.style.display = 'none';
+  if (hint) hint.textContent = 'Connecting to QZ Tray…';
+  if (sel) { sel.disabled = true; sel.innerHTML = '<option value="">Checking for QZ Tray…</option>'; }
   if (typeof qz === 'undefined') {
     if (hint) hint.textContent = 'QZ Tray library failed to load (check internet connection).';
     if (sel) sel.innerHTML = '<option value="">QZ Tray unavailable</option>';
@@ -8556,7 +8561,7 @@ function initQzTrayForLabels_() {
     ]);
   }
 
-  qz.websocket.connect().then(() => {
+  withTimeout(qz.websocket.connect(), 8000, 'qz.websocket.connect()').then(() => {
     qzLabelConnected_ = true;
     if (hint) hint.textContent = 'QZ Tray connected, listing printers…';
     return withTimeout(qz.printers.find(), 8000, 'qz.printers.find()');
@@ -8572,12 +8577,32 @@ function initQzTrayForLabels_() {
     if (hint) hint.textContent = 'QZ Tray connected — ' + list.length + ' printer(s) found.';
   }).catch(err => {
     qzLabelConnected_ = false;
-    const isTimeout = err && err.message && err.message.indexOf('timed out') !== -1;
-    if (hint) hint.textContent = isTimeout
-      ? 'QZ Tray connected but printer list never responded. Try restarting QZ Tray.'
-      : 'QZ Tray not running on this PC — install/start it from qz.io, then reopen this tab.';
+    // Surface the REAL error instead of a single blanket "not running"
+    // message — qz.websocket.connect()/qz.printers.find() can fail for
+    // very different reasons (QZ Tray genuinely not running, the local
+    // qz-tray.js<->QZ Tray secure-websocket handshake failing because
+    // the browser hasn't trusted QZ Tray's own self-signed localhost
+    // cert yet — see https://localhost:8181 — a stale/hung QZ Tray
+    // process, a browser extension blocking localhost websockets, etc.)
+    // and guessing wrong wastes everyone's time. Logged to the console
+    // too so it survives even if someone doesn't think to read the hint
+    // text before it's overwritten by a later retry.
+    const detail = (err && err.message) ? err.message : String(err || 'unknown error');
+    console.error('QZ Tray connection failed:', err);
+    if (hint) hint.textContent = 'QZ Tray not connected  -  ' + detail + '. Make sure QZ Tray is running, then try https://localhost:8181 in a new tab (accept any certificate warning) and retry below.';
     if (sel) sel.innerHTML = '<option value="">QZ Tray not running</option>';
+    if (retryBtn) retryBtn.style.display = '';
   });
+}
+
+/** Lets Settings → Label Printer re-attempt the QZ Tray connection
+ *  without needing a full page reload — e.g. after starting QZ Tray,
+ *  restarting it, or re-trusting its localhost certificate. See
+ *  initQzTrayForLabels_'s guard comment: without resetting
+ *  qzLabelInitStarted_ here, a second call would just silently no-op. */
+function retryQzTrayConnect_() {
+  qzLabelInitStarted_ = false;
+  initQzTrayForLabels_();
 }
 
 /** Saved to localStorage — per-PC, not per-login. See
