@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261065;
+const SERVER_VERSION = 20261066;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -316,7 +316,7 @@ const API_FUNCTIONS = {
   proxyList, proxyCheckIn, proxyCheckOut,
   adminToday, adminDashboard, adminSummary, adminMonth, adminEmployeeMonth, adminEntryOptions, adminGetEntry, adminSaveEntry,
   adminDeleteEntry, adminBulkEntry, adminRequests, adminDecideRequest, adminDecideOt, adminClearMissed,
-  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminSaveAdvance, adminSaveArrear, adminDeleteArrear, adminSavePurchase, adminDeletePurchase,
+  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminAdvanceInfo, adminSaveAdvance, adminSaveArrear, adminDeleteArrear, adminSavePurchase, adminDeletePurchase,
   adminAttendanceRegister,
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
@@ -2150,6 +2150,33 @@ function incrementArrears_(ctx, emp, fromYm, amount) {
     createArrear_(ctx.emp, emp, total, 'Increment back-pay (' + ymLabel_(months[0]) + (months.length > 1 ? ' – ' + ymLabel_(months[months.length - 1]) : '') + ')',
       todayStr_().slice(0, 7), 'Increment of ' + amount + ' from ' + ymLabel_(fromYm) + '; these months were already paid', true);
   }
+}
+
+/**
+ * For the "Give an advance" form: what the employee has earned this month so far and what they already owe
+ * (running advances, purchases and arrears not yet settled).
+ */
+function adminAdvanceInfo(token, empId) {
+  const ctx = authAdmin_(token, 'manageAdvances');
+  const emp = managedEmployee_(ctx, empId, true);
+  const s = getSettings_(), ym = todayStr_().slice(0, 7);
+  const m = buildMonth_(emp, ym), p = m.pay;
+  const owed = readAdvances_().filter(a => a.empId === emp.id && a.status !== 'CLOSED').map(a => {
+    const st = advanceState_(a, ym);
+    return { amount: a.amount, monthly: a.monthly, note: a.note, status: a.status, startMonth: a.startMonth, balance: st.balanceBefore, thisMonth: st.thisMonth };
+  }).filter(a => a.balance > 0);
+  const purchases = readPurchases_().filter(x => x.empId === emp.id && !isLocked_(x.month));
+  const arrears = readArrears_().filter(a => a.empId === emp.id && !isLocked_(a.payMonth));
+  return {
+    id: emp.id, name: emp.name, currency: s.currency, label: ymLabel_(ym), salary: p.salary,
+    elapsedDays: p.elapsedDays, daysInMonth: p.daysInMonth, elapsedUntil: m.totals.elapsedUntil,
+    earned: p.earned, gross: p.gross, net: p.net, otPay: p.otPay, cuts: p.deduction,
+    pf: p.pf ? round2_(p.pfEmployee + (p.pfEmployerDed !== undefined ? p.pfEmployer : 0)) : 0,
+    advanceThisMonth: p.advance, purchasesThisMonth: p.purchaseDed || 0,
+    owed: owed, owedTotal: round2_(owed.reduce((n, a) => n + a.balance, 0)),
+    purchasesPending: round2_(purchases.reduce((n, x) => n + x.amount, 0)),
+    arrearsPending: round2_(arrears.reduce((n, a) => n + a.amount, 0)),
+  };
 }
 
 function adminAdvances(token) {
