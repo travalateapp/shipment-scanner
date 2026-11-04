@@ -8557,10 +8557,20 @@ function initQzTrayForLabels_() {
     return;
   }
 
+  // A failure here (Apps Script RPC error, slow/unstable network, an
+  // expired browser session cookie blocking google.script.run) was
+  // being silently swallowed into an empty cert/signature — QZ Tray
+  // then can't cryptographically verify the request, which is exactly
+  // why it falls back to asking "Allow?" on every single call with the
+  // "Remember this decision" checkbox greyed out (it refuses to let you
+  // permanently trust something it can't verify). Logging the real
+  // error here means that symptom is now diagnosable from the browser
+  // console instead of looking identical to "everything's fine, QZ
+  // just wants to ask every time."
   qz.security.setCertificatePromise(function (resolve) {
     google.script.run
       .withSuccessHandler(function (cert) { resolve(cert || ''); })
-      .withFailureHandler(function () { resolve(''); })
+      .withFailureHandler(function (err) { console.error('getQzCertificate failed:', err); resolve(''); })
       .getQzCertificate();
   });
   qz.security.setSignatureAlgorithm('SHA256');
@@ -8568,7 +8578,7 @@ function initQzTrayForLabels_() {
     return function (resolve) {
       google.script.run
         .withSuccessHandler(resolve)
-        .withFailureHandler(function () { resolve(''); })
+        .withFailureHandler(function (err) { console.error('signQzRequest failed:', err); resolve(''); })
         .signQzRequest(toSign);
     };
   });
