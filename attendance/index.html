@@ -1178,7 +1178,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261067;
+  var NEEDS_SERVER = 20261068;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -4969,6 +4969,19 @@
   }
 
   /* ---- Payroll (desktop) ---- */
+  /**
+   * Payroll table / panel: advances and purchases at their full amount for the month. The salary may not cover
+   * them (e.g. early in the month): the app then cuts only what it can (e.advance, e.purchaseDed) and the payslip
+   * never goes below ₹0, but the table shows the full instalment and a Total salary that can be negative (red).
+   */
+  function advOwed(e) { // balance still to recover: running advances before this month + advances that start later
+    return (e.advances || []).reduce(function (n, a) { return n + (Number(a.balanceBefore) || 0); }, 0) +
+      (e.upcomingAdvances || []).reduce(function (n, a) { return n + (Number(a.amount) || 0); }, 0);
+  }
+  function advWanted(e) { var a = e.advances || []; return a.length ? a.reduce(function (n, x) { return n + (Number(x.wanted) || 0); }, 0) : (Number(e.advance) || 0); }
+  function payPlanned(e) { return Math.round(((Number(e.net) || 0) - (advWanted(e) - (Number(e.advance) || 0)) - (Number(e.purchaseShort) || 0)) * 100) / 100; }
+  function smoney(v, cur) { return (v < 0 ? '−' : '') + money(Math.abs(v), cur); }
+
   function deskPayroll(r) {
     var cur = r.currency, ym = r.ym, split = r.rows.some(function (e) { return e.bank !== undefined; });
     var m = function (k, label, o) { return Object.assign({ k: k, l: label, n: 1, sum: 1, v: function (e) { return Number(e[k]) || 0; }, f: function (e) { return e[k] ? money(e[k], cur) : '<span class="muted">–</span>'; }, sumF: function (s) { return money(s, cur); } }, o || {}); };
@@ -4988,14 +5001,18 @@
       m('halfDayDed', 'Half-day cut', { def: false }), m('lateCutDed', 'Late-mark cut', { def: false }),
       m('shortCutDed', 'Late/early cut'), m('gross', 'Gross', { def: false }),
       m('pfEmployee', 'PF employee'), m('pfEmployer', 'PF employer', { def: false }),
-      m('advance', 'Advance'), m('purchaseDed', 'Purchases')
+      m('advOwed', 'Advance owed', { v: advOwed, f: function (e) { var o = advOwed(e); return o ? '<span style="color:var(--blue);font-weight:600">' + money(o, cur) + '</span>' : '–'; } }),
+      m('advance', 'Advance (this month)', { v: advWanted, f: function (e) { var w = advWanted(e); return w ? '<span style="color:var(--red)">− ' + money(w, cur) + '</span>' : '–'; } }),
+      m('purchaseDed', 'Purchases', { v: function (e) { return Number(e.purchases) || Number(e.purchaseDed) || 0; },
+        f: function (e) { var x = Number(e.purchases) || Number(e.purchaseDed) || 0; return x ? '<span style="color:var(--red)">− ' + money(x, cur) + '</span>' : '–'; } })
     ];
     if (split) cols.push(m('bank', 'In bank'), m('cash', 'In cash'));
-    cols.push(m('net', 'Total salary', { fixed: true, f: function (e) { return '<b>' + money(e.net, cur) + '</b>'; } }));
+    cols.push(m('net', 'Total salary', { fixed: true, v: payPlanned, sumF: function (x) { return smoney(x, cur); }, p: function (e) { return smoney(payPlanned(e), cur); },
+      f: function (e) { var v = payPlanned(e); return '<b' + (v < 0 ? ' style="color:var(--red)"' : '') + '>' + smoney(v, cur) + '</b>'; } }));
     dtSetup('pay', {
       title: ((S.home && S.home.company) || '') + ' – Payroll ' + r.label, sub: r.locked ? 'Final (locked by ' + r.locked.by + ' on ' + r.locked.at + ')' : 'Provisional – not locked',
       rows: r.rows, cols: cols, totals: true, tab: (DT.pay && DT.pay.tab) || 'ALL',
-      filter: function (e, tab) { return tab === 'PF' ? e.pf : tab === 'ADV' ? e.advance > 0 : tab === 'PUR' ? e.purchaseDed > 0 : tab === 'CUT' ? (e.deduction > 0) : tab === 'OT' ? e.otMin > 0 : true; },
+      filter: function (e, tab) { return tab === 'PF' ? e.pf : tab === 'ADV' ? advOwed(e) > 0 : tab === 'PUR' ? e.purchaseDed > 0 : tab === 'CUT' ? (e.deduction > 0) : tab === 'OT' ? e.otMin > 0 : true; },
       onOpen: function (e) { deskPayPanel(e, r); }, onEdit: function (e) { closeModal(); navPush(); openEmployee(e.id, ym); }
     });
     S.payRows = r;
@@ -5004,10 +5021,12 @@
       (r.locked ? '<div class="msg info" style="margin:0">🔒 Locked by ' + esc(r.locked.by) + ' on ' + esc(r.locked.at) + '. Salaries are final and entries cannot change.</div>'
         : r.autoLock && r.autoLock.on ? '<div class="msg info" style="margin:0">🔒 Locks automatically on <b>' + esc(fmtDate(r.autoLock.on)) + '</b>. Until then entries can still be changed.</div>'
         : r.autoLock && r.autoLock.waiting ? '<div class="msg err" style="margin:0">⚠ Automatic lock is waiting: ' + esc(r.autoLock.waiting) + '</div>' : '') +
-      '<div class="dkpis">' + dkpi('#2f5fe3', 'Total payroll', money(sum('net'), cur), r.rows.length + ' employees') +
+      '<div class="dkpis">' + (function () { var plan = r.rows.reduce(function (n, e) { return n + payPlanned(e); }, 0), now = sum('net');
+        return dkpi('#2f5fe3', 'Total payroll', smoney(plan, cur), r.rows.length + ' employees' + (Math.abs(plan - now) >= 1 ? ' · payable now ' + money(now, cur) : '')); })() +
       (split ? dkpi('#16a34a', '🏦 In bank', money(sum('bank'), cur), r.rows.filter(function (e) { return e.pf; }).length + ' PF employees') + dkpi('#d97706', '💵 In cash', money(sum('cash'), cur)) : '') +
       dkpi('#7c3aed', 'OT', mins(sum('otMin')), money(sum('otPay'), cur)) +
-      dkpi('#dc2626', 'Recovered', money(sum('advance') + sum('purchaseDed'), cur), 'advances ' + money(sum('advance'), cur) + ' · purchases ' + money(sum('purchaseDed'), cur)) + '</div>' +
+      (function () { var owed = r.rows.reduce(function (n, e) { return n + advOwed(e); }, 0), want = r.rows.reduce(function (n, e) { return n + advWanted(e); }, 0);
+        return dkpi('#2b78c5', 'Advances owed', money(owed, cur), '<span style="color:var(--red)">this month − ' + money(want, cur) + '</span>' + (sum('purchases') ? ' · purchases − ' + money(sum('purchases'), cur) : '')); })() + '</div>' +
       '<div class="dcard"><div class="dtool"><div class="month-nav" style="margin:0;gap:6px"><button onclick="loadAdminMonth(\'' + ymShift(ym, -1) + '\')">‹</button><b style="min-width:120px;text-align:center">' + esc(r.label) + '</b>' +
       '<button onclick="loadAdminMonth(\'' + ymShift(ym, 1) + '\')">›</button></div>' +
       dtTabs('pay', [['ALL', 'All'], ['PF', 'PF'], ['OT', 'With OT'], ['ADV', 'With advance'], ['PUR', 'With purchases'], ['CUT', 'With cuts']]) +
@@ -5035,9 +5054,13 @@
       (e.shortCutDed ? pl('Late / early cut', '− ' + money(e.shortCutDed, cur), 'red') : '') +
       (e.pf ? pl('PF Employee' + (e.pfPaidDays !== undefined ? ' (' + num(e.pfPaidDays) + '/' + e.daysInMonth + ' days)' : ''), '− ' + money(e.pfEmployee, cur), 'red') +
         (e.pfEmployerDed !== undefined ? pl('PF Employer', '− ' + money(e.pfEmployer, cur), 'red') : '') : '') +
-      (e.purchaseDed ? pl('Purchases', '− ' + money(e.purchaseDed, cur), 'red') : '') + (e.advance ? pl('Advance recovery', '− ' + money(e.advance, cur), 'red') : '') + '</div>' +
+      ((e.purchases || e.purchaseDed) ? pl('Purchases', '− ' + money(e.purchases || e.purchaseDed, cur), 'red') : '') +
+      (advWanted(e) ? pl('Advance (this month)', '− ' + money(advWanted(e), cur), 'red') : '') + '</div>' +
+      (advOwed(e) ? '<div class="pay-line"><span>Advance owed (before this month)</span><b style="color:var(--blue)">' + money(advOwed(e), cur) + '</b></div>' : '') +
       (e.bank !== undefined && e.pf ? '<div class="split"><div><span>🏦 In Bank</span><b>' + money(e.bank, cur) + '</b></div><div><span>💵 In Cash</span><b>' + money(e.cash, cur) + '</b></div></div>' : '') +
-      '<div class="total-tile"><span>Total Salary</span><b>' + money(e.net, cur) + '</b></div>' +
+      '<div class="total-tile"' + (payPlanned(e) < 0 ? ' style="background:var(--red-soft);color:var(--red)"' : '') + '><span>Total Salary</span><b>' + smoney(payPlanned(e), cur) + '</b></div>' +
+      (payPlanned(e) !== e.net ? '<p class="small" style="margin:6px 0 0;color:var(--red)">The salary ' + (e.prorated ? 'earned so far ' : '') + 'does not cover the full deductions: only ' +
+        money((e.advance || 0) + (e.purchaseDed || 0), cur) + ' can be cut now, so ' + money(e.net, cur) + ' would be paid' + (e.prorated ? ' today. It grows as the month goes on.' : '; the rest stays owed for later months.') + '</p>' : '') +
       '<div class="btns" style="margin-top:12px"><button class="btn" onclick="openPayslip(\'' + ym + '\',\'' + esc(e.id) + '\')">📄 Payslip</button>' +
       '<button class="btn ghost" onclick="closeModal();navPush();openEmployee(\'' + esc(e.id) + '\',\'' + ym + '\')">📅 Days (E)</button></div>' +
       '<p class="muted small" style="margin-top:14px">↑ ↓ next / previous person · Esc close</p>';
