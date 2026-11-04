@@ -227,6 +227,9 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 ### 💳 Giving an advance: salary so far and what is owed
 Choosing the employee in **Give an advance** shows this month so far (salary earned, OT, cuts, PF, purchases, this month's advance deduction and **payable so far**) and what they already owe (running advances with balance and monthly deduction, purchases pending, arrears to be paid). Typing an amount above the payable so far shows a warning (saving is still allowed).
 
+### ⏱ Late / early cut without hourly OT (month balance)
+For employees with **Hourly OT** off and **Late Cut** on, late coming / early leaving is cut by the minute on the **month's balance**: the time worked on all full days is compared with their shift time. Extra time on some days covers short days; only a shortfall for the whole month is cut (extra time is never paid as OT). Example (10 h shift, ₹24,500): six days short by 14 min in total but 80 min extra on other days → ₹0 cut; 15 min short every day with nothing extra → 405 min × ₹1.36 = ₹551. The day pop-up says whether that day's short time was covered.
+
 ### 🖥 Computer (desktop) layout
 On a screen at least 1100 px wide (laptop / desktop browser) the app switches to a full-page layout; phones and the Android app keep the phone layout exactly as before.
 - **Menu on the left**, grouped: Overview (Dashboard, Live attendance), Attendance (Daily register, Mark attendance, Requests, Entries), Payroll (Payroll, Advances & purchases, Monthly summary, PF setup), People (Employees, Holidays, Admins, Activity log) and Me (own attendance, month, requests). Only what the admin is allowed to use is shown. **☰** in the top bar collapses it to icons (remembered on that computer).
