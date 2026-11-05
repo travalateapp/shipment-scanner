@@ -202,16 +202,44 @@ function shell() {
 }
 function openDrawer() { $('drawer').classList.add('open'); }
 function closeDrawer() { $('drawer').classList.remove('open'); }
-function go(view, arg) {
-  S.view = view; S.arg = arg; closeDrawer();
+/*
+ * Back button: closes a pop-up or the menu, otherwise returns to the previous screen.
+ * - Android app: MainActivity asks appBack() first ('handled' = done; '' = nothing left → "press back again to exit").
+ * - Browser: every screen is a history entry, so the browser's Back does the same (popstate).
+ */
+var NAV = { stack: [], inApp: !!window.AttendanceApp };
+function go(view, arg, isBack) {
+  var changed = S.view !== undefined && S.view !== null && !(S.view === view && String(S.arg) === String(arg));
+  if (changed && !isBack) {
+    NAV.stack.push({ v: S.view, a: S.arg });
+    if (NAV.stack.length > 40) NAV.stack.shift();
+  }
+  S.view = view; S.arg = arg; closeDrawer(); closeModal();
+  try {
+    if (changed && !isBack && !NAV.inApp) history.pushState({ v: view }, '', '#' + view);
+    else history.replaceState({ v: view }, '', '#' + view);
+  } catch (e) { /* ignore */ }
   $('side').innerHTML = navHtml(); $('drawerNav').innerHTML = navHtml();
   var v = VIEWS[view] || VIEWS.home;
   $('main').innerHTML = '<div class="card muted" style="text-align:center;padding:30px"><span class="spinner dark"></span></div>';
-  try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ }
   window.scrollTo(0, 0);
   v(arg);
 }
 function render(html) { $('main').innerHTML = html; }
+function appBack() {
+  if ($('modal')) { closeModal(); return 'handled'; }
+  if ($('drawer') && $('drawer').classList.contains('open')) { closeDrawer(); return 'handled'; }
+  var p = NAV.stack.pop();
+  if (p && S.profile) { go(p.v, p.a, true); return 'handled'; }
+  return '';
+}
+window.addEventListener('popstate', function () {
+  if (!S.profile) return;
+  var overlay = !!$('modal') || ($('drawer') && $('drawer').classList.contains('open'));
+  appBack();
+  // Closing a pop-up used up one browser history step while staying on the same screen: put it back.
+  if (overlay) { try { history.pushState({ v: S.view }, '', '#' + S.view); } catch (e) { /* ignore */ } }
+});
 function modal(title, body) {
   closeModal();
   var o = document.createElement('div'); o.className = 'overlay'; o.id = 'modal';
@@ -236,7 +264,7 @@ function doLogin(btn) {
     start();
   }).catch(function (e) { busy(btn, false); loginView(e.message); });
 }
-function logoutLocal() { S.token = null; store.set('token', null); loginView(); }
+function logoutLocal() { S.token = null; S.profile = null; S.view = null; NAV.stack = []; store.set('token', null); loginView(); }
 function logout() { var t = S.token; logoutLocal(); api('logout', t).catch(function () {}); }
 function start() {
   shell();
