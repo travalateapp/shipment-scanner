@@ -40,7 +40,7 @@ const SHEET = {
 const HEADERS = {};
 HEADERS[SHEET.SETTINGS] = ['Setting', 'Value', 'Notes'];
 HEADERS[SHEET.KARIGARS] = ['ID', 'Name', 'Phone', 'PIN', 'Active', 'Joined', 'Note'];
-HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Active', 'Email'];
+HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Active'];
 HEADERS[SHEET.ITEMS] = ['Code', 'Name', 'Type', 'Active', 'Selling Price'];
 // Karigar ID * = the STANDARD rate (all karigars). A karigar ID = that karigar's own rate for future lots; Rate STD = back to standard.
 HEADERS[SHEET.RATES] = ['Karigar ID', 'Item Code', 'Rate', 'From Date', 'Set By', 'Set At', 'Note'];
@@ -1561,7 +1561,7 @@ function saveBom(token, item, lines) {
 function staffList(token) {
   const u = authStaff_(token, 'super');
   if (u.role !== 'SUPER') throw new Error('Only for super admins.');
-  return { list: readStaff_().map(s => ({ id: s.id, name: s.name, phone: s.phone, email: s.email, role: s.role, perms: permsOf_(s), active: s.active })), perms: PERMS };
+  return { list: readStaff_().map(s => ({ id: s.id, name: s.name, phone: s.phone, role: s.role, perms: permsOf_(s), active: s.active })), perms: PERMS };
 }
 
 /** data = { id (edit) | newId, name, phone, role, perms: [], active, pin (new) } */
@@ -1577,14 +1577,14 @@ function saveStaff(token, data) {
   if (ex) {
     if (ex.id === u.id && (role !== 'SUPER' || data.active === false)) throw new Error('You cannot remove your own super admin access.');
     sheet_(SHEET.STAFF).getRange(ex.row, 2, 1, 2).setValues([[name, String(data.phone || '')]]);
-    sheet_(SHEET.STAFF).getRange(ex.row, 5, 1, 4).setValues([[role, perms, data.active !== false, String(data.email || '').trim()]]);
+    sheet_(SHEET.STAFF).getRange(ex.row, 5, 1, 3).setValues([[role, perms, data.active !== false]]);
     log_(u, 'EDIT_STAFF', ex.id, role + ' ' + perms + (data.active === false ? ' inactive' : ''));
   } else {
     const id = String(data.newId || '').trim().toUpperCase();
     if (!/^[A-Z0-9-]{2,12}$/.test(id)) throw new Error('Enter an ID (letters, digits and -, 2 to 12).');
     if (findUser_(id)) throw new Error('The ID ' + id + ' is already used.');
     if (!/^\d{4,8}$/.test(String(data.pin || ''))) throw new Error('The PIN must be 4 to 8 digits.');
-    sheet_(SHEET.STAFF).appendRow([id, name, String(data.phone || ''), hashPin_(String(data.pin)), role, perms, true, String(data.email || '').trim()]);
+    sheet_(SHEET.STAFF).appendRow([id, name, String(data.phone || ''), hashPin_(String(data.pin)), role, perms, true]);
     log_(u, 'ADD_STAFF', id, name + ' ' + role + ' ' + perms);
   }
   forget_('staff');
@@ -1603,13 +1603,10 @@ function changeLog(token, ref) {
 
 function canAlerts_(u) { return u.kind === 'S' && (u.role === 'SUPER' || permsOf_(u).indexOf('alerts') >= 0); }
 
-/** Saves an alert (bell in the app) and e-mails it to every active super admin / alerts staff with an e-mail address. */
+/** Saves an alert: shown with the 🔔 bell in the app to super admins and staff with the "alerts" permission only. */
 function alert_(type, text, ref) {
   try {
     sheet_(SHEET.ALERTS).appendRow(['AL' + Date.now() + Math.floor(Math.random() * 1000), nowStr_(), type, String(text).slice(0, 1000), String(ref || '')]);
-    const to = readStaff_().filter(s => s.active && s.email && canAlerts_(s)).map(s => s.email);
-    if (to.length) MailApp.sendEmail({ to: to.join(','), subject: getSettings_().company + ' Production: ' + ALERT_TITLES[type],
-      body: text + '\n\nOpen the Production app → 🔔 Alerts.' });
   } catch (e) { /* an alert must never stop the work */ }
 }
 const ALERT_TITLES = { COUNT_DIFFERS: 'count 1 and final count differ', MATERIAL_SHORT: 'material short with a karigar',
@@ -1873,7 +1870,7 @@ function readKarigars_() {
 function readStaff_() {
   return memo_('staff', () => rows_(SHEET.STAFF).map((r, i) => ({ row: i + 2, kind: 'S', id: String(r[0]).trim().toUpperCase(),
     name: String(r[1]).trim(), phone: String(r[2]), pin: String(r[3]), role: String(r[4]).trim().toUpperCase() === 'SUPER' ? 'SUPER' : 'ADMIN',
-    permissions: String(r[5] || ''), active: bool_(r[6]), email: String(r[7] || '').trim() })).filter(s => s.id));
+    permissions: String(r[5] || ''), active: bool_(r[6]) })).filter(s => s.id));
 }
 
 function readItems_() {

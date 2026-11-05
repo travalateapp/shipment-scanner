@@ -53,9 +53,9 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Several items in one work order:** one karigar, several SKUs at once; each becomes its own lot.
 - **Stock-take at the karigar** (Material balance → 📋 Stock-take): count what is with the karigar (blind: the
   expected figure is not shown). Shortages raise an alert; nothing is cut from pay.
-- **Alerts** (🔔 in the top bar, and by e-mail to staff with an e-mail address): count 1 ≠ final count, material
-  short with a karigar, large advance (Settings → *Large Advance Alert*), locked batch changed, stock-take
-  shortage, low store stock. Super admins get them, and staff given the **alerts** permission.
+- **Alerts** (🔔 in the app's top bar, with the number of new ones): count 1 ≠ final count, material short with a
+  karigar, large advance (Settings → *Large Advance Alert*), locked batch changed, stock-take shortage, low store
+  stock. Only super admins (the owner) and staff given the **alerts** permission see them; nothing is e-mailed.
 - **Profit per item** (selling price, profit and margin %, low margins in red: Settings → *Low Margin %*): only for
   super admins and staff given the **profit** permission.
 - **WhatsApp statement** to each karigar from Payroll (pieces, rate, earned, advance cut and balance, net,

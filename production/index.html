@@ -1383,7 +1383,7 @@ function billSum() {
 VIEWS.alerts = function () {
   api('alertList', S.token).then(function (r) {
     var icon = { COUNT_DIFFERS: '🔢', MATERIAL_SHORT: '🧰', LARGE_ADVANCE: '🤝', BATCH_CORRECTED: '✏️', STOCK_TAKE: '📋', LOW_STOCK: '🏬' };
-    render('<h1 class="page">🔔 Alerts <small>also sent by e-mail to staff who have an e-mail address and the alerts permission</small></h1><div class="card"><div class="list">' +
+    render('<h1 class="page">🔔 Alerts <small>only the owner (super admins) and staff given the alerts permission see these</small></h1><div class="card"><div class="list">' +
       (r.map(function (a) { return '<div class="it" style="' + (a.unread ? 'background:#fff7ed;' : '') + '"><div style="font-size:20px">' + (icon[a.type] || '🔔') + '</div><div class="grow"><b>' + esc(a.title) + '</b>' + (a.unread ? ' <span class="pill err">new</span>' : '') + '<div>' + esc(a.text) + '</div><div class="muted">' + esc(a.at) + '</div></div></div>'; }).join('') ||
         '<div class="muted">No alerts yet.</div>') + '</div></div>');
     api('alertsSeen', S.token).then(function () { bell(0); $('side').innerHTML = navHtml(); $('drawerNav').innerHTML = navHtml(); });
@@ -1406,7 +1406,6 @@ function staffForm(id) {
   modal(id ? 'Edit ' + id : 'Add staff',
     (id ? '' : '<label class="f">ID</label><input id="sfI" placeholder="e.g. S005"><label class="f">PIN</label><input id="sfP" inputmode="numeric">') +
     '<label class="f">Name</label><input id="sfN" value="' + esc(s.name || '') + '"><label class="f">Phone</label><input id="sfPh" value="' + esc(s.phone || '') + '">' +
-    '<label class="f">E-mail (for alerts)</label><input id="sfE" type="email" value="' + esc(s.email || '') + '" placeholder="alerts are e-mailed here (super admins and staff with alerts)">' +
     '<label class="f">Role</label><select id="sfR"><option value="ADMIN">Staff (chosen permissions)</option><option value="SUPER"' + (s.role === 'SUPER' ? ' selected' : '') + '>Super admin (everything)</option></select>' +
     '<label class="f">Permissions</label>' + Object.keys(S.data.sl.perms).map(function (p) { return '<div class="chk"><input type="checkbox" class="sfC" value="' + p + '"' + (s.perms.indexOf(p) >= 0 ? ' checked' : '') + '> ' + esc(S.data.sl.perms[p]) + '</div>'; }).join('') +
     (id ? '<div class="chk"><input type="checkbox" id="sfA"' + (s.active ? ' checked' : '') + '> Active</div><h3>Reset PIN</h3><div class="row"><input id="sfRp" inputmode="numeric" placeholder="New PIN"><button class="btn sec fix" id="sfRb">Reset</button></div>' : '') +
@@ -1414,7 +1413,7 @@ function staffForm(id) {
   $('sfB').onclick = function () {
     var perms = Array.prototype.filter.call(document.querySelectorAll('.sfC'), function (c) { return c.checked; }).map(function (c) { return c.value; });
     busy(this, true);
-    api('saveStaff', S.token, { id: id, newId: val('sfI'), pin: val('sfP'), name: val('sfN'), phone: val('sfPh'), email: val('sfE'), role: val('sfR'), perms: perms, active: id ? $('sfA').checked : true })
+    api('saveStaff', S.token, { id: id, newId: val('sfI'), pin: val('sfP'), name: val('sfN'), phone: val('sfPh'), role: val('sfR'), perms: perms, active: id ? $('sfA').checked : true })
       .then(function () { closeModal(); go('staff'); }).catch(function (e) { fail(e, $('sfB')); });
   };
   if ($('sfRb')) $('sfRb').onclick = function () { api('resetPin', S.token, id, val('sfRp')).then(function () { toast('PIN reset'); }).catch(function (e) { toast(e.message); }); };
