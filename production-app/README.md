@@ -11,13 +11,24 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Inventory:** on lock, the good pieces of inventory SKUs are added to the **Travalate Inventory App**. The
   note there reads `05-Nov 14:20 | Harshit | +40 (In) | Received From Ramesh (P-0012)`.
 - **Parts** (straps, belts …) are paid but not added to the inventory.
-- **Pay:** counted good pieces × the karigar's own rate for that item, on the count date. Rates have a full
-  history. **Rejected pieces are not paid.** Karigars are never paid for what they claim, only for what was
-  counted.
+- **Rates:** every item has a **standard rate**, entered with the item and paid to every karigar. Each work
+  order (**lot**) keeps its rate:
+  - Normally the lot gets the standard rate.
+  - Rarely, a lot gets a **special rate**, either when it is made or later with **Rate**. That applies to
+    that lot only, and the karigar's next lot is back on the standard rate. If **"also for future lots"** is
+    ticked, that karigar keeps the rate for later lots of the item, until it is set back to standard
+    (Karigars & rates → Rates).
+  - When a **standard rate changes**, the app asks where to apply it: **all running lots** on the standard
+    rate, **only the running lots you select**, or **only new lots**.
+  - The change log keeps every rate change. Pieces in pay periods that are already approved never change.
+- **Pay:** counted good pieces × their lot's rate. Goods without a lot use the karigar's own rate, else the
+  standard rate. **Rejected pieces are not paid.** Karigars are never paid for what they claim, only for what
+  was counted.
 - **Pay period 5th to 4th** (5 Nov – 4 Dec). After it ends, **1 approver** approves each karigar's pay. The
   figures are then frozen. The approver then marks it **paid** with the actual date.
-- **Advances:** given with a cut per pay period. For any period the cut can be the **full balance**, a
-  **part**, or **skipped**. This is the same logic as the attendance app.
+- **Advances:** given with a cut per pay period (Advances tab). At **payroll**, the person who approves pay
+  can **raise, lower or zero** each karigar's cut for that month (**Change** under the advance). This only
+  works before approving, and later periods keep the normal cut.
 - **Material balance:** given − returned − used (good + rejected pieces × bill of materials). No wastage
   allowance. A negative balance or material left with a karigar who has no open work order is **flagged**.
 - **Locked entries** can only be corrected by a **super admin**, with a reason. Every entry and change is
@@ -58,10 +69,11 @@ Screens are in `production-app/screenshots/`.
 1. **Staff & permissions:** add the people who count, issue material, confirm, approve pay. Permissions:
    count goods, enter material, confirm material, work orders, approve & pay, advances, masters (karigars,
    items, materials, rates), reports. A super admin has everything.
-2. **Items & materials:** add inventory SKUs (picked from the Inventory App's list) and parts; add raw
-   materials; set each item's **material per piece (BOM)**.
-3. **Karigars & rates:** add karigars (ID + PIN) and each karigar's rate per item.
-4. **Work orders**, then **Material issue**, then counting can start.
+2. **Materials:** add the raw materials.
+3. **Items & rates:** add inventory SKUs (picked from the Inventory App's list) and parts, each with its
+   **standard rate**. Set each item's **material per piece (BOM)**.
+4. **Karigars & rates:** add karigars (ID + PIN). Set a karigar's own rate only in the rare cases it differs.
+5. **Work orders (lots)**, then **Material issue**, then counting can start.
 
 ### Automatic deploy (optional)
 Same as the attendance app (`.github/workflows/deploy-production-apps-script.yml`). Add the repository
@@ -146,9 +158,9 @@ How it works:
 | Settings | Company, currency, pay period start day, Inventory App link and secret |
 | Karigars / Staff | IDs, names, PINs (hashed after the first login), staff roles and permissions |
 | Items | Code, type **SKU** (inventory) or **PART** |
-| Rates | Karigar × item × rate × from date (history: never edited, a new row per change) |
+| Rates | Standard rates (Karigar ID `*`) and karigars' own rates for future lots (`STD` = back to standard). History: a new row per change |
 | Materials / BOM | Raw materials and the material per piece of each item |
-| Work Orders | What each karigar is making |
+| Work Orders | The lots: what each karigar is making, and the lot's rate (standard / karigar / special) |
 | Material Moves | Issues and returns with who entered and who confirmed |
 | Batches | Hand-over claim, count 1 (+photo), count 2 (final), status, final date, inventory status |
 | Batch Lines | Locked counts per item and work order (what pay and the material balance use) |

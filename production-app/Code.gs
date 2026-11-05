@@ -37,10 +37,11 @@ HEADERS[SHEET.SETTINGS] = ['Setting', 'Value', 'Notes'];
 HEADERS[SHEET.KARIGARS] = ['ID', 'Name', 'Phone', 'PIN', 'Active', 'Joined', 'Note'];
 HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Active'];
 HEADERS[SHEET.ITEMS] = ['Code', 'Name', 'Type', 'Active'];
+// Karigar ID * = the STANDARD rate (all karigars). A karigar ID = that karigar's own rate for future lots; Rate STD = back to standard.
 HEADERS[SHEET.RATES] = ['Karigar ID', 'Item Code', 'Rate', 'From Date', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
-HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At'];
+HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source'];
 HEADERS[SHEET.MOVES] = ['ID', 'Date', 'Type', 'Karigar ID', 'Material Code', 'Qty', 'Note', 'Entered By', 'Entered At',
   'Status', 'Confirmed By', 'Confirmed At'];
 HEADERS[SHEET.BATCHES] = ['ID', 'Karigar ID', 'Status', 'Created At', 'Claim', 'Count 1 By', 'Count 1 At', 'Count 1', 'Photo',
@@ -96,8 +97,8 @@ const API_FUNCTIONS = {
   myWork, myPayslip, submitHandover,
   adminDashboard, countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, materialBalance, orderList, saveOrder, setOrderStatus,
-  payroll, payslip, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
-  setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, itemList, saveItem, inventorySkus,
+  payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
+  setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   saveMaterial, saveBom, staffList, saveStaff, changeLog,
 };
 
@@ -594,10 +595,7 @@ function batchDetail(token, batchId) {
 
 function batchSummary_(b, u) {
   const names = karigarNames_();
-  const lines = b.status === 'LOCKED' ? b.lines.map(l => {
-    const rate = rateOn_(b.karigarId, l.item, b.finalDate);
-    return { item: l.item, type: l.type, good: l.good, rejected: l.rejected, rate: rate, amount: rate === null ? null : round2_(rate * l.good) };
-  }) : [];
+  const lines = b.status === 'LOCKED' ? groupByRate_(b.rawLines) : [];
   const super_ = u.kind === 'S' && u.role === 'SUPER';
   const showCounts = b.status === 'LOCKED' || super_;
   return {
@@ -832,14 +830,19 @@ function orderList(token, all) {
   const names = karigarNames_(), items = itemMap_(), bom = bomMap_(), mats = materialMap_();
   const list = ordersWithProgress_().filter(o => all || o.open).reverse().map(o => Object.assign({}, o, {
     karigar: names[o.karigarId] || o.karigarId, itemName: (items[o.item] || {}).name || '', type: (items[o.item] || {}).type || '',
+    rateNow: o.rate !== null ? o.rate : rateOn_(o.karigarId, o.item, todayStr_()), standard: standardRateOn_(o.item, todayStr_()),
     material: (bom[o.item] || []).map(x => ({ material: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '',
       qty: round3_(x.qty * o.qty) })),
   }));
   return { list: list, karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })),
-    items: activeItems_(), canEdit: can_(u, 'orders'), inProduction: inProductionList_() };
+    items: activeItems_(), canEdit: can_(u, 'orders'), canRate: can_(u, 'masters'), inProduction: inProductionList_() };
 }
 
-/** data = { karigarId, item, qty, note } */
+/**
+ * data = { karigarId, item, qty, note, lotRate (optional special rate for this lot), futureToo (also for this
+ * karigar's future lots of the item) }. The lot's rate is fixed when the lot is made: the special rate, else the
+ * karigar's own rate, else the standard rate. A later standard rate change asks which running lots it applies to.
+ */
 function saveOrder(token, data) {
   const u = authStaff_(token, 'orders');
   data = data || {};
@@ -848,15 +851,77 @@ function saveOrder(token, data) {
   if (!itemMap_()[data.item]) throw new Error('Choose the item.');
   const qty = Number(data.qty);
   if (!(qty > 0) || qty % 1) throw new Error('Enter the quantity.');
+  const special = data.lotRate !== '' && data.lotRate !== null && data.lotRate !== undefined;
+  if (special && !can_(u, 'masters')) throw new Error('Only staff with the "masters" permission can set a special rate.');
+  if (special && !(Number(data.lotRate) >= 0)) throw new Error('Enter a valid special rate.');
+  const today = todayStr_();
+  const kr = karigarRateOn_(k.id, data.item, today), sr = standardRateOn_(data.item, today);
+  const rate = special ? Number(data.lotRate) : kr !== null ? kr : sr;
+  const source = special ? 'LOT' : kr !== null ? 'KARIGAR' : sr !== null ? 'STANDARD' : '';
   const id = withLock_(() => {
     const id = nextId_(SHEET.ORDERS, 'W-');
-    sheet_(SHEET.ORDERS).appendRow([id, "'" + todayStr_(), k.id, data.item, qty, 'OPEN', String(data.note || '').slice(0, 200), u.id, nowStr_()]);
+    sheet_(SHEET.ORDERS).appendRow([id, "'" + today, k.id, data.item, qty, 'OPEN', String(data.note || '').slice(0, 200), u.id, nowStr_(),
+      rate === null ? '' : rate, source]);
     forget_('orders');
     return id;
   });
-  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + data.item + ' × ' + qty);
+  if (special && data.futureToo) addKarigarRate_(u, k, data.item, Number(data.lotRate), today, 'From lot ' + id);
+  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + data.item + ' × ' + qty + ' at ' + (rate === null ? 'no rate' : rate) +
+    (source ? ' (' + source.toLowerCase() + ')' : '') + (special && data.futureToo ? ', also for future lots' : ''));
   pushInProduction_();
   return orderList(token);
+}
+
+/**
+ * Changes the rate of ONE lot (work order) for that karigar. futureToo = also use it for this karigar's future
+ * lots of the item (otherwise the next lot gets the standard rate again). Pieces of the lot already paid in an
+ * approved period keep their approved amount.
+ */
+function setOrderRate(token, id, rate, futureToo, note) {
+  const u = authStaff_(token, 'masters');
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o) throw new Error('Work order not found.');
+  if (rate === '' || rate === null || !(Number(rate) >= 0)) throw new Error('Enter the rate.');
+  rate = Number(rate);
+  const k = readKarigars_().filter(x => x.id === o.karigarId)[0] || { id: o.karigarId, name: o.karigarId };
+  sheet_(SHEET.ORDERS).getRange(o.row, 10, 1, 2).setValues([[rate, 'LOT']]);
+  forget_('orders');
+  if (futureToo) addKarigarRate_(u, k, o.item, rate, todayStr_(), 'From lot ' + o.id + (note ? ' | ' + note : ''));
+  log_(u, 'LOT_RATE', id, k.id + ' ' + o.item + ': ' + (o.rate === null ? 'none' : o.rate) + ' → ' + rate + (futureToo ? ', also for future lots' : ', this lot only') +
+    (note ? ' | ' + String(note).slice(0, 200) : ''));
+  return orderList(token, true);
+}
+
+/**
+ * New STANDARD rate of an item (all karigars). apply = 'new' (only lots made from now on), 'all' (also every
+ * running lot that is on the standard rate) or 'selected' (also the running lots in orderIds).
+ * data = { item, rate, apply, orderIds: [], note }
+ */
+function saveStandardRate(token, data) {
+  const u = authStaff_(token, 'masters');
+  data = data || {};
+  if (!itemMap_()[data.item]) throw new Error('Item not found.');
+  if (data.rate === '' || data.rate === null || !(Number(data.rate) >= 0)) throw new Error('Enter the rate.');
+  const rate = Number(data.rate), today = todayStr_();
+  const old = standardRateOn_(data.item, today);
+  sheet_(SHEET.RATES).appendRow(['*', data.item, rate, "'" + today, u.id + ' ' + u.name, nowStr_(), String(data.note || '').slice(0, 200)]);
+  forget_('rates');
+  const running = ordersWithProgress_().filter(o => o.open && o.item === data.item);
+  let targets = [];
+  if (data.apply === 'all') targets = running.filter(o => o.rateSource === 'STANDARD' || o.rateSource === '');
+  else if (data.apply === 'selected') targets = running.filter(o => (data.orderIds || []).indexOf(o.id) >= 0);
+  targets.forEach(o => sheet_(SHEET.ORDERS).getRange(o.row, 10, 1, 2).setValues([[rate, 'STANDARD']]));
+  forget_('orders');
+  log_(u, 'STANDARD_RATE', data.item, (old === null ? 'none' : old) + ' → ' + rate + ' | ' +
+    (data.apply === 'all' ? 'all running lots on the standard rate' : data.apply === 'selected' ? 'selected lots' : 'new lots only') +
+    (targets.length ? ': ' + targets.map(o => o.id).join(', ') : '') + (data.note ? ' | ' + data.note : ''));
+  return itemList(token);
+}
+
+function addKarigarRate_(u, k, item, rate, from, note) {
+  sheet_(SHEET.RATES).appendRow([k.id, item, rate, "'" + from, u.id + ' ' + u.name, nowStr_(), String(note || '').slice(0, 200)]);
+  forget_('rates');
+  log_(u, 'KARIGAR_RATE', k.id, item + ': ' + (rate === 'STD' ? 'back to the standard rate' : rate) + ' for future lots from ' + from);
 }
 
 /** status OPEN or CLOSED (closing stops the rest being "in production"). */
@@ -885,19 +950,9 @@ function payFor_(k, period) {
   if (saved) return Object.assign({}, saved.details, { status: saved.status, approvedBy: saved.approvedBy, approvedAt: saved.approvedAt,
     paidDate: saved.paidDate, paidBy: saved.paidBy });
   const r = periodRange_(period);
-  const group = {};
-  let missing = 0;
-  readLines_().filter(l => l.karigarId === k.id && l.finalDate >= r.from && l.finalDate <= r.to).forEach(l => {
-    const rate = rateOn_(k.id, l.item, l.finalDate);
-    if (rate === null) missing++;
-    const key = l.item + '|' + rate;
-    const g = group[key] = group[key] || { item: l.item, type: l.type, good: 0, rejected: 0, rate: rate, amount: 0 };
-    g.good += l.good;
-    g.rejected += l.rejected;
-    g.amount = rate === null ? 0 : round2_(g.good * rate);
-  });
-  const lines = Object.keys(group).sort().map(x => group[x]);
-  const earned = round2_(lines.reduce((n, l) => n + l.amount, 0));
+  const lines = groupByRate_(readLines_().filter(l => l.karigarId === k.id && l.finalDate >= r.from && l.finalDate <= r.to));
+  const missing = lines.filter(l => l.rate === null).length;
+  const earned = round2_(lines.reduce((n, l) => n + (l.amount || 0), 0));
   let room = earned;
   const advs = [];
   readAdvances_().filter(a => a.karigarId === k.id && a.startPeriod <= period).forEach(a => {
@@ -926,7 +981,7 @@ function payroll(token, period) {
     .filter(p => p.earned || p.advance || p.status !== 'OPEN' || p.advances.length);
   const tot = f => round2_(list.reduce((n, p) => n + p[f], 0));
   return { period: info, periods: recentPeriods_(), list: list, earned: tot('earned'), advance: tot('advance'), net: tot('net'),
-    canApprove: can_(u, 'approve') && info.ended, ended: info.ended, isSuper: u.role === 'SUPER', currency: getSettings_().currency };
+    canApprove: can_(u, 'approve') && info.ended, canAdvance: can_(u, 'approve') || can_(u, 'advances'), ended: info.ended, isSuper: u.role === 'SUPER', currency: getSettings_().currency };
 }
 
 /** Approves one karigar's pay for a finished period: the figures are saved and no longer change. */
@@ -946,6 +1001,24 @@ function approvePay(token, period, karigarId) {
     forget_('pay');
     log_(u, 'APPROVE_PAY', period + ' ' + k.id, 'Earned ' + p.earned + ', advance ' + p.advance + ', net ' + p.net);
   });
+  return payroll(token, period);
+}
+
+/**
+ * At payroll: the advance cut of one karigar for the period (raise, lower or 0). cuts = [{ id, amount }]
+ * (amount '' = back to the normal cut). Only before the pay is approved.
+ */
+function setPayAdvance(token, period, karigarId, cuts, note) {
+  const u = authStaff_(token, 'approve|advances');
+  period = validPeriod_(period);
+  if (readPay_().some(p => p.period === period && p.karigarId === karigarId)) throw new Error('Already approved. Undo the approval first.');
+  (cuts || []).forEach(c => {
+    const a = readAdvances_().filter(x => x.id === c.id && x.karigarId === karigarId)[0];
+    if (!a) throw new Error('Advance not found.');
+    setAdvancePeriod(token, a.id, period, c.amount, note || 'Changed at payroll');
+    forget_('advperiods');
+  });
+  log_(u, 'PAYROLL_ADVANCE', period + ' ' + karigarId, (cuts || []).map(c => c.id + ' → ' + (c.amount === '' ? 'normal' : c.amount)).join(', '));
   return payroll(token, period);
 }
 
@@ -1048,7 +1121,7 @@ function topUpAdvance(token, id, data) {
  * the period) or '' to go back to the normal per-period instalment.
  */
 function setAdvancePeriod(token, id, period, amount, note) {
-  const u = authStaff_(token, 'advances');
+  const u = authStaff_(token, 'advances|approve');
   const a = readAdvances_().filter(x => x.id === id)[0];
   if (!a) throw new Error('Advance not found.');
   period = validPeriod_(period);
@@ -1162,40 +1235,41 @@ function resetPin(token, id, pin) {
   return true;
 }
 
-/** Rates of one karigar: current rate per item and the full history. */
+/** Rates of one karigar: standard rate, the karigar's own rate for future lots (if any) and the history. */
 function rateList(token, karigarId) {
   const u = authStaff_(token, 'masters|reports');
   const today = todayStr_();
   const items = activeItems_();
-  const hist = readRates_().filter(r => r.karigarId === karigarId).map(r => Object.assign({}, r, { setByName: r.setBy }))
+  const hist = readRates_().filter(r => r.karigarId === karigarId)
     .sort((a, b) => (a.item < b.item ? -1 : a.item > b.item ? 1 : a.from < b.from ? 1 : -1));
-  return { karigarId: karigarId, items: items.map(i => ({ code: i.code, name: i.name, type: i.type, rate: rateOn_(karigarId, i.code, today) })),
-    history: hist, canEdit: can_(u, 'masters') };
+  return { karigarId: karigarId, items: items.map(i => ({ code: i.code, name: i.name, type: i.type, standard: standardRateOn_(i.code, today),
+    own: karigarRateOn_(karigarId, i.code, today) })), history: hist, canEdit: can_(u, 'masters') };
 }
 
-/** data = { karigarId, item, rate, from (date), note } — a new line; old rates stay as history. */
+/** The karigar's own rate for FUTURE lots of an item (rate 'STD' = back to the standard rate). data = { karigarId, item, rate, from, note } */
 function saveRate(token, data) {
   const u = authStaff_(token, 'masters');
   data = data || {};
   const k = readKarigars_().filter(x => x.id === data.karigarId)[0];
   if (!k) throw new Error('Karigar not found.');
   if (!itemMap_()[data.item]) throw new Error('Choose the item.');
-  const rate = Number(data.rate);
-  if (!(rate >= 0) || data.rate === '' || data.rate === null) throw new Error('Enter the rate.');
+  const std = String(data.rate).toUpperCase() === 'STD';
+  const rate = std ? 'STD' : Number(data.rate);
+  if (!std && (!(rate >= 0) || data.rate === '' || data.rate === null)) throw new Error('Enter the rate.');
   const from = toDateStr_(data.from) || todayStr_();
-  const locked = readPay_().filter(p => p.karigarId === k.id && periodRange_(p.period).to >= from);
-  if (locked.length) throw new Error('Pay is already approved up to ' + periodRange_(locked[locked.length - 1].period).to + '. The new rate must start after that.');
-  const old = rateOn_(k.id, data.item, from);
-  sheet_(SHEET.RATES).appendRow([k.id, data.item, rate, "'" + from, u.id + ' ' + u.name, nowStr_(), String(data.note || '').slice(0, 200)]);
-  forget_('rates');
-  log_(u, 'RATE', k.id, data.item + ': ' + (old === null ? 'none' : old) + ' → ' + rate + ' from ' + from);
+  addKarigarRate_(u, k, data.item, rate, from, data.note);
   return rateList(token, k.id);
 }
 
 function itemList(token) {
   const u = authStaff_(token, 'masters|reports|orders|count');
-  const bom = bomMap_();
-  return { list: readItems_().map(i => Object.assign({}, i, { bom: bom[i.code] || [] })), materials: readMaterials_(), canEdit: can_(u, 'masters') };
+  const bom = bomMap_(), today = todayStr_(), names = karigarNames_();
+  const running = ordersWithProgress_().filter(o => o.open);
+  return { list: readItems_().map(i => Object.assign({}, i, { bom: bom[i.code] || [], rate: standardRateOn_(i.code, today),
+    rateHistory: readRates_().filter(r => r.karigarId === '*' && r.item === i.code).sort((a, b) => (a.from < b.from ? 1 : -1)),
+    karigarRates: readKarigars_().map(k => ({ id: k.id, name: k.name, rate: karigarRateOn_(k.id, i.code, today) })).filter(x => x.rate !== null),
+    running: running.filter(o => o.item === i.code).map(o => ({ id: o.id, karigar: names[o.karigarId] || o.karigarId, qty: o.qty, remaining: o.remaining,
+      rate: o.rate, rateSource: o.rateSource })) })), materials: readMaterials_(), canEdit: can_(u, 'masters') };
 }
 
 /** data = { code, name, type: SKU|PART, active }. SKU codes must exist in the Inventory App's Master_SKU. */
@@ -1211,6 +1285,13 @@ function saveItem(token, data) {
     if (skus && !skus.some(s => s.toUpperCase() === code.toUpperCase())) throw new Error(code + ' is not in the Inventory App. Choose it from the list, or make it a part.');
   }
   const ex = readItems_().filter(i => i.code.toUpperCase() === code.toUpperCase())[0];
+  const hasRate = data.rate !== '' && data.rate !== null && data.rate !== undefined;
+  if (!ex && !hasRate) throw new Error('Enter the standard rate (paid per piece to every karigar).');
+  if (hasRate && !(Number(data.rate) >= 0)) throw new Error('Enter a valid standard rate.');
+  if (!ex) {
+    sheet_(SHEET.RATES).appendRow(['*', code, Number(data.rate), "'" + todayStr_(), u.id + ' ' + u.name, nowStr_(), 'New item']);
+    forget_('rates');
+  }
   const row = [ex ? ex.code : code, String(data.name || ''), type, data.active !== false];
   if (ex) sheet_(SHEET.ITEMS).getRange(ex.row, 1, 1, 4).setValues([row]); else sheet_(SHEET.ITEMS).appendRow(row);
   forget_('items');
@@ -1346,23 +1427,59 @@ function bomMap_() {
 
 function readRates_() {
   return memo_('rates', () => rows_(SHEET.RATES).map((r, i) => ({ row: i + 2, karigarId: String(r[0]).trim().toUpperCase(),
-    item: String(r[1]).trim(), rate: Number(r[2]), from: toDateStr_(r[3]), setBy: String(r[4] || ''), setAt: String(r[5] || ''),
-    note: String(r[6] || '') })).filter(x => x.karigarId && x.item && x.from && isFinite(x.rate)));
+    item: String(r[1]).trim(), rate: String(r[2]).trim().toUpperCase() === 'STD' ? null : Number(r[2]), from: toDateStr_(r[3]),
+    setBy: String(r[4] || ''), setAt: String(r[5] || ''), note: String(r[6] || '') }))
+    .filter(x => x.karigarId && x.item && x.from && String(x.rate) !== '' && (x.rate === null || isFinite(x.rate))));
 }
 
-/** The karigar's rate for the item on the date: the latest row starting on or before it (null = no rate). */
-function rateOn_(karigarId, item, date) {
+/** Latest rate row for (who, item) starting on or before the date ('*' = standard). Later rows win on the same date. */
+function latestRate_(who, item, date) {
   let best = null;
   readRates_().forEach(r => {
-    if (r.karigarId === karigarId && r.item === item && r.from <= date && (!best || r.from >= best.from)) best = r;
+    if (r.karigarId === who && r.item === item && r.from <= date && (!best || r.from >= best.from)) best = r;
   });
-  return best ? best.rate : null;
+  return best;
+}
+function standardRateOn_(item, date) { const r = latestRate_('*', item, date); return r ? r.rate : null; }
+/** The karigar's own rate for future lots (null = none, or set back to the standard rate). */
+function karigarRateOn_(karigarId, item, date) { const r = latestRate_(karigarId, item, date); return r ? r.rate : null; }
+/** Rate for goods without a lot: the karigar's own rate, else the standard rate (null = no rate). */
+function rateOn_(karigarId, item, date) {
+  const k = karigarRateOn_(karigarId, item, date);
+  return k !== null ? k : standardRateOn_(item, date);
+}
+
+/** Rate of a counted line: its lot's rate, else (no lot, or a lot without a rate) the karigar / standard rate. */
+function lineRate_(l) {
+  const o = l.workOrder ? orderMap_()[l.workOrder] : null;
+  if (o && o.rate !== null) return o.rate;
+  return rateOn_(l.karigarId, l.item, l.finalDate);
+}
+
+/** Batch lines grouped per item and rate: [{ item, type, good, rejected, rate, amount, lots }]. */
+function groupByRate_(lines) {
+  const group = {};
+  lines.forEach(l => {
+    const rate = lineRate_(l);
+    const key = l.item + '|' + rate;
+    const g = group[key] = group[key] || { item: l.item, type: l.type, good: 0, rejected: 0, rate: rate, amount: 0, lots: [] };
+    g.good += l.good;
+    g.rejected += l.rejected;
+    g.amount = rate === null ? null : round2_(g.good * rate);
+    if (l.workOrder && g.lots.indexOf(l.workOrder) < 0) g.lots.push(l.workOrder);
+  });
+  return Object.keys(group).sort().map(x => group[x]);
+}
+
+function orderMap_() {
+  return memo_('ordermap', () => { const m = {}; readOrders_().forEach(o => { m[o.id] = o; }); return m; });
 }
 
 function readOrders_() {
   return memo_('orders', () => rows_(SHEET.ORDERS).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]),
     karigarId: String(r[2]).trim().toUpperCase(), item: String(r[3]).trim(), qty: Number(r[4]) || 0,
-    status: String(r[5]).trim().toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN', note: String(r[6] || ''), by: String(r[7] || '') })).filter(o => o.id));
+    status: String(r[5]).trim().toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN', note: String(r[6] || ''), by: String(r[7] || ''),
+    rate: r[9] === '' || r[9] === null || !isFinite(Number(r[9])) ? null : Number(r[9]), rateSource: String(r[10] || '').trim().toUpperCase() })).filter(o => o.id));
 }
 
 function readMoves_() {
@@ -1393,7 +1510,7 @@ function readBatches_() {
         createdAt: String(r[3] || ''), claim: parseJson_(r[4], []), count1By: String(r[5] || ''), count1At: String(r[6] || ''),
         count1: parseJson_(r[7], []), photo: String(r[8] || ''), count2By: String(r[9] || ''), count2At: String(r[10] || ''),
         count2: parseJson_(r[11], []), finalDate: toDateStr_(r[12]), inventory: String(r[13] || ''), inventoryNote: String(r[14] || ''),
-        earlier: parseJson_(r[15], []), note: String(r[16] || ''), lines: Object.keys(per).sort().map(k => per[k]) };
+        earlier: parseJson_(r[15], []), note: String(r[16] || ''), lines: Object.keys(per).sort().map(k => per[k]), rawLines: lines[id] || [] };
     }).filter(b => b.id);
   });
 }
@@ -1487,7 +1604,7 @@ function forget_() {
     delete MEMO[arguments[i]];
     if (arguments[i] === 'lines') delete MEMO.batches; // batches carry their lines
   }
-  ['itemmap', 'orderprog', 'balances'].forEach(k => { delete MEMO[k]; });
+  ['itemmap', 'orderprog', 'balances', 'ordermap'].forEach(k => { delete MEMO[k]; });
 }
 
 function sheet_(name) {

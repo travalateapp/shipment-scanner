@@ -147,6 +147,8 @@ function api(fn) {
 
 /* ---------- small helpers ---------- */
 function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function q(s) { return esc(String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")); } // a JS string inside an onclick="…" 
+function srcPill(src) { return src === 'LOT' ? '<span class="pill warn">this lot</span>' : src === 'KARIGAR' ? '<span class="pill info">karigar rate</span>' : src === 'STANDARD' ? '<span class="pill">standard</span>' : ''; }
 function cur() { return (S.profile && S.profile.currency) || '₹'; }
 function money(n) { if (n === null || n === undefined || n === '') return '–'; var neg = n < 0; n = Math.abs(Number(n)); return (neg ? '−' : '') + cur() + n.toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
 function num(n) { return Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 }); }
@@ -179,7 +181,8 @@ function menu() {
   if (can('approve') || can('reports')) m.push(['payroll', '💰', 'Payroll']);
   if (can('advances') || can('approve')) m.push(['advances', '🤝', 'Advances']);
   if (can('masters') || can('reports')) m.push(['karigars', '👷', 'Karigars & rates']);
-  if (can('masters') || can('reports')) m.push(['items', '🏷️', 'Items & materials']);
+  if (can('masters') || can('reports')) m.push(['items', '🏷️', 'Items & rates']);
+  if (can('masters') || can('reports')) m.push(['materials', '🧶', 'Materials']);
   if (isSuper()) { m.push(['-']); m.push(['staff', '🛡️', 'Staff & permissions']); m.push(['log', '📜', 'Change log']); }
   m.push(['pin', '🔑', 'Change PIN']);
   return m;
@@ -492,19 +495,42 @@ function saveCorrection(btn) {
 VIEWS.orders = function (all) {
   api('orderList', S.token, !!all).then(function (r) {
     S.data.ol = r;
-    render('<h1 class="page">🧵 Work orders <small>what each karigar is making</small></h1>' +
+    render('<h1 class="page">🧵 Work orders (lots) <small>what each karigar is making, and at what rate</small></h1>' +
       '<div class="tabs"><a class="' + (all ? '' : 'on') + '" onclick="go(\'orders\')">Open</a><a class="' + (all ? 'on' : '') + '" onclick="go(\'orders\',1)">All</a></div>' +
-      (r.canEdit ? '<div class="card"><h2>New work order</h2><div class="row"><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
-        '<select id="woI">' + itemOpts(r.items) + '</select></div><div class="row" style="margin-top:8px"><input id="woQ" type="number" inputmode="numeric" placeholder="Quantity"><input id="woN" placeholder="Note (optional)"><button class="btn fix" onclick="saveWo(this)">Add</button></div></div>' : '') +
-      '<div class="card scroll"><table class="tbl"><tr><th>Order</th><th>Karigar</th><th>Item</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the order</th><th></th></tr>' +
+      (r.canEdit ? '<div class="card"><h2>New work order (lot)</h2><div class="row"><select id="woK" onchange="woHint()"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
+        '<select id="woI" onchange="woHint()">' + itemOpts(r.items) + '</select></div><div class="row" style="margin-top:8px"><input id="woQ" type="number" inputmode="numeric" placeholder="Quantity"><input id="woN" placeholder="Note (optional)"></div>' +
+        (r.canRate ? '<div class="row" style="margin-top:8px"><input id="woR" type="number" step="any" inputmode="decimal" placeholder="Special rate for this lot (blank = normal rate)" oninput="woHint()"></div>' +
+          '<div class="chk" id="woFutureRow" style="display:none"><input type="checkbox" id="woF"> Also use this rate for this karigar\'s future lots of this item</div>' : '') +
+        '<div class="muted" id="woHint" style="margin-top:6px"></div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
+      '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th></th></tr>' +
       (r.list.map(function (o) {
-        return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
-          '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td><td>' +
-          (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : '')) + '</td></tr>';
-      }).join('') || '<tr><td colspan="8" class="muted">No work orders.</td></tr>') + '</table></div>');
+        var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
+        var btns = (o.open && r.canRate ? '<button class="btn sm" onclick="lotRate(\'' + o.id + '\')">Rate</button> ' : '') +
+          (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : ''));
+        return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
+          '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
+      }).join('') || '<tr><td colspan="9" class="muted">No work orders.</td></tr>') + '</table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
-function saveWo(btn) { busy(btn, true); api('saveOrder', S.token, { karigarId: val('woK'), item: val('woI'), qty: val('woQ'), note: val('woN') }).then(function () { toast('Work order added'); go('orders'); }).catch(function (e) { fail(e, btn); }); }
+function woHint() {
+  if ($('woFutureRow')) $('woFutureRow').style.display = val('woR') !== '' ? 'flex' : 'none';
+  var h = $('woHint'); if (!h) return;
+  h.textContent = val('woR') !== '' ? 'This lot is paid at ' + money(val('woR')) + ' per piece.' : 'The lot gets the karigar\'s own rate if one is set, otherwise the standard rate.';
+}
+function saveWo(btn) {
+  busy(btn, true);
+  api('saveOrder', S.token, { karigarId: val('woK'), item: val('woI'), qty: val('woQ'), note: val('woN'), lotRate: $('woR') ? val('woR') : '', futureToo: $('woF') ? $('woF').checked : false })
+    .then(function () { toast('Work order added'); go('orders'); }).catch(function (e) { fail(e, btn); });
+}
+function lotRate(id) {
+  var o = S.data.ol.list.filter(function (x) { return x.id === id; })[0];
+  modal('Rate for lot ' + o.id, '<div class="kv"><div>Karigar</div><div><b>' + esc(o.karigar) + '</b></div><div>Item</div><div>' + esc(o.item) + '</div><div>Rate now</div><div>' + (o.rate !== null ? money(o.rate) + ' ' + srcPill(o.rateSource) : '–') + '</div><div>Standard rate</div><div>' + (o.standard !== null ? money(o.standard) : '–') + '</div></div>' +
+    '<label class="f">New rate for this lot</label><input id="lrR" type="number" step="any" inputmode="decimal">' +
+    '<div class="chk"><input type="checkbox" id="lrF"> Also use this rate for ' + esc(o.karigar) + '\'s future lots of ' + esc(o.item) + '</div>' +
+    '<div class="muted">Without the tick, the next lot gets the standard rate again. Pieces of this lot in a pay period that is already approved keep their approved amount.</div>' +
+    '<label class="f">Reason</label><input id="lrN"><button class="btn block" id="lrB">Save</button>');
+  $('lrB').onclick = function () { busy(this, true); api('setOrderRate', S.token, id, val('lrR'), $('lrF').checked, val('lrN')).then(function () { closeModal(); toast('Rate saved'); go('orders', S.arg); }).catch(function (e) { fail(e, $('lrB')); }); };
+}
 function woStatus(id, st, btn) { if (st === 'CLOSED' && !confirm('Close this work order? What is not made yet is no longer "in production".')) return; busy(btn, true); api('setOrderStatus', S.token, id, st).then(function () { go('orders', S.arg); }).catch(function (e) { fail(e, btn); }); }
 
 /* ---------- material ---------- */
@@ -569,7 +595,7 @@ VIEWS.payroll = function (period) {
         if (p.status === 'OPEN' && r.canApprove) act = '<button class="btn sm" onclick="approve(\'' + p.karigarId + '\',this)">Approve</button>';
         if (p.status === 'APPROVED' && r.canApprove) act = '<button class="btn ok sm" onclick="paid(\'' + p.karigarId + '\',this)">Mark paid</button>' + (r.isSuper ? ' <button class="btn sec sm" onclick="unapprove(\'' + p.karigarId + '\',this)">Undo</button>' : '');
         return '<tr><td class="click" onclick="adminSlip(\'' + p.karigarId + '\')" style="cursor:pointer"><b>' + esc(p.name) + '</b><div class="muted">' + p.karigarId + '</div></td><td class="r">' + p.good + '</td><td class="r">' + p.rejected + '</td><td class="r">' + money(p.earned) + (p.missingRates ? '<div><span class="pill warn">' + p.missingRates + ' no rate</span></div>' : '') + '</td>' +
-          '<td class="r neg">' + (p.advance ? '−' + money(p.advance) : '') + (p.short ? '<div class="muted">less than due</div>' : '') + '</td><td class="r"><b>' + money(p.net) + '</b></td><td>' + st + '</td><td style="white-space:nowrap">' + act + ' <button class="btn sec sm" onclick="adminSlip(\'' + p.karigarId + '\')">Payslip</button></td></tr>';
+          '<td class="r neg">' + (p.advance ? '−' + money(p.advance) : '') + (p.short ? '<div class="muted">less than due</div>' : '') + (p.status === 'OPEN' && r.canAdvance && p.advances.length ? '<div><button class="btn sec sm" onclick="payAdv(\'' + p.karigarId + '\')">Change</button></div>' : '') + '</td><td class="r"><b>' + money(p.net) + '</b></td><td>' + st + '</td><td style="white-space:nowrap">' + act + ' <button class="btn sec sm" onclick="adminSlip(\'' + p.karigarId + '\')">Payslip</button></td></tr>';
       }).join('') || '<tr><td colspan="8" class="muted">Nothing counted in this period.</td></tr>') +
       '<tfoot><tr><td>Total</td><td></td><td></td><td class="r">' + money(r.earned) + '</td><td class="r">' + money(r.advance) + '</td><td class="r">' + money(r.net) + '</td><td colspan="2"></td></tr></tfoot></table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -582,6 +608,22 @@ function paid(k, btn) {
   $('pdB').onclick = function () { busy(this, true); api('markPaid', S.token, S.data.pay.period.key, k, val('pdD')).then(function () { closeModal(); toast('Marked as paid'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('pdB')); }); };
 }
 function adminSlip(k) { api('payslip', S.token, S.data.pay.period.key, k).then(function (r) { modal('Payslip', slipHtml(r)); }).catch(function (e) { toast(e.message); }); }
+function payAdv(k) {
+  var p = S.data.pay.list.filter(function (x) { return x.karigarId === k; })[0];
+  modal('Advance cut · ' + p.name + ' · ' + S.data.pay.period.label,
+    '<div class="muted" style="margin-bottom:8px">Raise, lower or set 0 for this pay period only. The normal cut per period stays as it is for later periods.</div>' +
+    p.advances.map(function (a) {
+      return '<div class="card" style="box-shadow:none;border:1px solid var(--line)"><b>Advance ' + money(a.amount) + '</b>' + (a.note ? ' · ' + esc(a.note) : '') +
+        '<div class="kv" style="margin:6px 0"><div>Balance</div><div><b>' + money(a.balanceBefore) + '</b></div><div>Normal cut</div><div>' + money(Math.min(a.perPeriod, a.balanceBefore)) + '</div></div>' +
+        '<div class="row"><input type="number" step="any" inputmode="decimal" class="paA" data-id="' + a.id + '" value="' + a.wanted + '"><button class="btn sec fix" onclick="this.previousElementSibling.value=0">0</button><button class="btn sec fix" onclick="this.parentNode.firstChild.value=' + a.balanceBefore + '">Full</button></div></div>';
+    }).join('') +
+    '<div class="muted">Earned this period: ' + money(p.earned) + '. The total cut is never more than what was earned.</div><label class="f">Reason</label><input id="paN"><button class="btn block" id="paB">Save</button>');
+  $('paB').onclick = function () {
+    var cuts = Array.prototype.map.call(document.querySelectorAll('.paA'), function (i) { return { id: i.dataset.id, amount: i.value === '' ? '' : Number(i.value) }; });
+    busy(this, true);
+    api('setPayAdvance', S.token, S.data.pay.period.key, k, cuts, val('paN')).then(function () { closeModal(); toast('Advance cut changed'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('paB')); });
+  };
+}
 function payCsv() {
   var r = S.data.pay, rows = [['Karigar ID', 'Karigar', 'Good', 'Rejected', 'Earned', 'Advance', 'Net', 'Status', 'Paid date']];
   r.list.forEach(function (p) { rows.push([p.karigarId, p.name, p.good, p.rejected, p.earned, p.advance, p.net, p.status, p.paidDate || '']); });
@@ -662,13 +704,18 @@ function editKarigar(id) {
 function rates(id) {
   api('rateList', S.token, id).then(function (r) {
     var k = S.data.kl.list.filter(function (x) { return x.id === id; })[0];
-    var t = new Date(), ds = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
     modal('Rates · ' + k.name,
-      '<table class="tbl"><tr><th>Item</th><th class="r">Rate today</th></tr>' + r.items.map(function (i) { return '<tr><td>' + esc(i.code) + (i.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + (i.rate === null ? '<span class="muted">–</span>' : '<b>' + money(i.rate) + '</b>') + '</td></tr>'; }).join('') + '</table>' +
-      (r.canEdit ? '<h3>Set a new rate</h3><select id="rtI">' + itemOpts(r.items) + '</select><div class="row" style="margin-top:8px"><input id="rtR" type="number" step="any" inputmode="decimal" placeholder="Rate per piece"><input id="rtF" type="date" value="' + ds + '"></div><input id="rtN" style="margin-top:8px" placeholder="Note (e.g. new design)"><button class="btn block" id="rtB">Save rate</button>' : '') +
-      '<h3>Rate history</h3>' + (r.history.map(function (h) { return '<div class="muted">' + esc(h.item) + ': <b>' + money(h.rate) + '</b> from ' + d(h.from) + ' · set by ' + esc(h.setBy.replace(/^\S+ /, '')) + ' ' + esc(h.setAt) + (h.note ? ' · ' + esc(h.note) : '') + '</div>'; }).join('') || '<div class="muted">No rates yet.</div>'));
-    if ($('rtB')) $('rtB').onclick = function () { busy(this, true); api('saveRate', S.token, { karigarId: id, item: val('rtI'), rate: val('rtR'), from: val('rtF'), note: val('rtN') }).then(function () { toast('Rate saved'); rates(id); }).catch(function (e) { fail(e, $('rtB')); }); };
+      '<div class="muted" style="margin-bottom:8px">Every karigar gets the standard rate. A karigar\'s own rate (set here, or ticked "future lots" on a lot) is used for his new lots instead.</div>' +
+      '<table class="tbl"><tr><th>Item</th><th class="r">Standard</th><th class="r">' + esc(k.name) + '\'s own rate</th><th></th></tr>' + r.items.map(function (i) {
+        return '<tr><td>' + esc(i.code) + (i.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + (i.standard === null ? '<span class="pill warn">none</span>' : money(i.standard)) + '</td>' +
+          '<td class="r">' + (i.own === null ? '<span class="muted">standard</span>' : '<b>' + money(i.own) + '</b>') + '</td><td>' + (r.canEdit && i.own !== null ? '<button class="btn sec sm" onclick="ownRate(\'' + id + '\',\'' + q(i.code) + '\',\'STD\')">Use standard</button>' : '') + '</td></tr>';
+      }).join('') + '</table>' +
+      (r.canEdit ? '<h3>Own rate for future lots</h3><select id="rtI">' + itemOpts(r.items) + '</select><div class="row" style="margin-top:8px"><input id="rtR" type="number" step="any" inputmode="decimal" placeholder="Rate per piece"><input id="rtN" placeholder="Note"></div><button class="btn block" onclick="ownRate(\'' + id + '\')">Save</button>' : '') +
+      '<h3>History</h3>' + (r.history.map(function (h) { return '<div class="muted">' + esc(h.item) + ': <b>' + (h.rate === null ? 'back to standard' : money(h.rate)) + '</b> from ' + d(h.from) + ' · ' + esc(h.setBy.replace(/^\S+ /, '')) + ' ' + esc(h.setAt) + (h.note ? ' · ' + esc(h.note) : '') + '</div>'; }).join('') || '<div class="muted">Always the standard rate.</div>'));
   }).catch(function (e) { toast(e.message); });
+}
+function ownRate(id, item, rate) {
+  api('saveRate', S.token, { karigarId: id, item: item || val('rtI'), rate: rate || val('rtR'), note: rate ? '' : val('rtN') }).then(function () { toast('Saved'); rates(id); }).catch(function (e) { toast(e.message); });
 }
 
 /* ---------- items, materials, BOM ---------- */
@@ -676,26 +723,63 @@ VIEWS.items = function () {
   api('itemList', S.token).then(function (r) {
     S.data.il = r;
     var mats = {}; r.materials.forEach(function (m) { mats[m.code] = m; });
-    render('<h1 class="page">🏷️ Items & materials</h1>' +
+    render('<h1 class="page">🏷️ Items & rates <small>the standard rate is paid to every karigar</small></h1>' +
       (r.canEdit ? '<div class="card"><h2>Add an item</h2><div class="row"><select id="itT" onchange="itType()"><option value="SKU">Inventory SKU (added to the Inventory App)</option><option value="PART">Part (paid, not in inventory)</option></select></div>' +
-        '<div class="row" style="margin-top:8px"><input id="itC" list="invSkus" placeholder="SKU from the Inventory App"><datalist id="invSkus"></datalist><input id="itN" placeholder="Description (optional)"><button class="btn fix" onclick="addItem(this)">Add</button></div><div class="muted" id="itHint" style="margin-top:6px">Loading the SKU list from the Inventory App…</div></div>' : '') +
-      '<div class="card scroll"><h2>Items</h2><table class="tbl"><tr><th>Code</th><th>Type</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
+        '<div class="row" style="margin-top:8px"><input id="itC" list="invSkus" placeholder="SKU from the Inventory App"><datalist id="invSkus"></datalist><input id="itN" placeholder="Description (optional)"></div>' +
+        '<div class="row" style="margin-top:8px"><input id="itR" type="number" step="any" inputmode="decimal" placeholder="Standard rate per piece (₹)"><button class="btn fix" onclick="addItem(this)">Add item</button></div><div class="muted" id="itHint" style="margin-top:6px">Loading the SKU list from the Inventory App…</div></div>' : '') +
+      '<div class="card scroll"><table class="tbl"><tr><th>Item</th><th>Type</th><th class="r">Standard rate</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
         return '<tr><td><b>' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '</td><td>' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + '</td>' +
+          '<td class="r">' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + (i.rateHistory.length > 1 ? '<div class="muted">since ' + d(i.rateHistory[0].from) + '</div>' : '') + '</td>' +
+          '<td class="muted">' + i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join('<br>') + '</td>' +
           '<td>' + (i.bom.map(function (b) { var m = mats[b.material] || { name: b.material, unit: '' }; return esc(m.name) + ' <b>' + num(b.qty) + '</b> ' + esc(m.unit); }).join('<br>') || '<span class="pill warn">No BOM</span>') + '</td>' +
-          '<td>' + (i.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit ? '<button class="btn sm" onclick="bomForm(\'' + esc(i.code).replace(/'/g, "\\'") + '\')">BOM</button> <button class="btn sec sm" onclick="toggleItem(\'' + esc(i.code).replace(/'/g, "\\'") + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : '') + '</td></tr>';
-      }).join('') + '</table></div>' +
-      '<div class="card scroll"><h2>Raw materials</h2>' + (r.canEdit ? '<div class="row" style="margin-bottom:8px"><input id="mtC" placeholder="Code (e.g. LEA-BLK)"><input id="mtN" placeholder="Name"><input id="mtU" placeholder="Unit (sq ft, m, pcs)"><button class="btn fix" onclick="addMat(this)">Add</button></div>' : '') +
-      '<table class="tbl"><tr><th>Code</th><th>Name</th><th>Unit</th></tr>' + r.materials.map(function (m) { return '<tr><td><b>' + esc(m.code) + '</b></td><td>' + esc(m.name) + '</td><td>' + esc(m.unit) + '</td></tr>'; }).join('') + '</table></div>');
+          '<td>' + (i.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit ? '<button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button> <button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button> <button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : '') + '</td></tr>';
+      }).join('') + '</table></div>');
     if (r.canEdit) api('inventorySkus', S.token).then(function (skus) {
       $('invSkus').innerHTML = skus.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('');
       $('itHint').textContent = skus.length + ' SKUs in the Inventory App. Start typing to pick one.';
     }).catch(function (e) { if ($('itHint')) $('itHint').textContent = 'Inventory App not reachable: ' + e.message; });
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+VIEWS.materials = function () {
+  api('itemList', S.token).then(function (r) {
+    S.data.il = r;
+    var used = {}; r.list.forEach(function (i) { i.bom.forEach(function (b) { (used[b.material] = used[b.material] || []).push(i.code); }); });
+    render('<h1 class="page">🧶 Raw materials</h1>' +
+      (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row"><input id="mtC" placeholder="Code (e.g. LEA-BLK)"><input id="mtN" placeholder="Name"><input id="mtU" placeholder="Unit (sq ft, m, pcs)"><button class="btn fix" onclick="addMat(this)">Add</button></div></div>' : '') +
+      '<div class="card scroll"><table class="tbl"><tr><th>Code</th><th>Name</th><th>Unit</th><th>Used in (BOM)</th></tr>' + r.materials.map(function (m) {
+        return '<tr><td><b>' + esc(m.code) + '</b></td><td>' + esc(m.name) + '</td><td>' + esc(m.unit) + '</td><td class="muted">' + (used[m.code] || []).map(esc).join(', ') + '</td></tr>';
+      }).join('') + '</table></div><div class="muted">The material per piece of each item (BOM) is set in Items & rates → BOM.</div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
 function itType() { $('itC').placeholder = val('itT') === 'SKU' ? 'SKU from the Inventory App' : 'Part name (e.g. Shoulder Belt)'; }
-function addItem(btn) { busy(btn, true); api('saveItem', S.token, { code: val('itC'), name: val('itN'), type: val('itT') }).then(function () { toast('Item added'); go('items'); }).catch(function (e) { fail(e, btn); }); }
+function addItem(btn) { busy(btn, true); api('saveItem', S.token, { code: val('itC'), name: val('itN'), type: val('itT'), rate: val('itR') }).then(function () { toast('Item added'); go('items'); }).catch(function (e) { fail(e, btn); }); }
 function toggleItem(code) { var i = S.data.il.list.filter(function (x) { return x.code === code; })[0]; api('saveItem', S.token, { code: i.code, name: i.name, type: i.type, active: !i.active, checkInventory: false }).then(function () { go('items'); }).catch(function (e) { toast(e.message); }); }
-function addMat(btn) { busy(btn, true); api('saveMaterial', S.token, { code: val('mtC'), name: val('mtN'), unit: val('mtU') }).then(function () { go('items'); }).catch(function (e) { fail(e, btn); }); }
+function addMat(btn) { busy(btn, true); api('saveMaterial', S.token, { code: val('mtC'), name: val('mtN'), unit: val('mtU') }).then(function () { go('materials'); }).catch(function (e) { fail(e, btn); }); }
+function stdRate(code) {
+  var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
+  var run = i.running;
+  modal('Standard rate · ' + code,
+    '<div class="kv"><div>Standard rate now</div><div><b>' + (i.rate === null ? '–' : money(i.rate)) + '</b></div></div>' +
+    '<label class="f">New standard rate per piece</label><input id="srR" type="number" step="any" inputmode="decimal">' +
+    '<label class="f">Apply the new rate to</label>' +
+    '<div class="chk"><input type="radio" name="srA" value="all" onchange="srSel()"> All running lots (' + run.filter(function (o) { return o.rateSource !== 'LOT' && o.rateSource !== 'KARIGAR'; }).length + ' on the standard rate) and new lots</div>' +
+    '<div class="chk"><input type="radio" name="srA" value="selected" onchange="srSel()"> Only the running lots I select, and new lots</div>' +
+    '<div id="srLots" style="display:none;margin:4px 0 6px 26px">' + (run.map(function (o) {
+      return '<div class="chk"><input type="checkbox" class="srL" value="' + o.id + '"> ' + o.id + ' · ' + esc(o.karigar) + ' · ' + o.remaining + ' of ' + o.qty + ' to make · ' + (o.rate === null ? 'no rate' : money(o.rate)) + ' ' + srcPill(o.rateSource) + '</div>';
+    }).join('') || '<div class="muted">No running lots.</div>') + '</div>' +
+    '<div class="chk"><input type="radio" name="srA" value="new" checked onchange="srSel()"> Only new lots (running lots keep their rate)</div>' +
+    '<div class="muted">Lots with a special lot rate or a karigar\'s own rate keep it with "All running lots". Pieces in pay periods that are already approved never change.</div>' +
+    '<label class="f">Note</label><input id="srN"><button class="btn block" id="srB">Save new standard rate</button>' +
+    (i.rateHistory.length ? '<h3>History</h3>' + i.rateHistory.map(function (h) { return '<div class="muted">' + money(h.rate) + ' from ' + d(h.from) + ' · ' + esc(h.setBy.replace(/^\S+ /, '')) + (h.note ? ' · ' + esc(h.note) : '') + '</div>'; }).join('') : ''));
+  $('srB').onclick = function () {
+    var apply = document.querySelector('input[name=srA]:checked').value;
+    var ids = Array.prototype.filter.call(document.querySelectorAll('.srL'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+    if (apply === 'selected' && !ids.length) return toast('Tick the lots that should get the new rate.');
+    busy(this, true);
+    api('saveStandardRate', S.token, { item: code, rate: val('srR'), apply: apply, orderIds: ids, note: val('srN') }).then(function () { closeModal(); toast('Standard rate saved'); go('items'); }).catch(function (e) { fail(e, $('srB')); });
+  };
+}
+function srSel() { $('srLots').style.display = document.querySelector('input[name=srA]:checked').value === 'selected' ? 'block' : 'none'; }
 function bomForm(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
   modal('Material per piece · ' + code, '<div class="muted" style="margin-bottom:8px">How much of each material one piece uses. Used to check every karigar\'s material (no wastage allowed).</div><div class="lines" id="bomLines"></div><button class="btn sec sm" onclick="addBomLine()">+ Add material</button><button class="btn block" id="bomB">Save</button>');
