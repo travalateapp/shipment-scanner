@@ -1352,13 +1352,23 @@ function saveItem(token, data) {
   return itemList(token);
 }
 
+/** data = { name, unit, active, code (only when editing; a new material gets a code made from its name) } */
 function saveMaterial(token, data) {
   const u = authStaff_(token, 'masters');
   data = data || {};
-  const code = String(data.code || '').trim().toUpperCase();
-  if (!code || !String(data.name || '').trim()) throw new Error('Enter the code and name.');
-  const ex = readMaterials_().filter(m => m.code === code)[0];
-  const row = [code, String(data.name).trim(), String(data.unit || 'pcs').trim(), data.active !== false];
+  const name = String(data.name || '').trim();
+  if (!name) throw new Error('Enter the material name.');
+  if (!String(data.unit || '').trim()) throw new Error('Choose the unit used per piece.');
+  const all = readMaterials_();
+  let code = String(data.code || '').trim().toUpperCase();
+  if (!code) {
+    if (all.some(m => m.name.trim().toLowerCase() === name.toLowerCase())) throw new Error(name + ' is already in the list.');
+    const base = name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 20) || 'MAT';
+    code = base;
+    for (let n = 2; all.some(m => m.code === code); n++) code = base + '-' + n;
+  }
+  const ex = all.filter(m => m.code === code)[0];
+  const row = [code, name, String(data.unit).trim(), data.active !== false];
   if (ex) sheet_(SHEET.MATERIALS).getRange(ex.row, 1, 1, 4).setValues([row]); else sheet_(SHEET.MATERIALS).appendRow(row);
   forget_('materials');
   log_(u, ex ? 'EDIT_MATERIAL' : 'ADD_MATERIAL', code, row.join(' | '));
