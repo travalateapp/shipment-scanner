@@ -95,9 +95,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
 tr.saving td,.mcard.saving{opacity:.6}
+.lnk,a.lnk{color:#dc2626;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1.5px;cursor:pointer;font-weight:700}
+.lnk b,a.lnk b{color:inherit}
 .bom{min-width:250px;max-width:340px;font-size:13px}@media(max-width:699px){.bom{max-width:none;min-width:0;font-size:14px}}.bom .bl{display:flex;gap:10px;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #edf0f5}
 .bom .bl span{color:#374151}.bom .bl b{white-space:nowrap}.bom .bl b small{color:var(--muted);font-weight:600}.bom .bl.more{display:none}
-.bom .bomt{display:inline-block;margin-top:4px;color:var(--blue);font-weight:700;cursor:pointer;font-size:12.5px}.bom .bomn{font-size:12px;margin-top:2px}
+.bom .bomt{display:inline-block;margin-top:4px;font-size:12.5px}.bom .bomn{font-size:12px;margin-top:2px}
 .only-phone{display:none}
 @media(max-width:699px){.only-desk{display:none}.only-phone{display:block}.addrow>.sugg{flex:1 1 100%}}
 .mcard{border-bottom:1px solid #f0f2f6;padding:10px 2px}.mcard:last-child{border-bottom:none}
@@ -320,7 +322,7 @@ VIEWS.home = function () {
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 function batchRow(b) {
-  return '<div class="it" onclick="showBatch(\'' + b.id + '\')" style="cursor:pointer"><div class="grow"><b>' + esc(b.id) + '</b> ' + statusPill(b.status) + ' ' + invPill(b.inventory) +
+  return '<div class="it" onclick="showBatch(\'' + b.id + '\')" style="cursor:pointer"><div class="grow"><b class="lnk">' + esc(b.id) + '</b> ' + statusPill(b.status) + ' ' + invPill(b.inventory) +
     '<div class="muted">' + esc(b.karigar) + ' · ' + (b.finalDate ? 'counted ' + d(b.finalDate) : 'from ' + d(b.createdAt)) + '</div></div>' +
     '<div style="text-align:right">' + (b.status === 'LOCKED' ? '<b>' + b.good + ' pcs</b>' + (b.rejected ? '<div class="muted neg">' + b.rejected + ' rejected</div>' : '') + '<div class="muted">' + money(b.amount) + '</div>' :
       (b.claim && b.claim.length ? '<div class="muted">Handed ' + b.claim.reduce(function (n, c) { return n + c.qty; }, 0) + ' pcs</div>' : '')) + '</div></div>';
@@ -503,7 +505,7 @@ VIEWS.batches = function (period) {
       '<div class="tile err"><div class="l">Rejected</div><div class="n">' + locked.reduce(function (n, b) { return n + b.rejected; }, 0) + '</div></div><div class="tile info"><div class="l">Amount</div><div class="n">' + money(locked.reduce(function (n, b) { return n + b.amount; }, 0)) + '</div></div></div>' +
       '<div class="card scroll"><table class="tbl"><tr><th>Batch</th><th>Karigar</th><th>Counted</th><th>Items</th><th class="r">Good</th><th class="r">Rej.</th><th class="r">Amount</th><th>Status</th></tr>' +
       (r.list.map(function (b) {
-        return '<tr class="click" onclick="showBatch(\'' + b.id + '\')"><td><b>' + esc(b.id) + '</b></td><td>' + esc(b.karigar) + '</td><td>' + (b.finalDate ? d(b.finalDate) : '–') + '</td><td>' + b.lines.map(function (l) { return esc(l.item); }).join('<br>') + '</td>' +
+        return '<tr class="click" onclick="showBatch(\'' + b.id + '\')"><td><b class="lnk">' + esc(b.id) + '</b></td><td>' + esc(b.karigar) + '</td><td>' + (b.finalDate ? d(b.finalDate) : '–') + '</td><td>' + b.lines.map(function (l) { return esc(l.item); }).join('<br>') + '</td>' +
           '<td class="r">' + (b.status === 'LOCKED' ? b.good : '') + '</td><td class="r ' + (b.rejected ? 'neg' : '') + '">' + (b.status === 'LOCKED' ? b.rejected : '') + '</td><td class="r">' + (b.status === 'LOCKED' ? money(b.amount) : '') + '</td><td>' + statusPill(b.status) + ' ' + invPill(b.inventory) + (b.differs && b.differs.length ? ' <span class="pill warn">Count 1 differed</span>' : '') + (b.missingRate ? ' <span class="pill warn">No rate</span>' : '') + '</td></tr>';
       }).join('') || '<tr><td colspan="8" class="muted">No batches.</td></tr>') + '</table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -666,7 +668,7 @@ VIEWS.payroll = function (period) {
         var act = '';
         if (p.status === 'OPEN' && r.canApprove) act = '<button class="btn sm" onclick="approve(\'' + p.karigarId + '\',this)">Approve</button>';
         if (p.status === 'APPROVED' && r.canApprove) act = '<button class="btn ok sm" onclick="paid(\'' + p.karigarId + '\',this)">Mark paid</button>' + (r.isSuper ? ' <button class="btn sec sm" onclick="unapprove(\'' + p.karigarId + '\',this)">Undo</button>' : '');
-        return '<tr><td class="click" onclick="adminSlip(\'' + p.karigarId + '\')" style="cursor:pointer"><b>' + esc(p.name) + '</b><div class="muted">' + p.karigarId + '</div></td><td class="r">' + p.good + '</td><td class="r">' + p.rejected + '</td><td class="r">' + money(p.earned) + (p.missingRates ? '<div><span class="pill warn">' + p.missingRates + ' no rate</span></div>' : '') + '</td>' +
+        return '<tr><td class="click" onclick="adminSlip(\'' + p.karigarId + '\')" style="cursor:pointer"><b class="lnk">' + esc(p.name) + '</b><div class="muted">' + p.karigarId + '</div></td><td class="r">' + p.good + '</td><td class="r">' + p.rejected + '</td><td class="r">' + money(p.earned) + (p.missingRates ? '<div><span class="pill warn">' + p.missingRates + ' no rate</span></div>' : '') + '</td>' +
           '<td class="r neg">' + (p.advance ? '−' + money(p.advance) : '') + (p.short ? '<div class="muted">less than due</div>' : '') + (p.status === 'OPEN' && r.canAdvance && p.advances.length ? '<div><button class="btn sec sm" onclick="payAdv(\'' + p.karigarId + '\')">Change</button></div>' : '') + '</td><td class="r"><b>' + money(p.net) + '</b></td><td>' + st + '</td><td style="white-space:nowrap">' + act + ' <button class="btn sec sm" onclick="adminSlip(\'' + p.karigarId + '\')">Payslip</button></td></tr>';
       }).join('') || '<tr><td colspan="8" class="muted">Nothing counted in this period.</td></tr>') +
       '<tfoot><tr><td>Total</td><td></td><td></td><td class="r">' + money(r.earned) + '</td><td class="r">' + money(r.advance) + '</td><td class="r">' + money(r.net) + '</td><td colspan="2"></td></tr></tfoot></table></div>');
@@ -797,12 +799,12 @@ VIEWS.items = function () {
     var mats = {}; r.materials.forEach(function (m) { mats[m.code] = m; });
     render('<h1 class="page">🏷️ Items & rates <small>the standard rate is paid to every karigar</small></h1>' +
       (r.canEdit ? '<div class="card"><h2>Add an item</h2><div class="row"><select id="itT" onchange="itType()"><option value="SKU">Inventory SKU (added to the Inventory App)</option><option value="PART">Part (paid, not in inventory)</option></select></div>' +
-        '<div class="row" style="margin-top:8px"><input id="itC" list="invSkus" placeholder="SKU from the Inventory App"><datalist id="invSkus"></datalist><input id="itN" placeholder="Description (optional)"></div>' +
+        '<div class="row addrow" style="margin-top:8px"><div class="sugg"><input id="itC" autocomplete="off" placeholder="SKU from the Inventory App" oninput="skuSuggest()" onkeydown="if(event.key===\'Escape\')skuHide()" onblur="setTimeout(skuHide,180)"><div class="box" id="itS" style="display:none"></div></div><input id="itN" placeholder="Description (optional)"></div>' +
         '<div class="row" style="margin-top:8px"><input id="itR" type="number" step="any" inputmode="decimal" placeholder="Standard rate per piece (₹)"><button class="btn fix" onclick="addItem(this)">Add item</button></div><div class="muted" id="itHint" style="margin-top:6px">Loading the SKU list from the Inventory App…</div></div>' : '') +
       '<div class="card scroll" id="itemTable"></div>');
     itemTable();
     if (r.canEdit) api('inventorySkus', S.token).then(function (skus) {
-      $('invSkus').innerHTML = skus.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('');
+      S.data.invSkus = skus;
       $('itHint').textContent = skus.length + ' SKUs in the Inventory App. Start typing to pick one.';
     }).catch(function (e) { if ($('itHint')) $('itHint').textContent = 'Inventory App not reachable: ' + e.message; });
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -817,7 +819,7 @@ function bomCell(i, mats) {
     return '<div class="bl' + (!open && n >= BOM_SHOWN ? ' more' : '') + '"><span>' + esc(m.name) + '</span><b>' + num(b.qty) + ' <small>' + esc(m.unit) + '</small></b></div>';
   }).join('');
   var extra = i.bom.length - BOM_SHOWN;
-  return '<div class="bom">' + rows + (extra > 0 ? '<a class="bomt" onclick="bomToggle(\'' + q(i.code) + '\')">' + (open ? 'Show less' : '+' + extra + ' more') + '</a>' : '') +
+  return '<div class="bom">' + rows + (extra > 0 ? '<a class="bomt lnk" onclick="bomToggle(\'' + q(i.code) + '\')">' + (open ? 'Show less' : '+' + extra + ' more') + '</a>' : '') +
     '<div class="muted bomn">' + i.bom.length + ' material' + (i.bom.length === 1 ? '' : 's') + '</div></div>';
 }
 function bomToggle(code) { S.data.bomOpen = S.data.bomOpen || {}; S.data.bomOpen[code] = !S.data.bomOpen[code]; itemTable(); }
@@ -1031,7 +1033,24 @@ function mpCalc() {
   $('mpOut').innerHTML = ok ? (t !== 'UNIT' ? esc(how) + ' → ' : '') + '<b>' + money(cost) + ' per ' + esc(m.unit) + '</b>' : 'Fill in the price' + (t === 'UNIT' ? '' : ' and the size') + ' to see the cost per ' + esc(m.unit) + '.';
   return ok ? { unitCost: cost, text: how, purchaseUnit: unitName } : null;
 }
-function itType() { $('itC').placeholder = val('itT') === 'SKU' ? 'SKU from the Inventory App' : 'Part name (e.g. Shoulder Belt)'; }
+/* SKU suggestions: only once something is typed, a short list under the box (never over the keypad). */
+function skuSuggest() {
+  var box = $('itS'), t = val('itC').trim().toLowerCase();
+  if (!t || val('itT') !== 'SKU' || !S.data.invSkus) { box.style.display = 'none'; return; }
+  var have = {}; S.data.il.list.forEach(function (i) { have[i.code.toLowerCase()] = 1; });
+  var words = t.split(/\s+/);
+  var hits = S.data.invSkus.filter(function (k) { var x = k.toLowerCase(); return words.every(function (w) { return x.indexOf(w) >= 0; }); });
+  hits.sort(function (a, b) { return (a.toLowerCase().indexOf(t) === 0 ? 0 : 1) - (b.toLowerCase().indexOf(t) === 0 ? 0 : 1) || (have[a.toLowerCase()] ? 1 : 0) - (have[b.toLowerCase()] ? 1 : 0); });
+  box.innerHTML = hits.slice(0, 8).map(function (k) {
+    return have[k.toLowerCase()] ? '<div style="color:var(--muted);cursor:default" onmousedown="event.preventDefault()">' + esc(k) + '<small>already added</small></div>'
+      : '<div onmousedown="event.preventDefault();skuPick(\'' + q(k) + '\')">' + esc(k) + '</div>';
+  }).join('') + (hits.length > 8 ? '<div style="cursor:default;color:var(--muted)" onmousedown="event.preventDefault()">+' + (hits.length - 8) + ' more: keep typing</div>' : '') +
+    (hits.length ? '' : '<div style="cursor:default;color:var(--muted)" onmousedown="event.preventDefault()">Not in the Inventory App</div>');
+  box.style.display = 'block';
+}
+function skuPick(k) { $('itC').value = k; skuHide(); var r = $('itR'); if (r) r.focus(); }
+function skuHide() { var b = $('itS'); if (b) b.style.display = 'none'; }
+function itType() { skuHide(); $('itC').placeholder = val('itT') === 'SKU' ? 'SKU from the Inventory App' : 'Part name (e.g. Shoulder Belt)'; }
 function addItem(btn) { busy(btn, true); api('saveItem', S.token, { code: val('itC'), name: val('itN'), type: val('itT'), rate: val('itR') }).then(function (r) { toast('Item added'); preload('itemList', r); go('items'); }).catch(function (e) { fail(e, btn); }); }
 function toggleItem(code) { var i = S.data.il.list.filter(function (x) { return x.code === code; })[0]; api('saveItem', S.token, { code: i.code, name: i.name, type: i.type, active: !i.active, checkInventory: false }).then(function (r) { preload('itemList', r); go('items'); }).catch(function (e) { toast(e.message); }); }
 function stdRate(code) {
@@ -1060,15 +1079,15 @@ function stdRate(code) {
 }
 function costCell(c, onclick) {
   if (c.noBom) return '<span class="pill warn">No BOM</span>';
-  return '<a style="cursor:pointer" onclick="' + onclick + '"><b>' + (c.total === null ? '–' : money(c.total)) + '</b></a><div class="muted">material ' + money(c.material) + (c.labour !== null ? ' + labour ' + money(c.labour) : '') + '</div>' +
-    (c.missing.length ? '<a style="cursor:pointer" onclick="' + onclick + '" title="' + esc(c.missing.join(', ')) + '"><span class="pill warn">' + c.missing.length + ' without a price</span></a>' : '');
+  return '<a class="lnk" onclick="' + onclick + '">' + (c.total === null ? '–' : money(c.total)) + '</a><div class="muted">material ' + money(c.material) + (c.labour !== null ? ' + labour ' + money(c.labour) : '') + '</div>' +
+    (c.missing.length ? '<div><a class="lnk" style="font-size:13px" onclick="' + onclick + '" title="' + esc(c.missing.join(', ')) + '">⚠ ' + c.missing.length + ' without a price</a></div>' : '');
 }
 function itemCost(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0], c = i.cost, edit = S.data.il.canEdit;
   S.costOpen = code;
   var cell = function (l) {
     if (l.unitCost === null) return edit ? '<button class="btn warn sm" onclick="costPrice(\'' + q(l.code) + '\')">+ Add price</button>' : '<span class="pill warn">no price</span>';
-    return money(l.unitCost) + ' / ' + esc(l.unit) + (edit ? ' <a style="cursor:pointer;color:var(--blue);font-size:12px" onclick="costPrice(\'' + q(l.code) + '\')">change</a>' : '');
+    return money(l.unitCost) + ' / ' + esc(l.unit) + (edit ? ' <a class="lnk" style="font-size:12px" onclick="costPrice(\'' + q(l.code) + '\')">change</a>' : '');
   };
   modal('Cost of 1 piece · ' + code, '<table class="tbl"><tr><th>Material</th><th class="r">Per piece</th><th class="r">Cost per unit</th><th class="r">Cost</th></tr>' +
     c.lines.map(function (l) { var m = matByCode(l.code) || {}; return '<tr><td>' + esc(l.material) + (m.saving ? ' <span class="pill info">saving…</span>' : '') + '</td><td class="r">' + num(l.qty) + ' ' + esc(l.unit) + '</td><td class="r">' + cell(l) + '</td><td class="r">' + (l.cost === null ? '–' : money(l.cost)) + '</td></tr>'; }).join('') +
