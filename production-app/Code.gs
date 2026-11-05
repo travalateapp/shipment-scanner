@@ -105,7 +105,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
-  saveMaterial, setMaterialPrice, saveBom, staffList, saveStaff, changeLog,
+  materialList, saveMaterial, setMaterialPrice, saveBom, staffList, saveStaff, changeLog,
 };
 
 function doPost(e) {
@@ -163,9 +163,7 @@ function setup() {
     forget_('staff');
   }
   ['Karigars', 'Staff'].forEach(n => { try { ss.getSheetByName(n).getRange('D:D').setNumberFormat('@'); } catch (e) { /* ignore */ } });
-  if (!ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'syncInventory')) {
-    ScriptApp.newTrigger('syncInventory').timeBased().everyHours(1).create();
-  }
+  ensureSyncTrigger_();
   return 'Setup done';
 }
 
@@ -677,6 +675,23 @@ function retryInventory(token, batchId) {
  * Inventory App, which shows it small and grey in the corner of today's cell in the Inventory Snapshot.
  */
 function pushInProduction_() {
+  // Saving must not wait for the Inventory App: mark it and let the 5-minute background job send it.
+  try {
+    const props = PropertiesService.getScriptProperties();
+    props.setProperty('inprod_dirty', '1');
+    if (props.getProperty('sync_every') !== '5') ensureSyncTrigger_();
+  } catch (e) { /* the hourly job still sends it */ }
+  return true;
+}
+
+/** The background job every 5 minutes (replaces the older hourly one). */
+function ensureSyncTrigger_() {
+  ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'syncInventory').forEach(t => ScriptApp.deleteTrigger(t));
+  ScriptApp.newTrigger('syncInventory').timeBased().everyMinutes(5).create();
+  PropertiesService.getScriptProperties().setProperty('sync_every', '5');
+}
+
+function sendInProduction_() {
   try {
     const items = {};
     inProductionList_().forEach(x => { items[x.item] = x.qty; });
@@ -697,10 +712,19 @@ function inProductionList_() {
   return Object.keys(by).sort().map(k => ({ item: k, qty: by[k] }));
 }
 
-/** Hourly trigger: retries batches the Inventory App did not take yet, and refreshes "in production". */
+/**
+ * Background job (every 5 minutes): retries batches the Inventory App did not take yet, sends "in production"
+ * when something changed, and once an hour anyway.
+ */
 function syncInventory() {
   readBatches_().filter(b => b.status === 'LOCKED' && b.inventory === 'PENDING').forEach(b => pushBatch_(b, 'Production (retry)'));
-  pushInProduction_();
+  const props = PropertiesService.getScriptProperties();
+  const last = Number(props.getProperty('inprod_at') || 0);
+  if (props.getProperty('inprod_dirty') === '1' || Date.now() - last > 3600000) {
+    props.deleteProperty('inprod_dirty');
+    sendInProduction_();
+    props.setProperty('inprod_at', String(Date.now()));
+  }
 }
 
 /** Inventory SKUs for the Items screen (cached 10 minutes). */
@@ -1358,21 +1382,26 @@ function saveMaterial(token, data) {
   data = data || {};
   const name = String(data.name || '').trim();
   if (!name) throw new Error('Enter the material name.');
-  if (!String(data.unit || '').trim()) throw new Error('Choose the unit used per piece.');
+  const unit = String(data.unit || '').trim();
+  if (!unit) throw new Error('Choose the unit used per piece.');
   const all = readMaterials_();
   let code = String(data.code || '').trim().toUpperCase();
-  if (!code) {
-    if (all.some(m => m.name.trim().toLowerCase() === name.toLowerCase())) throw new Error(name + ' is already in the list.');
+  const ex = code ? all.filter(m => m.code === code)[0] : null;
+  if (all.some(m => m.name.trim().toLowerCase() === name.toLowerCase() && (!ex || m.code !== ex.code))) throw new Error(name + ' is already in the list.');
+  if (!ex && !code) {
     const base = name.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 20) || 'MAT';
     code = base;
     for (let n = 2; all.some(m => m.code === code); n++) code = base + '-' + n;
   }
-  const ex = all.filter(m => m.code === code)[0];
-  const row = [code, name, String(data.unit).trim(), data.active !== false];
-  if (ex) sheet_(SHEET.MATERIALS).getRange(ex.row, 1, 1, 4).setValues([row]); else sheet_(SHEET.MATERIALS).appendRow(row);
+  const row = [code, name, unit, data.active !== false];
+  if (ex) {
+    sheet_(SHEET.MATERIALS).getRange(ex.row, 1, 1, 4).setValues([row]);
+    // A roll gives sq m: if the unit is no longer sq m the old roll price cannot be used.
+    if (ex.unit !== unit && ex.purchaseType === 'ROLL' && !/^sq\.? ?m/i.test(unit)) sheet_(SHEET.MATERIALS).getRange(ex.row, 5, 1, 6).setValues([['', '', '', '', '', '']]);
+  } else sheet_(SHEET.MATERIALS).appendRow(row);
   forget_('materials');
-  log_(u, ex ? 'EDIT_MATERIAL' : 'ADD_MATERIAL', code, row.join(' | '));
-  return itemList(token);
+  log_(u, ex ? 'EDIT_MATERIAL' : 'ADD_MATERIAL', code, ex ? [ex.name + ' → ' + name, ex.unit + ' → ' + unit, ex.active !== (data.active !== false) ? (data.active === false ? 'inactive' : 'active') : ''].filter(String).join(', ') : name + ' (' + unit + ')');
+  return materialList(token);
 }
 
 /**
@@ -1418,7 +1447,7 @@ function setMaterialPrice(token, data) {
   forget_('materials');
   log_(u, 'MATERIAL_PRICE', m.code, (m.unitCost === null ? 'none' : m.unitCost) + ' → ' + cost + ' per ' + m.unit + ' (' + text + ', ' + price + ' per ' + purchaseUnit + ')' +
     (data.note ? ' | ' + data.note : ''));
-  return itemList(token);
+  return materialList(token);
 }
 
 /**
@@ -1496,10 +1525,13 @@ function changeLog(token, ref) {
 /* Readers                                                             */
 /* ------------------------------------------------------------------ */
 
+/** All data rows of a tab, read once per request (forgotten after any write). */
 function rows_(name) {
-  const sh = SpreadsheetApp.getActive().getSheetByName(name);
-  if (!sh || sh.getLastRow() < 2) return [];
-  return sh.getRange(2, 1, sh.getLastRow() - 1, HEADERS[name].length).getValues();
+  return memo_('rows|' + name, () => {
+    const sh = SpreadsheetApp.getActive().getSheetByName(name);
+    if (!sh || sh.getLastRow() < 2) return [];
+    return sh.getRange(2, 1, sh.getLastRow() - 1, HEADERS[name].length).getValues();
+  });
 }
 
 function bool_(v) { return !(v === false || /^(false|no|0)$/i.test(String(v).trim())); }
@@ -1540,9 +1572,26 @@ function readMaterials_() {
 }
 
 function priceHistory_(code) {
-  return rows_(SHEET.PRICES).filter(r => String(r[0]).trim().toUpperCase() === code).map(r => ({ date: toDateStr_(r[1]),
-    price: Number(r[4]), purchaseUnit: String(r[3]), text: String(r[6]), unitCost: Number(r[7]), by: String(r[8]).replace(/^\S+ /, ''),
-    note: String(r[10] || '') })).reverse().slice(0, 12);
+  const all = memo_('pricehist', () => {
+    const m = {};
+    rows_(SHEET.PRICES).forEach(r => {
+      const c = String(r[0]).trim().toUpperCase();
+      (m[c] = m[c] || []).push({ date: toDateStr_(r[1]), price: Number(r[4]), purchaseUnit: String(r[3]), text: String(r[6]),
+        unitCost: Number(r[7]), by: String(r[8]).replace(/^\S+ /, ''), note: String(r[10] || '') });
+    });
+    return m;
+  });
+  return (all[code] || []).slice().reverse().slice(0, 12);
+}
+
+/** The Materials screen: every material with its price, cost per unit, price history and the items using it. */
+function materialList(token) {
+  const u = authStaff_(token, 'masters|reports|issue|confirm');
+  const used = {};
+  const bom = bomMap_();
+  Object.keys(bom).forEach(item => bom[item].forEach(x => { (used[x.material] = used[x.material] || []).push(item); }));
+  return { materials: readMaterials_().map(m => Object.assign({}, m, { history: priceHistory_(m.code), usedIn: used[m.code] || [] })),
+    canEdit: can_(u, 'masters') };
 }
 
 function materialMap_() {
@@ -1743,6 +1792,7 @@ function forget_() {
     if (arguments[i] === 'lines') delete MEMO.batches; // batches carry their lines
   }
   ['itemmap', 'orderprog', 'balances', 'ordermap'].forEach(k => { delete MEMO[k]; });
+  Object.keys(MEMO).forEach(k => { if (k.indexOf('rows|') === 0) delete MEMO[k]; });
 }
 
 function sheet_(name) {
