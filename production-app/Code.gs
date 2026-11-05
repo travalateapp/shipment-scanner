@@ -69,6 +69,7 @@ const DEFAULT_SETTINGS = [
   ['Stay Logged In (days)', 60, ''],
   ['Photo Folder ID', '', 'Filled in by setup'],
   ['Inventory Last Sync', '', 'Filled in by the app'],
+  ['Units', '', 'Extra units for materials, added by a super admin (comma-separated)'],
 ];
 
 /* Permissions a super admin can give to staff. */
@@ -105,7 +106,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
-  materialList, saveMaterial, setMaterialPrice, saveBom, staffList, saveStaff, changeLog,
+  materialList, addUnit, saveMaterial, setMaterialPrice, saveBom, staffList, saveStaff, changeLog,
 };
 
 function doPost(e) {
@@ -1591,7 +1592,26 @@ function materialList(token) {
   const bom = bomMap_();
   Object.keys(bom).forEach(item => bom[item].forEach(x => { (used[x.material] = used[x.material] || []).push(item); }));
   return { materials: readMaterials_().map(m => Object.assign({}, m, { history: priceHistory_(m.code), usedIn: used[m.code] || [] })),
-    canEdit: can_(u, 'masters') };
+    canEdit: can_(u, 'masters'), units: unitList_(), canAddUnit: u.role === 'SUPER' };
+}
+
+const BASE_UNITS = ['sq m', 'm', 'inch', 'cm', 'pcs', 'g', 'kg'];
+function unitList_() {
+  const out = BASE_UNITS.slice();
+  getSettings_().extraUnits.forEach(x => { if (!out.some(y => y.toLowerCase() === x.toLowerCase())) out.push(x); });
+  return out;
+}
+
+/** Super admin only: a new unit for materials (e.g. "set"), available to everyone from then on. */
+function addUnit(token, unit) {
+  const u = authStaff_(token, 'super');
+  if (u.role !== 'SUPER') throw new Error('Only a super admin can add units.');
+  unit = String(unit || '').trim().replace(/\s+/g, ' ');
+  if (!/^[A-Za-z0-9 .\/"'-]{1,15}$/.test(unit)) throw new Error('A unit is 1 to 15 letters or digits (e.g. set, pair, roll).');
+  if (unitList_().some(x => x.toLowerCase() === unit.toLowerCase())) throw new Error('"' + unit + '" is already a unit.');
+  setSetting_('Units', getSettings_().extraUnits.concat([unit]).join(', '));
+  log_(u, 'ADD_UNIT', unit, 'New material unit');
+  return materialList(token);
 }
 
 function materialMap_() {
@@ -1766,6 +1786,7 @@ function getSettings_() {
       inventoryUrl: String(m['Inventory App URL'] || '').trim(), inventorySecret: String(m['Inventory Secret'] || '').trim(),
       sessionDays: Number(m['Stay Logged In (days)']) || 0, photoFolder: String(m['Photo Folder ID'] || '').trim(),
       inventoryLastSync: String(m['Inventory Last Sync'] || ''),
+      extraUnits: String(m['Units'] || '').split(',').map(x => x.trim()).filter(String),
     };
   });
 }
