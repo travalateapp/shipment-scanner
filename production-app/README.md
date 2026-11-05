@@ -32,6 +32,15 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Advances:** given with a cut per pay period (Advances tab). At **payroll**, the person who approves pay
   can **raise, lower or zero** each karigar's cut for that month (**Change** under the advance). This only
   works before approving, and later periods keep the normal cut.
+- **Production cost per piece:** every material has a **price as bought** and the app converts it to the unit
+  the BOM uses (Materials → **Price**):
+  - **Roll:** price per roll and its length × width. For example ₹9,000 for 50 m × 1.47 m = 73.5 sq m, so ₹122.45 per sq m.
+  - **By weight:** price per kg and the weight of 1 unit. For example chain at ₹600/kg, where 1 inch weighs 1.2 g:
+    1 kg = 833.3 inch, so ₹0.72 per inch.
+  - **By count:** price per piece or per pack (e.g. kunda ₹250 for 100 = ₹2.50 each), or a price per unit.
+  - **Items & rates** shows the **cost per piece** = Σ(material per piece × cost per unit) + labour (standard
+    rate), with a breakdown. **Work orders** show each lot's real cost: the material issued for it at the price
+    on the day it was issued, plus the lot's rate. A new price does not change earlier lots.
 - **Material balance:** given − used (good + rejected pieces × material per piece). No wastage allowance. A
   negative balance (more made than the material given, e.g. goods without a lot) or material left with a
   karigar who has no running lot is **flagged**.
@@ -73,7 +82,8 @@ Screens are in `production-app/screenshots/`.
 1. **Staff & permissions:** add the people who count, issue material, confirm, approve pay. Permissions:
    count goods, enter material, confirm material, work orders, approve & pay, advances, masters (karigars,
    items, materials, rates), reports. A super admin has everything.
-2. **Materials:** add the raw materials.
+2. **Materials:** add the raw materials with the unit the BOM uses (sq m, inch, pcs …) and set each one's
+   **Price** (roll / by weight / by count).
 3. **Items & rates:** add inventory SKUs (picked from the Inventory App's list) and parts, each with its
    **standard rate**. Set each item's **material per piece (BOM)**.
 4. **Karigars & rates:** add karigars (ID + PIN). Set a karigar's own rate only in the rare cases it differs.
@@ -163,9 +173,10 @@ How it works:
 | Karigars / Staff | IDs, names, PINs (hashed after the first login), staff roles and permissions |
 | Items | Code, type **SKU** (inventory) or **PART** |
 | Rates | Standard rates (Karigar ID `*`) and karigars' own rates for future lots (`STD` = back to standard). History: a new row per change |
-| Materials / BOM | Raw materials and the material per piece of each item |
+| Materials / BOM | Raw materials with their price as bought and conversion, and the material per piece of each item |
+| Material Prices | Every price change of a material (history) |
 | Work Orders | The lots: what each karigar is making, and the lot's rate (standard / karigar / special) |
-| Material Moves | Material issued (per lot, or extra) with who entered and who confirmed |
+| Material Moves | Material issued (per lot, or extra) with who entered, who confirmed and the cost per unit on the day |
 | Batches | Hand-over claim, count 1 (+photo), count 2 (final), status, final date, inventory status |
 | Batch Lines | Locked counts per item and work order (what pay and the material balance use) |
 | Advances / Advance Periods | Advances and the full / partial / skipped cut per pay period |

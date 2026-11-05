@@ -21,6 +21,7 @@ const SHEET = {
   ITEMS: 'Items',
   RATES: 'Rates',
   MATERIALS: 'Materials',
+  PRICES: 'Material Prices',
   BOM: 'BOM',
   ORDERS: 'Work Orders',
   MOVES: 'Material Moves',
@@ -39,11 +40,16 @@ HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Ac
 HEADERS[SHEET.ITEMS] = ['Code', 'Name', 'Type', 'Active'];
 // Karigar ID * = the STANDARD rate (all karigars). A karigar ID = that karigar's own rate for future lots; Rate STD = back to standard.
 HEADERS[SHEET.RATES] = ['Karigar ID', 'Item Code', 'Rate', 'From Date', 'Set By', 'Set At', 'Note'];
-HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active'];
+// Unit = the unit the BOM uses (sq m, inch, pcs …). The price is entered as bought (a roll, a kg, a pack) with how many
+// units one purchase gives: cost per unit = Purchase Price ÷ Units Per Purchase.
+HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase',
+  'Conversion', 'Price Date'];
+HEADERS[SHEET.PRICES] = ['Material Code', 'Date', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase', 'Conversion',
+  'Cost Per Unit', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
 HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source'];
 HEADERS[SHEET.MOVES] = ['ID', 'Date', 'Type', 'Karigar ID', 'Material Code', 'Qty', 'Note', 'Entered By', 'Entered At',
-  'Status', 'Confirmed By', 'Confirmed At', 'Work Order'];
+  'Status', 'Confirmed By', 'Confirmed At', 'Work Order', 'Unit Cost'];
 HEADERS[SHEET.BATCHES] = ['ID', 'Karigar ID', 'Status', 'Created At', 'Claim', 'Count 1 By', 'Count 1 At', 'Count 1', 'Photo',
   'Count 2 By', 'Count 2 At', 'Count 2', 'Final Date', 'Inventory', 'Inventory Note', 'Earlier Counts', 'Note'];
 HEADERS[SHEET.LINES] = ['Batch ID', 'Karigar ID', 'Karigar', 'Final Date', 'Item Code', 'Type', 'Good', 'Rejected', 'Work Order'];
@@ -99,7 +105,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
-  saveMaterial, saveBom, staffList, saveStaff, changeLog,
+  saveMaterial, setMaterialPrice, saveBom, staffList, saveStaff, changeLog,
 };
 
 function doPost(e) {
@@ -748,8 +754,9 @@ function addMoves_(u, k, lines, note, workOrder) {
   const ids = withLock_(() => {
     const sh = sheet_(SHEET.MOVES);
     let n = sh.getLastRow();
+    const mats = materialMap_();
     const rows = lines.map(l => ['M-' + ('000' + (n++)).slice(-4), "'" + todayStr_(), 'ISSUE', k.id, l.material, Number(l.qty), note,
-      u.id, nowStr_(), 'PENDING', '', '', workOrder || '']);
+      u.id, nowStr_(), 'PENDING', '', '', workOrder || '', (mats[l.material] || {}).unitCost === null || !mats[l.material] ? '' : mats[l.material].unitCost]);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
     forget_('moves');
     return rows.map(r => r[0]);
@@ -848,6 +855,22 @@ function ordersWithProgress_() {
   });
 }
 
+/**
+ * Cost of a lot: the material issued for it at the cost it was issued at (materials without a price then use
+ * today's price) + the lot's rate × pieces. perPiece = for one planned piece.
+ */
+function lotCost_(o, mats) {
+  let material = 0, missing = [];
+  readMoves_().filter(m => m.workOrder === o.id && m.status !== 'REJECTED').forEach(m => {
+    const c = m.unitCost !== null ? m.unitCost : (mats[m.materialCode] || {}).unitCost;
+    if (c === null || c === undefined) missing.push((mats[m.materialCode] || {}).name || m.materialCode); else material += m.qty * c;
+  });
+  const rate = o.rate !== null ? o.rate : rateOn_(o.karigarId, o.item, o.date);
+  material = round2_(material);
+  return { material: material, labour: rate === null ? null : round2_(rate * o.qty), perPiece: o.qty && rate !== null ? round2_(material / o.qty + rate) : null,
+    materialPerPiece: o.qty ? round2_(material / o.qty) : 0, total: rate === null ? null : round2_(material + rate * o.qty), missing: missing };
+}
+
 function orderList(token, all) {
   const u = authStaff_(token, 'orders|reports|issue');
   const names = karigarNames_(), items = itemMap_(), bom = bomMap_(), mats = materialMap_();
@@ -856,6 +879,7 @@ function orderList(token, all) {
     rateNow: o.rate !== null ? o.rate : rateOn_(o.karigarId, o.item, todayStr_()), standard: standardRateOn_(o.item, todayStr_()),
     material: (bom[o.item] || []).map(x => ({ material: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '',
       qty: round3_(x.qty * o.qty) })),
+    cost: lotCost_(o, mats),
   }));
   return { list: list, karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })),
     items: activeItems_(), canEdit: can_(u, 'orders'), canRate: can_(u, 'masters'), inProduction: inProductionList_() };
@@ -1297,7 +1321,8 @@ function itemList(token) {
     rateHistory: readRates_().filter(r => r.karigarId === '*' && r.item === i.code).sort((a, b) => (a.from < b.from ? 1 : -1)),
     karigarRates: readKarigars_().map(k => ({ id: k.id, name: k.name, rate: karigarRateOn_(k.id, i.code, today) })).filter(x => x.rate !== null),
     running: running.filter(o => o.item === i.code).map(o => ({ id: o.id, karigar: names[o.karigarId] || o.karigarId, qty: o.qty, remaining: o.remaining,
-      rate: o.rate, rateSource: o.rateSource })) })), materials: readMaterials_(), canEdit: can_(u, 'masters') };
+      rate: o.rate, rateSource: o.rateSource })), cost: pieceCost_(i.code) })),
+    materials: readMaterials_().map(m => Object.assign({}, m, { history: priceHistory_(m.code) })), canEdit: can_(u, 'masters') };
 }
 
 /** data = { code, name, type: SKU|PART, active }. SKU codes must exist in the Inventory App's Master_SKU. */
@@ -1338,6 +1363,69 @@ function saveMaterial(token, data) {
   forget_('materials');
   log_(u, ex ? 'EDIT_MATERIAL' : 'ADD_MATERIAL', code, row.join(' | '));
   return itemList(token);
+}
+
+/**
+ * The price of a material as it is bought, and how many BOM units one purchase gives:
+ *   ROLL   price per roll, length (m) × width (m)            → sq m per roll      (unit must be sq m)
+ *   WEIGHT price per kg, weight of ONE unit in grams          → units per kg = 1000 ÷ grams (e.g. chain: grams per inch)
+ *   PACK   price per pack, pieces in a pack (1 = per piece)   → pcs per pack
+ *   UNIT   price per unit                                     → 1
+ * data = { code, type, price, length, width, grams, count, note }. Issues made from now on use the new cost; earlier
+ * issues keep the cost they were issued at.
+ */
+function setMaterialPrice(token, data) {
+  const u = authStaff_(token, 'masters');
+  data = data || {};
+  const m = readMaterials_().filter(x => x.code === String(data.code || '').toUpperCase())[0];
+  if (!m) throw new Error('Material not found.');
+  const price = Number(data.price);
+  if (!(price > 0)) throw new Error('Enter the price.');
+  const type = ['ROLL', 'WEIGHT', 'PACK', 'UNIT'].indexOf(data.type) >= 0 ? data.type : 'UNIT';
+  let per, purchaseUnit, conv, text;
+  if (type === 'ROLL') {
+    const L = Number(data.length), W = Number(data.width);
+    if (!(L > 0) || !(W > 0)) throw new Error('Enter the roll length and width in meters.');
+    if (!/^sq\.? ?m/i.test(m.unit)) throw new Error('A roll is priced per sq m: set this material\'s unit to "sq m" first (and its BOM per piece in sq m).');
+    per = round4_(L * W); purchaseUnit = 'roll'; conv = { length: L, width: W };
+    text = 'Roll ' + L + ' m × ' + W + ' m = ' + per + ' sq m';
+  } else if (type === 'WEIGHT') {
+    const g = Number(data.grams);
+    if (!(g > 0)) throw new Error('Enter the weight of 1 ' + m.unit + ' in grams.');
+    per = round4_(1000 / g); purchaseUnit = 'kg'; conv = { grams: g };
+    text = '1 ' + m.unit + ' = ' + g + ' g, so 1 kg = ' + per + ' ' + m.unit;
+  } else if (type === 'PACK') {
+    const n = Number(data.count);
+    if (!(n > 0)) throw new Error('Enter how many ' + m.unit + ' are in one pack.');
+    per = n; purchaseUnit = n === 1 ? m.unit : 'pack'; conv = { count: n };
+    text = n === 1 ? 'Per ' + m.unit : 'Pack of ' + n + ' ' + m.unit;
+  } else {
+    per = 1; purchaseUnit = m.unit; conv = {}; text = 'Per ' + m.unit;
+  }
+  const cost = round4_(price / per), today = todayStr_();
+  sheet_(SHEET.MATERIALS).getRange(m.row, 5, 1, 6).setValues([[type, purchaseUnit, price, per, JSON.stringify(Object.assign({ text: text }, conv)), "'" + today]]);
+  sheet_(SHEET.PRICES).appendRow([m.code, "'" + today, type, purchaseUnit, price, per, text, cost, u.id + ' ' + u.name, nowStr_(), String(data.note || '').slice(0, 200)]);
+  forget_('materials');
+  log_(u, 'MATERIAL_PRICE', m.code, (m.unitCost === null ? 'none' : m.unitCost) + ' → ' + cost + ' per ' + m.unit + ' (' + text + ', ' + price + ' per ' + purchaseUnit + ')' +
+    (data.note ? ' | ' + data.note : ''));
+  return itemList(token);
+}
+
+/**
+ * Cost of ONE piece of an item today: material (BOM × cost per unit) + labour (the given rate, or the standard rate).
+ * missing = materials without a price.
+ */
+function pieceCost_(item, labour) {
+  const mats = materialMap_();
+  const lines = (bomMap_()[item] || []).map(x => {
+    const m = mats[x.material] || { name: x.material, unit: '', unitCost: null };
+    return { material: m.name || x.material, code: x.material, unit: m.unit, qty: x.qty, unitCost: m.unitCost,
+      cost: m.unitCost === null ? null : round2_(x.qty * m.unitCost) };
+  });
+  const material = round2_(lines.reduce((n, l) => n + (l.cost || 0), 0));
+  if (labour === undefined) labour = standardRateOn_(item, todayStr_());
+  return { lines: lines, material: material, labour: labour, total: labour === null ? null : round2_(material + labour),
+    missing: lines.filter(l => l.unitCost === null).map(l => l.material), noBom: !lines.length };
 }
 
 /** Replaces the bill of materials of one item. lines = [{ material, qty }] (per piece). */
@@ -1432,8 +1520,19 @@ function activeItems_() {
 }
 
 function readMaterials_() {
-  return memo_('materials', () => rows_(SHEET.MATERIALS).map((r, i) => ({ row: i + 2, code: String(r[0]).trim().toUpperCase(),
-    name: String(r[1] || ''), unit: String(r[2] || ''), active: bool_(r[3]) })).filter(x => x.code));
+  return memo_('materials', () => rows_(SHEET.MATERIALS).map((r, i) => {
+    const price = r[6] === '' || !isFinite(Number(r[6])) ? null : Number(r[6]);
+    const per = Number(r[7]) > 0 ? Number(r[7]) : null;
+    return { row: i + 2, code: String(r[0]).trim().toUpperCase(), name: String(r[1] || ''), unit: String(r[2] || ''), active: bool_(r[3]),
+      purchaseType: String(r[4] || ''), purchaseUnit: String(r[5] || ''), price: price, perPurchase: per, conversion: parseJson_(r[8], {}),
+      priceDate: toDateStr_(r[9]), unitCost: price !== null && per ? round4_(price / per) : null };
+  }).filter(x => x.code));
+}
+
+function priceHistory_(code) {
+  return rows_(SHEET.PRICES).filter(r => String(r[0]).trim().toUpperCase() === code).map(r => ({ date: toDateStr_(r[1]),
+    price: Number(r[4]), purchaseUnit: String(r[3]), text: String(r[6]), unitCost: Number(r[7]), by: String(r[8]).replace(/^\S+ /, ''),
+    note: String(r[10] || '') })).reverse().slice(0, 12);
 }
 
 function materialMap_() {
@@ -1515,7 +1614,8 @@ function readMoves_() {
     type: String(r[2]).trim().toUpperCase() === 'RETURN' ? 'RETURN' : 'ISSUE', karigarId: String(r[3]).trim().toUpperCase(),
     materialCode: String(r[4]).trim().toUpperCase(), qty: Number(r[5]) || 0, note: String(r[6] || ''), enteredBy: String(r[7] || ''),
     enteredAt: String(r[8] || ''), status: String(r[9] || 'PENDING').trim().toUpperCase(), confirmedBy: String(r[10] || ''),
-    confirmedAt: String(r[11] || ''), workOrder: String(r[12] || '') })).filter(m => m.id));
+    confirmedAt: String(r[11] || ''), workOrder: String(r[12] || ''),
+    unitCost: r[13] === '' || r[13] === null || !isFinite(Number(r[13])) ? null : Number(r[13]) })).filter(m => m.id));
 }
 
 function parseJson_(v, dflt) {
@@ -1764,3 +1864,4 @@ function nextPeriods_(p, n) {
 function pad2_(n) { return ('0' + n).slice(-2); }
 function round2_(n) { return Math.round(n * 100) / 100; }
 function round3_(n) { return Math.round(n * 1000) / 1000; }
+function round4_(n) { return Math.round(n * 10000) / 10000; }

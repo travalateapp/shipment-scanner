@@ -502,14 +502,16 @@ VIEWS.orders = function (all) {
         (r.canRate ? '<div class="row" style="margin-top:8px"><input id="woR" type="number" step="any" inputmode="decimal" placeholder="Special rate for this lot (blank = normal rate)" oninput="woHint()"></div>' +
           '<div class="chk" id="woFutureRow" style="display:none"><input type="checkbox" id="woF"> Also use this rate for this karigar\'s future lots of this item</div>' : '') +
         '<div class="muted" id="woHint" style="margin-top:6px"></div><div class="muted">The lot\'s material (quantity × material per piece) is issued to the karigar automatically. A different person confirms the hand-over in Material issue.</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
-      '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th></th></tr>' +
+      '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
         var btns = (o.open && r.canRate ? '<button class="btn sm" onclick="lotRate(\'' + o.id + '\')">Rate</button> ' : '') +
           (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : ''));
         return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
-          '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
-      }).join('') || '<tr><td colspan="9" class="muted">No work orders.</td></tr>') + '</table></div>');
+          '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td>' +
+          '<td class="r"><b>' + (o.cost.perPiece === null ? '–' : money(o.cost.perPiece)) + '</b><div class="muted">material ' + money(o.cost.materialPerPiece) + '</div>' + (o.cost.missing.length ? '<span class="pill warn">no price</span>' : '') + '</td>' +
+          '<td class="r">' + (o.cost.total === null ? '–' : money(o.cost.total)) + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
+      }).join('') || '<tr><td colspan="11" class="muted">No work orders.</td></tr>') + '</table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 function woHint() {
@@ -743,9 +745,10 @@ VIEWS.items = function () {
       (r.canEdit ? '<div class="card"><h2>Add an item</h2><div class="row"><select id="itT" onchange="itType()"><option value="SKU">Inventory SKU (added to the Inventory App)</option><option value="PART">Part (paid, not in inventory)</option></select></div>' +
         '<div class="row" style="margin-top:8px"><input id="itC" list="invSkus" placeholder="SKU from the Inventory App"><datalist id="invSkus"></datalist><input id="itN" placeholder="Description (optional)"></div>' +
         '<div class="row" style="margin-top:8px"><input id="itR" type="number" step="any" inputmode="decimal" placeholder="Standard rate per piece (₹)"><button class="btn fix" onclick="addItem(this)">Add item</button></div><div class="muted" id="itHint" style="margin-top:6px">Loading the SKU list from the Inventory App…</div></div>' : '') +
-      '<div class="card scroll"><table class="tbl"><tr><th>Item</th><th>Type</th><th class="r">Standard rate</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
+      '<div class="card scroll"><table class="tbl"><tr><th>Item</th><th>Type</th><th class="r">Standard rate</th><th class="r">Cost per piece</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
         return '<tr><td><b>' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '</td><td>' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + '</td>' +
           '<td class="r">' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + (i.rateHistory.length > 1 ? '<div class="muted">since ' + d(i.rateHistory[0].from) + '</div>' : '') + '</td>' +
+          '<td class="r">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + '</td>' +
           '<td class="muted">' + i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join('<br>') + '</td>' +
           '<td>' + (i.bom.map(function (b) { var m = mats[b.material] || { name: b.material, unit: '' }; return esc(m.name) + ' <b>' + num(b.qty) + '</b> ' + esc(m.unit); }).join('<br>') || '<span class="pill warn">No BOM</span>') + '</td>' +
           '<td>' + (i.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit ? '<button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button> <button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button> <button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : '') + '</td></tr>';
@@ -760,13 +763,51 @@ VIEWS.materials = function () {
   api('itemList', S.token).then(function (r) {
     S.data.il = r;
     var used = {}; r.list.forEach(function (i) { i.bom.forEach(function (b) { (used[b.material] = used[b.material] || []).push(i.code); }); });
-    render('<h1 class="page">🧶 Raw materials</h1>' +
-      (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row"><input id="mtC" placeholder="Code (e.g. LEA-BLK)"><input id="mtN" placeholder="Name"><input id="mtU" placeholder="Unit (sq ft, m, pcs)"><button class="btn fix" onclick="addMat(this)">Add</button></div></div>' : '') +
-      '<div class="card scroll"><table class="tbl"><tr><th>Code</th><th>Name</th><th>Unit</th><th>Used in (BOM)</th></tr>' + r.materials.map(function (m) {
-        return '<tr><td><b>' + esc(m.code) + '</b></td><td>' + esc(m.name) + '</td><td>' + esc(m.unit) + '</td><td class="muted">' + (used[m.code] || []).map(esc).join(', ') + '</td></tr>';
-      }).join('') + '</table></div><div class="muted">The material per piece of each item (BOM) is set in Items & rates → BOM.</div>');
+    render('<h1 class="page">🧶 Raw materials <small>price as bought → cost per unit used in the BOM</small></h1>' +
+      (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row"><input id="mtC" placeholder="Code (e.g. FAB-1000D)"><input id="mtN" placeholder="Name (e.g. Fabric 1000D Black)">' +
+        '<select id="mtU"><option value="">Unit used per piece…</option><option>sq m</option><option>m</option><option>inch</option><option>cm</option><option>pcs</option><option>g</option><option>kg</option></select><button class="btn fix" onclick="addMat(this)">Add</button></div>' +
+        '<div class="muted" style="margin-top:6px">The unit is what the BOM uses for ONE piece: fabric in sq m, chain in inch, kunda in pcs. Then set its price with "Price".</div></div>' : '') +
+      '<div class="card scroll"><table class="tbl"><tr><th>Material</th><th>Unit</th><th>Bought as</th><th class="r">Price</th><th class="r">Cost per unit</th><th>Used in</th><th></th></tr>' + r.materials.map(function (m) {
+        return '<tr><td><b>' + esc(m.name) + '</b><div class="muted">' + esc(m.code) + '</div></td><td>' + esc(m.unit) + '</td><td class="muted">' + esc((m.conversion && m.conversion.text) || '') + '</td>' +
+          '<td class="r">' + (m.price === null ? '<span class="pill warn">No price</span>' : money(m.price) + ' / ' + esc(m.purchaseUnit) + '<div class="muted">' + d(m.priceDate) + '</div>') + '</td>' +
+          '<td class="r">' + (m.unitCost === null ? '–' : '<b>' + money(m.unitCost) + '</b> / ' + esc(m.unit)) + '</td><td class="muted">' + (used[m.code] || []).map(esc).join(', ') + '</td>' +
+          '<td>' + (r.canEdit ? '<button class="btn sm" onclick="matPrice(\'' + q(m.code) + '\')">Price</button>' : '') + '</td></tr>';
+      }).join('') + '</table></div><div class="muted">The material per piece of each item (BOM) is set in Items & rates → BOM. A new price is used for material issued from now on; earlier lots keep the cost they were issued at.</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+function matPrice(code) {
+  var m = S.data.il.materials.filter(function (x) { return x.code === code; })[0], c = m.conversion || {};
+  var t = m.purchaseType || (/^sq/i.test(m.unit) ? 'ROLL' : m.unit === 'pcs' ? 'PACK' : 'UNIT');
+  var radio = function (v, label) { return '<div class="chk"><input type="radio" name="mpT" value="' + v + '"' + (t === v ? ' checked' : '') + ' onchange="mpShow()"> ' + label + '</div>'; };
+  modal('Price · ' + m.name, '<div class="kv"><div>Unit per piece</div><div><b>' + esc(m.unit) + '</b></div><div>Cost now</div><div>' + (m.unitCost === null ? '–' : money(m.unitCost) + ' / ' + esc(m.unit)) + '</div></div>' +
+    '<label class="f">How is it bought?</label>' + radio('ROLL', 'Roll (length × width, priced per roll)') + radio('WEIGHT', 'By weight (priced per kg)') + radio('PACK', 'By count (per piece or per pack)') + radio('UNIT', 'Per ' + esc(m.unit)) +
+    '<div id="mpROLL" class="mp"><div class="row"><div><label class="f">Roll length (m)</label><input id="mpL" type="number" step="any" value="' + (c.length || '') + '" oninput="mpCalc()"></div><div><label class="f">Width (m)</label><input id="mpW" type="number" step="any" value="' + (c.width || '') + '" oninput="mpCalc()"></div></div></div>' +
+    '<div id="mpWEIGHT" class="mp"><label class="f">Weight of 1 ' + esc(m.unit) + ' in grams</label><input id="mpG" type="number" step="any" value="' + (c.grams || '') + '" oninput="mpCalc()"></div>' +
+    '<div id="mpPACK" class="mp"><label class="f">Pieces in one pack (1 = priced per piece)</label><input id="mpN" type="number" step="any" value="' + (c.count || 1) + '" oninput="mpCalc()"></div>' +
+    '<label class="f" id="mpPL">Price</label><input id="mpP" type="number" step="any" inputmode="decimal" value="' + (m.price || '') + '" oninput="mpCalc()">' +
+    '<div class="msg info" id="mpOut" style="margin-top:10px"></div><label class="f">Note (e.g. new roll received)</label><input id="mpNote"><button class="btn block" id="mpB">Save price</button>' +
+    (m.history.length ? '<h3>Price history</h3>' + m.history.map(function (h) { return '<div class="muted">' + d(h.date) + ': ' + money(h.price) + ' / ' + esc(h.purchaseUnit) + ' · ' + esc(h.text) + ' → <b>' + money(h.unitCost) + '</b> / ' + esc(m.unit) + ' · ' + esc(h.by) + (h.note ? ' · ' + esc(h.note) : '') + '</div>'; }).join('') : ''));
+  S.data.mp = m; mpShow();
+  $('mpB').onclick = function () {
+    busy(this, true);
+    api('setMaterialPrice', S.token, { code: code, type: mpType(), price: val('mpP'), length: val('mpL'), width: val('mpW'), grams: val('mpG'), count: val('mpN'), note: val('mpNote') })
+      .then(function () { closeModal(); toast('Price saved'); go('materials'); }).catch(function (e) { fail(e, $('mpB')); });
+  };
+}
+function mpType() { return document.querySelector('input[name=mpT]:checked').value; }
+function mpShow() {
+  var t = mpType(); ['ROLL', 'WEIGHT', 'PACK'].forEach(function (x) { $('mp' + x).style.display = x === t ? 'block' : 'none'; });
+  $('mpPL').textContent = t === 'ROLL' ? 'Price of one roll' : t === 'WEIGHT' ? 'Price per kg' : t === 'PACK' ? 'Price of one pack (or one piece)' : 'Price per ' + S.data.mp.unit;
+  mpCalc();
+}
+function mpCalc() {
+  var t = mpType(), m = S.data.mp, p = Number(val('mpP')), per = 0, how = '';
+  if (t === 'ROLL') { per = Number(val('mpL')) * Number(val('mpW')); how = 'One roll = ' + num(per) + ' sq m'; }
+  else if (t === 'WEIGHT') { var g = Number(val('mpG')); per = g > 0 ? 1000 / g : 0; how = '1 kg = ' + num(per) + ' ' + m.unit; }
+  else if (t === 'PACK') { per = Number(val('mpN')); how = 'One pack = ' + num(per) + ' ' + m.unit; }
+  else { per = 1; how = ''; }
+  $('mpOut').innerHTML = p > 0 && per > 0 ? (how ? esc(how) + ' → ' : '') + '<b>' + money(Math.round(p / per * 10000) / 10000) + ' per ' + esc(m.unit) + '</b>' : 'Fill in the price' + (t === 'UNIT' ? '' : ' and the size') + ' to see the cost per ' + esc(m.unit) + '.';
+}
 function itType() { $('itC').placeholder = val('itT') === 'SKU' ? 'SKU from the Inventory App' : 'Part name (e.g. Shoulder Belt)'; }
 function addItem(btn) { busy(btn, true); api('saveItem', S.token, { code: val('itC'), name: val('itN'), type: val('itT'), rate: val('itR') }).then(function () { toast('Item added'); go('items'); }).catch(function (e) { fail(e, btn); }); }
 function toggleItem(code) { var i = S.data.il.list.filter(function (x) { return x.code === code; })[0]; api('saveItem', S.token, { code: i.code, name: i.name, type: i.type, active: !i.active, checkInventory: false }).then(function () { go('items'); }).catch(function (e) { toast(e.message); }); }
@@ -794,6 +835,19 @@ function stdRate(code) {
     busy(this, true);
     api('saveStandardRate', S.token, { item: code, rate: val('srR'), apply: apply, orderIds: ids, note: val('srN') }).then(function () { closeModal(); toast('Standard rate saved'); go('items'); }).catch(function (e) { fail(e, $('srB')); });
   };
+}
+function costCell(c, onclick) {
+  if (c.noBom) return '<span class="pill warn">No BOM</span>';
+  return '<a style="cursor:pointer" onclick="' + onclick + '"><b>' + (c.total === null ? '–' : money(c.total)) + '</b></a><div class="muted">material ' + money(c.material) + (c.labour !== null ? ' + labour ' + money(c.labour) : '') + '</div>' +
+    (c.missing.length ? '<span class="pill warn">no price: ' + c.missing.map(esc).join(', ') + '</span>' : '');
+}
+function itemCost(code) {
+  var i = S.data.il.list.filter(function (x) { return x.code === code; })[0], c = i.cost;
+  modal('Cost of 1 piece · ' + code, '<table class="tbl"><tr><th>Material</th><th class="r">Per piece</th><th class="r">Cost per unit</th><th class="r">Cost</th></tr>' +
+    c.lines.map(function (l) { return '<tr><td>' + esc(l.material) + '</td><td class="r">' + num(l.qty) + ' ' + esc(l.unit) + '</td><td class="r">' + (l.unitCost === null ? '<span class="pill warn">no price</span>' : money(l.unitCost) + ' / ' + esc(l.unit)) + '</td><td class="r">' + (l.cost === null ? '–' : money(l.cost)) + '</td></tr>'; }).join('') +
+    '<tr><td colspan="3">Material</td><td class="r"><b>' + money(c.material) + '</b></td></tr><tr><td colspan="3">Labour (standard rate)</td><td class="r">' + (c.labour === null ? '–' : money(c.labour)) + '</td></tr>' +
+    '<tfoot><tr><td colspan="3">Production cost per piece</td><td class="r">' + (c.total === null ? '–' : money(c.total)) + '</td></tr></tfoot></table>' +
+    '<div class="muted" style="margin-top:8px">At today\'s material prices. Each lot\'s real cost (at the price its material was issued at) is in Work orders.</div>');
 }
 function srSel() { $('srLots').style.display = document.querySelector('input[name=srA]:checked').value === 'selected' ? 'block' : 'none'; }
 function bomForm(code) {
