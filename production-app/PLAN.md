@@ -1,62 +1,98 @@
-# Karigar Production App — requirements (to discuss)
+# Karigar Production App — plan
 
-Planned as a Google Apps Script web app (Sheet backend), like the attendance app,
-with a phone view, an Android APK and a desktop view.
+A Google Apps Script web app with its **own Google Sheet** (separate from the attendance app).
+It has a phone view, a desktop view, a GitHub Pages copy and an Android APK, all set up the same
+way as the attendance app.
 
-## What the owner asked for
+## Requirements (from the owner)
 1. Karigars (artisans) make bags.
-2. SKUs match the **Travalate Inventory App** and should be linked to it.
-   Some items are parts of finished goods (for example bag straps and belts). They are
-   **not** inventory SKUs, but the karigar is still paid for making them (for example extra belts).
-3. A rate for each SKU (what the karigar is paid per piece).
+2. SKUs come from the **Travalate Inventory App**. **Parts** (straps, belts, etc.) are not inventory
+   SKUs, but karigars are paid for them per piece like an SKU.
+3. Rate **per karigar per SKU/part**, with a **history of rate changes**.
 4. The quantity each karigar makes.
-5. The final production date. When the received finished goods have been counted,
-   that stock is **added to the Travalate Inventory App automatically**.
-6. Advances given to karigars.
-7. Advance recovery each month: the full amount or a part of it.
-8. Checks against theft.
+5. Final production date: once received goods are counted, the stock is **added to the Inventory App
+   automatically** (inventory SKUs only, not parts).
+6. Advances to karigars.
+7. Advance recovery each month, full or partial (same logic as the attendance app).
+8. Theft checks (below).
 
-## Decisions (answered 5 Nov 2026)
-- **Inventory app:** the Travalate Inventory App is an Apps Script app. Its code is not in GitHub
-  (only `travalateapp/shipment-scanner` is connected), so the link still needs its details (below).
-- **Rates:** set **per karigar per SKU**, with a **history of rate changes** (rate + effective-from date).
-  Pay uses the rate in effect on the final production date.
-- **Raw material:** yes, karigars are given raw material, so material is tracked
-  (issued → used in finished goods → returned / balance with the karigar).
-- **Approvals:**
-  - Raw material issue: **2 people** must confirm.
-  - Final count: **2 people** must count and agree.
-  - Payment: **1 approver**.
-- **Rejects / wastage:** rejected pieces are **not paid**; wasted material is **not deducted**.
-- **Logins:** karigars log in (ID + PIN) to see their own work and earnings; admins log in too.
-- **Data:** a **separate Google Sheet** from the attendance app.
-- **Advances:** reuse the attendance app's advance recovery logic (full or partial instalments,
-  choosing the start month).
+## Decisions
+| Topic | Decision |
+|---|---|
+| Inventory app | Apps Script app. It already has a `doPost` web endpoint with a shared secret (used by Shipment Manager). |
+| Rates | Per karigar per SKU/part, with an effective-from date. A batch is paid at the rate in force on its final count date. |
+| Raw material | Given out to karigars and tracked. |
+| Material issue | **2 people**: one enters it, a second confirms it. |
+| Final count | **2 people** count separately (the second cannot see the first count). The counts must match. |
+| Payment | **1 approver** per karigar per pay period. |
+| Rejected pieces | **Not paid.** |
+| Wasted material | **Not deducted** from pay, and **no wastage % allowed**: any material shortfall is **flagged** for review. |
+| Logins | Karigars (ID + PIN: their own work, materials, advances and payslips) and admins (with permissions). |
+| Advances | Same logic as the attendance app: amount, monthly instalment (full or part), starting month. |
+| Pay period | Monthly, **5th to 5th**. Payment is usually made around the 7th, but the date varies, so the actual paid date is recorded. |
 
-## Still open
-- **Inventory app link:** how to read its SKU list and add stock. Options: (a) share the inventory
-  Sheet's ID and write to it directly from this app, or (b) add a small `doPost` action to the inventory
-  app that this app calls. We need its SKU sheet/tab and column layout, and how stock is recorded
-  (a stock-in log row or updating a quantity cell).
-- **Bill of materials:** to check material, each SKU needs its material per piece (for example 0.8 sq ft
-  leather, 1 zip). Is there an allowed wastage %?
-- **Parts (straps, belts):** paid per piece like SKUs, only without an inventory link?
-- **Payment cycle:** monthly, like the attendance app?
-- **Theft checks:** to discuss later.
+## Theft checks (agreed)
+1. **A photo of every received batch**, taken at the final count.
+2. **Counted entries are locked.** Only a super admin can change one, with a reason, and every change
+   goes to the **Change Log** (who, when, old value → new value).
+3. **Pay only on counted quantity**, never on what the karigar claims. A karigar may enter what they
+   handed over; any difference from the count is shown, but pay always uses the count.
 
-## Ideas for theft checks (to discuss)
-- **Material reconciliation:** material issued vs (finished goods × bill of materials + allowed
-  wastage % + returned material). Flag any shortfall for each karigar or work order.
-- **Two-person count:** the karigar's claimed quantity and the store's count must match before
-  stock is added. A mismatch blocks payment and is flagged.
-- **Photo proof** of each received batch, plus the counter's name and time from the server.
-- **Optional QR / barcode label per piece or bundle**, scanned on receipt (the box scanner
-  in this repo already does QR scanning) so no piece is counted twice.
-- **Locked entries:** once counted and pushed to inventory, only a super admin can edit,
-  and every change goes to an audit log.
-- **Payment only on counted quantity**, never on claimed quantity.
-- **Reports:** expected vs received per karigar, wastage trend, unusual-entry alerts.
+Also built in because of the 2-person rules: two-person material issue, two-person blind count, and a
+material balance per karigar that flags shortfalls (no wastage allowance). Server time is used for
+every entry. More theft checks to discuss later.
 
-## Deliverables (as for the attendance app)
-- Apps Script backend (`Code.gs`) + one HTML front end (phone + desktop layouts).
-- GitHub Pages copy + Android APK through the existing workflow pattern.
+## Inventory App link
+The Inventory App (`Travalate_Inventory.gs`) already has, in `doPost`:
+- `getSkuList`: the Master_SKU list. Used for the SKU dropdown and the link check.
+- `adjustmentIn`: adds stock as an Inward entry, with a cell note.
+
+**Recommended:** add one small action, **`productionIn`**, to the Inventory App, with its own ledger
+keyed by **batch ID**. Then a retry after a network time-out can never add the same batch twice.
+(`adjustmentIn` has no ledger, so a retry would add the stock again.) The code will be supplied
+ready to paste, and nothing else in the Inventory App changes.
+
+- Stock is added with the **count date** (today), which is always in the Inventory App's active month sheet.
+- Cell note: `05-Nov 14:20 | <counter> | +40 (In) | Production P-0123 – <Karigar>`.
+- If the Inventory App can't be reached, the batch is still saved and locked and shows
+  "**Not in inventory yet – Retry**". A daily trigger retries automatically.
+- The Inventory App's URL and shared secret go in this app's **Settings** tab, **not in GitHub**.
+  This repository is public, so the uploaded `.gs` file (which contains the secret and email
+  addresses) is **not** committed.
+
+## Workflow
+1. **Setup (admin):** karigars; items (inventory SKUs picked from the Inventory App, plus parts);
+   materials and units; the **bill of materials** per item (material per piece); rates per karigar per item.
+2. **Material issue:** person A records material and quantity for a karigar → person B confirms
+   → it counts toward the karigar's material balance. Unconfirmed issues show as pending.
+3. **Material return:** same 2-person flow (unused material coming back).
+4. **(Optional) Karigar hands over:** the karigar enters the items and quantities on their phone.
+5. **Final count:** counter 1 enters good and rejected quantities per item and takes the photo →
+   counter 2 counts blind → if both match, the batch is **locked**, inventory SKUs are pushed to the
+   Inventory App, and pay is credited at the karigar's rate. If they don't match, both recount.
+6. **Material check:** material used = (good + rejected pieces) × bill of materials. The karigar's
+   balance = issued − returned − used. A negative balance means more output than material (wrong
+   bill of materials or entry); a positive balance that isn't returned is flagged at period end.
+7. **Pay period (5th to 5th):** earnings from locked batches − advance instalment (full or partial,
+   chosen per karigar) = net pay → **approver approves** → marked **paid** with the actual date →
+   payslip (PDF, WhatsApp share like the attendance app).
+
+## Sheet tabs
+Settings · Karigars · Items · Rates (history) · Materials · BOM · Material Issues · Material Returns ·
+Batches · Batch Lines · Inventory Push Log · Advances · Advance Recovery · Pay Periods · Admins
+(permissions) · Change Log
+
+## Screens
+- **Karigar (phone):** Home (this period's earnings so far, material with them), My Work (batches),
+  My Material, Advances, Payslips, Change PIN.
+- **Admin (phone + desktop):** Dashboard, Issue / Confirm Material, Final Count (count 1 / count 2 +
+  photo), Batches, Material Balance, Payroll (approve, mark paid, Excel), Advances, Karigars, Items &
+  BOM, Rates, Admins *(super admin)*, Change Log *(super admin)*.
+
+## Build phases
+1. **Core:** Sheet setup, logins, karigars, items (with the Inventory App SKU list), parts, rates with
+   history, final count with 2 counters + photo + lock, push to the Inventory App, Change Log.
+2. **Material:** materials, bill of materials, 2-person issue and return, material balance and flags.
+3. **Pay:** 5th-to-5th periods, advances with full or partial recovery, approve and mark paid, payslip,
+   Excel export.
+4. **Desktop layout, GitHub Pages copy, Android APK, automatic deploy.**
