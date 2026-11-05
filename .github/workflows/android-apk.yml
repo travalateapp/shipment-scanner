@@ -1,12 +1,20 @@
 name: Build Android APK
 
-# Builds the Android app (android/) that opens the attendance web app full-screen.
-# Run it from GitHub: Actions → "Build Android APK" → Run workflow → paste your app link.
-# The APK is attached to a GitHub Release, so this link always gives the newest one:
+# Builds the Android app (android/) that opens a web app full-screen: the attendance app (default) or the
+# Karigar Production app (choose "production").
+# Run it from GitHub: Actions → "Build Android APK" → Run workflow → choose the app → paste its link.
+# The attendance APK is attached to the "latest" GitHub Release, so this link always gives the newest one:
 #   https://github.com/<owner>/<repo>/releases/latest/download/Attendance.apk
+# Production APKs are released with tags production-apk-v1.N (not marked "latest", so the attendance
+# app's updates are not affected); the newest is listed on the repository's Releases page.
 on:
   workflow_dispatch:
     inputs:
+      app:
+        description: 'Which app'
+        type: choice
+        options: [attendance, production]
+        default: attendance
       app_link:
         description: 'Your app link: the GitHub Pages link with ?id=…, the Apps Script /exec link, or just the deployment ID (AKfycb…)'
         required: true
@@ -37,10 +45,22 @@ jobs:
         id: link
         env:
           LINK: ${{ inputs.app_link }}
+          APP: ${{ inputs.app || 'attendance' }}
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
           repo="${GITHUB_REPOSITORY#*/}"
-          base="https://${owner}.github.io/${repo}/attendance/"
+          if [ "$APP" = "production" ]; then
+            {
+              echo "folder=production"; echo "apk=Production.apk"; echo "appId=com.travalate.production"
+              echo "appName=Travalate Production"; echo "tagPrefix=production-apk-"; echo "title=Production app"
+            } >> "$GITHUB_OUTPUT"
+          else
+            {
+              echo "folder=attendance"; echo "apk=Attendance.apk"; echo "appId=com.travalate.attendance"
+              echo "appName=Travalate Attendance"; echo "tagPrefix="; echo "title=Attendance app"
+            } >> "$GITHUB_OUTPUT"
+          fi
+          base="https://${owner}.github.io/${repo}/$([ "$APP" = production ] && echo production || echo attendance)/"
           link="$(echo "$LINK" | tr -d '[:space:]')"
           if [ -z "$link" ]; then
             url="$base"                                    # test build without a link
@@ -95,25 +115,40 @@ jobs:
             -PappUrl="${{ steps.link.outputs.url }}" \
             -PversionCode=${{ github.run_number }} \
             -PversionName=1.${{ github.run_number }} \
-            -PupdateRepo="${GITHUB_REPOSITORY}"
-          cp app/build/outputs/apk/release/app-release.apk ../Attendance.apk
-          ls -l ../Attendance.apk
+            -PupdateRepo="${GITHUB_REPOSITORY}" \
+            -PappId="${{ steps.link.outputs.appId }}" \
+            -PappName="${{ steps.link.outputs.appName }}" \
+            -PupdateTagPrefix="${{ steps.link.outputs.tagPrefix }}"
+          cp app/build/outputs/apk/release/app-release.apk "../${{ steps.link.outputs.apk }}"
+          ls -l "../${{ steps.link.outputs.apk }}"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: Attendance-apk
-          path: Attendance.apk
+          name: ${{ steps.link.outputs.folder }}-apk
+          path: ${{ steps.link.outputs.apk }}
 
       - name: Publish the APK as a GitHub Release
         if: github.event_name == 'workflow_dispatch'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          tag="apk-v1.${{ github.run_number }}"
-          gh release create "$tag" Attendance.apk \
-            --target "${{ github.sha }}" \
-            --title "Attendance app 1.${{ github.run_number }}" \
-            --notes "Android app for employees. Download **Attendance.apk** below (or share https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Attendance.apk) and install it. Opens: ${{ steps.link.outputs.url }}" \
-            --latest
+          apk="${{ steps.link.outputs.apk }}"
+          if [ "${{ steps.link.outputs.folder }}" = "production" ]; then
+            tag="production-apk-v1.${{ github.run_number }}"
+            gh release create "$tag" "$apk" \
+              --target "${{ github.sha }}" \
+              --title "Production app 1.${{ github.run_number }}" \
+              --notes "Android app for karigars and staff. Download **$apk** below and install it. Opens: ${{ steps.link.outputs.url }}" \
+              --latest=false
+            link="https://github.com/${GITHUB_REPOSITORY}/releases/download/$tag/$apk"
+          else
+            tag="apk-v1.${{ github.run_number }}"
+            gh release create "$tag" "$apk" \
+              --target "${{ github.sha }}" \
+              --title "Attendance app 1.${{ github.run_number }}" \
+              --notes "Android app for employees. Download **$apk** below (or share https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/$apk) and install it. Opens: ${{ steps.link.outputs.url }}" \
+              --latest
+            link="https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/$apk"
+          fi
           echo "### APK ready" >> "$GITHUB_STEP_SUMMARY"
-          echo "Share this link with employees: https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/Attendance.apk" >> "$GITHUB_STEP_SUMMARY"
+          echo "Share this link: $link" >> "$GITHUB_STEP_SUMMARY"

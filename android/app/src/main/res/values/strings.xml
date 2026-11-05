@@ -1,4 +1,4 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">Travalate Attendance</string>
+    <!-- app_name comes from app/build.gradle (resValue), so the same project can build both apps. -->
 </resources>

@@ -1,0 +1,772 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover">
+<title>Travalate Production</title>
+<style>
+:root{--blue:#1a73e8;--blue2:#0d47a1;--ink:#1f2937;--muted:#6b7280;--line:#e5e7eb;--bg:#f3f6fb;--ok:#15803d;--okbg:#dcfce7;--warn:#a16207;--warnbg:#fef9c3;--err:#b91c1c;--errbg:#fee2e2;--info:#1d4ed8;--infobg:#dbeafe}
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;min-height:100vh}
+button,input,select,textarea{font:inherit;color:inherit}
+.top{background:linear-gradient(135deg,var(--blue),var(--blue2));color:#fff;padding:12px 16px;display:flex;align-items:center;gap:10px;position:sticky;top:0;z-index:20;box-shadow:0 2px 10px rgba(0,0,0,.15)}
+.top .t{font-weight:700;font-size:16px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .who{font-size:12.5px;opacity:.9;text-align:right}
+.top button{background:rgba(255,255,255,.15);border:1px solid rgba(255,255,255,.35);color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font-size:13px}
+#menuBtn{font-size:18px;padding:4px 10px}
+.layout{display:flex;min-height:calc(100vh - 56px)}
+.side{display:none}
+.main{flex:1;min-width:0;padding:14px;max-width:760px;margin:0 auto;width:100%}
+.drawer{position:fixed;inset:0;background:rgba(0,0,0,.35);z-index:30;display:none}
+.drawer.open{display:block}
+.drawer .panel{background:#fff;width:270px;max-width:85%;height:100%;overflow:auto;padding:10px 0;box-shadow:2px 0 16px rgba(0,0,0,.2)}
+.nav a{display:flex;align-items:center;gap:10px;padding:11px 18px;color:var(--ink);text-decoration:none;font-weight:600;font-size:14.5px;cursor:pointer;border-left:3px solid transparent}
+.nav a:hover{background:#f1f5fb}
+.nav a.on{background:#e8f0fe;color:var(--blue2);border-left-color:var(--blue)}
+.nav .badge{margin-left:auto}
+.nav .sep{height:1px;background:var(--line);margin:8px 14px}
+@media(min-width:980px){
+  #menuBtn{display:none}
+  .side{display:block;width:240px;background:#fff;border-right:1px solid var(--line);position:sticky;top:56px;height:calc(100vh - 56px);overflow:auto;padding-top:8px}
+  .main{max-width:1200px;padding:20px 26px}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+  .grid2>.card{margin-bottom:0}
+}
+.card{background:#fff;border-radius:12px;padding:14px;margin-bottom:12px;box-shadow:0 1px 6px rgba(15,35,80,.07)}
+.card h2{font-size:16px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.card h3{font-size:14px;margin:12px 0 6px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+h1.page{font-size:19px;margin:2px 0 12px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+h1.page small{font-size:13px;color:var(--muted);font-weight:500}
+.tiles{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:12px}
+@media(min-width:700px){.tiles{grid-template-columns:repeat(4,1fr)}}
+.tile{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 1px 6px rgba(15,35,80,.07);cursor:default}
+.tile[onclick]{cursor:pointer}
+.tile .n{font-size:24px;font-weight:800;margin-top:2px}
+.tile .l{font-size:12.5px;color:var(--muted);font-weight:600}
+.tile.warn .n{color:var(--warn)}.tile.err .n{color:var(--err)}.tile.ok .n{color:var(--ok)}.tile.info .n{color:var(--info)}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.row>*{flex:1;min-width:0}
+.row>.fix{flex:0 0 auto}
+label.f{display:block;font-size:12.5px;font-weight:700;color:var(--muted);margin:8px 0 4px}
+input,select,textarea{width:100%;padding:10px 11px;border:1px solid #cfd6e4;border-radius:9px;background:#fff;font-size:15px}
+input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:var(--blue)}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;border:none;border-radius:9px;font-weight:700;cursor:pointer;background:var(--blue);color:#fff;font-size:14.5px;white-space:nowrap}
+.btn.block{display:flex;width:100%;margin-top:12px;padding:13px}
+.btn.sec{background:#eef2f8;color:var(--ink)}
+.btn.ok{background:var(--ok)}.btn.err{background:var(--err)}.btn.warn{background:#d97706}
+.btn.sm{padding:6px 10px;font-size:13px;border-radius:7px}
+.btn:disabled{opacity:.55;cursor:not-allowed}
+.pill{display:inline-block;padding:2px 8px;border-radius:999px;font-size:12px;font-weight:700;background:#eef2f8;color:#374151;white-space:nowrap}
+.pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.err{background:var(--errbg);color:var(--err)}.pill.info{background:var(--infobg);color:var(--info)}
+.msg{padding:10px 12px;border-radius:9px;font-weight:600;font-size:14px;margin-bottom:10px}
+.msg.ok{background:var(--okbg);color:var(--ok)}.msg.warn{background:var(--warnbg);color:var(--warn)}.msg.err{background:var(--errbg);color:var(--err)}.msg.info{background:var(--infobg);color:var(--info)}
+.muted{color:var(--muted);font-size:13px}
+.tbl{width:100%;border-collapse:collapse;font-size:14px}
+.tbl th{text-align:left;font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em;padding:8px 8px;border-bottom:2px solid var(--line);white-space:nowrap;background:#fafbfd}
+.tbl td{padding:9px 8px;border-bottom:1px solid #f0f2f6;vertical-align:top}
+.tbl tr.click{cursor:pointer}.tbl tr.click:hover td{background:#f7faff}
+.tbl .r{text-align:right;white-space:nowrap}
+.tbl tfoot td{font-weight:800;border-top:2px solid var(--line)}
+.scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.list .it{padding:11px 2px;border-bottom:1px solid #f0f2f6;display:flex;gap:10px;align-items:flex-start}
+.list .it:last-child{border-bottom:none}
+.list .it .grow{flex:1;min-width:0}
+.list .it b{font-size:14.5px}
+.neg{color:var(--err)}.pos{color:var(--ok)}
+.big{font-size:28px;font-weight:800}
+.lines .ln{display:grid;grid-template-columns:1fr 82px 82px 34px;gap:6px;margin-bottom:6px;align-items:center}
+.lines .ln.claim{grid-template-columns:1fr 90px 34px}
+.lines .hdr{font-size:12px;color:var(--muted);font-weight:700}
+.x{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer}
+.photo{width:100%;max-height:300px;object-fit:contain;border-radius:10px;background:#000;margin-top:8px}
+.login{max-width:380px;margin:9vh auto 0;padding:0 16px}
+.login .logo{text-align:center;font-weight:800;font-size:22px;color:var(--blue2);margin-bottom:6px}
+.overlay{position:fixed;inset:0;background:rgba(15,23,42,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+@media(min-width:700px){.overlay{align-items:center}}
+.sheet{background:#fff;width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
+@media(min-width:700px){.sheet{border-radius:14px}}
+.sheet .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}.sheet .hd b{flex:1;font-size:17px}
+.spinner{display:inline-block;width:15px;height:15px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
+.spinner.dark{border-color:#cbd5e1;border-top-color:var(--blue)}
+@keyframes spin{to{transform:rotate(360deg)}}
+#toast{position:fixed;left:50%;bottom:22px;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 16px;border-radius:10px;font-weight:600;z-index:60;display:none;max-width:90%}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px}.kv div:nth-child(odd){color:var(--muted)}
+.chk{display:flex;align-items:center;gap:8px;padding:6px 0;font-weight:600;font-size:14px}.chk input{width:auto}
+.slip{border:1px solid var(--line);border-radius:10px;padding:16px}
+.slip .sh{display:flex;justify-content:space-between;border-bottom:2px solid var(--ink);padding-bottom:8px;margin-bottom:10px}
+.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.tabs a{padding:7px 12px;border-radius:999px;background:#fff;font-weight:700;font-size:13.5px;cursor:pointer;box-shadow:0 1px 4px rgba(15,35,80,.08)}
+.tabs a.on{background:var(--blue);color:#fff}
+.blind{background:#fff7ed;border:1px dashed #fb923c;color:#9a3412;padding:8px 10px;border-radius:9px;font-size:13px;font-weight:600;margin-bottom:8px}
+@media print{.top,.side,.no-print,#toast{display:none!important}body{background:#fff}.main{padding:0;max-width:none}.card{box-shadow:none}}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="toast"></div>
+<script>
+/* =====================================================================
+ * Karigar Production App — front end. Works from the Apps Script /exec link (google.script.run) and from
+ * GitHub Pages (?id=<deployment ID>, then fetch() to the /exec URL, no Google login needed).
+ * ===================================================================== */
+var IN_GAS = typeof google !== 'undefined' && google.script && google.script.run;
+var S = { token: null, profile: null, view: null, data: {} };
+var store = {
+  get: function (k) { try { return localStorage.getItem('prod_' + k); } catch (e) { return null; } },
+  set: function (k, v) { try { if (v === null) localStorage.removeItem('prod_' + k); else localStorage.setItem('prod_' + k, v); } catch (e) { /* private mode */ } }
+};
+
+function apiUrl() {
+  var q = new URLSearchParams(location.search);
+  if (q.get('url')) store.set('url', q.get('url'));
+  if (q.get('id')) { store.set('url', 'https://script.google.com/macros/s/' + q.get('id').trim() + '/exec'); }
+  return store.get('url');
+}
+
+function api(fn) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  return new Promise(function (resolve, reject) {
+    var done = function (txt) {
+      var r; try { r = typeof txt === 'string' ? JSON.parse(txt) : txt; } catch (e) { return reject(new Error('The server did not answer properly. Try again.')); }
+      if (r.ok) return resolve(r.result);
+      if (r.error === 'SESSION_EXPIRED') { logoutLocal(); return reject(new Error('Please log in again.')); }
+      reject(new Error(r.error));
+    };
+    if (IN_GAS) { google.script.run.withSuccessHandler(done).withFailureHandler(reject).api(fn, args); return; }
+    var url = apiUrl();
+    if (!url) return reject(new Error('Open the app with its full link (…?id=YOUR_DEPLOYMENT_ID).'));
+    var rid = Math.random().toString(36).slice(2) + Date.now().toString(36);
+    var attempt = function (n) {
+      fetch(url, { method: 'POST', body: JSON.stringify({ fn: fn, args: args, rid: rid }), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, credentials: 'omit', redirect: 'follow' })
+        .then(function (r) { return r.text(); }).then(done)
+        .catch(function (e) { if (n < 2) setTimeout(function () { attempt(n + 1); }, 1200 * (n + 1)); else reject(new Error('No internet or the server is not reachable.')); });
+    };
+    attempt(0);
+  });
+}
+
+/* ---------- small helpers ---------- */
+function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+function cur() { return (S.profile && S.profile.currency) || '₹'; }
+function money(n) { if (n === null || n === undefined || n === '') return '–'; var neg = n < 0; n = Math.abs(Number(n)); return (neg ? '−' : '') + cur() + n.toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
+function num(n) { return Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 }); }
+function $(id) { return document.getElementById(id); }
+function val(id) { var e = $(id); return e ? e.value : ''; }
+function toast(t) { var e = $('toast'); e.textContent = t; e.style.display = 'block'; clearTimeout(toast.t); toast.t = setTimeout(function () { e.style.display = 'none'; }, 2600); }
+function busy(btn, on) { if (!btn) return; if (on) { btn.dataset.t = btn.innerHTML; btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; } else { btn.disabled = false; if (btn.dataset.t) btn.innerHTML = btn.dataset.t; } }
+function fail(e, btn) { busy(btn, false); toast(e.message || String(e)); }
+function d(ds) { if (!ds) return ''; var m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return Number(ds.slice(8, 10)) + ' ' + m[Number(ds.slice(5, 7)) - 1] + (ds.length > 10 ? ' ' + ds.slice(11, 16) : ''); }
+function can(p) { return S.profile && S.profile.kind === 'S' && (S.profile.role === 'SUPER' || S.profile.perms.indexOf(p) >= 0); }
+function isSuper() { return S.profile && S.profile.role === 'SUPER'; }
+function opts(list, sel, label, value) { return list.map(function (x) { var v = value ? value(x) : x.id; return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(label ? label(x) : x.name) + '</option>'; }).join(''); }
+function itemOpts(items, sel) { return '<option value="">Choose item…</option>' + items.map(function (i) { return '<option value="' + esc(i.code) + '"' + (i.code === sel ? ' selected' : '') + '>' + esc(i.code) + (i.type === 'PART' ? ' (part)' : '') + '</option>'; }).join(''); }
+var STATUS = { COUNT1: ['Waiting for count 1', 'warn'], COUNT2: ['Waiting for count 2', 'info'], MISMATCH: ['Counts differ', 'err'], LOCKED: ['Locked', 'ok'] };
+function statusPill(s) { var x = STATUS[s] || [s, '']; return '<span class="pill ' + x[1] + '">' + esc(x[0]) + '</span>'; }
+function invPill(s) { return s === 'DONE' ? '<span class="pill ok">In inventory</span>' : s === 'PENDING' ? '<span class="pill err">Not in inventory yet</span>' : s === 'NONE' ? '<span class="pill">Parts only</span>' : ''; }
+
+/* ---------- shell ---------- */
+function menu() {
+  var p = S.profile;
+  if (p.kind === 'K') return [['home', '🏠', 'Home'], ['handover', '📦', 'Hand over goods'], ['work', '🧾', 'My work'], ['slip', '💰', 'Payslips'], ['pin', '🔑', 'Change PIN']];
+  var m = [];
+  if (can('reports')) m.push(['dash', '📊', 'Dashboard']);
+  if (can('count') || can('reports')) m.push(['count', '✅', 'Count goods']);
+  if (can('count') || can('reports')) m.push(['batches', '📦', 'Batches']);
+  if (can('orders') || can('reports') || can('issue')) m.push(['orders', '🧵', 'Work orders']);
+  if (can('issue') || can('confirm') || can('reports')) m.push(['material', '🧰', 'Material issue']);
+  if (can('reports') || can('issue') || can('confirm')) m.push(['balance', '⚖️', 'Material balance']);
+  m.push(['-']);
+  if (can('approve') || can('reports')) m.push(['payroll', '💰', 'Payroll']);
+  if (can('advances') || can('approve')) m.push(['advances', '🤝', 'Advances']);
+  if (can('masters') || can('reports')) m.push(['karigars', '👷', 'Karigars & rates']);
+  if (can('masters') || can('reports')) m.push(['items', '🏷️', 'Items & materials']);
+  if (isSuper()) { m.push(['-']); m.push(['staff', '🛡️', 'Staff & permissions']); m.push(['log', '📜', 'Change log']); }
+  m.push(['pin', '🔑', 'Change PIN']);
+  return m;
+}
+function navHtml() {
+  return '<div class="nav">' + menu().map(function (x) {
+    if (x[0] === '-') return '<div class="sep"></div>';
+    return '<a class="' + (S.view === x[0] ? 'on' : '') + '" onclick="go(\'' + x[0] + '\')"><span>' + x[1] + '</span>' + esc(x[2]) + '</a>';
+  }).join('') + '<div class="sep"></div><a onclick="logout()"><span>🚪</span>Log out</a></div>';
+}
+function shell() {
+  var p = S.profile;
+  $('app').innerHTML = '<div class="top"><button id="menuBtn" onclick="openDrawer()">☰</button><div class="t">' + esc(p.company) + ' · Production</div>' +
+    '<div class="who">' + esc(p.name) + '<br><span style="opacity:.8">' + esc(p.id) + (p.kind === 'K' ? ' · Karigar' : p.role === 'SUPER' ? ' · Super admin' : ' · Staff') + '</span></div></div>' +
+    '<div class="layout"><aside class="side" id="side"></aside><main class="main" id="main"></main></div>' +
+    '<div class="drawer" id="drawer" onclick="if(event.target===this)closeDrawer()"><div class="panel" id="drawerNav"></div></div>';
+}
+function openDrawer() { $('drawer').classList.add('open'); }
+function closeDrawer() { $('drawer').classList.remove('open'); }
+function go(view, arg) {
+  S.view = view; S.arg = arg; closeDrawer();
+  $('side').innerHTML = navHtml(); $('drawerNav').innerHTML = navHtml();
+  var v = VIEWS[view] || VIEWS.home;
+  $('main').innerHTML = '<div class="card muted" style="text-align:center;padding:30px"><span class="spinner dark"></span></div>';
+  try { history.replaceState(null, '', '#' + view); } catch (e) { /* ignore */ }
+  window.scrollTo(0, 0);
+  v(arg);
+}
+function render(html) { $('main').innerHTML = html; }
+function modal(title, body) {
+  closeModal();
+  var o = document.createElement('div'); o.className = 'overlay'; o.id = 'modal';
+  o.innerHTML = '<div class="sheet"><div class="hd"><b>' + esc(title) + '</b><button class="x" onclick="closeModal()">×</button></div>' + body + '</div>';
+  o.addEventListener('click', function (e) { if (e.target === o) closeModal(); });
+  document.body.appendChild(o);
+}
+function closeModal() { var m = $('modal'); if (m) m.remove(); }
+
+/* ---------- login ---------- */
+function loginView(msg) {
+  $('app').innerHTML = '<div class="login"><div class="logo">🧵 ' + esc(S.company || 'Travalate') + '</div><div class="muted" style="text-align:center;margin-bottom:18px">Production · Karigar app</div>' +
+    '<div class="card">' + (msg ? '<div class="msg err">' + esc(msg) + '</div>' : '') +
+    '<label class="f">Your ID</label><input id="lid" autocapitalize="characters" placeholder="e.g. K001" value="' + esc(store.get('lastId') || '') + '">' +
+    '<label class="f">PIN</label><input id="lpin" type="password" inputmode="numeric" placeholder="••••" onkeydown="if(event.key===\'Enter\')doLogin(document.getElementById(\'lbtn\'))">' +
+    '<button class="btn block" id="lbtn" onclick="doLogin(this)">Log in</button></div></div>';
+}
+function doLogin(btn) {
+  busy(btn, true);
+  api('login', val('lid'), val('lpin')).then(function (r) {
+    S.token = r.token; S.profile = r.profile; store.set('token', r.token); store.set('lastId', r.profile.id);
+    start();
+  }).catch(function (e) { busy(btn, false); loginView(e.message); });
+}
+function logoutLocal() { S.token = null; store.set('token', null); loginView(); }
+function logout() { var t = S.token; logoutLocal(); api('logout', t).catch(function () {}); }
+function start() {
+  shell();
+  var h = (location.hash || '').slice(1);
+  var ok = menu().some(function (m) { return m[0] === h; });
+  go(ok ? h : (S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]));
+}
+
+/* ======================= KARIGAR ======================= */
+var VIEWS = {};
+VIEWS.home = function () {
+  api('getHome', S.token).then(function (r) {
+    var p = r.pay;
+    render('<h1 class="page">Namaste, ' + esc(S.profile.name) + ' 🙏</h1>' +
+      '<div class="card"><div class="muted">This pay period · ' + esc(r.period.label) + '</div>' +
+      '<div class="big" style="margin:6px 0 2px">' + money(p.net) + '</div><div class="muted">Earned ' + money(p.earned) + (p.advance ? ' · Advance cut ' + money(p.advance) : '') + ' · ' + p.good + ' good pieces</div>' +
+      (p.lines.length ? '<table class="tbl" style="margin-top:10px"><tr><th>Item</th><th class="r">Good</th><th class="r">Rate</th><th class="r">Amount</th></tr>' +
+        p.lines.map(function (l) { return '<tr><td>' + esc(l.item) + '</td><td class="r">' + l.good + '</td><td class="r">' + (l.rate === null ? '<span class="pill warn">No rate</span>' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>'; }).join('') + '</table>' : '') +
+      '<button class="btn block" onclick="go(\'handover\')">📦 Hand over finished goods</button></div>' +
+      (r.orders.length ? '<div class="card"><h2>🧵 My work orders</h2><div class="list">' + r.orders.map(function (o) {
+        return '<div class="it"><div class="grow"><b>' + esc(o.item) + '</b><div class="muted">' + o.id + ' · given ' + d(o.date) + '</div></div><div style="text-align:right"><b>' + o.received + ' / ' + o.qty + '</b><div class="muted">' + o.remaining + ' to make</div></div></div>';
+      }).join('') + '</div></div>' : '') +
+      (r.balances.length ? '<div class="card"><h2>🧰 Material with me</h2><table class="tbl"><tr><th>Material</th><th class="r">Given</th><th class="r">Used</th><th class="r">With me</th></tr>' + r.balances.map(function (b) {
+        return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued - b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td></tr>';
+      }).join('') + '</table></div>' : '') +
+      (r.batches.length ? '<div class="card"><h2>📦 Recent hand-overs</h2><div class="list">' + r.batches.map(batchRow).join('') + '</div></div>' : ''));
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function batchRow(b) {
+  return '<div class="it" onclick="showBatch(\'' + b.id + '\')" style="cursor:pointer"><div class="grow"><b>' + esc(b.id) + '</b> ' + statusPill(b.status) + ' ' + invPill(b.inventory) +
+    '<div class="muted">' + esc(b.karigar) + ' · ' + (b.finalDate ? 'counted ' + d(b.finalDate) : 'from ' + d(b.createdAt)) + '</div></div>' +
+    '<div style="text-align:right">' + (b.status === 'LOCKED' ? '<b>' + b.good + ' pcs</b>' + (b.rejected ? '<div class="muted neg">' + b.rejected + ' rejected</div>' : '') + '<div class="muted">' + money(b.amount) + '</div>' :
+      (b.claim && b.claim.length ? '<div class="muted">Handed ' + b.claim.reduce(function (n, c) { return n + c.qty; }, 0) + ' pcs</div>' : '')) + '</div></div>';
+}
+
+VIEWS.handover = function () {
+  api('getHome', S.token).then(function (r) {
+    S.data.hoItems = r.items;
+    render('<h1 class="page">📦 Hand over finished goods</h1><div class="card"><div class="msg info">Enter what you are handing over. Two people will count it. You are paid for the counted good pieces.</div>' +
+      '<div class="lines"><div class="ln claim hdr"><div>Item</div><div>Quantity</div><div></div></div><div id="hoLines"></div></div><button class="btn sec sm" onclick="addHoLine()">+ Add item</button>' +
+      '<label class="f">Note (optional)</label><input id="hoNote"><button class="btn block" onclick="sendHandover(this)">Send</button></div>');
+    addHoLine();
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function addHoLine() {
+  var div = document.createElement('div'); div.className = 'ln claim';
+  div.innerHTML = '<select>' + itemOpts(S.data.hoItems || []) + '</select><input type="number" inputmode="numeric" placeholder="Qty"><button class="x" onclick="this.parentNode.remove()">×</button>';
+  $('hoLines').appendChild(div);
+}
+function sendHandover(btn) {
+  var lines = Array.prototype.map.call(document.querySelectorAll('#hoLines .ln'), function (ln) { return { item: ln.children[0].value, qty: Number(ln.children[1].value) }; }).filter(function (l) { return l.item && l.qty > 0; });
+  busy(btn, true);
+  api('submitHandover', S.token, { lines: lines, note: val('hoNote') }).then(function (r) { toast('Sent: ' + r.id); go('home'); }).catch(function (e) { fail(e, btn); });
+}
+
+VIEWS.work = function (period) {
+  api('myWork', S.token, period || '').then(function (r) {
+    var p = r.pay;
+    render('<h1 class="page">🧾 My work <small>' + esc(r.period.label) + '</small></h1>' + periodPicker('work', r.period.key) +
+      '<div class="tiles"><div class="tile ok"><div class="l">Good pieces</div><div class="n">' + p.good + '</div></div><div class="tile err"><div class="l">Rejected (not paid)</div><div class="n">' + p.rejected + '</div></div>' +
+      '<div class="tile"><div class="l">Earned</div><div class="n">' + money(p.earned) + '</div></div><div class="tile info"><div class="l">Net</div><div class="n">' + money(p.net) + '</div></div></div>' +
+      '<div class="card"><div class="list">' + (r.batches.map(batchRow).join('') || '<div class="muted">Nothing in this period yet.</div>') + '</div></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function periodPicker(view, key, extra) {
+  var list = [], now = new Date(), y = now.getFullYear(), m = now.getMonth() + 1;
+  if (now.getDate() < 5) { m--; if (!m) { m = 12; y--; } }
+  for (var i = 0; i < 13; i++) { list.push(y + '-' + ('0' + m).slice(-2)); m--; if (!m) { m = 12; y--; } }
+  var M = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return '<div class="row no-print" style="margin-bottom:12px"><select onchange="go(\'' + view + '\',this.value)">' + list.map(function (k) {
+    var mm = Number(k.slice(5)), nx = mm === 12 ? 1 : mm + 1;
+    return '<option value="' + k + '"' + (k === key ? ' selected' : '') + '>5 ' + M[mm - 1] + ' – 4 ' + M[nx - 1] + ' ' + (mm === 12 ? Number(k.slice(0, 4)) + 1 : k.slice(0, 4)) + '</option>';
+  }).join('') + '</select>' + (extra || '') + '</div>';
+}
+
+VIEWS.slip = function (period) {
+  api('myPayslip', S.token, period || '').then(function (r) { render(periodPicker('slip', r.period.key) + slipHtml(r)); })
+    .catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function slipHtml(r) {
+  var p = r.pay;
+  var st = p.status === 'PAID' ? '<span class="pill ok">Paid ' + d(p.paidDate) + '</span>' : p.status === 'APPROVED' ? '<span class="pill info">Approved</span>' : '<span class="pill warn">Not final yet</span>';
+  return '<div class="card"><div class="slip" id="slip"><div class="sh"><div><b style="font-size:17px">' + esc(r.company) + '</b><div class="muted">Karigar payslip</div></div><div style="text-align:right"><b>' + esc(r.period.label) + '</b><div>' + st + '</div></div></div>' +
+    '<div class="kv" style="margin-bottom:10px"><div>Karigar</div><div><b>' + esc(r.karigar.name) + '</b> (' + esc(r.karigar.id) + ')</div><div>Good pieces</div><div>' + p.good + (p.rejected ? ' · ' + p.rejected + ' rejected (not paid)' : '') + '</div></div>' +
+    '<table class="tbl"><tr><th>Item</th><th class="r">Good</th><th class="r">Rate</th><th class="r">Amount</th></tr>' +
+    (p.lines.map(function (l) { return '<tr><td>' + esc(l.item) + '</td><td class="r">' + l.good + '</td><td class="r">' + (l.rate === null ? 'No rate' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>'; }).join('') || '<tr><td colspan="4" class="muted">No counted goods.</td></tr>') +
+    '<tfoot><tr><td colspan="3">Earned</td><td class="r">' + money(p.earned) + '</td></tr></tfoot></table>' +
+    (p.advances.length ? '<h3>Advance recovery</h3><table class="tbl">' + p.advances.map(function (a) {
+      return '<tr><td>Advance ' + money(a.amount) + (a.note ? ' · ' + esc(a.note) : '') + '<div class="muted">Balance ' + money(a.balanceBefore) + ' → ' + money(a.balanceAfter) + '</div></td><td class="r neg">−' + money(a.deducted) + '</td></tr>';
+    }).join('') + '</table>' : '') +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:2px solid var(--ink)"><b style="font-size:16px">Net pay</b><b style="font-size:22px">' + money(p.net) + '</b></div></div>' +
+    '<div class="row no-print" style="margin-top:12px"><button class="btn sec" onclick="printSlip()">🖨️ Print / PDF</button><button class="btn ok" onclick="waSlip()">WhatsApp</button></div></div>';
+}
+function printSlip() {
+  var html = '<html><head><meta charset="utf-8"><style>' + document.querySelector('style').innerHTML + '</style></head><body style="background:#fff;padding:16px">' + $('slip').outerHTML + '</body></html>';
+  if (window.AttendanceApp && AttendanceApp.print) AttendanceApp.print(html, 'Payslip'); else window.print();
+}
+function waSlip() {
+  var t = $('slip').innerText.replace(/\n{2,}/g, '\n');
+  window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank');
+}
+
+VIEWS.pin = function () {
+  render('<h1 class="page">🔑 Change PIN</h1><div class="card"><label class="f">Current PIN</label><input id="p0" type="password" inputmode="numeric">' +
+    '<label class="f">New PIN (4–8 digits)</label><input id="p1" type="password" inputmode="numeric"><label class="f">New PIN again</label><input id="p2" type="password" inputmode="numeric">' +
+    '<button class="btn block" onclick="savePin(this)">Save</button></div>');
+};
+function savePin(btn) {
+  if (val('p1') !== val('p2')) return toast('The new PINs do not match.');
+  busy(btn, true);
+  api('changePin', S.token, val('p0'), val('p1')).then(function () { toast('PIN changed'); go(S.profile.kind === 'K' ? 'home' : menu()[0][0]); }).catch(function (e) { fail(e, btn); });
+}
+
+/* ======================= STAFF ======================= */
+VIEWS.dash = function () {
+  api('adminDashboard', S.token).then(function (r) {
+    render('<h1 class="page">📊 Dashboard <small>Pay period ' + esc(r.period.label) + '</small></h1>' +
+      '<div class="tiles">' +
+      '<div class="tile warn" onclick="go(\'count\')"><div class="l">Waiting for count 1</div><div class="n">' + r.waitCount1 + '</div></div>' +
+      '<div class="tile info" onclick="go(\'count\')"><div class="l">Waiting for count 2</div><div class="n">' + r.waitCount2 + '</div></div>' +
+      '<div class="tile ' + (r.mismatch ? 'err' : '') + '" onclick="go(\'count\')"><div class="l">Counts differ</div><div class="n">' + r.mismatch + '</div></div>' +
+      '<div class="tile ' + (r.movesPending ? 'warn' : '') + '" onclick="go(\'material\')"><div class="l">Material to confirm</div><div class="n">' + r.movesPending + '</div></div>' +
+      '<div class="tile ok"><div class="l">Received today (good)</div><div class="n">' + r.receivedToday + '</div></div>' +
+      '<div class="tile ' + (r.rejectedToday ? 'err' : '') + '"><div class="l">Rejected today</div><div class="n">' + r.rejectedToday + '</div></div>' +
+      '<div class="tile" onclick="go(\'payroll\',\'' + r.period.key + '\')"><div class="l">Earned this period</div><div class="n">' + money(r.earned) + '</div></div>' +
+      '<div class="tile ' + (r.inventoryPending ? 'err' : 'ok') + '" onclick="go(\'batches\')"><div class="l">Not in inventory yet</div><div class="n">' + r.inventoryPending + '</div></div>' +
+      '</div>' +
+      (r.missingRates ? '<div class="msg warn">' + r.missingRates + ' counted line(s) have no rate for the karigar. Set the rate in Karigars & rates.</div>' : '') +
+      '<div class="grid2"><div class="card"><h2>🧵 In production (inventory SKUs)</h2>' +
+      (r.inProduction.length ? '<table class="tbl"><tr><th>SKU</th><th class="r">In production</th></tr>' + r.inProduction.map(function (x) { return '<tr><td>' + esc(x.item) + '</td><td class="r"><b>' + x.qty + '</b></td></tr>'; }).join('') + '</table>' : '<div class="muted">No open work orders.</div>') +
+      '<div class="muted" style="margin-top:8px">Shown small and grey in the Inventory Snapshot. Last sent: ' + esc(r.inventorySync || 'never') + '</div></div>' +
+      '<div class="card"><h2>🚩 Material flags</h2>' + (r.flags.length ? '<div class="list">' + r.flags.map(function (f) {
+        return '<div class="it"><div class="grow"><b>' + esc(f.karigar) + '</b> · ' + esc(f.materialName) + '<div class="muted">' + esc(f.flag) + '</div></div><b class="' + (f.balance < 0 ? 'neg' : '') + '">' + num(f.balance) + ' ' + esc(f.unit) + '</b></div>';
+      }).join('') + '</div>' : '<div class="muted">No flags. Every karigar\'s material matches.</div>') + '</div></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+
+/* ---------- counting ---------- */
+VIEWS.count = function () {
+  api('countQueue', S.token).then(function (r) {
+    S.data.cq = r;
+    var groups = [['COUNT1', 'Waiting for count 1 (with photo)'], ['COUNT2', 'Waiting for count 2 (a different person, blind)'], ['MISMATCH', 'Counts differ: count again']];
+    render('<h1 class="page">✅ Count received goods</h1>' +
+      (r.canCount ? '<div class="card"><h2>New batch (no hand-over from the karigar)</h2><div class="row"><select id="nbK"><option value="">Choose karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
+      groups.map(function (g) {
+        var list = r.list.filter(function (b) { return b.status === g[0]; });
+        return '<div class="card"><h2>' + esc(g[1]) + ' <span class="pill ' + (list.length ? STATUS[g[0]][1] : '') + '">' + list.length + '</span></h2>' + (list.length ? '<div class="list">' + list.map(function (b) {
+          var act = '';
+          if (r.canCount && b.status === 'COUNT1') act = '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">Count 1</button>';
+          if (r.canCount && b.status === 'COUNT2') act = b.mine ? '<span class="muted">You did count 1</span>' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',2)">Count 2</button>';
+          if (r.canCount && b.status === 'MISMATCH') act = '<button class="btn warn sm" onclick="recount(\'' + b.id + '\',this)">Count again</button>';
+          return '<div class="it"><div class="grow"><b>' + esc(b.id) + ' · ' + esc(b.karigar) + '</b><div class="muted">' + d(b.createdAt) +
+            (b.claim.length ? ' · Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') : '') +
+            (b.count1By ? ' · Count 1 by ' + esc(b.count1By) : '') + '</div>' +
+            (b.mismatchItems.length ? '<div class="neg" style="font-size:13px;font-weight:600">Different on: ' + b.mismatchItems.map(esc).join(', ') + '</div>' : '') +
+            (b.mismatchDetail ? '<div class="muted">Count 1: ' + b.mismatchDetail.count1.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + ' · Count 2: ' + b.mismatchDetail.count2.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + '</div>' : '') +
+            '</div>' + act + '</div>';
+        }).join('') + '</div>' : '<div class="muted">Nothing waiting.</div>') + '</div>';
+      }).join(''));
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function newBatch(btn) {
+  if (!val('nbK')) return toast('Choose the karigar.');
+  busy(btn, true);
+  api('startBatch', S.token, val('nbK')).then(function (r) { S.data.cq.list.push({ id: r.id, karigar: $('nbK').selectedOptions[0].text, claim: [], status: 'COUNT1', items: [] }); countForm(r.id, 1); busy(btn, false); }).catch(function (e) { fail(e, btn); });
+}
+function countForm(id, which) {
+  var b = S.data.cq.list.filter(function (x) { return x.id === id; })[0] || { id: id, claim: [], items: [] };
+  S.data.countItems = S.data.cq.items; S.data.photo = null;
+  var pre = which === 1 ? b.claim.map(function (c) { return c.item; }) : b.items;
+  modal('Count ' + which + ' · ' + id + ' · ' + (b.karigar || ''),
+    (which === 2 ? '<div class="blind">Blind count: you do not see count 1. Count every piece yourself.</div>' : b.claim.length ? '<div class="msg info">Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
+    '<div class="lines"><div class="ln hdr"><div>Item</div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
+    (which === 1 ? '<label class="f">Photo of the received goods (required)</label><input type="file" accept="image/*" capture="environment" onchange="takePhoto(this)"><img id="cPhoto" class="photo" style="display:none">' : '') +
+    '<button class="btn block ok" onclick="saveCountNow(\'' + id + '\',' + which + ',this)">Save count ' + which + '</button>');
+  (pre.length ? pre : ['']).forEach(function (it) { addCountLine(it); });
+}
+function addCountLine(item) {
+  var div = document.createElement('div'); div.className = 'ln';
+  div.innerHTML = '<select>' + itemOpts(S.data.countItems, item || '') + '</select><input type="number" inputmode="numeric" placeholder="0"><input type="number" inputmode="numeric" placeholder="0"><button class="x" onclick="this.parentNode.remove()">×</button>';
+  $('cLines').appendChild(div);
+}
+function takePhoto(inp) {
+  var f = inp.files && inp.files[0]; if (!f) return;
+  var img = new Image(), rd = new FileReader();
+  rd.onload = function () { img.onload = function () {
+    var max = 1280, w = img.width, h = img.height, k = Math.min(1, max / Math.max(w, h));
+    var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    S.data.photo = c.toDataURL('image/jpeg', 0.72); $('cPhoto').src = S.data.photo; $('cPhoto').style.display = 'block';
+  }; img.src = rd.result; };
+  rd.readAsDataURL(f);
+}
+function saveCountNow(id, which, btn) {
+  var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { item: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.item; });
+  if (which === 1 && !S.data.photo) return toast('Take a photo of the received goods.');
+  busy(btn, true);
+  api('saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null }).then(function (r) {
+    closeModal();
+    if (r.status === 'LOCKED') toast('Counts match: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : ''));
+    else if (r.status === 'MISMATCH') toast('Counts do not match: ' + r.items.join(', ') + '. Count again.');
+    else toast('Count 1 saved. Now a different person does count 2.');
+    go('count');
+  }).catch(function (e) { fail(e, btn); });
+}
+function recount(id, btn) {
+  if (!confirm('Both counts are kept in the history and the batch is counted again from count 1.')) return;
+  busy(btn, true); api('recountBatch', S.token, id).then(function () { go('count'); }).catch(function (e) { fail(e, btn); });
+}
+
+/* ---------- batches ---------- */
+VIEWS.batches = function (period) {
+  api('batchList', S.token, period || '', S.data.bK || '').then(function (r) {
+    var locked = r.list.filter(function (b) { return b.status === 'LOCKED'; });
+    render('<h1 class="page">📦 Batches <small>' + esc(r.period.label) + '</small></h1>' +
+      periodPicker('batches', r.period.key, '<select onchange="S.data.bK=this.value;go(\'batches\',\'' + r.period.key + '\')"><option value="">All karigars</option>' + opts(r.karigars, S.data.bK || '') + '</select>') +
+      '<div class="tiles"><div class="tile"><div class="l">Batches</div><div class="n">' + locked.length + '</div></div><div class="tile ok"><div class="l">Good pieces</div><div class="n">' + locked.reduce(function (n, b) { return n + b.good; }, 0) + '</div></div>' +
+      '<div class="tile err"><div class="l">Rejected</div><div class="n">' + locked.reduce(function (n, b) { return n + b.rejected; }, 0) + '</div></div><div class="tile info"><div class="l">Amount</div><div class="n">' + money(locked.reduce(function (n, b) { return n + b.amount; }, 0)) + '</div></div></div>' +
+      '<div class="card scroll"><table class="tbl"><tr><th>Batch</th><th>Karigar</th><th>Counted</th><th>Items</th><th class="r">Good</th><th class="r">Rej.</th><th class="r">Amount</th><th>Status</th></tr>' +
+      (r.list.map(function (b) {
+        return '<tr class="click" onclick="showBatch(\'' + b.id + '\')"><td><b>' + esc(b.id) + '</b></td><td>' + esc(b.karigar) + '</td><td>' + (b.finalDate ? d(b.finalDate) : '–') + '</td><td>' + b.lines.map(function (l) { return esc(l.item); }).join('<br>') + '</td>' +
+          '<td class="r">' + (b.status === 'LOCKED' ? b.good : '') + '</td><td class="r ' + (b.rejected ? 'neg' : '') + '">' + (b.status === 'LOCKED' ? b.rejected : '') + '</td><td class="r">' + (b.status === 'LOCKED' ? money(b.amount) : '') + '</td><td>' + statusPill(b.status) + ' ' + invPill(b.inventory) + (b.missingRate ? ' <span class="pill warn">No rate</span>' : '') + '</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="muted">No batches.</td></tr>') + '</table></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function showBatch(id) {
+  api('batchDetail', S.token, id).then(function (b) {
+    S.data.batch = b;
+    var cnt = function (c) { return c && c.length ? c.map(function (l) { return esc(l.item) + ': <b>' + l.good + '</b>' + (l.rejected ? ' + ' + l.rejected + ' rej.' : ''); }).join('<br>') : '–'; };
+    modal(b.id + ' · ' + b.karigar,
+      '<div style="margin-bottom:8px">' + statusPill(b.status) + ' ' + invPill(b.inventory) + '</div>' +
+      '<div class="kv"><div>Created</div><div>' + d(b.createdAt) + '</div>' + (b.claim.length ? '<div>Karigar said</div><div>' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
+      '<div>Count 1</div><div>' + esc(b.count1By || '–') + ' ' + d(b.count1At) + (b.count1 ? '<br>' + cnt(b.count1) : '') + '</div>' +
+      '<div>Count 2</div><div>' + esc(b.count2By || '–') + ' ' + d(b.count2At) + (b.count2 ? '<br>' + cnt(b.count2) : '') + '</div>' +
+      (b.finalDate ? '<div>Final date</div><div><b>' + d(b.finalDate) + '</b> · pay period ' + esc(b.period) + '</div>' : '') +
+      (b.inventoryNote ? '<div>Inventory</div><div>' + esc(b.inventoryNote) + '</div>' : '') + (b.note ? '<div>Notes</div><div style="white-space:pre-wrap">' + esc(b.note) + '</div>' : '') + '</div>' +
+      (b.lines.length ? '<table class="tbl" style="margin-top:12px"><tr><th>Item</th><th class="r">Good</th><th class="r">Rej.</th><th class="r">Rate</th><th class="r">Amount</th></tr>' + b.lines.map(function (l) {
+        return '<tr><td>' + esc(l.item) + (l.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + l.good + '</td><td class="r">' + l.rejected + '</td><td class="r">' + (l.rate === null ? '<span class="pill warn">No rate</span>' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>';
+      }).join('') + '<tfoot><tr><td>Total</td><td class="r">' + b.good + '</td><td class="r">' + b.rejected + '</td><td></td><td class="r">' + money(b.amount) + '</td></tr></tfoot></table>' : '') +
+      (b.earlier.length ? '<h3>Earlier counts (did not match)</h3>' + b.earlier.map(function (e) { return '<div class="muted">' + d(e.at) + ': count 1 ' + e.count1.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + ' · count 2 ' + e.count2.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + '</div>'; }).join('') : '') +
+      (b.hasPhoto ? '<div id="bPhoto" style="margin-top:10px"><button class="btn sec sm" onclick="loadPhoto(\'' + b.id + '\',this)">📷 Show photo</button></div>' : '') +
+      '<div class="row" style="margin-top:12px">' + (b.inventory === 'PENDING' && S.profile.kind === 'S' ? '<button class="btn warn" onclick="retryInv(\'' + b.id + '\',this)">Send to inventory again</button>' : '') +
+      (b.canCorrect ? '<button class="btn err" onclick="correctForm()">Correct (super admin)</button>' : '') + '</div>' +
+      (b.log.length ? '<h3>Change log</h3>' + b.log.map(function (l) { return '<div class="muted">' + esc(l.at) + ' · ' + esc(l.by) + ' · ' + esc(l.action) + ' ' + esc(l.details) + '</div>'; }).join('') : ''));
+  }).catch(function (e) { toast(e.message); });
+}
+function loadPhoto(id, btn) { busy(btn, true); api('batchPhoto', S.token, id).then(function (src) { $('bPhoto').innerHTML = '<img class="photo" src="' + src + '">'; }).catch(function (e) { fail(e, btn); }); }
+function retryInv(id, btn) { busy(btn, true); api('retryInventory', S.token, id).then(function (r) { toast(r.inventory === 'DONE' ? 'Added to the inventory' : 'Still not added: ' + r.note); showBatch(id); }).catch(function (e) { fail(e, btn); }); }
+function correctForm() {
+  var b = S.data.batch; S.data.countItems = b.items;
+  modal('Correct ' + b.id + ' (locked)', '<div class="msg warn">Only for real mistakes. The old and new counts and your reason go to the change log; the Inventory App gets only the difference.</div>' +
+    '<div class="lines"><div class="ln hdr"><div>Item</div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
+    '<label class="f">Reason (required)</label><input id="corrWhy"><button class="btn block err" onclick="saveCorrection(this)">Save correction</button>');
+  b.lines.forEach(function (l) { addCountLine(l.item); var ln = $('cLines').lastChild; ln.children[1].value = l.good; ln.children[2].value = l.rejected; });
+}
+function saveCorrection(btn) {
+  var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { item: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.item; });
+  busy(btn, true);
+  api('correctBatch', S.token, S.data.batch.id, { lines: lines, reason: val('corrWhy') }).then(function () { toast('Corrected'); closeModal(); go(S.view, S.arg); }).catch(function (e) { fail(e, btn); });
+}
+
+/* ---------- work orders ---------- */
+VIEWS.orders = function (all) {
+  api('orderList', S.token, !!all).then(function (r) {
+    S.data.ol = r;
+    render('<h1 class="page">🧵 Work orders <small>what each karigar is making</small></h1>' +
+      '<div class="tabs"><a class="' + (all ? '' : 'on') + '" onclick="go(\'orders\')">Open</a><a class="' + (all ? 'on' : '') + '" onclick="go(\'orders\',1)">All</a></div>' +
+      (r.canEdit ? '<div class="card"><h2>New work order</h2><div class="row"><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
+        '<select id="woI">' + itemOpts(r.items) + '</select></div><div class="row" style="margin-top:8px"><input id="woQ" type="number" inputmode="numeric" placeholder="Quantity"><input id="woN" placeholder="Note (optional)"><button class="btn fix" onclick="saveWo(this)">Add</button></div></div>' : '') +
+      '<div class="card scroll"><table class="tbl"><tr><th>Order</th><th>Karigar</th><th>Item</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the order</th><th></th></tr>' +
+      (r.list.map(function (o) {
+        return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
+          '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td><td>' +
+          (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : '')) + '</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="muted">No work orders.</td></tr>') + '</table></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function saveWo(btn) { busy(btn, true); api('saveOrder', S.token, { karigarId: val('woK'), item: val('woI'), qty: val('woQ'), note: val('woN') }).then(function () { toast('Work order added'); go('orders'); }).catch(function (e) { fail(e, btn); }); }
+function woStatus(id, st, btn) { if (st === 'CLOSED' && !confirm('Close this work order? What is not made yet is no longer "in production".')) return; busy(btn, true); api('setOrderStatus', S.token, id, st).then(function () { go('orders', S.arg); }).catch(function (e) { fail(e, btn); }); }
+
+/* ---------- material ---------- */
+VIEWS.material = function () {
+  api('moveList', S.token).then(function (r) {
+    S.data.ml = r;
+    var pending = r.list.filter(function (m) { return m.status === 'PENDING'; });
+    render('<h1 class="page">🧰 Material issue & return <small>2 people: one enters, another confirms</small></h1>' +
+      (r.canIssue ? '<div class="card"><h2>Give or take back material</h2><div class="row"><select id="mvT"><option value="ISSUE">Issue to karigar</option><option value="RETURN">Return from karigar</option></select>' +
+        '<select id="mvK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select></div>' +
+        '<div class="lines" style="margin-top:8px" id="mvLines"></div><button class="btn sec sm" onclick="addMvLine()">+ Add material</button><label class="f">Note</label><input id="mvN"><button class="btn block" onclick="saveMv(this)">Save (to be confirmed)</button></div>' : '') +
+      '<div class="card"><h2>Waiting for confirmation <span class="pill warn">' + pending.length + '</span></h2>' + (pending.length ? '<div class="list">' + pending.map(moveRow).join('') + '</div>' : '<div class="muted">Nothing waiting.</div>') + '</div>' +
+      '<div class="card scroll"><h2>History</h2><table class="tbl"><tr><th>ID</th><th>Date</th><th>Type</th><th>Karigar</th><th>Material</th><th class="r">Qty</th><th>Entered</th><th>Confirmed</th><th>Status</th></tr>' +
+      r.list.filter(function (m) { return m.status !== 'PENDING'; }).map(function (m) {
+        return '<tr><td>' + m.id + '</td><td>' + d(m.date) + '</td><td>' + (m.type === 'ISSUE' ? 'Issue' : 'Return') + '</td><td>' + esc(m.karigar) + '</td><td>' + esc(m.material) + '</td><td class="r">' + num(m.qty) + ' ' + esc(m.unit) + '</td><td>' + esc(m.enteredByName) + '</td><td>' + esc(m.confirmedByName) + '</td><td><span class="pill ' + (m.status === 'CONFIRMED' ? 'ok' : 'err') + '">' + m.status.toLowerCase() + '</span></td></tr>';
+      }).join('') + '</table></div>');
+    if (r.canIssue) addMvLine();
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function moveRow(m) {
+  return '<div class="it"><div class="grow"><b>' + (m.type === 'ISSUE' ? '➡️ Issue to ' : '⬅️ Return from ') + esc(m.karigar) + '</b><div>' + esc(m.material) + ': <b>' + num(m.qty) + ' ' + esc(m.unit) + '</b></div><div class="muted">' + m.id + ' · entered by ' + esc(m.enteredByName) + ' ' + d(m.enteredAt) + (m.note ? ' · ' + esc(m.note) : '') + '</div></div>' +
+    (m.canDecide ? '<button class="btn ok sm" onclick="decide(\'' + m.id + '\',true,this)">Confirm</button> <button class="btn sec sm" onclick="decide(\'' + m.id + '\',false,this)">Reject</button>' : '<span class="muted">' + (m.enteredBy === S.profile.id ? 'Another person must confirm' : '') + '</span>') + '</div>';
+}
+function addMvLine() {
+  var div = document.createElement('div'); div.className = 'ln claim';
+  div.innerHTML = '<select><option value="">Material…</option>' + S.data.ml.materials.map(function (m) { return '<option value="' + esc(m.code) + '">' + esc(m.name) + ' (' + esc(m.unit) + ')</option>'; }).join('') + '</select><input type="number" step="any" inputmode="decimal" placeholder="Qty"><button class="x" onclick="this.parentNode.remove()">×</button>';
+  $('mvLines').appendChild(div);
+}
+function saveMv(btn) {
+  var lines = Array.prototype.map.call(document.querySelectorAll('#mvLines .ln'), function (ln) { return { material: ln.children[0].value, qty: Number(ln.children[1].value) }; }).filter(function (l) { return l.material && l.qty > 0; });
+  busy(btn, true); api('saveMove', S.token, { type: val('mvT'), karigarId: val('mvK'), lines: lines, note: val('mvN') }).then(function () { toast('Saved. Another person must confirm it.'); go('material'); }).catch(function (e) { fail(e, btn); });
+}
+function decide(id, ok, btn) { busy(btn, true); api('decideMove', S.token, id, ok).then(function () { toast(ok ? 'Confirmed' : 'Rejected'); go('material'); }).catch(function (e) { fail(e, btn); }); }
+
+VIEWS.balance = function () {
+  api('materialBalance', S.token).then(function (r) {
+    var by = {};
+    r.list.forEach(function (b) { (by[b.karigar] = by[b.karigar] || []).push(b); });
+    render('<h1 class="page">⚖️ Material balance <small>given − returned − used (good + rejected × BOM). No wastage allowed.</small></h1>' +
+      Object.keys(by).map(function (k) {
+        return '<div class="card scroll"><h2>👷 ' + esc(k) + '</h2><table class="tbl"><tr><th>Material</th><th class="r">Given</th><th class="r">Returned</th><th class="r">Used</th><th class="r">With karigar</th><th class="r">Unconfirmed</th><th class="r">Still to give</th><th></th></tr>' +
+          by[k].map(function (b) {
+            return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued) + '</td><td class="r">' + num(b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td><td class="r">' + (b.pending ? num(b.pending) : '') + '</td><td class="r">' + (b.toIssue ? num(b.toIssue) : '') + '</td><td>' + (b.flag ? '<span class="pill ' + (b.balance < 0 ? 'err' : 'warn') + '">' + esc(b.flag) + '</span>' : '') + '</td></tr>';
+          }).join('') + '</table></div>';
+      }).join('') || '<div class="card muted">No material given yet.</div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+
+/* ---------- payroll ---------- */
+VIEWS.payroll = function (period) {
+  api('payroll', S.token, period || '').then(function (r) {
+    S.data.pay = r;
+    render('<h1 class="page">💰 Payroll <small>' + esc(r.period.label) + (r.ended ? '' : ' · still running') + '</small></h1>' +
+      periodPicker('payroll', r.period.key, '<button class="btn sec fix" onclick="payCsv()">⬇ Excel (CSV)</button>') +
+      (!r.ended ? '<div class="msg info">This period ends on ' + d(r.period.to) + '. It can be approved after that.</div>' : '') +
+      '<div class="tiles"><div class="tile"><div class="l">Earned</div><div class="n">' + money(r.earned) + '</div></div><div class="tile err"><div class="l">Advance cut</div><div class="n">' + money(r.advance) + '</div></div>' +
+      '<div class="tile info"><div class="l">Net to pay</div><div class="n">' + money(r.net) + '</div></div><div class="tile ok"><div class="l">Paid</div><div class="n">' + r.list.filter(function (p) { return p.status === 'PAID'; }).length + ' / ' + r.list.length + '</div></div></div>' +
+      '<div class="card scroll"><table class="tbl"><tr><th>Karigar</th><th class="r">Good</th><th class="r">Rej.</th><th class="r">Earned</th><th class="r">Advance</th><th class="r">Net</th><th>Status</th><th></th></tr>' +
+      (r.list.map(function (p) {
+        var st = p.status === 'PAID' ? '<span class="pill ok">Paid ' + d(p.paidDate) + '</span>' : p.status === 'APPROVED' ? '<span class="pill info">Approved</span>' : '<span class="pill warn">Open</span>';
+        var act = '';
+        if (p.status === 'OPEN' && r.canApprove) act = '<button class="btn sm" onclick="approve(\'' + p.karigarId + '\',this)">Approve</button>';
+        if (p.status === 'APPROVED' && r.canApprove) act = '<button class="btn ok sm" onclick="paid(\'' + p.karigarId + '\',this)">Mark paid</button>' + (r.isSuper ? ' <button class="btn sec sm" onclick="unapprove(\'' + p.karigarId + '\',this)">Undo</button>' : '');
+        return '<tr><td class="click" onclick="adminSlip(\'' + p.karigarId + '\')" style="cursor:pointer"><b>' + esc(p.name) + '</b><div class="muted">' + p.karigarId + '</div></td><td class="r">' + p.good + '</td><td class="r">' + p.rejected + '</td><td class="r">' + money(p.earned) + (p.missingRates ? '<div><span class="pill warn">' + p.missingRates + ' no rate</span></div>' : '') + '</td>' +
+          '<td class="r neg">' + (p.advance ? '−' + money(p.advance) : '') + (p.short ? '<div class="muted">less than due</div>' : '') + '</td><td class="r"><b>' + money(p.net) + '</b></td><td>' + st + '</td><td style="white-space:nowrap">' + act + ' <button class="btn sec sm" onclick="adminSlip(\'' + p.karigarId + '\')">Payslip</button></td></tr>';
+      }).join('') || '<tr><td colspan="8" class="muted">Nothing counted in this period.</td></tr>') +
+      '<tfoot><tr><td>Total</td><td></td><td></td><td class="r">' + money(r.earned) + '</td><td class="r">' + money(r.advance) + '</td><td class="r">' + money(r.net) + '</td><td colspan="2"></td></tr></tfoot></table></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function approve(k, btn) { if (!confirm('Approve this pay? The figures are saved and no longer change.')) return; busy(btn, true); api('approvePay', S.token, S.data.pay.period.key, k).then(function () { toast('Approved'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, btn); }); }
+function unapprove(k, btn) { busy(btn, true); api('unapprovePay', S.token, S.data.pay.period.key, k).then(function () { go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, btn); }); }
+function paid(k, btn) {
+  var t = new Date(), ds = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
+  modal('Mark as paid', '<label class="f">Date paid</label><input type="date" id="pdD" value="' + ds + '"><button class="btn block ok" id="pdB">Save</button>');
+  $('pdB').onclick = function () { busy(this, true); api('markPaid', S.token, S.data.pay.period.key, k, val('pdD')).then(function () { closeModal(); toast('Marked as paid'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('pdB')); }); };
+}
+function adminSlip(k) { api('payslip', S.token, S.data.pay.period.key, k).then(function (r) { modal('Payslip', slipHtml(r)); }).catch(function (e) { toast(e.message); }); }
+function payCsv() {
+  var r = S.data.pay, rows = [['Karigar ID', 'Karigar', 'Good', 'Rejected', 'Earned', 'Advance', 'Net', 'Status', 'Paid date']];
+  r.list.forEach(function (p) { rows.push([p.karigarId, p.name, p.good, p.rejected, p.earned, p.advance, p.net, p.status, p.paidDate || '']); });
+  rows.push(['', 'Total', '', '', r.earned, r.advance, r.net, '', '']);
+  var csv = rows.map(function (x) { return x.map(function (c) { c = String(c); return /[",\n]/.test(c) ? '"' + c.replace(/"/g, '""') + '"' : c; }).join(','); }).join('\r\n');
+  var name = 'Karigar payroll ' + r.period.label + '.csv';
+  if (window.AttendanceApp && AttendanceApp.saveFile) { AttendanceApp.saveFile(btoa(unescape(encodeURIComponent('﻿' + csv))), name, 'text/csv'); return; }
+  var a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' })); a.download = name; a.click();
+}
+
+/* ---------- advances ---------- */
+VIEWS.advances = function () {
+  api('advances', S.token).then(function (r) {
+    S.data.adv = r;
+    render('<h1 class="page">🤝 Advances <small>this pay period ' + esc(r.period.label) + '</small></h1>' +
+      (r.canEdit ? '<div class="card"><h2>Give an advance</h2><div class="row"><select id="avK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + (k.owed ? ' · owes ' + money(k.owed) : ''); }) + '</select><input id="avA" type="number" inputmode="decimal" placeholder="Amount"></div>' +
+        '<div class="row" style="margin-top:8px"><input id="avP" type="number" inputmode="decimal" placeholder="Cut per pay period"><select id="avS">' + r.periods.map(function (p) { return '<option value="' + p.key + '">From ' + esc(p.label) + '</option>'; }).join('') + '</select></div>' +
+        '<div class="row" style="margin-top:8px"><input id="avN" placeholder="Note"><button class="btn fix" onclick="saveAdv(this)">Save</button></div></div>' : '') +
+      '<div class="card scroll"><table class="tbl"><tr><th>Karigar</th><th>Given</th><th class="r">Amount</th><th class="r">Per period</th><th class="r">Balance</th><th class="r">This period</th><th>Status</th><th></th></tr>' +
+      (r.list.map(function (a) {
+        return '<tr><td><b>' + esc(a.name) + '</b>' + (a.note ? '<div class="muted">' + esc(a.note) + '</div>' : '') + '</td><td>' + d(a.dateGiven) + '</td><td class="r">' + money(a.amount) + '</td><td class="r">' + money(a.perPeriod) + '</td><td class="r"><b>' + money(a.balanceBefore) + '</b></td>' +
+          '<td class="r">' + money(a.thisPeriod) + (a.changed ? ' <span class="pill info">changed</span>' : '') + '</td><td><span class="pill ' + (a.status === 'ACTIVE' ? 'ok' : a.status === 'PAUSED' ? 'warn' : '') + '">' + a.status.toLowerCase() + '</span></td>' +
+          '<td style="white-space:nowrap">' + (r.canEdit && a.status !== 'CLOSED' && a.balanceBefore > 0 ? '<button class="btn sm" onclick="advPeriod(\'' + a.id + '\')">Cut this period</button> ' : '') + (r.canEdit ? '<button class="btn sec sm" onclick="advMore(\'' + a.id + '\')">More…</button>' : '') + '</td></tr>';
+      }).join('') || '<tr><td colspan="8" class="muted">No advances.</td></tr>') + '</table></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function saveAdv(btn) { busy(btn, true); api('saveAdvance', S.token, { karigarId: val('avK'), amount: val('avA'), perPeriod: val('avP'), startPeriod: val('avS'), note: val('avN') }).then(function () { toast('Advance saved'); go('advances'); }).catch(function (e) { fail(e, btn); }); }
+function advPeriod(id) {
+  var a = S.data.adv.list.filter(function (x) { return x.id === id; })[0];
+  modal('Advance cut · ' + a.name,
+    '<div class="kv"><div>Balance</div><div><b>' + money(a.balanceBefore) + '</b></div><div>Normal cut</div><div>' + money(Math.min(a.perPeriod, a.balanceBefore)) + '</div></div>' +
+    '<label class="f">Pay period</label><select id="apP">' + S.data.adv.periods.map(function (p) { return '<option value="' + p.key + '">' + esc(p.label) + '</option>'; }).join('') + '</select>' +
+    '<label class="f">How much to cut?</label>' +
+    '<div class="chk"><input type="radio" name="apM" value="normal" checked> Normal instalment (' + money(Math.min(a.perPeriod, a.balanceBefore)) + ')</div>' +
+    '<div class="chk"><input type="radio" name="apM" value="full"> Full balance (' + money(a.balanceBefore) + ')</div>' +
+    '<div class="chk"><input type="radio" name="apM" value="part"> Part: <input id="apA" type="number" inputmode="decimal" style="width:130px" placeholder="Amount"></div>' +
+    '<div class="chk"><input type="radio" name="apM" value="skip"> Skip this period</div>' +
+    '<label class="f">Note</label><input id="apN"><button class="btn block" id="apB">Save</button>');
+  $('apB').onclick = function () {
+    var m = document.querySelector('input[name=apM]:checked').value;
+    var amt = m === 'normal' ? '' : m === 'full' ? 'full' : m === 'skip' ? 0 : val('apA');
+    busy(this, true);
+    api('setAdvancePeriod', S.token, id, val('apP'), amt, val('apN')).then(function () { closeModal(); toast('Saved'); go('advances'); }).catch(function (e) { fail(e, $('apB')); });
+  };
+}
+function advMore(id) {
+  var a = S.data.adv.list.filter(function (x) { return x.id === id; })[0];
+  modal(a.name + ' · advance ' + money(a.amount),
+    '<div class="kv"><div>Given</div><div>' + d(a.dateGiven) + '</div><div>Cut before this period</div><div>' + money(a.deductedBefore) + '</div><div>Balance</div><div><b>' + money(a.balanceBefore) + '</b></div></div>' +
+    (a.changes.length ? '<h3>Changed periods</h3>' + a.changes.map(function (c) { return '<div class="muted">' + esc(c.label) + ': ' + money(c.amount) + (c.note ? ' · ' + esc(c.note) : '') + '</div>'; }).join('') : '') +
+    '<h3>Give more</h3><div class="row"><input id="amA" type="number" placeholder="Extra amount"><input id="amN" placeholder="Note"><button class="btn fix" id="amB">Add</button></div>' +
+    '<h3>Status</h3><div class="row"><button class="btn sec" onclick="advStatus(\'' + id + '\',\'ACTIVE\')">Active</button><button class="btn sec" onclick="advStatus(\'' + id + '\',\'PAUSED\')">Pause</button><button class="btn sec" onclick="advStatus(\'' + id + '\',\'CLOSED\')">Close</button></div>');
+  $('amB').onclick = function () { busy(this, true); api('topUpAdvance', S.token, id, { add: val('amA'), note: val('amN') }).then(function () { closeModal(); go('advances'); }).catch(function (e) { fail(e, $('amB')); }); };
+}
+function advStatus(id, st) { api('setAdvanceStatus', S.token, id, st).then(function () { closeModal(); go('advances'); }).catch(function (e) { toast(e.message); }); }
+
+/* ---------- karigars & rates ---------- */
+VIEWS.karigars = function () {
+  api('karigarList', S.token).then(function (r) {
+    S.data.kl = r;
+    render('<h1 class="page">👷 Karigars & rates</h1>' +
+      (r.canEdit ? '<div class="card"><h2>Add a karigar</h2><div class="row"><input id="kN" placeholder="Name"><input id="kP" placeholder="Phone"></div><div class="row" style="margin-top:8px"><input id="kI" placeholder="ID (blank = automatic)"><input id="kPin" inputmode="numeric" placeholder="PIN (4–8 digits)"><button class="btn fix" onclick="addKarigar(this)">Add</button></div></div>' : '') +
+      '<div class="card scroll"><table class="tbl"><tr><th>ID</th><th>Name</th><th>Phone</th><th>Joined</th><th>Status</th><th></th></tr>' + r.list.map(function (k) {
+        return '<tr><td><b>' + esc(k.id) + '</b></td><td>' + esc(k.name) + '</td><td>' + esc(k.phone) + '</td><td>' + d(k.joined) + '</td><td>' + (k.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td>' +
+          '<td style="white-space:nowrap"><button class="btn sm" onclick="rates(\'' + k.id + '\')">Rates</button> ' + (r.canEdit ? '<button class="btn sec sm" onclick="editKarigar(\'' + k.id + '\')">Edit</button>' : '') + '</td></tr>';
+      }).join('') + '</table></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function addKarigar(btn) { busy(btn, true); api('saveKarigar', S.token, { name: val('kN'), phone: val('kP'), newId: val('kI'), pin: val('kPin') }).then(function () { toast('Karigar added'); go('karigars'); }).catch(function (e) { fail(e, btn); }); }
+function editKarigar(id) {
+  var k = S.data.kl.list.filter(function (x) { return x.id === id; })[0];
+  modal('Edit ' + k.id, '<label class="f">Name</label><input id="ekN" value="' + esc(k.name) + '"><label class="f">Phone</label><input id="ekP" value="' + esc(k.phone) + '"><label class="f">Note</label><input id="ekO" value="' + esc(k.note) + '">' +
+    '<div class="chk"><input type="checkbox" id="ekA"' + (k.active ? ' checked' : '') + '> Active</div><button class="btn block" id="ekB">Save</button>' +
+    '<h3>Reset PIN</h3><div class="row"><input id="ekPin" inputmode="numeric" placeholder="New PIN"><button class="btn sec fix" id="ekR">Reset</button></div>');
+  $('ekB').onclick = function () { busy(this, true); api('saveKarigar', S.token, { id: id, name: val('ekN'), phone: val('ekP'), note: val('ekO'), active: $('ekA').checked }).then(function () { closeModal(); go('karigars'); }).catch(function (e) { fail(e, $('ekB')); }); };
+  $('ekR').onclick = function () { busy(this, true); api('resetPin', S.token, id, val('ekPin')).then(function () { busy($('ekR'), false); toast('PIN reset'); }).catch(function (e) { fail(e, $('ekR')); }); };
+}
+function rates(id) {
+  api('rateList', S.token, id).then(function (r) {
+    var k = S.data.kl.list.filter(function (x) { return x.id === id; })[0];
+    var t = new Date(), ds = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
+    modal('Rates · ' + k.name,
+      '<table class="tbl"><tr><th>Item</th><th class="r">Rate today</th></tr>' + r.items.map(function (i) { return '<tr><td>' + esc(i.code) + (i.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + (i.rate === null ? '<span class="muted">–</span>' : '<b>' + money(i.rate) + '</b>') + '</td></tr>'; }).join('') + '</table>' +
+      (r.canEdit ? '<h3>Set a new rate</h3><select id="rtI">' + itemOpts(r.items) + '</select><div class="row" style="margin-top:8px"><input id="rtR" type="number" step="any" inputmode="decimal" placeholder="Rate per piece"><input id="rtF" type="date" value="' + ds + '"></div><input id="rtN" style="margin-top:8px" placeholder="Note (e.g. new design)"><button class="btn block" id="rtB">Save rate</button>' : '') +
+      '<h3>Rate history</h3>' + (r.history.map(function (h) { return '<div class="muted">' + esc(h.item) + ': <b>' + money(h.rate) + '</b> from ' + d(h.from) + ' · set by ' + esc(h.setBy.replace(/^\S+ /, '')) + ' ' + esc(h.setAt) + (h.note ? ' · ' + esc(h.note) : '') + '</div>'; }).join('') || '<div class="muted">No rates yet.</div>'));
+    if ($('rtB')) $('rtB').onclick = function () { busy(this, true); api('saveRate', S.token, { karigarId: id, item: val('rtI'), rate: val('rtR'), from: val('rtF'), note: val('rtN') }).then(function () { toast('Rate saved'); rates(id); }).catch(function (e) { fail(e, $('rtB')); }); };
+  }).catch(function (e) { toast(e.message); });
+}
+
+/* ---------- items, materials, BOM ---------- */
+VIEWS.items = function () {
+  api('itemList', S.token).then(function (r) {
+    S.data.il = r;
+    var mats = {}; r.materials.forEach(function (m) { mats[m.code] = m; });
+    render('<h1 class="page">🏷️ Items & materials</h1>' +
+      (r.canEdit ? '<div class="card"><h2>Add an item</h2><div class="row"><select id="itT" onchange="itType()"><option value="SKU">Inventory SKU (added to the Inventory App)</option><option value="PART">Part (paid, not in inventory)</option></select></div>' +
+        '<div class="row" style="margin-top:8px"><input id="itC" list="invSkus" placeholder="SKU from the Inventory App"><datalist id="invSkus"></datalist><input id="itN" placeholder="Description (optional)"><button class="btn fix" onclick="addItem(this)">Add</button></div><div class="muted" id="itHint" style="margin-top:6px">Loading the SKU list from the Inventory App…</div></div>' : '') +
+      '<div class="card scroll"><h2>Items</h2><table class="tbl"><tr><th>Code</th><th>Type</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
+        return '<tr><td><b>' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '</td><td>' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + '</td>' +
+          '<td>' + (i.bom.map(function (b) { var m = mats[b.material] || { name: b.material, unit: '' }; return esc(m.name) + ' <b>' + num(b.qty) + '</b> ' + esc(m.unit); }).join('<br>') || '<span class="pill warn">No BOM</span>') + '</td>' +
+          '<td>' + (i.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit ? '<button class="btn sm" onclick="bomForm(\'' + esc(i.code).replace(/'/g, "\\'") + '\')">BOM</button> <button class="btn sec sm" onclick="toggleItem(\'' + esc(i.code).replace(/'/g, "\\'") + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : '') + '</td></tr>';
+      }).join('') + '</table></div>' +
+      '<div class="card scroll"><h2>Raw materials</h2>' + (r.canEdit ? '<div class="row" style="margin-bottom:8px"><input id="mtC" placeholder="Code (e.g. LEA-BLK)"><input id="mtN" placeholder="Name"><input id="mtU" placeholder="Unit (sq ft, m, pcs)"><button class="btn fix" onclick="addMat(this)">Add</button></div>' : '') +
+      '<table class="tbl"><tr><th>Code</th><th>Name</th><th>Unit</th></tr>' + r.materials.map(function (m) { return '<tr><td><b>' + esc(m.code) + '</b></td><td>' + esc(m.name) + '</td><td>' + esc(m.unit) + '</td></tr>'; }).join('') + '</table></div>');
+    if (r.canEdit) api('inventorySkus', S.token).then(function (skus) {
+      $('invSkus').innerHTML = skus.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('');
+      $('itHint').textContent = skus.length + ' SKUs in the Inventory App. Start typing to pick one.';
+    }).catch(function (e) { if ($('itHint')) $('itHint').textContent = 'Inventory App not reachable: ' + e.message; });
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function itType() { $('itC').placeholder = val('itT') === 'SKU' ? 'SKU from the Inventory App' : 'Part name (e.g. Shoulder Belt)'; }
+function addItem(btn) { busy(btn, true); api('saveItem', S.token, { code: val('itC'), name: val('itN'), type: val('itT') }).then(function () { toast('Item added'); go('items'); }).catch(function (e) { fail(e, btn); }); }
+function toggleItem(code) { var i = S.data.il.list.filter(function (x) { return x.code === code; })[0]; api('saveItem', S.token, { code: i.code, name: i.name, type: i.type, active: !i.active, checkInventory: false }).then(function () { go('items'); }).catch(function (e) { toast(e.message); }); }
+function addMat(btn) { busy(btn, true); api('saveMaterial', S.token, { code: val('mtC'), name: val('mtN'), unit: val('mtU') }).then(function () { go('items'); }).catch(function (e) { fail(e, btn); }); }
+function bomForm(code) {
+  var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
+  modal('Material per piece · ' + code, '<div class="muted" style="margin-bottom:8px">How much of each material one piece uses. Used to check every karigar\'s material (no wastage allowed).</div><div class="lines" id="bomLines"></div><button class="btn sec sm" onclick="addBomLine()">+ Add material</button><button class="btn block" id="bomB">Save</button>');
+  (i.bom.length ? i.bom : [{}]).forEach(function (b) { addBomLine(b.material, b.qty); });
+  $('bomB').onclick = function () {
+    var lines = Array.prototype.map.call(document.querySelectorAll('#bomLines .ln'), function (ln) { return { material: ln.children[0].value, qty: Number(ln.children[1].value) }; });
+    busy(this, true); api('saveBom', S.token, code, lines).then(function () { closeModal(); go('items'); }).catch(function (e) { fail(e, $('bomB')); });
+  };
+}
+function addBomLine(mat, qty) {
+  var div = document.createElement('div'); div.className = 'ln claim';
+  div.innerHTML = '<select><option value="">Material…</option>' + S.data.il.materials.map(function (m) { return '<option value="' + esc(m.code) + '"' + (m.code === mat ? ' selected' : '') + '>' + esc(m.name) + ' (' + esc(m.unit) + ')</option>'; }).join('') + '</select><input type="number" step="any" inputmode="decimal" placeholder="Per piece" value="' + (qty || '') + '"><button class="x" onclick="this.parentNode.remove()">×</button>';
+  $('bomLines').appendChild(div);
+}
+
+/* ---------- staff & log (super admin) ---------- */
+VIEWS.staff = function () {
+  api('staffList', S.token).then(function (r) {
+    S.data.sl = r;
+    render('<h1 class="page">🛡️ Staff & permissions</h1><div class="card"><button class="btn" onclick="staffForm()">+ Add staff</button></div>' +
+      '<div class="card scroll"><table class="tbl"><tr><th>ID</th><th>Name</th><th>Role</th><th>Permissions</th><th>Status</th><th></th></tr>' + r.list.map(function (s) {
+        return '<tr><td><b>' + esc(s.id) + '</b></td><td>' + esc(s.name) + '</td><td>' + (s.role === 'SUPER' ? '<span class="pill info">Super admin</span>' : 'Staff') + '</td><td class="muted">' + (s.role === 'SUPER' ? 'Everything' : s.perms.map(function (p) { return esc(r.perms[p]); }).join('<br>')) + '</td>' +
+          '<td>' + (s.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td><button class="btn sec sm" onclick="staffForm(\'' + s.id + '\')">Edit</button></td></tr>';
+      }).join('') + '</table></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function staffForm(id) {
+  var s = id ? S.data.sl.list.filter(function (x) { return x.id === id; })[0] : { perms: [], active: true, role: 'ADMIN' };
+  modal(id ? 'Edit ' + id : 'Add staff',
+    (id ? '' : '<label class="f">ID</label><input id="sfI" placeholder="e.g. S005"><label class="f">PIN</label><input id="sfP" inputmode="numeric">') +
+    '<label class="f">Name</label><input id="sfN" value="' + esc(s.name || '') + '"><label class="f">Phone</label><input id="sfPh" value="' + esc(s.phone || '') + '">' +
+    '<label class="f">Role</label><select id="sfR"><option value="ADMIN">Staff (chosen permissions)</option><option value="SUPER"' + (s.role === 'SUPER' ? ' selected' : '') + '>Super admin (everything)</option></select>' +
+    '<label class="f">Permissions</label>' + Object.keys(S.data.sl.perms).map(function (p) { return '<div class="chk"><input type="checkbox" class="sfC" value="' + p + '"' + (s.perms.indexOf(p) >= 0 ? ' checked' : '') + '> ' + esc(S.data.sl.perms[p]) + '</div>'; }).join('') +
+    (id ? '<div class="chk"><input type="checkbox" id="sfA"' + (s.active ? ' checked' : '') + '> Active</div><h3>Reset PIN</h3><div class="row"><input id="sfRp" inputmode="numeric" placeholder="New PIN"><button class="btn sec fix" id="sfRb">Reset</button></div>' : '') +
+    '<button class="btn block" id="sfB">Save</button>');
+  $('sfB').onclick = function () {
+    var perms = Array.prototype.filter.call(document.querySelectorAll('.sfC'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+    busy(this, true);
+    api('saveStaff', S.token, { id: id, newId: val('sfI'), pin: val('sfP'), name: val('sfN'), phone: val('sfPh'), role: val('sfR'), perms: perms, active: id ? $('sfA').checked : true })
+      .then(function () { closeModal(); go('staff'); }).catch(function (e) { fail(e, $('sfB')); });
+  };
+  if ($('sfRb')) $('sfRb').onclick = function () { api('resetPin', S.token, id, val('sfRp')).then(function () { toast('PIN reset'); }).catch(function (e) { toast(e.message); }); };
+}
+VIEWS.log = function () {
+  api('changeLog', S.token, S.data.logQ || '').then(function (r) {
+    render('<h1 class="page">📜 Change log <small>everything that was entered or changed</small></h1><div class="row" style="margin-bottom:12px"><input id="lgQ" placeholder="Search (batch, karigar ID…)" value="' + esc(S.data.logQ || '') + '"><button class="btn fix" onclick="S.data.logQ=val(\'lgQ\');go(\'log\')">Search</button></div>' +
+      '<div class="card scroll"><table class="tbl"><tr><th>When</th><th>Who</th><th>What</th><th>Ref</th><th>Details</th></tr>' + r.map(function (l) {
+        return '<tr><td style="white-space:nowrap">' + esc(l.at) + '</td><td>' + esc(l.by) + '</td><td><span class="pill">' + esc(l.action) + '</span></td><td>' + esc(l.ref) + '</td><td>' + esc(l.details) + '</td></tr>';
+      }).join('') + '</table></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+
+/* ---------- boot ---------- */
+(function boot() {
+  apiUrl();
+  S.token = store.get('token');
+  if (!S.token) {
+    api('publicInfo').then(function (r) { S.company = r.company; loginView(); }).catch(function () { loginView(); });
+    loginView();
+    return;
+  }
+  $('app').innerHTML = '<div class="login"><div class="card" style="text-align:center;padding:30px"><span class="spinner dark"></span></div></div>';
+  api('getHome', S.token).then(function (r) { S.profile = r.profile; start(); }).catch(function (e) { loginView(e.message === 'Please log in again.' ? '' : e.message); });
+})();
+</script>
+</body>
+</html>

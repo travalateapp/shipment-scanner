@@ -1,5 +1,10 @@
 # Karigar Production App — plan
 
+**Status (5 Nov 2026): built.** See [README.md](README.md) for setup and [screenshots/](screenshots/).
+Decided since this plan: pay period 5th to 4th; `productionIn` added to the Inventory App
+([inventory-app-addon.gs](inventory-app-addon.gs)); work orders added, so "in production" can be shown in the
+Inventory Snapshot; theft checks agreed: photo per batch, locked entries + change log, pay only on counted quantity.
+
 A Google Apps Script web app with its **own Google Sheet** (separate from the attendance app).
 It has a phone view, a desktop view, a GitHub Pages copy and an Android APK, all set up the same
 way as the attendance app.

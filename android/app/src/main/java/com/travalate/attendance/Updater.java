@@ -54,7 +54,11 @@ final class Updater {
         if (!force && System.currentTimeMillis() - prefs.getLong("lastCheck", 0) < CHECK_EVERY_MS) return;
         new Thread(() -> {
             try {
-                HttpURLConnection c = (HttpURLConnection) new URL("https://api.github.com/repos/" + repo + "/releases/latest").openConnection();
+                // The attendance app uses the repository's "latest" release. Another app built from this project
+                // (UPDATE_TAG_PREFIX set, e.g. "production-apk-") looks for its newest release by tag instead.
+                final String prefix = BuildConfig.UPDATE_TAG_PREFIX;
+                HttpURLConnection c = (HttpURLConnection) new URL("https://api.github.com/repos/" + repo
+                        + (prefix.isEmpty() ? "/releases/latest" : "/releases?per_page=30")).openConnection();
                 c.setConnectTimeout(15000);
                 c.setReadTimeout(15000);
                 c.setRequestProperty("Accept", "application/vnd.github+json");
@@ -64,7 +68,18 @@ final class Updater {
                     String line;
                     while ((line = r.readLine()) != null) sb.append(line);
                 }
-                JSONObject rel = new JSONObject(sb.toString());
+                JSONObject rel = null;
+                if (prefix.isEmpty()) {
+                    rel = new JSONObject(sb.toString());
+                } else {
+                    JSONArray all = new JSONArray(sb.toString());
+                    for (int i = 0; i < all.length(); i++) {
+                        JSONObject r = all.getJSONObject(i);
+                        if (!r.optBoolean("draft") && r.optString("tag_name").startsWith(prefix)
+                                && (rel == null || versionFromTag(r.optString("tag_name")) > versionFromTag(rel.optString("tag_name")))) rel = r;
+                    }
+                    if (rel == null) return;
+                }
                 prefs.edit().putLong("lastCheck", System.currentTimeMillis()).apply();
                 if (versionFromTag(rel.optString("tag_name")) <= BuildConfig.VERSION_CODE) {
                     if (force) activity.runOnUiThread(() -> Toast.makeText(activity, "The app is up to date.", Toast.LENGTH_SHORT).show());

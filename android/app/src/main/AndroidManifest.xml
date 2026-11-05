@@ -37,13 +37,13 @@
 
         <provider
             android:name=".ShareProvider"
-            android:authorities="com.travalate.attendance.share"
+            android:authorities="${applicationId}.share"
             android:exported="false"
             android:grantUriPermissions="true" />
 
         <provider
             android:name=".UpdateProvider"
-            android:authorities="com.travalate.attendance.update"
+            android:authorities="${applicationId}.update"
             android:exported="false"
             android:grantUriPermissions="true" />
     </application>
