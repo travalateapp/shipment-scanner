@@ -6,19 +6,26 @@ plugins {
 def appUrl = (project.findProperty('appUrl') ?: '').toString().replace('"', '')
 def updateRepo = (project.findProperty('updateRepo') ?: '').toString().replace('"', '') // owner/repo with the APK releases
 def prop = { String name, String fallback -> (project.findProperty(name) ?: fallback).toString() }
+// The same project also builds the Karigar Production app: -PappId=com.travalate.production -PappName="Travalate Production"
+// -PupdateTagPrefix=production-apk- (its releases are looked up by tag, so they never mix with the attendance app's).
+def appId = prop('appId', 'com.travalate.attendance')
+def appName = prop('appName', 'Travalate Attendance').replace('"', '')
+def updateTagPrefix = prop('updateTagPrefix', '').replace('"', '')
 
 android {
     namespace 'com.travalate.attendance'
     compileSdk 34
 
     defaultConfig {
-        applicationId 'com.travalate.attendance'
+        applicationId appId
         minSdk 24
         targetSdk 34
         versionCode prop('versionCode', '1').toInteger()
         versionName prop('versionName', '1.0')
         buildConfigField 'String', 'APP_URL', '"' + appUrl + '"'
         buildConfigField 'String', 'UPDATE_REPO', '"' + updateRepo + '"'
+        buildConfigField 'String', 'UPDATE_TAG_PREFIX', '"' + updateTagPrefix + '"'
+        resValue 'string', 'app_name', appName
     }
 
     buildFeatures {
