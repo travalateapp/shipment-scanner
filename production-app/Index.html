@@ -225,7 +225,7 @@ function go(view, arg, isBack) {
     NAV.stack.push({ v: S.view, a: S.arg });
     if (NAV.stack.length > 40) NAV.stack.shift();
   }
-  S.view = view; S.arg = arg; closeDrawer(); closeModal();
+  S.view = view; S.arg = arg; S.costOpen = null; closeDrawer(); closeModal();
   try {
     if (changed && !isBack && !NAV.inApp) history.pushState({ v: view }, '', '#' + view);
     else history.replaceState({ v: view }, '', '#' + view);
@@ -249,7 +249,7 @@ function load(fn) {
   return api.apply(null, args);
 }
 function appBack() {
-  if ($('modal')) { closeModal(); return 'handled'; }
+  if ($('modal')) { closeModalByUser(); return 'handled'; }
   if ($('drawer') && $('drawer').classList.contains('open')) { closeDrawer(); return 'handled'; }
   var p = NAV.stack.pop();
   if (p && S.profile) { go(p.v, p.a, true); return 'handled'; }
@@ -265,11 +265,12 @@ window.addEventListener('popstate', function () {
 function modal(title, body) {
   closeModal();
   var o = document.createElement('div'); o.className = 'overlay'; o.id = 'modal';
-  o.innerHTML = '<div class="sheet"><div class="hd"><b>' + esc(title) + '</b><button class="x" onclick="closeModal()">×</button></div>' + body + '</div>';
-  o.addEventListener('click', function (e) { if (e.target === o) closeModal(); });
+  o.innerHTML = '<div class="sheet"><div class="hd"><b>' + esc(title) + '</b><button class="x" onclick="closeModalByUser()">×</button></div>' + body + '</div>';
+  o.addEventListener('click', function (e) { if (e.target === o) closeModalByUser(); });
   document.body.appendChild(o);
 }
 function closeModal() { var m = $('modal'); if (m) m.remove(); }
+function closeModalByUser() { S.costOpen = null; closeModal(); }
 
 /* ---------- login ---------- */
 function loginView(msg) {
@@ -795,20 +796,27 @@ VIEWS.items = function () {
       (r.canEdit ? '<div class="card"><h2>Add an item</h2><div class="row"><select id="itT" onchange="itType()"><option value="SKU">Inventory SKU (added to the Inventory App)</option><option value="PART">Part (paid, not in inventory)</option></select></div>' +
         '<div class="row" style="margin-top:8px"><input id="itC" list="invSkus" placeholder="SKU from the Inventory App"><datalist id="invSkus"></datalist><input id="itN" placeholder="Description (optional)"></div>' +
         '<div class="row" style="margin-top:8px"><input id="itR" type="number" step="any" inputmode="decimal" placeholder="Standard rate per piece (₹)"><button class="btn fix" onclick="addItem(this)">Add item</button></div><div class="muted" id="itHint" style="margin-top:6px">Loading the SKU list from the Inventory App…</div></div>' : '') +
-      '<div class="card scroll"><table class="tbl"><tr><th>Item</th><th>Type</th><th class="r">Standard rate</th><th class="r">Cost per piece</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
-        return '<tr><td><b>' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '</td><td>' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + '</td>' +
-          '<td class="r">' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + (i.rateHistory.length > 1 ? '<div class="muted">since ' + d(i.rateHistory[0].from) + '</div>' : '') + '</td>' +
-          '<td class="r">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + '</td>' +
-          '<td class="muted">' + i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join('<br>') + '</td>' +
-          '<td>' + (i.bom.map(function (b) { var m = mats[b.material] || { name: b.material, unit: '' }; return esc(m.name) + ' <b>' + num(b.qty) + '</b> ' + esc(m.unit); }).join('<br>') || '<span class="pill warn">No BOM</span>') + '</td>' +
-          '<td>' + (i.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit ? '<button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button> <button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button> <button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : '') + '</td></tr>';
-      }).join('') + '</table></div>');
+      '<div class="card scroll" id="itemTable"></div>');
+    itemTable();
     if (r.canEdit) api('inventorySkus', S.token).then(function (skus) {
       $('invSkus').innerHTML = skus.map(function (s) { return '<option value="' + esc(s) + '">'; }).join('');
       $('itHint').textContent = skus.length + ' SKUs in the Inventory App. Start typing to pick one.';
     }).catch(function (e) { if ($('itHint')) $('itHint').textContent = 'Inventory App not reachable: ' + e.message; });
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+function itemTable() {
+  var r = S.data.il, t = $('itemTable'); if (!t) return;
+  var mats = {}; r.materials.forEach(function (m) { mats[m.code] = m; });
+  t.innerHTML = '<table class="tbl"><tr><th>Item</th><th>Type</th><th class="r">Standard rate</th><th class="r">Cost per piece</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
+        return '<tr><td><b style="white-space:nowrap">' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '</td><td>' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + '</td>' +
+          '<td class="r">' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + (i.rateHistory.length > 1 ? '<div class="muted">since ' + d(i.rateHistory[0].from) + '</div>' : '') + '</td>' +
+          '<td class="r">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + '</td>' +
+          '<td class="muted">' + i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join('<br>') + '</td>' +
+          '<td>' + (i.bom.map(function (b) { var m = mats[b.material] || { name: b.material, unit: '' }; return esc(m.name) + ' <b>' + num(b.qty) + '</b> ' + esc(m.unit); }).join('<br>') || '<span class="pill warn">No BOM</span>') + '</td>' +
+          '<td>' + (i.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit ? '<button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button> <button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button> <button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : '') + '</td></tr>';
+      }).join('') + '</table>';
+  S.html[S.view + '|' + S.arg] = $('main').innerHTML;
+}
 var UNITS = ['sq m', 'm', 'inch', 'cm', 'pcs', 'g', 'kg'];
 /* Common bag materials offered while typing (name → unit per piece). Materials already added come first. */
 var COMMON_MATERIALS = [['Fabric 1000D', 'sq m'], ['Fabric 600D', 'sq m'], ['Fabric 1680D', 'sq m'], ['Fabric 300D', 'sq m'], ['Polyester Lining', 'sq m'],
@@ -853,7 +861,25 @@ function matTable() {
   }).join('') + '</div>';
   S.html[S.view + '|' + S.arg] = $('main').innerHTML;
 }
-function matByCode(code) { return S.data.ml2.materials.filter(function (x) { return x.code === code; })[0]; }
+function matByCode(code) {
+  var lists = [S.data.ml2 && S.data.ml2.materials, S.data.il && S.data.il.materials];
+  for (var i = 0; i < lists.length; i++) { var m = (lists[i] || []).filter(function (x) { return x.code === code; })[0]; if (m) return m; }
+}
+/* After a price is saved anywhere: the same material in the other screen's data, and every item's cost per piece. */
+function priceChanged(code, m) {
+  [S.data.ml2 && S.data.ml2.materials, S.data.il && S.data.il.materials].forEach(function (list) {
+    (list || []).forEach(function (x) { if (x.code === code && x !== m) Object.assign(x, { price: m.price, purchaseUnit: m.purchaseUnit, unitCost: m.unitCost, conversion: m.conversion, purchaseType: m.purchaseType, saving: m.saving }); });
+  });
+  if (!S.data.il) return;
+  S.data.il.list.forEach(function (i) {
+    var c = i.cost; if (!c || !c.lines) return;
+    c.lines.forEach(function (l) { if (l.code === code) { l.unitCost = m.unitCost; l.cost = m.unitCost === null ? null : Math.round(l.qty * m.unitCost * 100) / 100; } });
+    c.material = Math.round(c.lines.reduce(function (n, l) { return n + (l.cost || 0); }, 0) * 100) / 100;
+    c.total = c.labour === null ? null : Math.round((c.material + c.labour) * 100) / 100;
+    c.missing = c.lines.filter(function (l) { return l.unitCost === null; }).map(function (l) { return l.material; });
+  });
+  itemTable();
+}
 function matSuggest() {
   var box = $('mtS'), t = val('mtN').trim().toLowerCase();
   if (!t) { box.style.display = 'none'; return; }
@@ -922,10 +948,15 @@ function matPrice(code) {
     var data = { code: code, type: type, price: val('mpP'), length: val('mpL'), width: val('mpW'), grams: val('mpG'), count: val('mpN'), note: val('mpNote') };
     var before = Object.assign({}, m);
     Object.assign(m, { price: Number(data.price), purchaseUnit: calc.purchaseUnit, unitCost: calc.unitCost, conversion: { text: calc.text }, priceDate: '', saving: true });
-    closeModal(); matTable();
+    m.purchaseType = type;
+    closeModal(); matTable(); priceChanged(code, m); if (S.costOpen) itemCost(S.costOpen);
     api('setMaterialPrice', S.token, data)
-      .then(function (r) { S.data.ml2 = r; matTable(); toast('Price saved: ' + money(calc.unitCost) + ' per ' + m.unit); })
-      .catch(function (e) { Object.assign(m, before, { saving: false }); matTable(); toast(e.message); });
+      .then(function (r) {
+        S.data.ml2 = r; var fresh = matByCode(code) || m; fresh.saving = false; Object.assign(m, fresh, { saving: false });
+        matTable(); priceChanged(code, fresh); if (S.costOpen && $('modal') && $('modal').dataset.cost) itemCost(S.costOpen);
+        toast('Price saved: ' + money(calc.unitCost) + ' per ' + m.unit);
+      })
+      .catch(function (e) { Object.assign(m, before, { saving: false }); matTable(); priceChanged(code, m); toast(e.message); });
   };
 }
 function mpType() { return document.querySelector('input[name=mpT]:checked').value; }
@@ -977,13 +1008,21 @@ function costCell(c, onclick) {
     (c.missing.length ? '<span class="pill warn">no price: ' + c.missing.map(esc).join(', ') + '</span>' : '');
 }
 function itemCost(code) {
-  var i = S.data.il.list.filter(function (x) { return x.code === code; })[0], c = i.cost;
+  var i = S.data.il.list.filter(function (x) { return x.code === code; })[0], c = i.cost, edit = S.data.il.canEdit;
+  S.costOpen = code;
+  var cell = function (l) {
+    if (l.unitCost === null) return edit ? '<button class="btn warn sm" onclick="costPrice(\'' + q(l.code) + '\')">+ Add price</button>' : '<span class="pill warn">no price</span>';
+    return money(l.unitCost) + ' / ' + esc(l.unit) + (edit ? ' <a style="cursor:pointer;color:var(--blue);font-size:12px" onclick="costPrice(\'' + q(l.code) + '\')">change</a>' : '');
+  };
   modal('Cost of 1 piece · ' + code, '<table class="tbl"><tr><th>Material</th><th class="r">Per piece</th><th class="r">Cost per unit</th><th class="r">Cost</th></tr>' +
-    c.lines.map(function (l) { return '<tr><td>' + esc(l.material) + '</td><td class="r">' + num(l.qty) + ' ' + esc(l.unit) + '</td><td class="r">' + (l.unitCost === null ? '<span class="pill warn">no price</span>' : money(l.unitCost) + ' / ' + esc(l.unit)) + '</td><td class="r">' + (l.cost === null ? '–' : money(l.cost)) + '</td></tr>'; }).join('') +
-    '<tr><td colspan="3">Material</td><td class="r"><b>' + money(c.material) + '</b></td></tr><tr><td colspan="3">Labour (standard rate)</td><td class="r">' + (c.labour === null ? '–' : money(c.labour)) + '</td></tr>' +
+    c.lines.map(function (l) { var m = matByCode(l.code) || {}; return '<tr><td>' + esc(l.material) + (m.saving ? ' <span class="pill info">saving…</span>' : '') + '</td><td class="r">' + num(l.qty) + ' ' + esc(l.unit) + '</td><td class="r">' + cell(l) + '</td><td class="r">' + (l.cost === null ? '–' : money(l.cost)) + '</td></tr>'; }).join('') +
+    '<tr><td colspan="3">Material' + (c.missing.length ? ' <span class="pill warn">' + c.missing.length + ' without a price</span>' : '') + '</td><td class="r"><b>' + money(c.material) + '</b></td></tr><tr><td colspan="3">Labour (standard rate)</td><td class="r">' + (c.labour === null ? '–' : money(c.labour)) + '</td></tr>' +
     '<tfoot><tr><td colspan="3">Production cost per piece</td><td class="r">' + (c.total === null ? '–' : money(c.total)) + '</td></tr></tfoot></table>' +
     '<div class="muted" style="margin-top:8px">At today\'s material prices. Each lot\'s real cost (at the price its material was issued at) is in Work orders.</div>');
+  $('modal').dataset.cost = code;
 }
+/* From the cost breakdown: the price window; when it is saved the breakdown opens again with the new cost. */
+function costPrice(matCode) { var item = S.costOpen; matPrice(matCode); S.costOpen = item; }
 function srSel() { $('srLots').style.display = document.querySelector('input[name=srA]:checked').value === 'selected' ? 'block' : 'none'; }
 function bomForm(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
