@@ -95,6 +95,9 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
 tr.saving td,.mcard.saving{opacity:.6}
+.bom{min-width:250px;max-width:340px;font-size:13px}@media(max-width:699px){.bom{max-width:none;min-width:0;font-size:14px}}.bom .bl{display:flex;gap:10px;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #edf0f5}
+.bom .bl span{color:#374151}.bom .bl b{white-space:nowrap}.bom .bl b small{color:var(--muted);font-weight:600}.bom .bl.more{display:none}
+.bom .bomt{display:inline-block;margin-top:4px;color:var(--blue);font-weight:700;cursor:pointer;font-size:12.5px}.bom .bomn{font-size:12px;margin-top:2px}
 .only-phone{display:none}
 @media(max-width:699px){.only-desk{display:none}.only-phone{display:block}.addrow>.sugg{flex:1 1 100%}}
 .mcard{border-bottom:1px solid #f0f2f6;padding:10px 2px}.mcard:last-child{border-bottom:none}
@@ -804,17 +807,39 @@ VIEWS.items = function () {
     }).catch(function (e) { if ($('itHint')) $('itHint').textContent = 'Inventory App not reachable: ' + e.message; });
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+/* BOM in the items list: one tidy line per material (name left, quantity per piece right); long lists fold. */
+var BOM_SHOWN = 5;
+function bomCell(i, mats) {
+  if (!i.bom.length) return '<span class="pill warn">No BOM</span>';
+  var open = S.data.bomOpen && S.data.bomOpen[i.code];
+  var rows = i.bom.map(function (b, n) {
+    var m = mats[b.material] || { name: b.material, unit: '' };
+    return '<div class="bl' + (!open && n >= BOM_SHOWN ? ' more' : '') + '"><span>' + esc(m.name) + '</span><b>' + num(b.qty) + ' <small>' + esc(m.unit) + '</small></b></div>';
+  }).join('');
+  var extra = i.bom.length - BOM_SHOWN;
+  return '<div class="bom">' + rows + (extra > 0 ? '<a class="bomt" onclick="bomToggle(\'' + q(i.code) + '\')">' + (open ? 'Show less' : '+' + extra + ' more') + '</a>' : '') +
+    '<div class="muted bomn">' + i.bom.length + ' material' + (i.bom.length === 1 ? '' : 's') + '</div></div>';
+}
+function bomToggle(code) { S.data.bomOpen = S.data.bomOpen || {}; S.data.bomOpen[code] = !S.data.bomOpen[code]; itemTable(); }
 function itemTable() {
   var r = S.data.il, t = $('itemTable'); if (!t) return;
   var mats = {}; r.materials.forEach(function (m) { mats[m.code] = m; });
-  t.innerHTML = '<table class="tbl"><tr><th>Item</th><th>Type</th><th class="r">Standard rate</th><th class="r">Cost per piece</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th>Status</th><th></th></tr>' + r.list.map(function (i) {
-        return '<tr><td><b style="white-space:nowrap">' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '</td><td>' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + '</td>' +
+  var btns = function (i) { return r.canEdit ? '<button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button><button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button><button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : ''; };
+  var pills = function (i) { return (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + (i.active ? '' : ' <span class="pill err">inactive</span>'); };
+  var phone = '<div class="only-phone">' + r.list.map(function (i) {
+    return '<div class="mcard"><div class="mtop"><b>' + esc(i.code) + '</b><span style="text-align:right">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + '</span></div>' +
+      '<div style="margin:2px 0 6px">' + pills(i) + ' <span class="muted">· standard rate ' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + '</span>' +
+      (i.karigarRates.length ? '<div class="muted">' + i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join(' · ') + '</div>' : '') + '</div>' +
+      bomCell(i, mats) + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + btns(i) + '</div></div>';
+  }).join('') + '</div>';
+  t.innerHTML = phone + '<div class="only-desk"><table class="tbl"><tr><th>Item</th><th class="r">Standard rate</th><th class="r">Cost per piece</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th></th></tr>' + r.list.map(function (i) {
+        return '<tr><td><b style="white-space:nowrap">' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '<div style="margin-top:4px">' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + (i.active ? '' : ' <span class="pill err">inactive</span>') + '</div></td>' +
           '<td class="r">' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + (i.rateHistory.length > 1 ? '<div class="muted">since ' + d(i.rateHistory[0].from) + '</div>' : '') + '</td>' +
           '<td class="r">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + '</td>' +
-          '<td class="muted">' + i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join('<br>') + '</td>' +
-          '<td>' + (i.bom.map(function (b) { var m = mats[b.material] || { name: b.material, unit: '' }; return esc(m.name) + ' <b>' + num(b.qty) + '</b> ' + esc(m.unit); }).join('<br>') || '<span class="pill warn">No BOM</span>') + '</td>' +
-          '<td>' + (i.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit ? '<button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button> <button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button> <button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : '') + '</td></tr>';
-      }).join('') + '</table>';
+          '<td class="muted" style="white-space:nowrap">' + (i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join('<br>') || '<span style="color:#cbd5e1">—</span>') + '</td>' +
+          '<td>' + bomCell(i, mats) + '</td>' +
+          '<td>' + (r.canEdit ? '<div style="display:flex;flex-direction:column;gap:5px;min-width:104px"><button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button><button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button><button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button></div>' : '') + '</td></tr>';
+      }).join('') + '</table></div>';
   S.html[S.view + '|' + S.arg] = $('main').innerHTML;
 }
 var UNITS = ['sq m', 'm', 'inch', 'cm', 'pcs', 'g', 'kg'];
@@ -834,12 +859,13 @@ function unitOpts(sel) {
 /* "+ New unit…" in a unit list (super admin): a small box opens under the list; the unit is added at once. */
 function unitPicked(sel) {
   if (sel.value !== '__new') { sel.dataset.last = sel.value; return; }
-  sel.value = sel.dataset.last || '';
+  sel.value = sel.dataset.last !== undefined ? sel.dataset.last : '';
   if ($('nuBox')) $('nuBox').remove();
   var box = document.createElement('div'); box.id = 'nuBox'; box.className = 'row'; box.style.cssText = 'margin-top:8px;flex:1 1 100%';
   box.innerHTML = '<input id="nuIn" placeholder="New unit (e.g. set, pair, roll)" maxlength="15" onkeydown="if(event.key===\'Enter\'){event.preventDefault();unitAdd()}">' +
     '<button class="btn fix" onclick="unitAdd()">Add unit</button><button class="btn sec fix" onclick="this.parentNode.remove()">Cancel</button>';
-  (sel.closest('.row') || sel.parentNode).insertAdjacentElement('afterend', box);
+  // Right under the list: below the whole add row on the Materials screen, or under the list inside Edit.
+  (sel.closest('.addrow') || sel).insertAdjacentElement('afterend', box);
   S.data.unitSel = sel.id; $('nuIn').focus();
 }
 function unitAdd() {
@@ -863,7 +889,7 @@ VIEWS.materials = function () {
     S.data.ml2 = r;
     render('<h1 class="page">🧶 Raw materials <small>price as bought → cost per unit used in the BOM</small></h1>' +
       (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row addrow"><div class="sugg"><input id="mtN" autocomplete="off" placeholder="Start typing a name (e.g. Fabric 1000D Black)" oninput="matSuggest()" onkeydown="matKey(event)" onblur="setTimeout(function(){var b=document.getElementById(\'mtS\');if(b)b.style.display=\'none\'},180)"><div class="box" id="mtS" style="display:none"></div></div>' +
-        '<select id="mtU" onchange="unitPicked(this)">' + unitOpts('') + '</select><button class="btn fix" id="mtB" onclick="addMat()">Add</button></div>' +
+        '<select id="mtU" data-last="" onchange="unitPicked(this)">' + unitOpts('') + '</select><button class="btn fix" id="mtB" onclick="addMat()">Add</button></div>' +
         '<div class="muted" style="margin-top:6px">The unit is what the BOM uses for ONE piece: fabric in sq m, chain in inch, kunda in pcs. Then set its price with "Price".</div></div>' : '') +
       '<div class="card scroll" id="matTable"></div><div class="muted">The material per piece of each item (BOM) is set in Items & rates → BOM. A new price is used for material issued from now on; earlier lots keep the cost they were issued at.</div>');
     matTable();
@@ -945,7 +971,7 @@ function matEdit(code) {
   var m = matByCode(code); if (!m) return;
   if ($('mtS')) $('mtS').style.display = 'none';
   modal('Edit · ' + m.name, '<label class="f">Name</label><input id="meN" value="' + esc(m.name) + '">' +
-    '<label class="f">Unit used per piece</label><select id="meU" onchange="unitPicked(this)">' + unitOpts(m.unit) + '</select>' +
+    '<label class="f">Unit used per piece</label><select id="meU" data-last="' + esc(m.unit) + '" onchange="unitPicked(this)">' + unitOpts(m.unit) + '</select>' +
     (m.usedIn.length ? '<div class="msg warn" style="margin-top:8px">Used in ' + m.usedIn.map(esc).join(', ') + '. If you change the unit, also change the material per piece in those BOMs.</div>' : '') +
     '<div class="chk"><input type="checkbox" id="meA"' + (m.active ? ' checked' : '') + '> Active (inactive materials cannot be issued)</div><button class="btn block" id="meB">Save</button>');
   $('meB').onclick = function () {
@@ -1035,7 +1061,7 @@ function stdRate(code) {
 function costCell(c, onclick) {
   if (c.noBom) return '<span class="pill warn">No BOM</span>';
   return '<a style="cursor:pointer" onclick="' + onclick + '"><b>' + (c.total === null ? '–' : money(c.total)) + '</b></a><div class="muted">material ' + money(c.material) + (c.labour !== null ? ' + labour ' + money(c.labour) : '') + '</div>' +
-    (c.missing.length ? '<span class="pill warn">no price: ' + c.missing.map(esc).join(', ') + '</span>' : '');
+    (c.missing.length ? '<a style="cursor:pointer" onclick="' + onclick + '" title="' + esc(c.missing.join(', ')) + '"><span class="pill warn">' + c.missing.length + ' without a price</span></a>' : '');
 }
 function itemCost(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0], c = i.cost, edit = S.data.il.canEdit;
