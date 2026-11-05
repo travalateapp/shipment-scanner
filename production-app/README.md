@@ -41,6 +41,26 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   - **Items & rates** shows the **cost per piece** = Σ(material per piece × cost per unit) + labour (standard
     rate), with a breakdown. **Work orders** show each lot's real cost: the material issued for it at the price
     on the day it was issued, plus the lot's rate. A new price does not change earlier lots.
+- **Colour on materials:** a material can have a colour; it is shown at the end of the name in brackets:
+  Niwar (1.00") + Black → **Niwar (1.00") (Black)**. Colour suggestions appear while typing.
+- **Copy a BOM** from another item (Items & rates → BOM → Copy from another item), then **Change the colour**
+  (e.g. Black → Grey): every material that has a Grey version is swapped; the others are marked to pick by hand.
+- **Store & bills:** enter each material's **opening stock** (what is in the store today); after that every
+  **purchase bill** adds to it and every issue to a karigar takes from it. Bills can be **edited**. A bill also
+  records **bilty / loading / unloading charges**: paid, but not part of any material's price. The newest bill
+  sets the material's price. A **reorder level** per material (Materials → Edit) gives a low-stock alert, and a
+  new work order warns when the store does not have enough.
+- **Several items in one work order:** one karigar, several SKUs at once; each becomes its own lot.
+- **Stock-take at the karigar** (Material balance → 📋 Stock-take): count what is with the karigar (blind: the
+  expected figure is not shown). Shortages raise an alert; nothing is cut from pay.
+- **Alerts** (🔔 in the top bar, and by e-mail to staff with an e-mail address): count 1 ≠ final count, material
+  short with a karigar, large advance (Settings → *Large Advance Alert*), locked batch changed, stock-take
+  shortage, low store stock. Super admins get them, and staff given the **alerts** permission.
+- **Profit per item** (selling price, profit and margin %, low margins in red: Settings → *Low Margin %*): only for
+  super admins and staff given the **profit** permission.
+- **WhatsApp statement** to each karigar from Payroll (pieces, rate, earned, advance cut and balance, net,
+  paid date) to the karigar's phone number.
+- **Hindi** on the karigar screens: the **हिंदी / English** button on the login page and in the top bar.
 - **Material balance:** given − used (good + rejected pieces × material per piece). No wastage allowance. A
   negative balance (more made than the material given, e.g. goods without a lot) or material left with a
   karigar who has no running lot is **flagged**.

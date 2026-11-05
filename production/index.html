@@ -76,6 +76,8 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .big{font-size:28px;font-weight:800}
 .lines .ln{display:grid;grid-template-columns:1fr 82px 82px 34px;gap:6px;margin-bottom:6px;align-items:center}
 .lines .ln.claim{grid-template-columns:1fr 90px 34px}
+.lines .ln.bill{grid-template-columns:1fr 78px 86px 34px}
+.lines .ln.wo{grid-template-columns:1fr 80px 110px 34px}.lines .ln.wo.norate{grid-template-columns:1fr 90px 34px}
 .lines .hdr{font-size:12px;color:var(--muted);font-weight:700}
 .x{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer}
 .photo{width:100%;max-height:300px;object-fit:contain;border-radius:10px;background:#000;margin-top:8px}
@@ -95,6 +97,8 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
 tr.saving td,.mcard.saving{opacity:.6}
+.langb{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:8px;padding:5px 9px;font-weight:700;font-size:13px;cursor:pointer}
+.login .langb{background:#eef2f8;color:var(--ink);border-color:#cfd6e4;float:right}
 .lnk,a.lnk{color:#dc2626;text-decoration:underline;text-underline-offset:3px;text-decoration-thickness:1.5px;cursor:pointer;font-weight:700}
 .lnk b,a.lnk b{color:inherit}
 .bom{min-width:250px;max-width:340px;font-size:13px}@media(max-width:699px){.bom{max-width:none;min-width:0;font-size:14px}}.bom .bl{display:flex;gap:10px;justify-content:space-between;padding:3px 0;border-bottom:1px dashed #edf0f5}
@@ -165,6 +169,31 @@ function api(fn) {
 function esc(s) { return String(s === null || s === undefined ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
 function q(s) { return esc(String(s).replace(/\\/g, '\\\\').replace(/'/g, "\\'")); } // a JS string inside an onclick="…" 
 function srcPill(src) { return src === 'LOT' ? '<span class="pill warn">this lot</span>' : src === 'KARIGAR' ? '<span class="pill info">karigar rate</span>' : src === 'STANDARD' ? '<span class="pill">standard</span>' : ''; }
+/* Hindi for the karigar screens: T('English') gives the Hindi text when Hindi is chosen. */
+var HI = {
+  'Home': 'होम', 'Hand over goods': 'माल जमा करें', 'My work': 'मेरा काम', 'Payslips': 'पे-स्लिप', 'Change PIN': 'पिन बदलें', 'Log out': 'लॉग आउट',
+  'Namaste': 'नमस्ते', 'This pay period': 'यह वेतन अवधि', 'Earned': 'कमाई', 'Advance cut': 'एडवांस कटौती', 'good pieces': 'अच्छे पीस',
+  'Item': 'आइटम', 'Good': 'अच्छे', 'Rate': 'रेट', 'Amount': 'राशि', '📦 Hand over finished goods': '📦 तैयार माल जमा करें',
+  'My work orders': 'मेरे वर्क ऑर्डर', 'given': 'दिया', 'to make': 'बनाने बाकी', 'Material with me': 'मेरे पास कच्चा माल', 'Material': 'सामान',
+  'Given': 'दिया गया', 'Used': 'लगा', 'With me': 'मेरे पास', 'Recent hand-overs': 'हाल में जमा किया माल', 'counted': 'गिना', 'from': 'से',
+  'pcs': 'पीस', 'rejected': 'रिजेक्ट', 'Handed': 'जमा किए', 'Waiting for count 1': 'गिनती 1 बाकी', 'Waiting for count 2': 'गिनती 2 बाकी',
+  'Locked': 'पक्का', 'In inventory': 'स्टॉक में जुड़ा', 'Not in inventory yet': 'स्टॉक में अभी नहीं', 'Parts only': 'सिर्फ पार्ट्स',
+  'Hand over finished goods': 'तैयार माल जमा करें',
+  'Enter what you are handing over. Two people will count it. You are paid for the counted good pieces.': 'जो माल जमा कर रहे हैं वह लिखें। दो लोग इसे गिनेंगे। पैसे गिने गए अच्छे पीस के ही मिलेंगे।',
+  'Quantity': 'संख्या', '+ Add item': '+ आइटम जोड़ें', 'Note (optional)': 'नोट (चाहें तो)', 'Send': 'भेजें', 'Choose item…': 'आइटम चुनें…', 'Qty': 'संख्या',
+  'Sent': 'भेज दिया', 'Good pieces': 'अच्छे पीस', 'Rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'Net': 'कुल मिलेगा',
+  'Nothing in this period yet.': 'इस अवधि में अभी कुछ नहीं।', 'Karigar payslip': 'कारीगर पे-स्लिप', 'Paid': 'भुगतान हुआ', 'Approved': 'मंज़ूर',
+  'Not final yet': 'अभी पक्का नहीं', 'Karigar': 'कारीगर', 'rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'No counted goods.': 'कोई गिना हुआ माल नहीं।',
+  'Advance recovery': 'एडवांस वसूली', 'Advance': 'एडवांस', 'Balance': 'बाकी', 'Net pay': 'कुल भुगतान', 'No rate': 'रेट नहीं', '🖨️ Print / PDF': '🖨️ प्रिंट / PDF',
+  'Current PIN': 'अभी का पिन', 'New PIN (4–8 digits)': 'नया पिन (4–8 अंक)', 'New PIN again': 'नया पिन दोबारा', 'Save': 'सेव करें',
+  'The new PINs do not match.': 'नए पिन मेल नहीं खाते।', 'PIN changed': 'पिन बदल गया', 'Your ID': 'आपकी ID', 'Log in': 'लॉग इन',
+  'Production · Karigar app': 'प्रोडक्शन · कारीगर ऐप', 'Pay period': 'वेतन अवधि', 'Batch': 'बैच', 'Final date': 'पक्की तारीख', 'Total': 'कुल',
+  'Created': 'बना', 'Karigar said': 'कारीगर ने कहा', 'Show photo': 'फ़ोटो देखें', 'Rej.': 'रिजेक्ट'
+};
+function lang() { return store.get('lang') === 'hi' ? 'hi' : 'en'; }
+function T(s) { return lang() === 'hi' && HI[s] ? HI[s] : s; }
+function setLang(l) { store.set('lang', l); if (S.profile) { shell(); go(S.view || 'home', S.arg, true); } else loginView(); }
+function langBtn() { return lang() === 'hi' ? '<button class="langb" onclick="setLang(\'en\')">English</button>' : '<button class="langb" onclick="setLang(\'hi\')">हिंदी</button>'; }
 function cur() { return (S.profile && S.profile.currency) || '₹'; }
 function money(n) { if (n === null || n === undefined || n === '') return '–'; var neg = n < 0; n = Math.abs(Number(n)); return (neg ? '−' : '') + cur() + n.toLocaleString('en-IN', { maximumFractionDigits: 2 }); }
 function num(n) { return Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 }); }
@@ -177,15 +206,15 @@ function d(ds) { if (!ds) return ''; var m = ['Jan','Feb','Mar','Apr','May','Jun
 function can(p) { return S.profile && S.profile.kind === 'S' && (S.profile.role === 'SUPER' || S.profile.perms.indexOf(p) >= 0); }
 function isSuper() { return S.profile && S.profile.role === 'SUPER'; }
 function opts(list, sel, label, value) { return list.map(function (x) { var v = value ? value(x) : x.id; return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(label ? label(x) : x.name) + '</option>'; }).join(''); }
-function itemOpts(items, sel) { return '<option value="">Choose item…</option>' + items.map(function (i) { return '<option value="' + esc(i.code) + '"' + (i.code === sel ? ' selected' : '') + '>' + esc(i.code) + (i.type === 'PART' ? ' (part)' : '') + '</option>'; }).join(''); }
+function itemOpts(items, sel) { return '<option value="">' + T('Choose item…') + '</option>' + items.map(function (i) { return '<option value="' + esc(i.code) + '"' + (i.code === sel ? ' selected' : '') + '>' + esc(i.code) + (i.type === 'PART' ? ' (part)' : '') + '</option>'; }).join(''); }
 var STATUS = { COUNT1: ['Waiting for count 1', 'warn'], COUNT2: ['Waiting for count 2', 'info'], LOCKED: ['Locked', 'ok'] };
-function statusPill(s) { var x = STATUS[s] || [s, '']; return '<span class="pill ' + x[1] + '">' + esc(x[0]) + '</span>'; }
-function invPill(s) { return s === 'DONE' ? '<span class="pill ok">In inventory</span>' : s === 'PENDING' ? '<span class="pill err">Not in inventory yet</span>' : s === 'NONE' ? '<span class="pill">Parts only</span>' : ''; }
+function statusPill(s) { var x = STATUS[s] || [s, '']; return '<span class="pill ' + x[1] + '">' + esc(T(x[0])) + '</span>'; }
+function invPill(s) { return s === 'DONE' ? '<span class="pill ok">' + T('In inventory') + '</span>' : s === 'PENDING' ? '<span class="pill err">' + T('Not in inventory yet') + '</span>' : s === 'NONE' ? '<span class="pill">' + T('Parts only') + '</span>' : ''; }
 
 /* ---------- shell ---------- */
 function menu() {
   var p = S.profile;
-  if (p.kind === 'K') return [['home', '🏠', 'Home'], ['handover', '📦', 'Hand over goods'], ['work', '🧾', 'My work'], ['slip', '💰', 'Payslips'], ['pin', '🔑', 'Change PIN']];
+  if (p.kind === 'K') return [['home', '🏠', T('Home')], ['handover', '📦', T('Hand over goods')], ['work', '🧾', T('My work')], ['slip', '💰', T('Payslips')], ['pin', '🔑', T('Change PIN')]];
   var m = [];
   if (can('reports')) m.push(['dash', '📊', 'Dashboard']);
   if (can('count') || can('reports')) m.push(['count', '✅', 'Count goods']);
@@ -199,6 +228,8 @@ function menu() {
   if (can('masters') || can('reports')) m.push(['karigars', '👷', 'Karigars & rates']);
   if (can('masters') || can('reports')) m.push(['items', '🏷️', 'Items & rates']);
   if (can('masters') || can('reports')) m.push(['materials', '🧶', 'Materials']);
+  if (can('store') || can('reports') || can('masters')) m.push(['store', '🏬', 'Store & bills']);
+  if (can('alerts')) m.push(['alerts', '🔔', 'Alerts' + (S.unread ? ' (' + S.unread + ')' : '')]);
   if (isSuper()) { m.push(['-']); m.push(['staff', '🛡️', 'Staff & permissions']); m.push(['log', '📜', 'Change log']); }
   m.push(['pin', '🔑', 'Change PIN']);
   return m;
@@ -207,14 +238,20 @@ function navHtml() {
   return '<div class="nav">' + menu().map(function (x) {
     if (x[0] === '-') return '<div class="sep"></div>';
     return '<a class="' + (S.view === x[0] ? 'on' : '') + '" onclick="go(\'' + x[0] + '\')"><span>' + x[1] + '</span>' + esc(x[2]) + '</a>';
-  }).join('') + '<div class="sep"></div><a onclick="logout()"><span>🚪</span>Log out</a></div>';
+  }).join('') + '<div class="sep"></div><a onclick="logout()"><span>🚪</span>' + T('Log out') + '</a></div>';
 }
 function shell() {
   var p = S.profile;
   $('app').innerHTML = '<div class="top"><button id="menuBtn" onclick="openDrawer()">☰</button><div class="t">' + esc(p.company) + ' · Production</div>' +
-    '<div class="who">' + esc(p.name) + '<br><span style="opacity:.8">' + esc(p.id) + (p.kind === 'K' ? ' · Karigar' : p.role === 'SUPER' ? ' · Super admin' : ' · Staff') + '</span></div></div>' +
+    (p.kind === 'K' ? langBtn() : '<span id="bellBox"></span>') +
+    '<div class="who">' + esc(p.name) + '<br><span style="opacity:.8">' + esc(p.id) + (p.kind === 'K' ? ' · ' + T('Karigar') : p.role === 'SUPER' ? ' · Super admin' : ' · Staff') + '</span></div></div>' +
     '<div id="loadbar"></div><div class="layout"><aside class="side" id="side"></aside><main class="main" id="main"></main></div>' +
     '<div class="drawer" id="drawer" onclick="if(event.target===this)closeDrawer()"><div class="panel" id="drawerNav"></div></div>';
+}
+function bell(n) {
+  var b = $('bellBox'); if (!b) return;
+  S.unread = n;
+  b.innerHTML = S.canAlerts ? '<button class="langb" onclick="go(\'alerts\')" title="Alerts">🔔' + (n ? ' <b style="background:#dc2626;border-radius:9px;padding:0 6px">' + n + '</b>' : '') + '</button>' : '';
 }
 function openDrawer() { $('drawer').classList.add('open'); }
 function closeDrawer() { $('drawer').classList.remove('open'); }
@@ -279,11 +316,11 @@ function closeModalByUser() { S.costOpen = null; closeModal(); }
 
 /* ---------- login ---------- */
 function loginView(msg) {
-  $('app').innerHTML = '<div class="login"><div class="logo">🧵 ' + esc(S.company || 'Travalate') + '</div><div class="muted" style="text-align:center;margin-bottom:18px">Production · Karigar app</div>' +
+  $('app').innerHTML = '<div class="login"><div style="text-align:right;margin-bottom:6px">' + langBtn() + '</div><div class="logo">🧵 ' + esc(S.company || 'Travalate') + '</div><div class="muted" style="text-align:center;margin-bottom:18px">' + T('Production · Karigar app') + '</div>' +
     '<div class="card">' + (msg ? '<div class="msg err">' + esc(msg) + '</div>' : '') +
-    '<label class="f">Your ID</label><input id="lid" autocapitalize="characters" placeholder="e.g. K001" value="' + esc(store.get('lastId') || '') + '">' +
+    '<label class="f">' + T('Your ID') + '</label><input id="lid" autocapitalize="characters" placeholder="e.g. K001" value="' + esc(store.get('lastId') || '') + '">' +
     '<label class="f">PIN</label><input id="lpin" type="password" inputmode="numeric" placeholder="••••" onkeydown="if(event.key===\'Enter\')doLogin(document.getElementById(\'lbtn\'))">' +
-    '<button class="btn block" id="lbtn" onclick="doLogin(this)">Log in</button></div></div>';
+    '<button class="btn block" id="lbtn" onclick="doLogin(this)">' + T('Log in') + '</button></div></div>';
 }
 function doLogin(btn) {
   busy(btn, true);
@@ -295,7 +332,10 @@ function doLogin(btn) {
 function logoutLocal() { S.token = null; S.profile = null; S.view = null; NAV.stack = []; S.html = {}; S.data = {}; store.set('token', null); loginView(); }
 function logout() { var t = S.token; logoutLocal(); api('logout', t).catch(function () {}); }
 function start() {
-  shell();
+  S.canAlerts = can('alerts');
+  shell(); bell(S.unread || 0);
+  if (S.canAlerts) api('getHome', S.token).then(function (r) { bell(r.unread || 0); }).catch(function () {});
+  if (S.canAlerts && !S.bellTimer) S.bellTimer = setInterval(function () { if (S.token && S.profile && S.profile.kind === 'S') api('getHome', S.token).then(function (r) { if (r.unread !== S.unread) { bell(r.unread); } }).catch(function () {}); }, 180000);
   var h = (location.hash || '').slice(1);
   var ok = menu().some(function (m) { return m[0] === h; });
   go(ok ? h : (S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]));
@@ -306,55 +346,55 @@ var VIEWS = {};
 VIEWS.home = function () {
   api('getHome', S.token).then(function (r) {
     var p = r.pay;
-    render('<h1 class="page">Namaste, ' + esc(S.profile.name) + ' 🙏</h1>' +
-      '<div class="card"><div class="muted">This pay period · ' + esc(r.period.label) + '</div>' +
-      '<div class="big" style="margin:6px 0 2px">' + money(p.net) + '</div><div class="muted">Earned ' + money(p.earned) + (p.advance ? ' · Advance cut ' + money(p.advance) : '') + ' · ' + p.good + ' good pieces</div>' +
-      (p.lines.length ? '<table class="tbl" style="margin-top:10px"><tr><th>Item</th><th class="r">Good</th><th class="r">Rate</th><th class="r">Amount</th></tr>' +
-        p.lines.map(function (l) { return '<tr><td>' + esc(l.item) + '</td><td class="r">' + l.good + '</td><td class="r">' + (l.rate === null ? '<span class="pill warn">No rate</span>' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>'; }).join('') + '</table>' : '') +
-      '<button class="btn block" onclick="go(\'handover\')">📦 Hand over finished goods</button></div>' +
-      (r.orders.length ? '<div class="card"><h2>🧵 My work orders</h2><div class="list">' + r.orders.map(function (o) {
-        return '<div class="it"><div class="grow"><b>' + esc(o.item) + '</b><div class="muted">' + o.id + ' · given ' + d(o.date) + '</div></div><div style="text-align:right"><b>' + o.received + ' / ' + o.qty + '</b><div class="muted">' + o.remaining + ' to make</div></div></div>';
+    render('<h1 class="page">' + T('Namaste') + ', ' + esc(S.profile.name) + ' 🙏</h1>' +
+      '<div class="card"><div class="muted">' + T('This pay period') + ' · ' + esc(r.period.label) + '</div>' +
+      '<div class="big" style="margin:6px 0 2px">' + money(p.net) + '</div><div class="muted">' + T('Earned') + ' ' + money(p.earned) + (p.advance ? ' · ' + T('Advance cut') + ' ' + money(p.advance) : '') + ' · ' + p.good + ' ' + T('good pieces') + '</div>' +
+      (p.lines.length ? '<table class="tbl" style="margin-top:10px"><tr><th>' + T('Item') + '</th><th class="r">' + T('Good') + '</th><th class="r">' + T('Rate') + '</th><th class="r">' + T('Amount') + '</th></tr>' +
+        p.lines.map(function (l) { return '<tr><td>' + esc(l.item) + '</td><td class="r">' + l.good + '</td><td class="r">' + (l.rate === null ? '<span class="pill warn">' + T('No rate') + '</span>' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>'; }).join('') + '</table>' : '') +
+      '<button class="btn block" onclick="go(\'handover\')">' + T('📦 Hand over finished goods') + '</button></div>' +
+      (r.orders.length ? '<div class="card"><h2>🧵 ' + T('My work orders') + '</h2><div class="list">' + r.orders.map(function (o) {
+        return '<div class="it"><div class="grow"><b>' + esc(o.item) + '</b><div class="muted">' + o.id + ' · ' + T('given') + ' ' + d(o.date) + '</div></div><div style="text-align:right"><b>' + o.received + ' / ' + o.qty + '</b><div class="muted">' + o.remaining + ' ' + T('to make') + '</div></div></div>';
       }).join('') + '</div></div>' : '') +
-      (r.balances.length ? '<div class="card"><h2>🧰 Material with me</h2><table class="tbl"><tr><th>Material</th><th class="r">Given</th><th class="r">Used</th><th class="r">With me</th></tr>' + r.balances.map(function (b) {
+      (r.balances.length ? '<div class="card"><h2>🧰 ' + T('Material with me') + '</h2><table class="tbl"><tr><th>' + T('Material') + '</th><th class="r">' + T('Given') + '</th><th class="r">' + T('Used') + '</th><th class="r">' + T('With me') + '</th></tr>' + r.balances.map(function (b) {
         return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued - b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td></tr>';
       }).join('') + '</table></div>' : '') +
-      (r.batches.length ? '<div class="card"><h2>📦 Recent hand-overs</h2><div class="list">' + r.batches.map(batchRow).join('') + '</div></div>' : ''));
+      (r.batches.length ? '<div class="card"><h2>📦 ' + T('Recent hand-overs') + '</h2><div class="list">' + r.batches.map(batchRow).join('') + '</div></div>' : ''));
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 function batchRow(b) {
   return '<div class="it" onclick="showBatch(\'' + b.id + '\')" style="cursor:pointer"><div class="grow"><b class="lnk">' + esc(b.id) + '</b> ' + statusPill(b.status) + ' ' + invPill(b.inventory) +
-    '<div class="muted">' + esc(b.karigar) + ' · ' + (b.finalDate ? 'counted ' + d(b.finalDate) : 'from ' + d(b.createdAt)) + '</div></div>' +
-    '<div style="text-align:right">' + (b.status === 'LOCKED' ? '<b>' + b.good + ' pcs</b>' + (b.rejected ? '<div class="muted neg">' + b.rejected + ' rejected</div>' : '') + '<div class="muted">' + money(b.amount) + '</div>' :
-      (b.claim && b.claim.length ? '<div class="muted">Handed ' + b.claim.reduce(function (n, c) { return n + c.qty; }, 0) + ' pcs</div>' : '')) + '</div></div>';
+    '<div class="muted">' + esc(b.karigar) + ' · ' + (b.finalDate ? T('counted') + ' ' + d(b.finalDate) : T('from') + ' ' + d(b.createdAt)) + '</div></div>' +
+    '<div style="text-align:right">' + (b.status === 'LOCKED' ? '<b>' + b.good + ' ' + T('pcs') + '</b>' + (b.rejected ? '<div class="muted neg">' + b.rejected + ' ' + T('rejected') + '</div>' : '') + '<div class="muted">' + money(b.amount) + '</div>' :
+      (b.claim && b.claim.length ? '<div class="muted">' + T('Handed') + ' ' + b.claim.reduce(function (n, c) { return n + c.qty; }, 0) + ' ' + T('pcs') + '</div>' : '')) + '</div></div>';
 }
 
 VIEWS.handover = function () {
   api('getHome', S.token).then(function (r) {
     S.data.hoItems = r.items;
-    render('<h1 class="page">📦 Hand over finished goods</h1><div class="card"><div class="msg info">Enter what you are handing over. Two people will count it. You are paid for the counted good pieces.</div>' +
-      '<div class="lines"><div class="ln claim hdr"><div>Item</div><div>Quantity</div><div></div></div><div id="hoLines"></div></div><button class="btn sec sm" onclick="addHoLine()">+ Add item</button>' +
-      '<label class="f">Note (optional)</label><input id="hoNote"><button class="btn block" onclick="sendHandover(this)">Send</button></div>');
+    render('<h1 class="page">📦 ' + T('Hand over finished goods') + '</h1><div class="card"><div class="msg info">' + T('Enter what you are handing over. Two people will count it. You are paid for the counted good pieces.') + '</div>' +
+      '<div class="lines"><div class="ln claim hdr"><div>' + T('Item') + '</div><div>' + T('Quantity') + '</div><div></div></div><div id="hoLines"></div></div><button class="btn sec sm" onclick="addHoLine()">' + T('+ Add item') + '</button>' +
+      '<label class="f">' + T('Note (optional)') + '</label><input id="hoNote"><button class="btn block" onclick="sendHandover(this)">' + T('Send') + '</button></div>');
     addHoLine();
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 function addHoLine() {
   var div = document.createElement('div'); div.className = 'ln claim';
-  div.innerHTML = '<select>' + itemOpts(S.data.hoItems || []) + '</select><input type="number" inputmode="numeric" placeholder="Qty"><button class="x" onclick="this.parentNode.remove()">×</button>';
+  div.innerHTML = '<select>' + itemOpts(S.data.hoItems || []) + '</select><input type="number" inputmode="numeric" placeholder="' + T('Qty') + '"><button class="x" onclick="this.parentNode.remove()">×</button>';
   $('hoLines').appendChild(div);
 }
 function sendHandover(btn) {
   var lines = Array.prototype.map.call(document.querySelectorAll('#hoLines .ln'), function (ln) { return { item: ln.children[0].value, qty: Number(ln.children[1].value) }; }).filter(function (l) { return l.item && l.qty > 0; });
   busy(btn, true);
-  api('submitHandover', S.token, { lines: lines, note: val('hoNote') }).then(function (r) { toast('Sent: ' + r.id); go('home'); }).catch(function (e) { fail(e, btn); });
+  api('submitHandover', S.token, { lines: lines, note: val('hoNote') }).then(function (r) { toast(T('Sent') + ': ' + r.id); go('home'); }).catch(function (e) { fail(e, btn); });
 }
 
 VIEWS.work = function (period) {
   api('myWork', S.token, period || '').then(function (r) {
     var p = r.pay;
-    render('<h1 class="page">🧾 My work <small>' + esc(r.period.label) + '</small></h1>' + periodPicker('work', r.period.key) +
-      '<div class="tiles"><div class="tile ok"><div class="l">Good pieces</div><div class="n">' + p.good + '</div></div><div class="tile err"><div class="l">Rejected (not paid)</div><div class="n">' + p.rejected + '</div></div>' +
-      '<div class="tile"><div class="l">Earned</div><div class="n">' + money(p.earned) + '</div></div><div class="tile info"><div class="l">Net</div><div class="n">' + money(p.net) + '</div></div></div>' +
-      '<div class="card"><div class="list">' + (r.batches.map(batchRow).join('') || '<div class="muted">Nothing in this period yet.</div>') + '</div></div>');
+    render('<h1 class="page">🧾 ' + T('My work') + ' <small>' + esc(r.period.label) + '</small></h1>' + periodPicker('work', r.period.key) +
+      '<div class="tiles"><div class="tile ok"><div class="l">' + T('Good pieces') + '</div><div class="n">' + p.good + '</div></div><div class="tile err"><div class="l">' + T('Rejected (not paid)') + '</div><div class="n">' + p.rejected + '</div></div>' +
+      '<div class="tile"><div class="l">' + T('Earned') + '</div><div class="n">' + money(p.earned) + '</div></div><div class="tile info"><div class="l">' + T('Net') + '</div><div class="n">' + money(p.net) + '</div></div></div>' +
+      '<div class="card"><div class="list">' + (r.batches.map(batchRow).join('') || '<div class="muted">' + T('Nothing in this period yet.') + '</div>') + '</div></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 function periodPicker(view, key, extra) {
@@ -374,17 +414,17 @@ VIEWS.slip = function (period) {
 };
 function slipHtml(r) {
   var p = r.pay;
-  var st = p.status === 'PAID' ? '<span class="pill ok">Paid ' + d(p.paidDate) + '</span>' : p.status === 'APPROVED' ? '<span class="pill info">Approved</span>' : '<span class="pill warn">Not final yet</span>';
-  return '<div class="card"><div class="slip" id="slip"><div class="sh"><div><b style="font-size:17px">' + esc(r.company) + '</b><div class="muted">Karigar payslip</div></div><div style="text-align:right"><b>' + esc(r.period.label) + '</b><div>' + st + '</div></div></div>' +
-    '<div class="kv" style="margin-bottom:10px"><div>Karigar</div><div><b>' + esc(r.karigar.name) + '</b> (' + esc(r.karigar.id) + ')</div><div>Good pieces</div><div>' + p.good + (p.rejected ? ' · ' + p.rejected + ' rejected (not paid)' : '') + '</div></div>' +
-    '<table class="tbl"><tr><th>Item</th><th class="r">Good</th><th class="r">Rate</th><th class="r">Amount</th></tr>' +
-    (p.lines.map(function (l) { return '<tr><td>' + esc(l.item) + '</td><td class="r">' + l.good + '</td><td class="r">' + (l.rate === null ? 'No rate' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>'; }).join('') || '<tr><td colspan="4" class="muted">No counted goods.</td></tr>') +
-    '<tfoot><tr><td colspan="3">Earned</td><td class="r">' + money(p.earned) + '</td></tr></tfoot></table>' +
-    (p.advances.length ? '<h3>Advance recovery</h3><table class="tbl">' + p.advances.map(function (a) {
-      return '<tr><td>Advance ' + money(a.amount) + (a.note ? ' · ' + esc(a.note) : '') + '<div class="muted">Balance ' + money(a.balanceBefore) + ' → ' + money(a.balanceAfter) + '</div></td><td class="r neg">−' + money(a.deducted) + '</td></tr>';
+  var st = p.status === 'PAID' ? '<span class="pill ok">' + T('Paid') + ' ' + d(p.paidDate) + '</span>' : p.status === 'APPROVED' ? '<span class="pill info">' + T('Approved') + '</span>' : '<span class="pill warn">' + T('Not final yet') + '</span>';
+  return '<div class="card"><div class="slip" id="slip"><div class="sh"><div><b style="font-size:17px">' + esc(r.company) + '</b><div class="muted">' + T('Karigar payslip') + '</div></div><div style="text-align:right"><b>' + esc(r.period.label) + '</b><div>' + st + '</div></div></div>' +
+    '<div class="kv" style="margin-bottom:10px"><div>' + T('Karigar') + '</div><div><b>' + esc(r.karigar.name) + '</b> (' + esc(r.karigar.id) + ')</div><div>' + T('Good pieces') + '</div><div>' + p.good + (p.rejected ? ' · ' + p.rejected + ' ' + T('rejected (not paid)') : '') + '</div></div>' +
+    '<table class="tbl"><tr><th>' + T('Item') + '</th><th class="r">' + T('Good') + '</th><th class="r">' + T('Rate') + '</th><th class="r">' + T('Amount') + '</th></tr>' +
+    (p.lines.map(function (l) { return '<tr><td>' + esc(l.item) + '</td><td class="r">' + l.good + '</td><td class="r">' + (l.rate === null ? T('No rate') : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>'; }).join('') || '<tr><td colspan="4" class="muted">' + T('No counted goods.') + '</td></tr>') +
+    '<tfoot><tr><td colspan="3">' + T('Earned') + '</td><td class="r">' + money(p.earned) + '</td></tr></tfoot></table>' +
+    (p.advances.length ? '<h3>' + T('Advance recovery') + '</h3><table class="tbl">' + p.advances.map(function (a) {
+      return '<tr><td>' + T('Advance') + ' ' + money(a.amount) + (a.note ? ' · ' + esc(a.note) : '') + '<div class="muted">' + T('Balance') + ' ' + money(a.balanceBefore) + ' → ' + money(a.balanceAfter) + '</div></td><td class="r neg">−' + money(a.deducted) + '</td></tr>';
     }).join('') + '</table>' : '') +
-    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:2px solid var(--ink)"><b style="font-size:16px">Net pay</b><b style="font-size:22px">' + money(p.net) + '</b></div></div>' +
-    '<div class="row no-print" style="margin-top:12px"><button class="btn sec" onclick="printSlip()">🖨️ Print / PDF</button><button class="btn ok" onclick="waSlip()">WhatsApp</button></div></div>';
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin-top:12px;padding-top:10px;border-top:2px solid var(--ink)"><b style="font-size:16px">' + T('Net pay') + '</b><b style="font-size:22px">' + money(p.net) + '</b></div></div>' +
+    '<div class="row no-print" style="margin-top:12px"><button class="btn sec" onclick="printSlip()">' + T('🖨️ Print / PDF') + '</button><button class="btn ok" onclick="waSlip()">WhatsApp</button></div></div>';
 }
 function printSlip() {
   var html = '<html><head><meta charset="utf-8"><style>' + document.querySelector('style').innerHTML + '</style></head><body style="background:#fff;padding:16px">' + $('slip').outerHTML + '</body></html>';
@@ -396,14 +436,14 @@ function waSlip() {
 }
 
 VIEWS.pin = function () {
-  render('<h1 class="page">🔑 Change PIN</h1><div class="card"><label class="f">Current PIN</label><input id="p0" type="password" inputmode="numeric">' +
-    '<label class="f">New PIN (4–8 digits)</label><input id="p1" type="password" inputmode="numeric"><label class="f">New PIN again</label><input id="p2" type="password" inputmode="numeric">' +
-    '<button class="btn block" onclick="savePin(this)">Save</button></div>');
+  render('<h1 class="page">🔑 ' + T('Change PIN') + '</h1><div class="card"><label class="f">' + T('Current PIN') + '</label><input id="p0" type="password" inputmode="numeric">' +
+    '<label class="f">' + T('New PIN (4–8 digits)') + '</label><input id="p1" type="password" inputmode="numeric"><label class="f">' + T('New PIN again') + '</label><input id="p2" type="password" inputmode="numeric">' +
+    '<button class="btn block" onclick="savePin(this)">' + T('Save') + '</button></div>');
 };
 function savePin(btn) {
-  if (val('p1') !== val('p2')) return toast('The new PINs do not match.');
+  if (val('p1') !== val('p2')) return toast(T('The new PINs do not match.'));
   busy(btn, true);
-  api('changePin', S.token, val('p0'), val('p1')).then(function () { toast('PIN changed'); go(S.profile.kind === 'K' ? 'home' : menu()[0][0]); }).catch(function (e) { fail(e, btn); });
+  api('changePin', S.token, val('p0'), val('p1')).then(function () { toast(T('PIN changed')); go(S.profile.kind === 'K' ? 'home' : menu()[0][0]); }).catch(function (e) { fail(e, btn); });
 }
 
 /* ======================= STAFF ======================= */
@@ -549,15 +589,14 @@ function saveCorrection(btn) {
 
 /* ---------- work orders ---------- */
 VIEWS.orders = function (all) {
-  api('orderList', S.token, !!all).then(function (r) {
+  (all ? api('orderList', S.token, true) : load('orderList', S.token)).then(function (r) {
     S.data.ol = r;
     render('<h1 class="page">🧵 Work orders (lots) <small>what each karigar is making, and at what rate</small></h1>' +
       '<div class="tabs"><a class="' + (all ? '' : 'on') + '" onclick="go(\'orders\')">Open</a><a class="' + (all ? 'on' : '') + '" onclick="go(\'orders\',1)">All</a></div>' +
-      (r.canEdit ? '<div class="card"><h2>New work order (lot)</h2><div class="row"><select id="woK" onchange="woHint()"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
-        '<select id="woI" onchange="woHint()">' + itemOpts(r.items) + '</select></div><div class="row" style="margin-top:8px"><input id="woQ" type="number" inputmode="numeric" placeholder="Quantity"><input id="woN" placeholder="Note (optional)"></div>' +
-        (r.canRate ? '<div class="row" style="margin-top:8px"><input id="woR" type="number" step="any" inputmode="decimal" placeholder="Special rate for this lot (blank = normal rate)" oninput="woHint()"></div>' +
-          '<div class="chk" id="woFutureRow" style="display:none"><input type="checkbox" id="woF"> Also use this rate for this karigar\'s future lots of this item</div>' : '') +
-        '<div class="muted" id="woHint" style="margin-top:6px"></div><div class="muted">The lot\'s material (quantity × material per piece) is issued to the karigar automatically. A different person confirms the hand-over in Material issue.</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
+      (r.canEdit ? '<div class="card"><h2>New work order</h2><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
+        '<div class="lines" style="margin-top:8px"><div class="ln wo hdr"><div>Item</div><div>Qty</div>' + (r.canRate ? '<div>Special rate</div>' : '') + '<div></div></div><div id="woL"></div></div>' +
+        '<button class="btn sec sm" onclick="woLine()">+ Add another item</button><input id="woN" style="margin-top:8px" placeholder="Note (optional)">' +
+        '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is issued to the karigar automatically; a different person confirms the hand-over in Material issue.</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
       '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
@@ -568,20 +607,32 @@ VIEWS.orders = function (all) {
           '<td class="r"><b>' + (o.cost.perPiece === null ? '–' : money(o.cost.perPiece)) + '</b><div class="muted">material ' + money(o.cost.materialPerPiece) + '</div>' + (o.cost.missing.length ? '<span class="pill warn">no price</span>' : '') + '</td>' +
           '<td class="r">' + (o.cost.total === null ? '–' : money(o.cost.total)) + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
       }).join('') || '<tr><td colspan="11" class="muted">No work orders.</td></tr>') + '</table></div>');
+    if (r.canEdit) woLine();
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
-function woHint() {
-  if ($('woFutureRow')) $('woFutureRow').style.display = val('woR') !== '' ? 'flex' : 'none';
-  var h = $('woHint'); if (!h) return;
-  h.textContent = val('woR') !== '' ? 'This lot is paid at ' + money(val('woR')) + ' per piece.' : 'The lot gets the karigar\'s own rate if one is set, otherwise the standard rate.';
+function woLine() {
+  var r = S.data.ol, div = document.createElement('div'); div.className = 'ln wo' + (r.canRate ? '' : ' norate');
+  div.innerHTML = '<select>' + itemOpts(r.items) + '</select><input type="number" inputmode="numeric" placeholder="Qty">' +
+    (r.canRate ? '<input type="number" step="any" inputmode="decimal" placeholder="blank = normal" oninput="this.parentNode.querySelector(\'.fut\').style.display=this.value!==\'\'?\'flex\':\'none\'">' : '') +
+    '<button class="x" onclick="this.parentNode.remove()">×</button>' +
+    (r.canRate ? '<div class="chk fut" style="display:none;grid-column:1/-1;margin-top:-4px"><input type="checkbox"> Also use this rate for this karigar\'s future lots of this item</div>' : '');
+  $('woL').appendChild(div);
 }
 function saveWo(btn) {
+  var lines = Array.prototype.map.call(document.querySelectorAll('#woL .ln'), function (ln) {
+    var rate = ln.querySelector('input[step="any"]'), fut = ln.querySelector('.fut input');
+    return { item: ln.children[0].value, qty: ln.children[1].value, lotRate: rate ? rate.value : '', futureToo: fut ? fut.checked : false };
+  }).filter(function (l) { return l.item || l.qty; });
+  if (!val('woK')) return toast('Choose the karigar.');
+  if (!lines.length) return toast('Choose an item and its quantity.');
   busy(btn, true);
-  api('saveOrder', S.token, { karigarId: val('woK'), item: val('woI'), qty: val('woQ'), note: val('woN'), lotRate: $('woR') ? val('woR') : '', futureToo: $('woF') ? $('woF').checked : false })
+  api('saveOrders', S.token, { karigarId: val('woK'), note: val('woN'), lines: lines })
     .then(function (r) {
-      var a = r.added;
-      toast(a.id + ' added. ' + (a.issued.length ? 'Material issued: ' + a.issued.map(function (x) { return x.material + ' ' + num(x.qty) + ' ' + x.unit; }).join(', ') + ' (to be confirmed).' : 'This item has no BOM, so no material was issued.'));
-      go('orders');
+      preload('orderList', r);
+      var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material issued (to be confirmed).';
+      if (r.short && r.short.length) msg += ' ⚠ Not enough in the store: ' + r.short.map(function (x) { return x.material + ' needs ' + num(x.need) + ', has ' + num(x.inStore) + ' ' + x.unit; }).join('; ');
+      busy(btn, false); go('orders');
+      modal('Work order added', '<div class="msg ' + (r.short && r.short.length ? 'warn' : 'ok') + '">' + esc(msg) + '</div><button class="btn block" onclick="closeModalByUser()">OK</button>');
     }).catch(function (e) { fail(e, btn); });
 }
 function lotRate(id) {
@@ -640,14 +691,19 @@ function saveMv(btn) {
 function decide(id, ok, btn) { busy(btn, true); api('decideMove', S.token, id, ok).then(function () { toast(ok ? 'Confirmed' : 'Rejected'); go('material'); }).catch(function (e) { fail(e, btn); }); }
 
 VIEWS.balance = function () {
-  api('materialBalance', S.token).then(function (r) {
+  load('materialBalance', S.token).then(function (r) {
+    S.data.mb = r;
     var by = {};
     r.list.forEach(function (b) { (by[b.karigar] = by[b.karigar] || []).push(b); });
     render('<h1 class="page">⚖️ Material balance <small>given − used (good + rejected pieces × material per piece). No wastage allowed.</small></h1>' +
       Object.keys(by).map(function (k) {
-        return '<div class="card scroll"><h2>👷 ' + esc(k) + '</h2><table class="tbl"><tr><th>Material</th><th class="r">Given</th><th class="r">Used</th><th class="r">With karigar</th><th class="r">Not confirmed yet</th><th></th></tr>' +
+        var kid = by[k][0].karigarId;
+        return '<div class="card scroll"><h2>👷 ' + esc(k) + (r.canTake ? ' <button class="btn sec sm" style="margin-left:auto" onclick="takeForm(\'' + kid + '\')">📋 Stock-take</button>' : '') + '</h2><table class="tbl"><tr><th>Material</th><th class="r">Given</th><th class="r">Used</th><th class="r">With karigar</th><th class="r">Not confirmed yet</th><th>Last stock-take</th><th></th></tr>' +
           by[k].map(function (b) {
-            return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued - b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td><td class="r">' + (b.pending ? num(b.pending) : '') + '</td><td>' + (b.flag ? '<span class="pill ' + (b.balance < 0 ? 'err' : 'warn') + '">' + esc(b.flag) + '</span>' : '') + '</td></tr>';
+            var t = b.lastTake;
+            return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued - b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td><td class="r">' + (b.pending ? num(b.pending) : '') + '</td>' +
+              '<td class="muted">' + (t ? d(t.date) + ': counted ' + num(t.counted) + ' (' + (t.diff < -0.0005 ? '<span class="neg">' + num(t.diff) + '</span>' : t.diff > 0.0005 ? '+' + num(t.diff) : 'matched') + ')' : '') + '</td>' +
+              '<td>' + (b.flag ? '<span class="pill ' + (b.balance < 0 ? 'err' : 'warn') + '">' + esc(b.flag) + '</span>' : '') + '</td></tr>';
           }).join('') + '</table></div>';
       }).join('') || '<div class="card muted">No material given yet.</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -669,7 +725,7 @@ VIEWS.payroll = function (period) {
         if (p.status === 'OPEN' && r.canApprove) act = '<button class="btn sm" onclick="approve(\'' + p.karigarId + '\',this)">Approve</button>';
         if (p.status === 'APPROVED' && r.canApprove) act = '<button class="btn ok sm" onclick="paid(\'' + p.karigarId + '\',this)">Mark paid</button>' + (r.isSuper ? ' <button class="btn sec sm" onclick="unapprove(\'' + p.karigarId + '\',this)">Undo</button>' : '');
         return '<tr><td class="click" onclick="adminSlip(\'' + p.karigarId + '\')" style="cursor:pointer"><b class="lnk">' + esc(p.name) + '</b><div class="muted">' + p.karigarId + '</div></td><td class="r">' + p.good + '</td><td class="r">' + p.rejected + '</td><td class="r">' + money(p.earned) + (p.missingRates ? '<div><span class="pill warn">' + p.missingRates + ' no rate</span></div>' : '') + '</td>' +
-          '<td class="r neg">' + (p.advance ? '−' + money(p.advance) : '') + (p.short ? '<div class="muted">less than due</div>' : '') + (p.status === 'OPEN' && r.canAdvance && p.advances.length ? '<div><button class="btn sec sm" onclick="payAdv(\'' + p.karigarId + '\')">Change</button></div>' : '') + '</td><td class="r"><b>' + money(p.net) + '</b></td><td>' + st + '</td><td style="white-space:nowrap">' + act + ' <button class="btn sec sm" onclick="adminSlip(\'' + p.karigarId + '\')">Payslip</button></td></tr>';
+          '<td class="r neg">' + (p.advance ? '−' + money(p.advance) : '') + (p.short ? '<div class="muted">less than due</div>' : '') + (p.status === 'OPEN' && r.canAdvance && p.advances.length ? '<div><button class="btn sec sm" onclick="payAdv(\'' + p.karigarId + '\')">Change</button></div>' : '') + '</td><td class="r"><b>' + money(p.net) + '</b></td><td>' + st + '</td><td style="white-space:nowrap">' + act + ' <button class="btn sec sm" onclick="adminSlip(\'' + p.karigarId + '\')">Payslip</button> <button class="btn ok sm" onclick="waStatement(\'' + p.karigarId + '\',this)">WhatsApp</button></td></tr>';
       }).join('') || '<tr><td colspan="8" class="muted">Nothing counted in this period.</td></tr>') +
       '<tfoot><tr><td>Total</td><td></td><td></td><td class="r">' + money(r.earned) + '</td><td class="r">' + money(r.advance) + '</td><td class="r">' + money(r.net) + '</td><td colspan="2"></td></tr></tfoot></table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -697,6 +753,28 @@ function payAdv(k) {
     busy(this, true);
     api('setPayAdvance', S.token, S.data.pay.period.key, k, cuts, val('paN')).then(function () { closeModal(); toast('Advance cut changed'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('paB')); });
   };
+}
+/* The month's statement as a WhatsApp message to the karigar's own number. */
+function waStatement(k, btn) {
+  busy(btn, true);
+  api('payslip', S.token, S.data.pay.period.key, k).then(function (r) {
+    busy(btn, false);
+    var p = r.pay, c = cur(), L = [];
+    L.push('*' + r.company + '* – statement / हिसाब');
+    L.push(r.karigar.name + ' (' + r.karigar.id + ')');
+    L.push('Period / अवधि: ' + r.period.label);
+    L.push('');
+    p.lines.forEach(function (l) { L.push(l.item + ': ' + l.good + ' pcs × ' + c + (l.rate === null ? '?' : l.rate) + ' = ' + c + (l.amount || 0)); });
+    if (p.rejected) L.push('Rejected / रिजेक्ट (not paid): ' + p.rejected + ' pcs');
+    L.push('*Earned / कमाई: ' + c + p.earned + '*');
+    p.advances.forEach(function (a) { L.push('Advance cut / एडवांस कटौती: −' + c + a.deducted + ' (balance left / बाकी ' + c + a.balanceAfter + ')'); });
+    L.push('*Net / कुल भुगतान: ' + c + p.net + '*');
+    L.push(p.status === 'PAID' ? 'Paid on / भुगतान: ' + p.paidDate : p.status === 'APPROVED' ? 'Approved, payment due / मंज़ूर, भुगतान बाकी' : 'Not final yet / अभी पक्का नहीं');
+    var ph = String(r.karigar.phone || '').replace(/\D/g, '');
+    if (ph.length === 10) ph = '91' + ph;
+    window.open('https://wa.me/' + (ph.length >= 11 ? ph : '') + '?text=' + encodeURIComponent(L.join('\n')), '_blank');
+    if (ph.length < 11) toast('No phone number for ' + r.karigar.name + ': choose the chat in WhatsApp.');
+  }).catch(function (e) { fail(e, btn); });
 }
 function payCsv() {
   var r = S.data.pay, rows = [['Karigar ID', 'Karigar', 'Good', 'Rejected', 'Earned', 'Advance', 'Net', 'Status', 'Paid date']];
@@ -829,7 +907,7 @@ function itemTable() {
   var btns = function (i) { return r.canEdit ? '<button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button><button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button><button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button>' : ''; };
   var pills = function (i) { return (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + (i.active ? '' : ' <span class="pill err">inactive</span>'); };
   var phone = '<div class="only-phone">' + r.list.map(function (i) {
-    return '<div class="mcard"><div class="mtop"><b>' + esc(i.code) + '</b><span style="text-align:right">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + '</span></div>' +
+    return '<div class="mcard"><div class="mtop"><b>' + esc(i.code) + '</b><span style="text-align:right">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + profitCell(i) + '</span></div>' +
       '<div style="margin:2px 0 6px">' + pills(i) + ' <span class="muted">· standard rate ' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + '</span>' +
       (i.karigarRates.length ? '<div class="muted">' + i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join(' · ') + '</div>' : '') + '</div>' +
       bomCell(i, mats) + '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + btns(i) + '</div></div>';
@@ -837,7 +915,7 @@ function itemTable() {
   t.innerHTML = phone + '<div class="only-desk"><table class="tbl"><tr><th>Item</th><th class="r">Standard rate</th><th class="r">Cost per piece</th><th>Karigar rates</th><th>Material per piece (BOM)</th><th></th></tr>' + r.list.map(function (i) {
         return '<tr><td><b style="white-space:nowrap">' + esc(i.code) + '</b>' + (i.name ? '<div class="muted">' + esc(i.name) + '</div>' : '') + '<div style="margin-top:4px">' + (i.type === 'SKU' ? '<span class="pill info">Inventory SKU</span>' : '<span class="pill">Part</span>') + (i.active ? '' : ' <span class="pill err">inactive</span>') + '</div></td>' +
           '<td class="r">' + (i.rate === null ? '<span class="pill warn">No rate</span>' : '<b>' + money(i.rate) + '</b>') + (i.rateHistory.length > 1 ? '<div class="muted">since ' + d(i.rateHistory[0].from) + '</div>' : '') + '</td>' +
-          '<td class="r">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + '</td>' +
+          '<td class="r">' + costCell(i.cost, 'itemCost(\'' + q(i.code) + '\')') + profitCell(i) + '</td>' +
           '<td class="muted" style="white-space:nowrap">' + (i.karigarRates.map(function (k) { return esc(k.name) + ' ' + money(k.rate); }).join('<br>') || '<span style="color:#cbd5e1">—</span>') + '</td>' +
           '<td>' + bomCell(i, mats) + '</td>' +
           '<td>' + (r.canEdit ? '<div style="display:flex;flex-direction:column;gap:5px;min-width:104px"><button class="btn sm" onclick="stdRate(\'' + q(i.code) + '\')">Change rate</button><button class="btn sec sm" onclick="bomForm(\'' + q(i.code) + '\')">BOM</button><button class="btn sec sm" onclick="toggleItem(\'' + q(i.code) + '\')">' + (i.active ? 'Deactivate' : 'Activate') + '</button></div>' : '') + '</td></tr>';
@@ -853,6 +931,37 @@ var COMMON_MATERIALS = [['Fabric 1000D', 'sq m'], ['Fabric 600D', 'sq m'], ['Fab
   ['Snap Button', 'pcs'], ['Magnet Button', 'pcs'], ['Webbing 25 mm', 'm'], ['Webbing 38 mm', 'm'], ['Webbing 50 mm', 'm'], ['Chain', 'inch'],
   ['Thread', 'm'], ['Velcro', 'inch'], ['Piping', 'm'], ['Elastic', 'm'], ['Binding Tape', 'm'], ['Logo Label', 'pcs'], ['Care Label', 'pcs'],
   ['Hang Tag', 'pcs'], ['Poly Bag', 'pcs'], ['Carton', 'pcs'], ['Trolley Handle', 'pcs'], ['Wheel', 'pcs'], ['Board / Stiffener', 'sq m']];
+var COLORS = ['Black', 'Grey', 'Dark Grey', 'Navy Blue', 'Blue', 'Sky Blue', 'Red', 'Maroon', 'Green', 'Olive', 'Brown', 'Tan', 'Beige', 'Khaki',
+  'Yellow', 'Orange', 'Pink', 'Purple', 'White', 'Off White', 'Silver', 'Golden', 'Transparent'];
+/* The name shown everywhere: "Niwar (1.00")" + colour "Black" → "Niwar (1.00") (Black)". */
+function withColor(base, color) {
+  base = String(base || '').trim(); color = String(color || '').trim();
+  if (!color) return base;
+  return base.toLowerCase().replace(/\s+$/, '').slice(-(color.length + 2)) === '(' + color.toLowerCase() + ')' ? base : base + ' (' + color + ')';
+}
+/* Base name and colour of a material, also for older ones whose colour is only written in the name: "Fabric Dobby (Black)". */
+function matParts(m) {
+  if (m.color) return { base: m.baseName || m.name, color: m.color };
+  var x = /^(.*\S)\s*\(([^()]+)\)\s*$/.exec(m.name || '');
+  if (x && allColors().some(function (c) { return c.toLowerCase() === x[2].trim().toLowerCase(); })) return { base: x[1], color: x[2].trim() };
+  return { base: m.name, color: '' };
+}
+function allColors() {
+  var list = COLORS.slice(), mats = (S.data.ml2 && S.data.ml2.materials) || (S.data.il && S.data.il.materials) || [];
+  mats.forEach(function (m) { if (m.color && !list.some(function (c) { return c.toLowerCase() === m.color.toLowerCase(); })) list.push(m.color); });
+  return list;
+}
+/* Colour box: suggestions only while typing (never over the keypad). */
+function colSuggest(inp, boxId) {
+  var box = $(boxId), t = inp.value.trim().toLowerCase();
+  if (!t) { box.style.display = 'none'; return; }
+  var hits = allColors().filter(function (c) { return c.toLowerCase().indexOf(t) >= 0; }).slice(0, 8);
+  box.innerHTML = hits.map(function (c) { return '<div onmousedown="event.preventDefault();var i=document.getElementById(\'' + inp.id + '\');i.value=\'' + q(c) + '\';document.getElementById(\'' + boxId + '\').style.display=\'none\'">' + esc(c) + '</div>'; }).join('');
+  box.style.display = hits.length ? 'block' : 'none';
+}
+function colorInput(id, value) {
+  return '<div class="sugg"><input id="' + id + '" autocomplete="off" placeholder="Colour (optional, e.g. Black)" value="' + esc(value || '') + '" oninput="colSuggest(this,\'' + id + 'S\')" onblur="setTimeout(function(){var b=document.getElementById(\'' + id + 'S\');if(b)b.style.display=\'none\'},180)"><div class="box" id="' + id + 'S" style="display:none"></div></div>';
+}
 function unitOpts(sel) {
   var list = (S.data.ml2 && S.data.ml2.units) || UNITS;
   return '<option value="">Unit used per piece…</option>' + list.concat(sel && list.indexOf(sel) < 0 ? [sel] : []).map(function (u) { return '<option' + (u === sel ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') +
@@ -891,8 +1000,8 @@ VIEWS.materials = function () {
     S.data.ml2 = r;
     render('<h1 class="page">🧶 Raw materials <small>price as bought → cost per unit used in the BOM</small></h1>' +
       (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row addrow"><div class="sugg"><input id="mtN" autocomplete="off" placeholder="Start typing a name (e.g. Fabric 1000D Black)" oninput="matSuggest()" onkeydown="matKey(event)" onblur="setTimeout(function(){var b=document.getElementById(\'mtS\');if(b)b.style.display=\'none\'},180)"><div class="box" id="mtS" style="display:none"></div></div>' +
-        '<select id="mtU" data-last="" onchange="unitPicked(this)">' + unitOpts('') + '</select><button class="btn fix" id="mtB" onclick="addMat()">Add</button></div>' +
-        '<div class="muted" style="margin-top:6px">The unit is what the BOM uses for ONE piece: fabric in sq m, chain in inch, kunda in pcs. Then set its price with "Price".</div></div>' : '') +
+        colorInput('mtC', '') + '<select id="mtU" data-last="" onchange="unitPicked(this)">' + unitOpts('') + '</select><button class="btn fix" id="mtB" onclick="addMat()">Add</button></div>' +
+        '<div class="muted" style="margin-top:6px">The colour is added at the end of the name: Niwar (1.00") + Black → <b>Niwar (1.00") (Black)</b>. The unit is what the BOM uses for ONE piece: fabric in sq m, chain in inch, kunda in pcs. Then set its price with "Price".</div></div>' : '') +
       '<div class="card scroll" id="matTable"></div><div class="muted">The material per piece of each item (BOM) is set in Items & rates → BOM. A new price is used for material issued from now on; earlier lots keep the cost they were issued at.</div>');
     matTable();
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -959,29 +1068,32 @@ function matPick(name, unit) {
 function matKey(e) { if (e.key === 'Enter') { e.preventDefault(); $('mtS').style.display = 'none'; addMat(); } if (e.key === 'Escape') $('mtS').style.display = 'none'; }
 /* Instant: the row appears at once (saving…), the server confirms in the background. */
 function addMat() {
-  var name = val('mtN').trim().replace(/\s+/g, ' '), unit = val('mtU');
-  if (!name) return toast('Type the material name.');
+  var base = val('mtN').trim().replace(/\s+/g, ' '), color = val('mtC').trim().replace(/\s+/g, ' '), unit = val('mtU');
+  if (!base) return toast('Type the material name.');
   if (!unit) return toast('Choose the unit used per piece.');
+  var name = withColor(base, color);
   if (S.data.ml2.materials.some(function (m) { return m.name.toLowerCase() === name.toLowerCase(); })) return toast(name + ' is already in the list.');
-  var temp = { code: 'new-' + Date.now(), name: name, unit: unit, active: true, price: null, unitCost: null, conversion: {}, usedIn: [], history: [], saving: true };
+  var temp = { code: 'new-' + Date.now(), name: name, baseName: base, color: color, reorder: 0, unit: unit, active: true, price: null, unitCost: null, conversion: {}, usedIn: [], history: [], saving: true };
   S.data.ml2.materials.push(temp); matTable();
-  $('mtN').value = ''; $('mtU').value = ''; $('mtN').focus();
-  api('saveMaterial', S.token, { name: name, unit: unit }).then(function (r) { S.data.ml2 = r; matTable(); toast(name + ' added'); })
+  $('mtN').value = ''; $('mtC').value = ''; $('mtU').value = ''; $('mtN').focus();
+  api('saveMaterial', S.token, { name: base, color: color, unit: unit }).then(function (r) { S.data.ml2 = r; matTable(); toast(name + ' added'); })
     .catch(function (e) { S.data.ml2.materials = S.data.ml2.materials.filter(function (m) { return m !== temp; }); matTable(); toast(e.message); });
 }
 function matEdit(code) {
   var m = matByCode(code); if (!m) return;
   if ($('mtS')) $('mtS').style.display = 'none';
-  modal('Edit · ' + m.name, '<label class="f">Name</label><input id="meN" value="' + esc(m.name) + '">' +
+  modal('Edit · ' + m.name, '<label class="f">Name</label><input id="meN" value="' + esc(m.baseName || m.name) + '">' +
+    '<label class="f">Colour</label>' + colorInput('meC', m.color) +
     '<label class="f">Unit used per piece</label><select id="meU" data-last="' + esc(m.unit) + '" onchange="unitPicked(this)">' + unitOpts(m.unit) + '</select>' +
     (m.usedIn.length ? '<div class="msg warn" style="margin-top:8px">Used in ' + m.usedIn.map(esc).join(', ') + '. If you change the unit, also change the material per piece in those BOMs.</div>' : '') +
+    '<label class="f">Reorder level in the store (' + esc(m.unit) + ', optional)</label><input id="meR" type="number" step="any" inputmode="decimal" value="' + (m.reorder || '') + '" placeholder="Alert when the store has less than this">' +
     '<div class="chk"><input type="checkbox" id="meA"' + (m.active ? ' checked' : '') + '> Active (inactive materials cannot be issued)</div><button class="btn block" id="meB">Save</button>');
   $('meB').onclick = function () {
-    var name = val('meN').trim(), unit = val('meU'), active = $('meA').checked;
-    if (!name || !unit) return toast('Enter the name and the unit.');
+    var base = val('meN').trim(), color = val('meC').trim(), unit = val('meU'), active = $('meA').checked, reorder = val('meR');
+    if (!base || !unit) return toast('Enter the name and the unit.');
     var before = Object.assign({}, m);
-    Object.assign(m, { name: name, unit: unit, active: active, saving: true }); closeModal(); matTable();
-    api('saveMaterial', S.token, { code: code, name: name, unit: unit, active: active }).then(function (r) { S.data.ml2 = r; matTable(); toast('Saved'); })
+    Object.assign(m, { name: withColor(base, color), baseName: base, color: color, unit: unit, active: active, reorder: Number(reorder) || 0, saving: true }); closeModal(); matTable();
+    api('saveMaterial', S.token, { code: code, name: base, color: color, unit: unit, active: active, reorder: reorder === '' ? 0 : reorder }).then(function (r) { S.data.ml2 = r; matTable(); toast('Saved'); })
       .catch(function (e) { Object.assign(m, before, { saving: false }); matTable(); toast(e.message); });
   };
 }
@@ -1077,6 +1189,19 @@ function stdRate(code) {
     api('saveStandardRate', S.token, { item: code, rate: val('srR'), apply: apply, orderIds: ids, note: val('srN') }).then(function (r) { preload('itemList', r); closeModal(); toast('Standard rate saved'); go('items'); }).catch(function (e) { fail(e, $('srB')); });
   };
 }
+function profitCell(i) {
+  var r = S.data.il; if (!r.canProfit || !i.profit) return '';
+  var pr = i.profit;
+  if (pr.selling === null) return '<div style="margin-top:4px"><a class="lnk" style="font-size:12.5px" onclick="sellForm(\'' + q(i.code) + '\')">+ selling price</a></div>';
+  return '<div style="margin-top:4px;font-size:13px">Sell <a class="lnk" onclick="sellForm(\'' + q(i.code) + '\')">' + money(pr.selling) + '</a> · ' +
+    (pr.margin === null ? '<span class="muted">margin –</span>' : '<b class="' + (pr.low || pr.margin < 0 ? 'neg' : 'pos') + '">' + (pr.margin < 0 ? 'loss ' : 'profit ') + money(pr.margin) + ' (' + pr.pct + '%)</b>') +
+    (pr.incomplete ? ' <span class="muted">(some prices missing)</span>' : '') + '</div>';
+}
+function sellForm(code) {
+  var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
+  modal('Selling price · ' + code, '<div class="kv"><div>Cost per piece</div><div><b>' + (i.cost.total === null ? '–' : money(i.cost.total)) + '</b></div></div><label class="f">Selling price per piece</label><input id="spP" type="number" step="any" inputmode="decimal" value="' + (i.profit.selling === null ? '' : i.profit.selling) + '"><div class="muted">Only the owner, admins and staff with the profit permission see this.</div><button class="btn block" id="spB">Save</button>');
+  $('spB').onclick = function () { busy(this, true); api('saveSellingPrice', S.token, code, val('spP')).then(function (r) { S.data.il = r; closeModal(); itemTable(); toast('Saved'); }).catch(function (e) { fail(e, $('spB')); }); };
+}
 function costCell(c, onclick) {
   if (c.noBom) return '<span class="pill warn">No BOM</span>';
   return '<a class="lnk" onclick="' + onclick + '">' + (c.total === null ? '–' : money(c.total)) + '</a><div class="muted">material ' + money(c.material) + (c.labour !== null ? ' + labour ' + money(c.labour) : '') + '</div>' +
@@ -1101,18 +1226,169 @@ function costPrice(matCode) { var item = S.costOpen; matPrice(matCode); S.costOp
 function srSel() { $('srLots').style.display = document.querySelector('input[name=srA]:checked').value === 'selected' ? 'block' : 'none'; }
 function bomForm(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
-  modal('Material per piece · ' + code, '<div class="muted" style="margin-bottom:8px">How much of each material one piece uses. Used to check every karigar\'s material (no wastage allowed).</div><div class="lines" id="bomLines"></div><button class="btn sec sm" onclick="addBomLine()">+ Add material</button><button class="btn block" id="bomB">Save</button>');
+  var others = S.data.il.list.filter(function (x) { return x.code !== code && x.bom.length; });
+  modal('Material per piece · ' + code, '<div class="muted" style="margin-bottom:8px">How much of each material one piece uses. Used to check every karigar\'s material (no wastage allowed).</div>' +
+    (others.length ? '<div class="card" style="box-shadow:none;border:1px solid var(--line);padding:10px"><b>Copy from another item</b><div class="row" style="margin-top:6px"><select id="bcF"><option value="">Choose the item to copy…</option>' +
+      others.map(function (x) { return '<option value="' + esc(x.code) + '">' + esc(x.code) + ' (' + x.bom.length + ' materials)</option>'; }).join('') + '</select><button class="btn sec fix" onclick="bomCopy()">Copy</button></div>' +
+      '<div id="bcSwap" style="display:none;margin-top:8px"><b>Change the colour</b> <span class="muted">(materials that have the new colour are swapped)</span><div class="row" style="margin-top:6px"><select id="bcA"></select><span class="fix">→</span><select id="bcB"></select><button class="btn sec fix" onclick="bomSwap()">Swap</button></div></div></div>' : '') +
+    '<div class="lines" id="bomLines"></div><button class="btn sec sm" onclick="addBomLine()">+ Add material</button><button class="btn block" id="bomB">Save</button>');
   (i.bom.length ? i.bom : [{}]).forEach(function (b) { addBomLine(b.material, b.qty); });
   $('bomB').onclick = function () {
     var lines = Array.prototype.map.call(document.querySelectorAll('#bomLines .ln'), function (ln) { return { material: ln.children[0].value, qty: Number(ln.children[1].value) }; });
     busy(this, true); api('saveBom', S.token, code, lines).then(function (r) { preload('itemList', r); closeModal(); go('items'); }).catch(function (e) { fail(e, $('bomB')); });
   };
 }
+function bomRows() { return Array.prototype.slice.call(document.querySelectorAll('#bomLines .ln')); }
+function bomCopy() {
+  var src = S.data.il.list.filter(function (x) { return x.code === val('bcF'); })[0];
+  if (!src) return toast('Choose the item to copy.');
+  bomRows().forEach(function (ln) { ln.remove(); });
+  src.bom.forEach(function (b) { addBomLine(b.material, b.qty); });
+  var mats = {}; S.data.il.materials.forEach(function (m) { mats[m.code] = m; });
+  var have = []; src.bom.forEach(function (b) { var c = matParts(mats[b.material] || { name: '' }).color; if (c && have.indexOf(c) < 0) have.push(c); });
+  var all = []; S.data.il.materials.forEach(function (m) { var c = matParts(m).color; if (c && all.indexOf(c) < 0) all.push(c); });
+  $('bcA').innerHTML = have.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+  $('bcB').innerHTML = '<option value="">New colour…</option>' + all.map(function (c) { return '<option>' + esc(c) + '</option>'; }).join('');
+  $('bcSwap').style.display = have.length ? 'block' : 'none';
+  toast('Copied ' + src.bom.length + ' materials from ' + src.code + '. Change what differs, then Save.');
+}
+function bomSwap() {
+  var from = val('bcA'), to = val('bcB');
+  if (!from || !to) return toast('Choose the new colour.');
+  var mats = S.data.il.materials, done = 0, missing = [];
+  bomRows().forEach(function (ln) {
+    var m = mats.filter(function (x) { return x.code === ln.children[0].value; })[0]; if (!m) return;
+    var p = matParts(m); if (p.color.toLowerCase() !== from.toLowerCase()) return;
+    var twin = mats.filter(function (x) { var t = matParts(x); return t.base.toLowerCase() === p.base.toLowerCase() && t.color.toLowerCase() === to.toLowerCase(); })[0];
+    if (twin) { ln.children[0].value = twin.code; ln.style.background = '#ecfdf5'; done++; } else { missing.push(p.base); ln.style.background = '#fff7ed'; }
+  });
+  toast(done + ' swapped to ' + to + (missing.length ? '. No ' + to + ' version of: ' + missing.join(', ') + ' (marked orange: add it in Materials or pick another)' : ''));
+}
 function addBomLine(mat, qty) {
   var div = document.createElement('div'); div.className = 'ln claim';
   div.innerHTML = '<select><option value="">Material…</option>' + S.data.il.materials.map(function (m) { return '<option value="' + esc(m.code) + '"' + (m.code === mat ? ' selected' : '') + '>' + esc(m.name) + ' (' + esc(m.unit) + ')</option>'; }).join('') + '</select><input type="number" step="any" inputmode="decimal" placeholder="Per piece" value="' + (qty || '') + '"><button class="x" onclick="this.parentNode.remove()">×</button>';
   $('bomLines').appendChild(div);
 }
+
+/* Stock-take: count what is physically with the karigar. The expected figure is not shown (blind count). */
+function takeForm(kid) {
+  var rows = S.data.mb.list.filter(function (b) { return b.karigarId === kid; });
+  modal('Stock-take · ' + rows[0].karigar, '<div class="msg info">Count what is with the karigar now and enter it. The app compares it with what it expects and alerts the owner if anything is short. Nothing is cut from pay.</div>' +
+    '<div class="lines"><div class="ln claim hdr"><div>Material</div><div>Counted</div><div></div></div>' + rows.map(function (b) {
+      return '<div class="ln claim tk" data-m="' + esc(b.material) + '"><div>' + esc(b.materialName) + ' <span class="muted">(' + esc(b.unit) + ')</span></div><input type="number" step="any" inputmode="decimal" placeholder="count"><div></div></div>';
+    }).join('') + '</div><label class="f">Note</label><input id="tkN"><button class="btn block" id="tkB">Save stock-take</button>');
+  $('tkB').onclick = function () {
+    var lines = Array.prototype.map.call(document.querySelectorAll('.ln.tk'), function (ln) { return { material: ln.dataset.m, counted: ln.querySelector('input').value }; }).filter(function (l) { return l.counted !== ''; });
+    busy(this, true);
+    api('stockTake', S.token, { karigarId: kid, lines: lines, note: val('tkN') }).then(function (r) {
+      preload('materialBalance', r);
+      var res = r.list.filter(function (b) { return b.karigarId === kid && b.lastTake && lines.some(function (l) { return l.material === b.material; }); });
+      var short = res.filter(function (b) { return b.lastTake.diff < -0.0005; });
+      modal('Stock-take saved', '<div class="msg ' + (short.length ? 'err' : 'ok') + '">' + (short.length ? short.length + ' material(s) short. The owner has been alerted.' : res.some(function (b) { return b.lastTake.diff > 0.0005; }) ? 'No shortage (some material is more than expected: check the issues were all entered).' : 'Everything matched.') + '</div>' +
+        '<table class="tbl"><tr><th>Material</th><th class="r">Expected</th><th class="r">Counted</th><th class="r">Difference</th></tr>' + res.map(function (b) {
+          var t = b.lastTake; return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(t.expected) + '</td><td class="r">' + num(t.counted) + '</td><td class="r ' + (t.diff < -0.0005 ? 'neg' : '') + '"><b>' + num(t.diff) + '</b> ' + esc(b.unit) + '</td></tr>';
+        }).join('') + '</table><button class="btn block" onclick="closeModalByUser();go(\'balance\')">OK</button>');
+    }).catch(function (e) { fail(e, $('tkB')); });
+  };
+}
+
+/* ---------- raw material store: opening stock, purchase bills ---------- */
+VIEWS.store = function (tab) {
+  tab = tab || 'stock';
+  load('storeView', S.token).then(function (r) {
+    S.data.st = r;
+    var low = r.list.filter(function (x) { return x.low || x.negative; }).length;
+    render('<h1 class="page">🏬 Store & bills <small>opening stock + purchase bills − issued to karigars</small></h1>' +
+      '<div class="tabs"><a class="' + (tab === 'stock' ? 'on' : '') + '" onclick="go(\'store\',\'stock\')">Stock</a><a class="' + (tab === 'bills' ? 'on' : '') + '" onclick="go(\'store\',\'bills\')">Purchase bills</a></div>' +
+      '<div class="tiles"><div class="tile"><div class="l">Stock value</div><div class="n">' + money(r.stockValue) + '</div></div><div class="tile ' + (low ? 'err' : 'ok') + '"><div class="l">Low / short</div><div class="n">' + low + '</div></div>' +
+      '<div class="tile info"><div class="l">Bought this month</div><div class="n">' + money(r.monthPurchases) + '</div></div><div class="tile"><div class="l">Bilty / loading this month</div><div class="n">' + money(r.monthCharges) + '</div></div></div>' +
+      (tab === 'stock' ? storeStock(r) : storeBills(r)));
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function storeStock(r) {
+  var list = r.list.filter(function (x) { return x.active || x.tracked; });
+  var row = function (x) {
+    var st = !x.tracked ? '<span class="pill">no opening stock yet</span>' : x.negative ? '<span class="pill err">more issued than in store</span>' : x.low ? '<span class="pill err">low: reorder</span>' : '';
+    return { st: st, btn: r.canEdit ? '<button class="btn sec sm" onclick="openingForm(\'' + q(x.code) + '\')">' + (x.tracked ? 'Opening stock' : 'Set opening stock') + '</button>' : '' };
+  };
+  return '<div class="card"><div class="muted">Start by entering each material\'s <b>opening stock</b> (what is in the store today). From then on every purchase bill adds to it and every issue to a karigar takes from it.</div></div>' +
+    '<div class="card scroll"><div class="only-desk"><table class="tbl"><tr><th>Material</th><th class="r">Opening</th><th class="r">Purchased</th><th class="r">Issued</th><th class="r">In store</th><th class="r">Reorder at</th><th class="r">Value</th><th></th><th></th></tr>' +
+    list.map(function (x) { var w = row(x);
+      return '<tr><td><b>' + esc(x.name) + '</b></td><td class="r">' + (x.tracked ? num(x.opening) : '–') + '</td><td class="r">' + num(x.purchased) + '</td><td class="r">' + num(x.issued) + '</td>' +
+        '<td class="r ' + (x.negative || x.low ? 'neg' : '') + '"><b>' + (x.tracked ? num(x.inStore) : '–') + '</b> ' + esc(x.unit) + '</td><td class="r">' + (x.reorder ? num(x.reorder) : '') + '</td><td class="r">' + (x.tracked && x.value !== null ? money(x.value) : '') + '</td><td>' + w.st + '</td><td>' + w.btn + '</td></tr>';
+    }).join('') + '</table></div><div class="only-phone">' + list.map(function (x) { var w = row(x);
+      return '<div class="mcard"><div class="mtop"><b>' + esc(x.name) + '</b><span class="cost ' + (x.negative || x.low ? 'neg' : '') + '">' + (x.tracked ? num(x.inStore) : '–') + ' <span class="muted" style="font-weight:600">' + esc(x.unit) + '</span></span></div>' +
+        '<div class="muted">opening ' + (x.tracked ? num(x.opening) : '–') + ' + bought ' + num(x.purchased) + ' − issued ' + num(x.issued) + (x.reorder ? ' · reorder at ' + num(x.reorder) : '') + '</div><div style="margin-top:6px">' + w.st + ' ' + w.btn + '</div></div>';
+    }).join('') + '</div></div>';
+}
+function openingForm(code) {
+  var x = S.data.st.list.filter(function (y) { return y.code === code; })[0];
+  modal('Opening stock · ' + x.name, '<div class="muted">What is in the store <b>today</b>, in ' + esc(x.unit) + '. Purchase bills entered from now on are added to it.</div>' +
+    (x.perPurchase && x.purchaseType && x.purchaseType !== 'UNIT' ? '<div class="row" style="margin-top:8px"><input id="osP" type="number" step="any" inputmode="decimal" placeholder="Number of ' + esc(x.purchaseUnit) + 's" oninput="document.getElementById(\'osQ\').value=Math.round(this.value*' + x.perPurchase + '*1000)/1000"><span class="fix muted">× ' + num(x.perPurchase) + ' ' + esc(x.unit) + ' =</span></div>' : '') +
+    '<label class="f">Stock in ' + esc(x.unit) + '</label><input id="osQ" type="number" step="any" inputmode="decimal" value="' + (x.tracked ? x.opening : '') + '"><label class="f">Note</label><input id="osN" placeholder="e.g. counted on 6 Nov"><button class="btn block" id="osB">Save</button>');
+  $('osB').onclick = function () { busy(this, true); api('setOpeningStock', S.token, code, val('osQ'), val('osN')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
+}
+function storeBills(r) {
+  return (r.canEdit ? '<div class="card"><button class="btn" onclick="billForm()">+ New purchase bill</button></div>' : '') +
+    '<div class="card"><div class="list">' + (r.bills.map(function (b) {
+      return '<div class="it"><div class="grow"><b>' + esc(b.supplier || 'Supplier') + '</b>' + (b.billNo ? ' · bill ' + esc(b.billNo) : '') + ' <span class="muted">' + b.id + ' · ' + d(b.date) + '</span>' +
+        '<div class="muted">' + b.lines.map(function (l) { return esc(l.name) + ' ' + num(l.qty) + ' ' + esc(l.purchaseUnit) + ' @ ' + money(l.price); }).join(' · ') + '</div>' +
+        (b.charges ? '<div class="muted">+ ' + esc(b.chargesNote || 'Bilty / loading / unloading') + ' ' + money(b.charges) + '</div>' : '') + (b.edited ? '<div class="muted">edited ' + esc(b.edited.split('\n').pop()) + '</div>' : '') + '</div>' +
+        '<div style="text-align:right"><b>' + money(b.total) + '</b>' + (r.canEdit ? '<div style="margin-top:6px"><button class="btn sec sm" onclick="billForm(\'' + b.id + '\')">Edit</button></div>' : '') + '</div></div>';
+    }).join('') || '<div class="muted">No bills yet.</div>') + '</div></div>';
+}
+function billForm(id) {
+  var b = id ? S.data.st.bills.filter(function (x) { return x.id === id; })[0] : null;
+  var t = new Date(), ds = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
+  modal(b ? 'Edit bill ' + b.id : 'New purchase bill',
+    '<div class="row"><div><label class="f">Date</label><input id="bfD" type="date" value="' + (b ? b.date : ds) + '"></div><div><label class="f">Bill no.</label><input id="bfN" value="' + esc(b ? b.billNo : '') + '"></div></div>' +
+    '<label class="f">Supplier</label><input id="bfS" value="' + esc(b ? b.supplier : '') + '">' +
+    '<label class="f">Materials bought</label><div class="lines"><div class="ln bill hdr"><div>Material</div><div>Qty bought</div><div>Price each</div><div></div></div><div id="bfL"></div></div><button class="btn sec sm" onclick="billLine()">+ Add material</button>' +
+    '<label class="f">Bilty / loading / unloading charges (not part of any material\'s price)</label><div class="row"><input id="bfC" type="number" step="any" inputmode="decimal" value="' + (b && b.charges ? b.charges : '') + '" placeholder="₹" oninput="billSum()"><input id="bfCN" value="' + esc(b ? b.chargesNote : 'Bilty / loading / unloading') + '"></div>' +
+    '<label class="f">Note</label><input id="bfNote" value="' + esc(b ? b.note : '') + '"><div class="msg info" id="bfT" style="margin-top:10px"></div><button class="btn block" id="bfB">Save bill</button>' +
+    '<div class="muted" style="margin-top:6px">The quantity and price are per the unit you buy in (roll, kg, pack …, as set in Materials → Price). The newest bill also becomes the material\'s price.</div>');
+  (b ? b.lines : [{}]).forEach(function (l) { billLine(l.material, l.qty, l.price); });
+  billSum();
+  $('bfB').onclick = function () {
+    var lines = Array.prototype.map.call(document.querySelectorAll('#bfL .ln'), function (ln) { return { material: ln.children[0].value, qty: ln.children[1].value, price: ln.children[2].value }; }).filter(function (l) { return l.material; });
+    busy(this, true);
+    api('saveBill', S.token, { id: id || '', date: val('bfD'), billNo: val('bfN'), supplier: val('bfS'), lines: lines, charges: val('bfC'), chargesNote: val('bfCN'), note: val('bfNote') })
+      .then(function (r) { preload('storeView', r); closeModal(); toast(id ? 'Bill saved' : 'Bill added'); go('store', 'bills'); }).catch(function (e) { fail(e, $('bfB')); });
+  };
+}
+function billLine(mat, qty, price) {
+  var div = document.createElement('div'); div.className = 'ln bill';
+  div.innerHTML = '<select onchange="billUnit(this)"><option value="">Material…</option>' + S.data.st.list.filter(function (m) { return m.active || m.code === mat; }).map(function (m) {
+    return '<option value="' + esc(m.code) + '"' + (m.code === mat ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select>' +
+    '<input type="number" step="any" inputmode="decimal" placeholder="Qty" value="' + (qty || '') + '" oninput="billSum()"><input type="number" step="any" inputmode="decimal" placeholder="₹" value="' + (price !== undefined ? price : '') + '" oninput="billSum()">' +
+    '<button class="x" onclick="this.parentNode.remove();billSum()">×</button><div class="muted bu" style="grid-column:1/-1;margin-top:-4px"></div>';
+  $('bfL').appendChild(div); billUnit(div.children[0], price === undefined);
+}
+function billUnit(sel, fillPrice) {
+  var m = S.data.st.list.filter(function (x) { return x.code === sel.value; })[0], ln = sel.parentNode;
+  if (!m) { ln.querySelector('.bu').textContent = ''; return billSum(); }
+  var pu = m.purchaseType && m.purchaseType !== 'UNIT' ? m.purchaseUnit : m.unit;
+  ln.querySelector('.bu').textContent = 'Qty in ' + pu + 's' + (m.purchaseType && m.purchaseType !== 'UNIT' ? ' (1 ' + pu + ' = ' + num(m.perPurchase) + ' ' + m.unit + ')' : '') + (m.price !== null ? ' · last price ' + money(m.price) + ' / ' + pu : '');
+  if (fillPrice !== false && m.price !== null && !ln.children[2].value) ln.children[2].value = m.price;
+  billSum();
+}
+function billSum() {
+  var items = 0;
+  Array.prototype.forEach.call(document.querySelectorAll('#bfL .ln'), function (ln) { items += (Number(ln.children[1].value) || 0) * (Number(ln.children[2].value) || 0); });
+  var c = Number(val('bfC')) || 0, o = $('bfT');
+  if (o) o.innerHTML = 'Materials ' + money(Math.round(items * 100) / 100) + ' + charges ' + money(c) + ' = <b>' + money(Math.round((items + c) * 100) / 100) + '</b>';
+}
+
+/* ---------- alerts ---------- */
+VIEWS.alerts = function () {
+  api('alertList', S.token).then(function (r) {
+    var icon = { COUNT_DIFFERS: '🔢', MATERIAL_SHORT: '🧰', LARGE_ADVANCE: '🤝', BATCH_CORRECTED: '✏️', STOCK_TAKE: '📋', LOW_STOCK: '🏬' };
+    render('<h1 class="page">🔔 Alerts <small>also sent by e-mail to staff who have an e-mail address and the alerts permission</small></h1><div class="card"><div class="list">' +
+      (r.map(function (a) { return '<div class="it" style="' + (a.unread ? 'background:#fff7ed;' : '') + '"><div style="font-size:20px">' + (icon[a.type] || '🔔') + '</div><div class="grow"><b>' + esc(a.title) + '</b>' + (a.unread ? ' <span class="pill err">new</span>' : '') + '<div>' + esc(a.text) + '</div><div class="muted">' + esc(a.at) + '</div></div></div>'; }).join('') ||
+        '<div class="muted">No alerts yet.</div>') + '</div></div>');
+    api('alertsSeen', S.token).then(function () { bell(0); $('side').innerHTML = navHtml(); $('drawerNav').innerHTML = navHtml(); });
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
 
 /* ---------- staff & log (super admin) ---------- */
 VIEWS.staff = function () {
@@ -1130,6 +1406,7 @@ function staffForm(id) {
   modal(id ? 'Edit ' + id : 'Add staff',
     (id ? '' : '<label class="f">ID</label><input id="sfI" placeholder="e.g. S005"><label class="f">PIN</label><input id="sfP" inputmode="numeric">') +
     '<label class="f">Name</label><input id="sfN" value="' + esc(s.name || '') + '"><label class="f">Phone</label><input id="sfPh" value="' + esc(s.phone || '') + '">' +
+    '<label class="f">E-mail (for alerts)</label><input id="sfE" type="email" value="' + esc(s.email || '') + '" placeholder="alerts are e-mailed here (super admins and staff with alerts)">' +
     '<label class="f">Role</label><select id="sfR"><option value="ADMIN">Staff (chosen permissions)</option><option value="SUPER"' + (s.role === 'SUPER' ? ' selected' : '') + '>Super admin (everything)</option></select>' +
     '<label class="f">Permissions</label>' + Object.keys(S.data.sl.perms).map(function (p) { return '<div class="chk"><input type="checkbox" class="sfC" value="' + p + '"' + (s.perms.indexOf(p) >= 0 ? ' checked' : '') + '> ' + esc(S.data.sl.perms[p]) + '</div>'; }).join('') +
     (id ? '<div class="chk"><input type="checkbox" id="sfA"' + (s.active ? ' checked' : '') + '> Active</div><h3>Reset PIN</h3><div class="row"><input id="sfRp" inputmode="numeric" placeholder="New PIN"><button class="btn sec fix" id="sfRb">Reset</button></div>' : '') +
@@ -1137,7 +1414,7 @@ function staffForm(id) {
   $('sfB').onclick = function () {
     var perms = Array.prototype.filter.call(document.querySelectorAll('.sfC'), function (c) { return c.checked; }).map(function (c) { return c.value; });
     busy(this, true);
-    api('saveStaff', S.token, { id: id, newId: val('sfI'), pin: val('sfP'), name: val('sfN'), phone: val('sfPh'), role: val('sfR'), perms: perms, active: id ? $('sfA').checked : true })
+    api('saveStaff', S.token, { id: id, newId: val('sfI'), pin: val('sfP'), name: val('sfN'), phone: val('sfPh'), email: val('sfE'), role: val('sfR'), perms: perms, active: id ? $('sfA').checked : true })
       .then(function () { closeModal(); go('staff'); }).catch(function (e) { fail(e, $('sfB')); });
   };
   if ($('sfRb')) $('sfRb').onclick = function () { api('resetPin', S.token, id, val('sfRp')).then(function () { toast('PIN reset'); }).catch(function (e) { toast(e.message); }); };
@@ -1161,7 +1438,7 @@ VIEWS.log = function () {
     return;
   }
   $('app').innerHTML = '<div class="login"><div class="card" style="text-align:center;padding:30px"><span class="spinner dark"></span></div></div>';
-  api('getHome', S.token).then(function (r) { S.profile = r.profile; start(); }).catch(function (e) { loginView(e.message === 'Please log in again.' ? '' : e.message); });
+  api('getHome', S.token).then(function (r) { S.profile = r.profile; S.unread = r.unread || 0; start(); }).catch(function (e) { loginView(e.message === 'Please log in again.' ? '' : e.message); });
 })();
 </script>
 </body>

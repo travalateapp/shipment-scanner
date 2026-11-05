@@ -31,19 +31,23 @@ const SHEET = {
   ADV_PERIODS: 'Advance Periods',
   PAY: 'Payroll',
   LOG: 'Change Log',
+  STORE: 'Store Stock',
+  BILLS: 'Purchase Bills',
+  TAKES: 'Stock Takes',
+  ALERTS: 'Alerts',
 };
 
 const HEADERS = {};
 HEADERS[SHEET.SETTINGS] = ['Setting', 'Value', 'Notes'];
 HEADERS[SHEET.KARIGARS] = ['ID', 'Name', 'Phone', 'PIN', 'Active', 'Joined', 'Note'];
-HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Active'];
-HEADERS[SHEET.ITEMS] = ['Code', 'Name', 'Type', 'Active'];
+HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Active', 'Email'];
+HEADERS[SHEET.ITEMS] = ['Code', 'Name', 'Type', 'Active', 'Selling Price'];
 // Karigar ID * = the STANDARD rate (all karigars). A karigar ID = that karigar's own rate for future lots; Rate STD = back to standard.
 HEADERS[SHEET.RATES] = ['Karigar ID', 'Item Code', 'Rate', 'From Date', 'Set By', 'Set At', 'Note'];
 // Unit = the unit the BOM uses (sq m, inch, pcs …). The price is entered as bought (a roll, a kg, a pack) with how many
 // units one purchase gives: cost per unit = Purchase Price ÷ Units Per Purchase.
 HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase',
-  'Conversion', 'Price Date'];
+  'Conversion', 'Price Date', 'Color', 'Reorder Level'];
 HEADERS[SHEET.PRICES] = ['Material Code', 'Date', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase', 'Conversion',
   'Cost Per Unit', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
@@ -59,6 +63,12 @@ HEADERS[SHEET.ADV_PERIODS] = ['Advance ID', 'Karigar ID', 'Period', 'Amount', 'N
 HEADERS[SHEET.PAY] = ['Period', 'Karigar ID', 'Name', 'Earned', 'Advance', 'Net', 'Status', 'Approved By', 'Approved At',
   'Paid Date', 'Paid By', 'Details'];
 HEADERS[SHEET.LOG] = ['At', 'By', 'Action', 'Ref', 'Details'];
+// Store: the opening stock of each material (the stock you had before purchase bills were entered).
+HEADERS[SHEET.STORE] = ['Material Code', 'Opening Qty', 'Date', 'Note', 'By', 'At'];
+// Purchase bills: Lines = [{ material, qty (bought, in its purchase unit), price (per purchase unit), units (BOM units), amount }].
+HEADERS[SHEET.BILLS] = ['ID', 'Date', 'Supplier', 'Bill No', 'Lines', 'Items Total', 'Charges', 'Charges Note', 'Total', 'Note', 'By', 'At', 'Edited'];
+HEADERS[SHEET.TAKES] = ['ID', 'Date', 'Karigar ID', 'Material Code', 'Expected', 'Counted', 'Difference', 'Note', 'By', 'At'];
+HEADERS[SHEET.ALERTS] = ['ID', 'At', 'Type', 'Text', 'Ref'];
 
 const DEFAULT_SETTINGS = [
   ['Company', 'Travalate', 'Shown on the login screen and payslips'],
@@ -70,6 +80,8 @@ const DEFAULT_SETTINGS = [
   ['Photo Folder ID', '', 'Filled in by setup'],
   ['Inventory Last Sync', '', 'Filled in by the app'],
   ['Units', '', 'Extra units for materials, added by a super admin (comma-separated)'],
+  ['Large Advance Alert', 10000, 'An alert is sent when one advance (or a top-up) is this amount or more'],
+  ['Low Margin %', 20, 'Items whose profit margin is below this are marked'],
 ];
 
 /* Permissions a super admin can give to staff. */
@@ -82,6 +94,9 @@ const PERMS = {
   advances: 'Give advances and set deductions',
   masters: 'Karigars, items, materials, rates',
   reports: 'Dashboard, batches, material balance, payroll (view)',
+  store: 'Raw material store: opening stock and purchase bills',
+  alerts: 'Receive alerts (counts differ, material short, big advances …)',
+  profit: 'See selling prices and profit per item',
 };
 
 /* ------------------------------------------------------------------ */
@@ -102,7 +117,8 @@ function doGet(e) {
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome,
   myWork, myPayslip, submitHandover,
-  adminDashboard, countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
+  adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, stockTake, saveSellingPrice, saveOrders,
+  countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
@@ -309,7 +325,7 @@ function writePin_(u, pin) {
 /** Home for anyone: karigars get their period so far; staff get the dashboard. */
 function getHome(token) {
   const u = auth_(token);
-  if (u.kind === 'S') return { profile: profile_(u) };
+  if (u.kind === 'S') return { profile: profile_(u), unread: canAlerts_(u) ? unreadAlerts_(u) : 0 };
   const per = periodOf_(todayStr_());
   const pay = payFor_(u, per);
   const balances = materialBalances_().filter(b => b.karigarId === u.id && Math.abs(b.balance) > 1e-9);
@@ -445,6 +461,7 @@ function saveCount(token, batchId, data) {
     }
     if (b.status !== 'COUNT2') throw new Error('This batch is not waiting for a count.');
     if (b.count1By === u.id) throw new Error('Count 2 must be done by a different person.');
+    const balancesBefore = materialBalances_().filter(x => x.karigarId === b.karigarId);
     sh.getRange(b.row, 10, 1, 3).setValues([[u.id, nowStr_(), JSON.stringify(lines)]]);
     const differs = mismatchItems_(Object.assign({}, b, { count2: lines }));
     const today = todayStr_();
@@ -453,9 +470,13 @@ function saveCount(token, batchId, data) {
     forget_('batches');
     writeLines_(Object.assign({}, b, { finalDate: today }), lines);
     log_(u, 'COUNT_2_FINAL', b.id, linesText_(lines) + (differs.length ? ' | count 1 was different on: ' + differs.join(', ') + ' (count 1: ' + linesText_(b.count1) + ')' : ''));
-    return { status: 'LOCKED', differs: differs };
+    if (differs.length) alert_('COUNT_DIFFERS', b.id + ' (' + (karigarNames_()[b.karigarId] || b.karigarId) + '): count 1 ≠ final count on ' + differs.join(', ') +
+      '. Count 1 by ' + staffName_(b.count1By) + ': ' + linesText_(b.count1) + ' · final by ' + u.name + ': ' + linesText_(lines), b.id);
+    return { status: 'LOCKED', differs: differs, karigarId: b.karigarId, balancesBefore: balancesBefore };
   });
   if (res.status === 'LOCKED') {
+    negativeMaterialAlerts_(res.karigarId, res.balancesBefore);
+    delete res.balancesBefore;
     const b = readBatches_().filter(x => x.id === batchId)[0];
     res.inventory = pushBatch_(b, u.name);
     pushInProduction_();
@@ -487,6 +508,7 @@ function correctBatch(token, batchId, data) {
     forget_('batches');
   });
   log_(u, 'CORRECT_BATCH', b.id, before + ' → ' + linesText_(lines) + ' | ' + reason);
+  alert_('BATCH_CORRECTED', b.id + ' (' + (karigarNames_()[b.karigarId] || b.karigarId) + ') was changed after it was locked by ' + u.name + ': ' + before + ' → ' + linesText_(lines) + '. Reason: ' + reason, b.id);
   const nb = readBatches_().filter(x => x.id === batchId)[0];
   const inv = pushBatch_(nb, u.name);
   pushInProduction_();
@@ -769,7 +791,9 @@ function saveMove(token, data) {
   const lines = (data.lines || []).filter(l => l.material && Number(l.qty) > 0);
   if (!lines.length) throw new Error('Add at least one material with its quantity.');
   lines.forEach(l => { if (!mats[l.material]) throw new Error('Unknown material: ' + l.material); });
+  const before = storeStockMap_();
   addMoves_(u, k, lines, String(data.note || 'Extra material').slice(0, 200), '');
+  lowStockAlerts_(before);
   return moveList(token);
 }
 
@@ -859,8 +883,11 @@ function materialBalances_() {
 }
 
 function materialBalance(token) {
-  authStaff_(token, 'reports|issue|confirm');
-  return { list: materialBalances_() };
+  const u = authStaff_(token, 'reports|issue|confirm|store');
+  const last = {};
+  readTakes_().forEach(t => { last[t.karigarId + '|' + t.material] = t; });
+  return { list: materialBalances_().map(b => Object.assign({}, b, { lastTake: last[b.karigarId + '|' + b.material] || null })),
+    canTake: can_(u, 'issue') || can_(u, 'confirm') || can_(u, 'store') };
 }
 
 /* ------------------------------------------------------------------ */
@@ -916,37 +943,69 @@ function orderList(token, all) {
  * karigar's own rate, else the standard rate. A later standard rate change asks which running lots it applies to.
  */
 function saveOrder(token, data) {
+  data = data || {};
+  const r = saveOrders(token, { karigarId: data.karigarId, note: data.note, lines: [{ item: data.item, qty: data.qty, lotRate: data.lotRate, futureToo: data.futureToo }] });
+  r.added = r.added[0]; // one lot: same answer as before
+  return r;
+}
+
+/**
+ * One karigar, several items at once: data = { karigarId, note, lines: [{ item, qty, lotRate, futureToo }] }.
+ * Each line becomes its own lot (work order) with its own rate; the material of every lot is issued with it.
+ * Returns the work orders and added = [{ id, item, qty, issued, short }] (short = not enough in the store).
+ */
+function saveOrders(token, data) {
   const u = authStaff_(token, 'orders');
   data = data || {};
   const k = readKarigars_().filter(x => x.id === String(data.karigarId || '').toUpperCase() && x.active)[0];
   if (!k) throw new Error('Choose the karigar.');
-  if (!itemMap_()[data.item]) throw new Error('Choose the item.');
-  const qty = Number(data.qty);
-  if (!(qty > 0) || qty % 1) throw new Error('Enter the quantity.');
-  const special = data.lotRate !== '' && data.lotRate !== null && data.lotRate !== undefined;
-  if (special && !can_(u, 'masters')) throw new Error('Only staff with the "masters" permission can set a special rate.');
-  if (special && !(Number(data.lotRate) >= 0)) throw new Error('Enter a valid special rate.');
+  const lines = (data.lines || []).filter(l => l && (l.item || l.qty));
+  if (!lines.length) throw new Error('Add at least one item with its quantity.');
+  lines.forEach(l => {
+    if (!itemMap_()[l.item]) throw new Error('Choose the item on every line.');
+    const q = Number(l.qty);
+    if (!(q > 0) || q % 1) throw new Error('Enter the quantity for ' + l.item + '.');
+    if (l.lotRate !== '' && l.lotRate !== null && l.lotRate !== undefined) {
+      if (!can_(u, 'masters')) throw new Error('Only staff with the "masters" permission can set a special rate.');
+      if (!(Number(l.lotRate) >= 0)) throw new Error('Enter a valid special rate for ' + l.item + '.');
+    }
+  });
+  const storeBefore = storeStockMap_();
+  const added = lines.map(l => createOrder_(u, k, l, data.note));
+  // Store: what each lot needs against what is in the store (before these lots took it).
+  const need = {};
+  added.forEach(a => a.issueCodes.forEach(x => { need[x.material] = (need[x.material] || 0) + x.qty; }));
+  const mats = materialMap_();
+  const short = Object.keys(need).filter(c => storeBefore[c] && storeBefore[c].tracked && storeBefore[c].inStore + 1e-9 < need[c])
+    .map(c => ({ material: (mats[c] || {}).name || c, unit: (mats[c] || {}).unit || '', need: round3_(need[c]), inStore: round3_(storeBefore[c].inStore) }));
+  lowStockAlerts_(storeBefore);
+  pushInProduction_();
+  return Object.assign(orderList(token), { added: added.map(a => ({ id: a.id, item: a.item, qty: a.qty, issued: a.issued })), short: short });
+}
+
+function createOrder_(u, k, l, note) {
+  const qty = Number(l.qty);
+  const special = l.lotRate !== '' && l.lotRate !== null && l.lotRate !== undefined;
   const today = todayStr_();
-  const kr = karigarRateOn_(k.id, data.item, today), sr = standardRateOn_(data.item, today);
-  const rate = special ? Number(data.lotRate) : kr !== null ? kr : sr;
+  const kr = karigarRateOn_(k.id, l.item, today), sr = standardRateOn_(l.item, today);
+  const rate = special ? Number(l.lotRate) : kr !== null ? kr : sr;
   const source = special ? 'LOT' : kr !== null ? 'KARIGAR' : sr !== null ? 'STANDARD' : '';
   const id = withLock_(() => {
     const id = nextId_(SHEET.ORDERS, 'W-');
-    sheet_(SHEET.ORDERS).appendRow([id, "'" + today, k.id, data.item, qty, 'OPEN', String(data.note || '').slice(0, 200), u.id, nowStr_(),
+    sheet_(SHEET.ORDERS).appendRow([id, "'" + today, k.id, l.item, qty, 'OPEN', String(note || '').slice(0, 200), u.id, nowStr_(),
       rate === null ? '' : rate, source]);
     forget_('orders');
     return id;
   });
-  if (special && data.futureToo) addKarigarRate_(u, k, data.item, Number(data.lotRate), today, 'From lot ' + id);
+  if (special && l.futureToo) addKarigarRate_(u, k, l.item, Number(l.lotRate), today, 'From lot ' + id);
   // The lot's material (quantity × material per piece) is issued with it; a different person confirms the hand-over.
-  const issue = (bomMap_()[data.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * qty) }));
+  const issue = (bomMap_()[l.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * qty) }));
   addMoves_(u, k, issue, 'Work order ' + id, id);
-  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + data.item + ' × ' + qty + ' at ' + (rate === null ? 'no rate' : rate) +
-    (source ? ' (' + source.toLowerCase() + ')' : '') + (special && data.futureToo ? ', also for future lots' : ''));
-  pushInProduction_();
+  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + ' at ' + (rate === null ? 'no rate' : rate) +
+    (source ? ' (' + source.toLowerCase() + ')' : '') + (special && l.futureToo ? ', also for future lots' : ''));
   const mats = materialMap_();
-  return Object.assign(orderList(token), { added: { id: id, issued: issue.map(x => ({ material: (mats[x.material] || {}).name || x.material,
-    unit: (mats[x.material] || {}).unit || '', qty: x.qty })) } });
+  return { id: id, item: l.item, qty: qty, issueCodes: issue,
+    issued: issue.map(x => ({ material: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '', qty: x.qty })) };
 }
 
 /**
@@ -1173,6 +1232,7 @@ function saveAdvance(token, data) {
     String(data.note || '').slice(0, 200), u.id + ' ' + u.name, nowStr_(), '']);
   forget_('advances');
   log_(u, 'ADD_ADVANCE', k.id, id + ': amount ' + amount + ', per period ' + per + ', from ' + start);
+  if (amount >= getSettings_().largeAdvance) alert_('LARGE_ADVANCE', 'Advance of ' + getSettings_().currency + amount + ' given to ' + k.name + ' (' + k.id + ') by ' + u.name + (data.note ? ' · ' + data.note : ''), k.id);
   return advances(token);
 }
 
@@ -1190,6 +1250,7 @@ function topUpAdvance(token, id, data) {
   sh.getRange(a.row, 12).setValue(a.topUps.concat([line]).join('\n'));
   forget_('advances');
   log_(u, 'TOPUP_ADVANCE', a.karigarId, a.id + ': ' + a.amount + ' + ' + add);
+  if (add >= getSettings_().largeAdvance) alert_('LARGE_ADVANCE', 'Extra advance of ' + getSettings_().currency + add + ' given to ' + (karigarNames_()[a.karigarId] || a.karigarId) + ' by ' + u.name + ' (total now ' + getSettings_().currency + (a.amount + add) + ')', a.karigarId);
   return advances(token);
 }
 
@@ -1338,16 +1399,26 @@ function saveRate(token, data) {
   return rateList(token, k.id);
 }
 
+function profitOf_(i, cost) {
+  if (i.selling === null) return { selling: null };
+  const margin = cost.total === null ? null : round2_(i.selling - cost.total);
+  const pct = margin === null || !i.selling ? null : Math.round(margin / i.selling * 1000) / 10;
+  return { selling: i.selling, margin: margin, pct: pct, low: pct !== null && pct < getSettings_().lowMargin, incomplete: cost.missing.length > 0 };
+}
+
 function itemList(token) {
   const u = authStaff_(token, 'masters|reports|orders|count');
+  const canProfit = can_(u, 'profit');
   const bom = bomMap_(), today = todayStr_(), names = karigarNames_();
   const running = ordersWithProgress_().filter(o => o.open);
   return { list: readItems_().map(i => Object.assign({}, i, { bom: bom[i.code] || [], rate: standardRateOn_(i.code, today),
     rateHistory: readRates_().filter(r => r.karigarId === '*' && r.item === i.code).sort((a, b) => (a.from < b.from ? 1 : -1)),
     karigarRates: readKarigars_().map(k => ({ id: k.id, name: k.name, rate: karigarRateOn_(k.id, i.code, today) })).filter(x => x.rate !== null),
     running: running.filter(o => o.item === i.code).map(o => ({ id: o.id, karigar: names[o.karigarId] || o.karigarId, qty: o.qty, remaining: o.remaining,
-      rate: o.rate, rateSource: o.rateSource })), cost: pieceCost_(i.code) })),
-    materials: readMaterials_().map(m => Object.assign({}, m, { history: priceHistory_(m.code) })), canEdit: can_(u, 'masters') };
+      rate: o.rate, rateSource: o.rateSource })), cost: pieceCost_(i.code), selling: undefined,
+      profit: canProfit ? profitOf_(i, pieceCost_(i.code)) : undefined })),
+    materials: readMaterials_().map(m => Object.assign({}, m, { history: priceHistory_(m.code) })), canEdit: can_(u, 'masters'),
+    canProfit: canProfit, lowMargin: getSettings_().lowMargin };
 }
 
 /** data = { code, name, type: SKU|PART, active }. SKU codes must exist in the Inventory App's Master_SKU. */
@@ -1381,8 +1452,10 @@ function saveItem(token, data) {
 function saveMaterial(token, data) {
   const u = authStaff_(token, 'masters');
   data = data || {};
-  const name = String(data.name || '').trim();
-  if (!name) throw new Error('Enter the material name.');
+  const baseName = String(data.name || '').trim().replace(/\s+/g, ' ');
+  if (!baseName) throw new Error('Enter the material name.');
+  const color = String(data.color || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+  const name = withColor_(baseName, color);
   const unit = String(data.unit || '').trim();
   if (!unit) throw new Error('Choose the unit used per piece.');
   const all = readMaterials_();
@@ -1394,12 +1467,14 @@ function saveMaterial(token, data) {
     code = base;
     for (let n = 2; all.some(m => m.code === code); n++) code = base + '-' + n;
   }
-  const row = [code, name, unit, data.active !== false];
+  const row = [code, baseName, unit, data.active !== false];
+  const reorder = Number(data.reorder) > 0 ? Number(data.reorder) : (ex && data.reorder === undefined ? ex.reorder : 0);
   if (ex) {
     sheet_(SHEET.MATERIALS).getRange(ex.row, 1, 1, 4).setValues([row]);
+    sheet_(SHEET.MATERIALS).getRange(ex.row, 11, 1, 2).setValues([[color, reorder || '']]);
     // A roll gives sq m: if the unit is no longer sq m the old roll price cannot be used.
     if (ex.unit !== unit && ex.purchaseType === 'ROLL' && !/^sq\.? ?m/i.test(unit)) sheet_(SHEET.MATERIALS).getRange(ex.row, 5, 1, 6).setValues([['', '', '', '', '', '']]);
-  } else sheet_(SHEET.MATERIALS).appendRow(row);
+  } else sheet_(SHEET.MATERIALS).appendRow(row.concat(['', '', '', '', '', '', color, reorder || '']));
   forget_('materials');
   log_(u, ex ? 'EDIT_MATERIAL' : 'ADD_MATERIAL', code, ex ? [ex.name + ' → ' + name, ex.unit + ' → ' + unit, ex.active !== (data.active !== false) ? (data.active === false ? 'inactive' : 'active') : ''].filter(String).join(', ') : name + ' (' + unit + ')');
   return materialList(token);
@@ -1486,7 +1561,7 @@ function saveBom(token, item, lines) {
 function staffList(token) {
   const u = authStaff_(token, 'super');
   if (u.role !== 'SUPER') throw new Error('Only for super admins.');
-  return { list: readStaff_().map(s => ({ id: s.id, name: s.name, phone: s.phone, role: s.role, perms: permsOf_(s), active: s.active })), perms: PERMS };
+  return { list: readStaff_().map(s => ({ id: s.id, name: s.name, phone: s.phone, email: s.email, role: s.role, perms: permsOf_(s), active: s.active })), perms: PERMS };
 }
 
 /** data = { id (edit) | newId, name, phone, role, perms: [], active, pin (new) } */
@@ -1502,14 +1577,14 @@ function saveStaff(token, data) {
   if (ex) {
     if (ex.id === u.id && (role !== 'SUPER' || data.active === false)) throw new Error('You cannot remove your own super admin access.');
     sheet_(SHEET.STAFF).getRange(ex.row, 2, 1, 2).setValues([[name, String(data.phone || '')]]);
-    sheet_(SHEET.STAFF).getRange(ex.row, 5, 1, 3).setValues([[role, perms, data.active !== false]]);
+    sheet_(SHEET.STAFF).getRange(ex.row, 5, 1, 4).setValues([[role, perms, data.active !== false, String(data.email || '').trim()]]);
     log_(u, 'EDIT_STAFF', ex.id, role + ' ' + perms + (data.active === false ? ' inactive' : ''));
   } else {
     const id = String(data.newId || '').trim().toUpperCase();
     if (!/^[A-Z0-9-]{2,12}$/.test(id)) throw new Error('Enter an ID (letters, digits and -, 2 to 12).');
     if (findUser_(id)) throw new Error('The ID ' + id + ' is already used.');
     if (!/^\d{4,8}$/.test(String(data.pin || ''))) throw new Error('The PIN must be 4 to 8 digits.');
-    sheet_(SHEET.STAFF).appendRow([id, name, String(data.phone || ''), hashPin_(String(data.pin)), role, perms, true]);
+    sheet_(SHEET.STAFF).appendRow([id, name, String(data.phone || ''), hashPin_(String(data.pin)), role, perms, true, String(data.email || '').trim()]);
     log_(u, 'ADD_STAFF', id, name + ' ' + role + ' ' + perms);
   }
   forget_('staff');
@@ -1520,6 +1595,258 @@ function changeLog(token, ref) {
   const u = authStaff_(token, 'super');
   if (u.role !== 'SUPER') throw new Error('Only for super admins.');
   return readLog_().filter(l => !ref || l.ref.indexOf(ref) >= 0 || l.details.indexOf(ref) >= 0).slice(-500).reverse();
+}
+
+/* ------------------------------------------------------------------ */
+/* Alerts (owner, admins and staff with the "alerts" permission)        */
+/* ------------------------------------------------------------------ */
+
+function canAlerts_(u) { return u.kind === 'S' && (u.role === 'SUPER' || permsOf_(u).indexOf('alerts') >= 0); }
+
+/** Saves an alert (bell in the app) and e-mails it to every active super admin / alerts staff with an e-mail address. */
+function alert_(type, text, ref) {
+  try {
+    sheet_(SHEET.ALERTS).appendRow(['AL' + Date.now() + Math.floor(Math.random() * 1000), nowStr_(), type, String(text).slice(0, 1000), String(ref || '')]);
+    const to = readStaff_().filter(s => s.active && s.email && canAlerts_(s)).map(s => s.email);
+    if (to.length) MailApp.sendEmail({ to: to.join(','), subject: getSettings_().company + ' Production: ' + ALERT_TITLES[type],
+      body: text + '\n\nOpen the Production app → 🔔 Alerts.' });
+  } catch (e) { /* an alert must never stop the work */ }
+}
+const ALERT_TITLES = { COUNT_DIFFERS: 'count 1 and final count differ', MATERIAL_SHORT: 'material short with a karigar',
+  LARGE_ADVANCE: 'large advance', BATCH_CORRECTED: 'locked batch changed', STOCK_TAKE: 'stock-take shortage', LOW_STOCK: 'low store stock' };
+
+function readAlerts_() {
+  return rows_(SHEET.ALERTS).map(r => ({ id: String(r[0]), at: String(r[1]), type: String(r[2]), text: String(r[3]), ref: String(r[4]) })).filter(a => a.id);
+}
+function seenAt_(u) { return PropertiesService.getScriptProperties().getProperty('alerts_seen_' + u.id) || ''; }
+function unreadAlerts_(u) { const s = seenAt_(u); return readAlerts_().filter(a => a.at > s).length; }
+
+function alertList(token) {
+  const u = authStaff_(token);
+  if (!canAlerts_(u)) throw new Error('You do not have permission for this.');
+  const seen = seenAt_(u);
+  return readAlerts_().slice(-200).reverse().map(a => Object.assign(a, { title: ALERT_TITLES[a.type] || a.type, unread: a.at > seen }));
+}
+function alertsSeen(token) {
+  const u = authStaff_(token);
+  PropertiesService.getScriptProperties().setProperty('alerts_seen_' + u.id, nowStr_());
+  return true;
+}
+
+/** After a count is locked: materials of the karigar that went below zero now. */
+function negativeMaterialAlerts_(kid, before) {
+  try {
+    const was = {};
+    (before || []).forEach(b => { was[b.material] = b.balance; });
+    forget_('lines');
+    materialBalances_().filter(b => b.karigarId === kid && b.balance < -0.0005 && !((was[b.material] || 0) < -0.0005)).forEach(b =>
+      alert_('MATERIAL_SHORT', b.karigar + ' has used more ' + b.materialName + ' than was given: ' + b.balance + ' ' + b.unit +
+        ' (given ' + b.issued + ', used ' + b.used + ').', kid + '|' + b.material));
+  } catch (e) { /* ignore */ }
+}
+
+/* ------------------------------------------------------------------ */
+/* Raw material store: opening stock + purchase bills − issued         */
+/* ------------------------------------------------------------------ */
+
+function readOpening_() {
+  return memo_('opening', () => {
+    const m = {};
+    rows_(SHEET.STORE).forEach((r, i) => { const c = String(r[0]).trim().toUpperCase(); if (c) m[c] = { qty: Number(r[1]) || 0, date: toDateStr_(r[2]), note: String(r[3] || ''), at: String(r[5] || ''), row: i + 2 }; });
+    return m;
+  });
+}
+
+function readBills_() {
+  return memo_('bills', () => rows_(SHEET.BILLS).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]), supplier: String(r[2] || ''),
+    billNo: String(r[3] || ''), lines: parseJson_(r[4], []), itemsTotal: Number(r[5]) || 0, charges: Number(r[6]) || 0, chargesNote: String(r[7] || ''),
+    total: Number(r[8]) || 0, note: String(r[9] || ''), by: String(r[10] || ''), at: String(r[11] || ''), edited: String(r[12] || '') })).filter(b => b.id));
+}
+
+/**
+ * Per material: opening + purchased − issued to karigars (issues waiting for confirmation count as issued).
+ * The opening stock is what was in the store at the moment it was saved, so only bills and issues ENTERED after
+ * that count (a material without an opening stock starts with its first bill). tracked = the store is kept for it.
+ */
+function storeStockMap_() {
+  const open = readOpening_(), m = {}, start = {};
+  const get = c => m[c] = m[c] || { opening: 0, purchased: 0, issued: 0, tracked: false };
+  Object.keys(open).forEach(c => { get(c).opening = open[c].qty; m[c].tracked = true; start[c] = open[c].at; });
+  const bills = readBills_();
+  bills.forEach(b => b.lines.forEach(l => { const c = String(l.material).toUpperCase(); if (!(c in start) || b.at < start[c]) { if (!open[c]) start[c] = start[c] && start[c] < b.at ? start[c] : b.at; } }));
+  bills.forEach(b => b.lines.forEach(l => {
+    const c = String(l.material).toUpperCase();
+    if (b.at >= start[c]) { const x = get(c); x.purchased += Number(l.units) || 0; x.tracked = true; }
+  }));
+  readMoves_().forEach(mv => {
+    if (mv.status === 'REJECTED' || !(mv.materialCode in start) || mv.enteredAt < start[mv.materialCode]) return;
+    const x = get(mv.materialCode);
+    if (mv.type === 'RETURN') { if (mv.status === 'CONFIRMED') x.issued -= mv.qty; } else x.issued += mv.qty;
+  });
+  Object.keys(m).forEach(c => { const x = m[c]; x.inStore = round3_(x.opening + x.purchased - x.issued); });
+  return m;
+}
+
+/** Low-stock alerts for materials that went below their reorder level since "before". */
+function lowStockAlerts_(before) {
+  try {
+    forget_('moves');
+    const now = storeStockMap_(), mats = materialMap_();
+    Object.keys(now).forEach(c => {
+      const mt = mats[c], x = now[c], b = before[c];
+      if (!mt || !mt.reorder || !x.tracked) return;
+      if (x.inStore < mt.reorder && !(b && b.tracked && b.inStore < mt.reorder))
+        alert_('LOW_STOCK', mt.name + ' is low in the store: ' + x.inStore + ' ' + mt.unit + ' left (reorder level ' + mt.reorder + ').', c);
+    });
+  } catch (e) { /* ignore */ }
+}
+
+function storeView(token) {
+  const u = authStaff_(token, 'store|reports|masters');
+  const st = storeStockMap_(), open = readOpening_();
+  const list = readMaterials_().map(m => {
+    const x = st[m.code] || { opening: 0, purchased: 0, issued: 0, inStore: 0, tracked: false };
+    return { code: m.code, name: m.name, unit: m.unit, active: m.active, unitCost: m.unitCost, reorder: m.reorder,
+      opening: round3_(x.opening), openingDate: (open[m.code] || {}).date || '', purchased: round3_(x.purchased), issued: round3_(x.issued),
+      inStore: x.inStore, tracked: x.tracked, value: m.unitCost === null ? null : round2_(x.inStore * m.unitCost),
+      low: x.tracked && m.reorder > 0 && x.inStore < m.reorder, negative: x.tracked && x.inStore < -0.0005,
+      purchaseType: m.purchaseType, purchaseUnit: m.purchaseUnit, perPurchase: m.perPurchase, price: m.price };
+  });
+  const month = todayStr_().slice(0, 7);
+  const bills = readBills_().slice().reverse();
+  return { list: list, bills: bills.slice(0, 300), canEdit: can_(u, 'store'),
+    monthCharges: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.charges, 0)),
+    monthPurchases: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.itemsTotal, 0)),
+    stockValue: round2_(list.reduce((n, x) => n + (x.tracked && x.value ? x.value : 0), 0)) };
+}
+
+/** The stock a material had before bills were entered (in its BOM unit). Can be corrected later. */
+function setOpeningStock(token, code, qty, note) {
+  const u = authStaff_(token, 'store');
+  code = String(code || '').toUpperCase();
+  const m = materialMap_()[code];
+  if (!m) throw new Error('Material not found.');
+  if (qty === '' || qty === null || !isFinite(Number(qty)) || Number(qty) < 0) throw new Error('Enter the stock in ' + m.unit + '.');
+  qty = Number(qty);
+  const ex = readOpening_()[code];
+  const row = [code, qty, "'" + todayStr_(), String(note || '').slice(0, 200), u.id + ' ' + u.name, nowStr_()];
+  if (ex) sheet_(SHEET.STORE).getRange(ex.row, 1, 1, row.length).setValues([row]); else sheet_(SHEET.STORE).appendRow(row);
+  forget_('opening');
+  log_(u, 'OPENING_STOCK', code, m.name + ': ' + (ex ? ex.qty + ' → ' : '') + qty + ' ' + m.unit + (note ? ' | ' + note : ''));
+  return storeView(token);
+}
+
+/**
+ * A purchase bill (new, or an edit when data.id is given):
+ * data = { id?, date, supplier, billNo, note, charges, chargesNote, lines: [{ material, qty, price }] }
+ *   qty and price are per PURCHASE unit (roll / kg / pack / unit, as set in the material's Price).
+ *   charges = bilty, loading, unloading …: paid with the bill but NOT part of any material's price.
+ * The newest bill of a material also becomes its price.
+ */
+function saveBill(token, data) {
+  const u = authStaff_(token, 'store');
+  data = data || {};
+  const mats = materialMap_();
+  const date = toDateStr_(data.date) || todayStr_();
+  const lines = (data.lines || []).filter(l => l && l.material).map(l => {
+    const m = mats[String(l.material).toUpperCase()];
+    if (!m) throw new Error('Unknown material: ' + l.material);
+    const qty = Number(l.qty), price = Number(l.price);
+    if (!(qty > 0)) throw new Error('Enter the quantity bought of ' + m.name + '.');
+    if (!(price >= 0) || l.price === '' || l.price === null) throw new Error('Enter the price of ' + m.name + '.');
+    const per = m.perPurchase || 1, pu = m.purchaseType ? m.purchaseUnit : m.unit;
+    return { material: m.code, name: m.name, qty: qty, purchaseUnit: pu, perPurchase: per, units: round3_(qty * per), unit: m.unit, price: price, amount: round2_(qty * price) };
+  });
+  if (!lines.length) throw new Error('Add at least one material.');
+  const charges = Number(data.charges) || 0;
+  if (charges < 0) throw new Error('Charges cannot be negative.');
+  const itemsTotal = round2_(lines.reduce((n, l) => n + l.amount, 0));
+  const total = round2_(itemsTotal + charges);
+  const ex = data.id ? readBills_().filter(b => b.id === data.id)[0] : null;
+  if (data.id && !ex) throw new Error('Bill not found.');
+  const id = ex ? ex.id : withLock_(() => nextId_(SHEET.BILLS, 'B-'));
+  const row = [id, "'" + date, String(data.supplier || '').trim().slice(0, 100), String(data.billNo || '').trim().slice(0, 50), JSON.stringify(lines), itemsTotal,
+    charges, String(data.chargesNote || '').slice(0, 200), total, String(data.note || '').slice(0, 300)];
+  if (ex) {
+    sheet_(SHEET.BILLS).getRange(ex.row, 1, 1, row.length).setValues([row]);
+    sheet_(SHEET.BILLS).getRange(ex.row, 13).setValue((ex.edited ? ex.edited + '\n' : '') + nowStr_() + ' ' + u.name);
+    log_(u, 'EDIT_BILL', id, billText_(ex) + ' → ' + billText_({ lines: lines, charges: charges, total: total, supplier: row[2], billNo: row[3], date: date }));
+  } else {
+    sheet_(SHEET.BILLS).appendRow(row.concat([u.id + ' ' + u.name, nowStr_(), '']));
+    log_(u, 'NEW_BILL', id, billText_({ lines: lines, charges: charges, total: total, supplier: row[2], billNo: row[3], date: date }));
+  }
+  forget_('bills');
+  // The newest bill sets the material's price (same way of buying, new price).
+  lines.forEach(l => {
+    const m = materialMap_()[l.material];
+    const newer = readBills_().some(b => b.id !== id && b.date > date && b.lines.some(x => x.material === l.material));
+    if (newer || (m.price === l.price && m.priceDate >= date)) return;
+    const type = m.purchaseType || 'UNIT', per = m.perPurchase || 1;
+    const text = (m.conversion && m.conversion.text) || ('Per ' + m.unit);
+    sheet_(SHEET.MATERIALS).getRange(m.row, 5, 1, 6).setValues([[type, m.purchaseType ? m.purchaseUnit : m.unit, l.price, per,
+      JSON.stringify(Object.assign({}, m.conversion || {}, { text: text })), "'" + date]]);
+    sheet_(SHEET.PRICES).appendRow([m.code, "'" + date, type, m.purchaseType ? m.purchaseUnit : m.unit, l.price, per, text, round4_(l.price / per), u.id + ' ' + u.name, nowStr_(),
+      'Bill ' + id + (row[3] ? ' (' + row[3] + ')' : '')]);
+    forget_('materials');
+  });
+  return storeView(token);
+}
+
+function billText_(b) {
+  return (b.date || '') + ' ' + (b.supplier || '') + (b.billNo ? ' #' + b.billNo : '') + ': ' + b.lines.map(l => l.name + ' ' + l.qty + ' ' + l.purchaseUnit + ' @ ' + l.price).join(', ') +
+    (b.charges ? ' + charges ' + b.charges : '') + ' = ' + b.total;
+}
+
+/* ------------------------------------------------------------------ */
+/* Stock-take at the karigar: counted vs what the app expects          */
+/* ------------------------------------------------------------------ */
+
+/** data = { karigarId, note, lines: [{ material, counted }] } — saved; shortages raise an alert. Nothing is deducted. */
+function stockTake(token, data) {
+  const u = authStaff_(token, 'issue|confirm|store');
+  data = data || {};
+  const kid = String(data.karigarId || '').toUpperCase();
+  const k = readKarigars_().filter(x => x.id === kid)[0];
+  if (!k) throw new Error('Choose the karigar.');
+  const bal = {};
+  materialBalances_().filter(b => b.karigarId === kid).forEach(b => { bal[b.material] = b; });
+  const lines = (data.lines || []).filter(l => l && l.material && l.counted !== '' && l.counted !== null && l.counted !== undefined);
+  if (!lines.length) throw new Error('Enter at least one counted quantity.');
+  const today = todayStr_(), mats = materialMap_();
+  const short = [];
+  const rows = lines.map((l, n) => {
+    const code = String(l.material).toUpperCase(), counted = Number(l.counted);
+    if (!(counted >= 0)) throw new Error('Counted quantities must be 0 or more.');
+    const expected = bal[code] ? bal[code].balance : 0, diff = round3_(counted - expected);
+    if (diff < -0.0005) short.push(((mats[code] || {}).name || code) + ' ' + diff + ' ' + ((mats[code] || {}).unit || '') + ' (expected ' + expected + ', counted ' + counted + ')');
+    return ['T' + Date.now() + n, "'" + today, kid, code, expected, counted, diff, String(data.note || '').slice(0, 200), u.id + ' ' + u.name, nowStr_()];
+  });
+  sheet_(SHEET.TAKES).getRange(sheet_(SHEET.TAKES).getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+  forget_('takes');
+  log_(u, 'STOCK_TAKE', kid, rows.map(r => r[3] + ' expected ' + r[4] + ', counted ' + r[5]).join('; '));
+  if (short.length) alert_('STOCK_TAKE', 'Stock-take at ' + k.name + ' (' + kid + ') by ' + u.name + ': less material than expected: ' + short.join('; '), kid);
+  return materialBalance(token);
+}
+
+function readTakes_() {
+  return memo_('takes', () => rows_(SHEET.TAKES).map(r => ({ date: toDateStr_(r[1]), karigarId: String(r[2]).toUpperCase(), material: String(r[3]).toUpperCase(),
+    expected: Number(r[4]) || 0, counted: Number(r[5]) || 0, diff: Number(r[6]) || 0, by: String(r[8] || '').replace(/^\S+ /, '') })));
+}
+
+/* ------------------------------------------------------------------ */
+/* Profit per item (owner, admins and staff with "profit")             */
+/* ------------------------------------------------------------------ */
+
+function saveSellingPrice(token, code, price) {
+  const u = authStaff_(token, 'profit');
+  const i = readItems_().filter(x => x.code === code)[0];
+  if (!i) throw new Error('Item not found.');
+  const v = price === '' || price === null ? '' : Number(price);
+  if (v !== '' && !(v >= 0)) throw new Error('Enter a valid selling price.');
+  sheet_(SHEET.ITEMS).getRange(i.row, 5).setValue(v);
+  forget_('items');
+  log_(u, 'SELLING_PRICE', code, (i.selling === null ? 'none' : i.selling) + ' → ' + (v === '' ? 'none' : v));
+  return itemList(token);
 }
 
 /* ------------------------------------------------------------------ */
@@ -1546,12 +1873,13 @@ function readKarigars_() {
 function readStaff_() {
   return memo_('staff', () => rows_(SHEET.STAFF).map((r, i) => ({ row: i + 2, kind: 'S', id: String(r[0]).trim().toUpperCase(),
     name: String(r[1]).trim(), phone: String(r[2]), pin: String(r[3]), role: String(r[4]).trim().toUpperCase() === 'SUPER' ? 'SUPER' : 'ADMIN',
-    permissions: String(r[5] || ''), active: bool_(r[6]) })).filter(s => s.id));
+    permissions: String(r[5] || ''), active: bool_(r[6]), email: String(r[7] || '').trim() })).filter(s => s.id));
 }
 
 function readItems_() {
   return memo_('items', () => rows_(SHEET.ITEMS).map((r, i) => ({ row: i + 2, code: String(r[0]).trim(), name: String(r[1] || ''),
-    type: String(r[2]).trim().toUpperCase() === 'PART' ? 'PART' : 'SKU', active: bool_(r[3]) })).filter(x => x.code));
+    type: String(r[2]).trim().toUpperCase() === 'PART' ? 'PART' : 'SKU', active: bool_(r[3]),
+    selling: r[4] === '' || !isFinite(Number(r[4])) ? null : Number(r[4]) })).filter(x => x.code));
 }
 
 function itemMap_() {
@@ -1566,10 +1894,18 @@ function readMaterials_() {
   return memo_('materials', () => rows_(SHEET.MATERIALS).map((r, i) => {
     const price = r[6] === '' || !isFinite(Number(r[6])) ? null : Number(r[6]);
     const per = Number(r[7]) > 0 ? Number(r[7]) : null;
-    return { row: i + 2, code: String(r[0]).trim().toUpperCase(), name: String(r[1] || ''), unit: String(r[2] || ''), active: bool_(r[3]),
+    const base = String(r[1] || '').trim(), color = String(r[10] || '').trim();
+    return { row: i + 2, code: String(r[0]).trim().toUpperCase(), name: withColor_(base, color), baseName: base, color: color,
+      reorder: Number(r[11]) > 0 ? Number(r[11]) : 0, unit: String(r[2] || ''), active: bool_(r[3]),
       purchaseType: String(r[4] || ''), purchaseUnit: String(r[5] || ''), price: price, perPurchase: per, conversion: parseJson_(r[8], {}),
       priceDate: toDateStr_(r[9]), unitCost: price !== null && per ? round4_(price / per) : null };
   }).filter(x => x.code));
+}
+
+/** "Niwar (1.00")" + "Black" → "Niwar (1.00") (Black)"; a name that already ends with (Black) is left as it is. */
+function withColor_(base, color) {
+  if (!color) return base;
+  return base.toLowerCase().replace(/\s+$/, '').endsWith('(' + color.toLowerCase() + ')') ? base : base + ' (' + color + ')';
 }
 
 function priceHistory_(code) {
@@ -1787,6 +2123,8 @@ function getSettings_() {
       sessionDays: Number(m['Stay Logged In (days)']) || 0, photoFolder: String(m['Photo Folder ID'] || '').trim(),
       inventoryLastSync: String(m['Inventory Last Sync'] || ''),
       extraUnits: String(m['Units'] || '').split(',').map(x => x.trim()).filter(String),
+      largeAdvance: Number(m['Large Advance Alert']) > 0 ? Number(m['Large Advance Alert']) : 10000,
+      lowMargin: m['Low Margin %'] === '' || m['Low Margin %'] === undefined ? 20 : Number(m['Low Margin %']) || 0,
     };
   });
 }
