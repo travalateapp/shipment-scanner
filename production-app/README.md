@@ -6,8 +6,8 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   "in production" and shows small and grey in the Inventory Snapshot.
 - **Raw material, 2 people:** one person enters an issue or return, a **different** person confirms it.
 - **Final count, 2 people:** count 1 with a **photo** of the goods, then count 2 by a **different** person who
-  does **not** see count 1 (blind). If the counts match, the batch is **locked**. If not, they count again; the
-  first counts are kept.
+  does **not** see count 1 (blind). **Count 2 is final:** the batch is locked with count 2's numbers. If count 1
+  was different, that is kept and flagged ("Count 1 differed") but does not block anything.
 - **Inventory:** on lock, the good pieces of inventory SKUs are added to the **Travalate Inventory App**. The
   note there reads `05-Nov 14:20 | Harshit | +40 (In) | Received From Ramesh (P-0012)`.
 - **Parts** (straps, belts …) are paid but not added to the inventory.
@@ -78,7 +78,7 @@ the attendance app (its own package `com.travalate.production`) and updates itse
 
 ## 2. Inventory App changes (Travalate Inventory Code.gs)
 
-Three small changes. Nothing else in the Inventory App changes.
+Four small changes. Nothing else in the Inventory App changes.
 
 **a) Paste** the whole of [`inventory-app-addon.gs`](inventory-app-addon.gs) at the end of the Inventory
 App's `Code.gs`.
@@ -99,17 +99,31 @@ App's `Code.gs`.
     return { success: true, monthLabel, dates, rows, inProduction: getInProductionMap_() };
 ```
 
-**d) Snapshot page (InventoryForm.html):** show the number small and grey in the bottom-left corner of
-today's (latest) cell. The exact place depends on how the page builds each cell. This is the rule:
-```css
-.inprod{position:absolute;left:4px;bottom:2px;font-size:60%;line-height:1;color:#6b7280;font-weight:700;pointer-events:none}
-/* the value cell needs  position:relative  */
-```
-```js
-// where the cell of the latest date column is built (data = the getInventorySnapshot() result):
-const ip = (data.inProduction || {})[row.sku.toUpperCase()];
-if (isLatestDateColumn && ip) cellHtml = '<span class="inprod" title="In production with karigars">' + ip + '</span>' + cellHtml;
-```
+**d) Snapshot page (`InventoryForm.html`):** shows the number small and grey in the bottom-left corner of the
+latest date's cell (the hover text also says "In production with karigars: N").
+
+1. In the `<style>`, right after the line `.snapshot-table tbody tr:nth-child(even) td.has-in { background: #b3ddc0; }`, add:
+   ```css
+   .snapshot-table td.has-prod { position: relative; padding-left: 24px; }
+   .snapshot-table td .in-prod {
+     position: absolute; left: 4px; bottom: 2px; line-height: 1;
+     font-size: 0.62em; font-weight: 700; color: #6b7280; pointer-events: none;
+   }
+   ```
+2. In `renderInventorySnapshot_`, right after `const dates = colOrder.map(i => result.dates[i]);`, add:
+   ```js
+   const inProduction = result.inProduction || {};
+   const latestIdx = result.dates.length - 1;
+   ```
+3. In the same function, replace the two lines `const titleAttr = …` and `return \`<td class=…\`;` with:
+   ```js
+   const prodQty = origIdx === latestIdx ? Number(inProduction[String(row.sku).trim().toUpperCase()]) || 0 : 0;
+   if (prodQty) classes.push("has-prod");
+   const tip = (hasNote ? note : "") + (prodQty ? (hasNote ? "\n" : "") + "In production with karigars: " + prodQty : "");
+   const titleAttr = tip ? ` title="${escapeHtml_(tip)}"` : "";
+   const prodHtml = prodQty ? `<span class="in-prod">${prodQty}</span>` : "";
+   return `<td class="${classes.join(" ")}" tabindex="-1" data-sku="${escapeHtml_(row.sku)}" data-date="${escapeHtml_(dates[i])}"${titleAttr}>${prodHtml}${v === "" || v === null || v === undefined ? "" : v}</td>`;
+   ```
 
 Then **Deploy → Manage deployments → Edit → New version** in the Inventory App (same link).
 
@@ -136,7 +150,7 @@ How it works:
 | Materials / BOM | Raw materials and the material per piece of each item |
 | Work Orders | What each karigar is making |
 | Material Moves | Issues and returns with who entered and who confirmed |
-| Batches | Hand-over claim, count 1 (+photo), count 2, status, final date, inventory status, earlier counts |
+| Batches | Hand-over claim, count 1 (+photo), count 2 (final), status, final date, inventory status |
 | Batch Lines | Locked counts per item and work order (what pay and the material balance use) |
 | Advances / Advance Periods | Advances and the full / partial / skipped cut per pay period |
 | Payroll | Approved and paid periods with the frozen figures |

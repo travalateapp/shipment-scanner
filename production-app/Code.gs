@@ -4,7 +4,7 @@
  *  Karigars make goods (inventory SKUs and parts such as straps / belts).
  *  Raw material is issued to them (2 people), finished goods are counted
  *  (2 people, blind, with a photo), counted batches are locked and the
- *  inventory SKUs are added to the Travalate Inventory App. Karigars are
+ *  inventory SKUs are added to the Travalate Inventory App. The second count is final. Karigars are
  *  paid for counted good pieces at their own rate per item, for the pay
  *  period 5th to 4th, minus advance instalments (full or partial).
  *  1 person approves each payment.
@@ -94,7 +94,7 @@ function doGet(e) {
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome,
   myWork, myPayslip, submitHandover,
-  adminDashboard, countQueue, startBatch, saveCount, recountBatch, batchList, batchDetail, batchPhoto, retryInventory,
+  adminDashboard, countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, itemList, saveItem, inventorySkus,
@@ -366,7 +366,7 @@ function adminDashboard(token) {
     period: periodInfo_(per),
     waitCount1: batches.filter(b => b.status === 'COUNT1').length,
     waitCount2: batches.filter(b => b.status === 'COUNT2').length,
-    mismatch: batches.filter(b => b.status === 'MISMATCH').length,
+    differed: batches.filter(b => b.status === 'LOCKED' && periodOf_(b.finalDate) === per && b.count1.length && !sameCount_(b.count1, b.count2)).length,
     inventoryPending: batches.filter(b => b.inventory === 'PENDING').length,
     movesPending: readMoves_().filter(m => m.status === 'PENDING').length,
     receivedToday: todayLines.reduce((n, l) => n + l.good, 0),
@@ -388,12 +388,11 @@ function adminDashboard(token) {
 function countQueue(token) {
   const u = authStaff_(token, 'count|reports');
   const names = karigarNames_();
-  const list = readBatches_().filter(b => ['COUNT1', 'COUNT2', 'MISMATCH'].indexOf(b.status) >= 0).map(b => ({
+  const list = readBatches_().filter(b => ['COUNT1', 'COUNT2'].indexOf(b.status) >= 0).map(b => ({
     id: b.id, karigarId: b.karigarId, karigar: names[b.karigarId] || b.karigarId, status: b.status, createdAt: b.createdAt,
     claim: b.claim, count1By: b.count1By ? staffName_(b.count1By) : '', count1At: b.count1At,
     items: b.status === 'COUNT2' ? b.count1.map(l => l.item) : [],
-    mine: b.count1By === u.id, mismatchItems: b.status === 'MISMATCH' ? mismatchItems_(b) : [],
-    mismatchDetail: b.status === 'MISMATCH' && u.role === 'SUPER' ? { count1: b.count1, count2: b.count2 } : null,
+    mine: b.count1By === u.id,
   }));
   return { list: list, karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })),
     items: activeItems_(), canCount: can_(u, 'count'), me: u.id };
@@ -415,8 +414,9 @@ function startBatch(token, karigarId) {
 }
 
 /**
- * Saves count 1 (with the photo, required) or count 2 (a different person). When count 2 matches count 1 the
- * batch is locked: lines are written, work orders are filled, inventory SKUs go to the Inventory App.
+ * Saves count 1 (with the photo, required) or count 2 (a different person, who does not see count 1).
+ * Count 2 is FINAL: the batch is locked with count 2's numbers, lines are written, work orders are filled and
+ * inventory SKUs go to the Inventory App. If count 1 was different, that is kept and flagged (not blocked).
  * data = { lines: [{ item, good, rejected }], photo: 'data:image/jpeg;base64,…' (count 1) }
  */
 function saveCount(token, batchId, data) {
@@ -440,19 +440,14 @@ function saveCount(token, batchId, data) {
     if (b.status !== 'COUNT2') throw new Error('This batch is not waiting for a count.');
     if (b.count1By === u.id) throw new Error('Count 2 must be done by a different person.');
     sh.getRange(b.row, 10, 1, 3).setValues([[u.id, nowStr_(), JSON.stringify(lines)]]);
-    if (!sameCount_(b.count1, lines)) {
-      sh.getRange(b.row, 3).setValue('MISMATCH');
-      forget_('batches');
-      log_(u, 'COUNT_2_MISMATCH', b.id, linesText_(lines));
-      return { status: 'MISMATCH', items: mismatchItems_(Object.assign({}, b, { count2: lines })) };
-    }
+    const differs = mismatchItems_(Object.assign({}, b, { count2: lines }));
     const today = todayStr_();
     sh.getRange(b.row, 3).setValue('LOCKED');
     sh.getRange(b.row, 13).setValue("'" + today);
     forget_('batches');
     writeLines_(Object.assign({}, b, { finalDate: today }), lines);
-    log_(u, 'COUNT_2_LOCKED', b.id, linesText_(lines));
-    return { status: 'LOCKED' };
+    log_(u, 'COUNT_2_FINAL', b.id, linesText_(lines) + (differs.length ? ' | count 1 was different on: ' + differs.join(', ') + ' (count 1: ' + linesText_(b.count1) + ')' : ''));
+    return { status: 'LOCKED', differs: differs };
   });
   if (res.status === 'LOCKED') {
     const b = readBatches_().filter(x => x.id === batchId)[0];
@@ -460,23 +455,6 @@ function saveCount(token, batchId, data) {
     pushInProduction_();
   }
   return res;
-}
-
-/** After a mismatch: both counts are kept in "Earlier Counts" and the batch is counted again from count 1. */
-function recountBatch(token, batchId) {
-  const u = authStaff_(token, 'count');
-  withLock_(() => {
-    const b = readBatches_().filter(x => x.id === batchId)[0];
-    if (!b || b.status !== 'MISMATCH') throw new Error('This batch does not need a recount.');
-    const earlier = b.earlier.concat([{ count1By: b.count1By, count1: b.count1, count2By: b.count2By, count2: b.count2, at: nowStr_() }]);
-    const sh = sheet_(SHEET.BATCHES);
-    sh.getRange(b.row, 3).setValue('COUNT1');
-    sh.getRange(b.row, 6, 1, 7).setValues([['', '', '', b.photo, '', '', '']]);
-    sh.getRange(b.row, 16).setValue(JSON.stringify(earlier));
-    forget_('batches');
-  });
-  log_(u, 'RECOUNT', batchId, 'Counts did not match: counted again');
-  return true;
 }
 
 /**
@@ -632,6 +610,7 @@ function batchSummary_(b, u) {
     amount: round2_(lines.reduce((n, l) => n + (l.amount || 0), 0)), missingRate: lines.some(l => l.rate === null),
     hasPhoto: !!b.photo, inventory: b.inventory, inventoryNote: u.kind === 'S' ? b.inventoryNote : '', note: b.note,
     canCorrect: super_ && b.status === 'LOCKED',
+    differs: u.kind === 'S' && b.status === 'LOCKED' && b.count1.length ? mismatchItems_(b) : [],
   };
 }
 

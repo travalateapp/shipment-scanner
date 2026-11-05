@@ -4,6 +4,7 @@
 Decided since this plan: pay period 5th to 4th; `productionIn` added to the Inventory App
 ([inventory-app-addon.gs](inventory-app-addon.gs)); work orders added, so "in production" can be shown in the
 Inventory Snapshot; theft checks agreed: photo per batch, locked entries + change log, pay only on counted quantity.
+The second count is final (no recount when count 1 differs; the difference is flagged).
 
 A Google Apps Script web app with its **own Google Sheet** (separate from the attendance app).
 It has a phone view, a desktop view, a GitHub Pages copy and an Android APK, all set up the same
@@ -28,7 +29,7 @@ way as the attendance app.
 | Rates | Per karigar per SKU/part, with an effective-from date. A batch is paid at the rate in force on its final count date. |
 | Raw material | Given out to karigars and tracked. |
 | Material issue | **2 people**: one enters it, a second confirms it. |
-| Final count | **2 people** count separately (the second cannot see the first count). The counts must match. |
+| Final count | **2 people** count separately (the second cannot see the first count). The **second count is final**; a different count 1 is flagged. |
 | Payment | **1 approver** per karigar per pay period. |
 | Rejected pieces | **Not paid.** |
 | Wasted material | **Not deducted** from pay, and **no wastage % allowed**: any material shortfall is **flagged** for review. |
@@ -73,8 +74,8 @@ ready to paste, and nothing else in the Inventory App changes.
 3. **Material return:** same 2-person flow (unused material coming back).
 4. **(Optional) Karigar hands over:** the karigar enters the items and quantities on their phone.
 5. **Final count:** counter 1 enters good and rejected quantities per item and takes the photo →
-   counter 2 counts blind → if both match, the batch is **locked**, inventory SKUs are pushed to the
-   Inventory App, and pay is credited at the karigar's rate. If they don't match, both recount.
+   counter 2 counts blind → count 2 is final: the batch is **locked**, inventory SKUs are pushed to the
+   Inventory App, and pay is credited at the karigar's rate. A different count 1 is flagged, not blocked.
 6. **Material check:** material used = (good + rejected pieces) × bill of materials. The karigar's
    balance = issued − returned − used. A negative balance means more output than material (wrong
    bill of materials or entry); a positive balance that isn't returned is flagged at period end.

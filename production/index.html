@@ -160,7 +160,7 @@ function can(p) { return S.profile && S.profile.kind === 'S' && (S.profile.role 
 function isSuper() { return S.profile && S.profile.role === 'SUPER'; }
 function opts(list, sel, label, value) { return list.map(function (x) { var v = value ? value(x) : x.id; return '<option value="' + esc(v) + '"' + (v === sel ? ' selected' : '') + '>' + esc(label ? label(x) : x.name) + '</option>'; }).join(''); }
 function itemOpts(items, sel) { return '<option value="">Choose item…</option>' + items.map(function (i) { return '<option value="' + esc(i.code) + '"' + (i.code === sel ? ' selected' : '') + '>' + esc(i.code) + (i.type === 'PART' ? ' (part)' : '') + '</option>'; }).join(''); }
-var STATUS = { COUNT1: ['Waiting for count 1', 'warn'], COUNT2: ['Waiting for count 2', 'info'], MISMATCH: ['Counts differ', 'err'], LOCKED: ['Locked', 'ok'] };
+var STATUS = { COUNT1: ['Waiting for count 1', 'warn'], COUNT2: ['Waiting for count 2', 'info'], LOCKED: ['Locked', 'ok'] };
 function statusPill(s) { var x = STATUS[s] || [s, '']; return '<span class="pill ' + x[1] + '">' + esc(x[0]) + '</span>'; }
 function invPill(s) { return s === 'DONE' ? '<span class="pill ok">In inventory</span>' : s === 'PENDING' ? '<span class="pill err">Not in inventory yet</span>' : s === 'NONE' ? '<span class="pill">Parts only</span>' : ''; }
 
@@ -354,7 +354,7 @@ VIEWS.dash = function () {
       '<div class="tiles">' +
       '<div class="tile warn" onclick="go(\'count\')"><div class="l">Waiting for count 1</div><div class="n">' + r.waitCount1 + '</div></div>' +
       '<div class="tile info" onclick="go(\'count\')"><div class="l">Waiting for count 2</div><div class="n">' + r.waitCount2 + '</div></div>' +
-      '<div class="tile ' + (r.mismatch ? 'err' : '') + '" onclick="go(\'count\')"><div class="l">Counts differ</div><div class="n">' + r.mismatch + '</div></div>' +
+      '<div class="tile ' + (r.differed ? 'err' : '') + '" onclick="go(\'batches\')"><div class="l">Count 1 ≠ final (this period)</div><div class="n">' + r.differed + '</div></div>' +
       '<div class="tile ' + (r.movesPending ? 'warn' : '') + '" onclick="go(\'material\')"><div class="l">Material to confirm</div><div class="n">' + r.movesPending + '</div></div>' +
       '<div class="tile ok"><div class="l">Received today (good)</div><div class="n">' + r.receivedToday + '</div></div>' +
       '<div class="tile ' + (r.rejectedToday ? 'err' : '') + '"><div class="l">Rejected today</div><div class="n">' + r.rejectedToday + '</div></div>' +
@@ -375,7 +375,7 @@ VIEWS.dash = function () {
 VIEWS.count = function () {
   api('countQueue', S.token).then(function (r) {
     S.data.cq = r;
-    var groups = [['COUNT1', 'Waiting for count 1 (with photo)'], ['COUNT2', 'Waiting for count 2 (a different person, blind)'], ['MISMATCH', 'Counts differ: count again']];
+    var groups = [['COUNT1', 'Waiting for count 1 (with photo)'], ['COUNT2', 'Waiting for count 2: final count (a different person, blind)']];
     render('<h1 class="page">✅ Count received goods</h1>' +
       (r.canCount ? '<div class="card"><h2>New batch (no hand-over from the karigar)</h2><div class="row"><select id="nbK"><option value="">Choose karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
       groups.map(function (g) {
@@ -384,12 +384,9 @@ VIEWS.count = function () {
           var act = '';
           if (r.canCount && b.status === 'COUNT1') act = '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">Count 1</button>';
           if (r.canCount && b.status === 'COUNT2') act = b.mine ? '<span class="muted">You did count 1</span>' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',2)">Count 2</button>';
-          if (r.canCount && b.status === 'MISMATCH') act = '<button class="btn warn sm" onclick="recount(\'' + b.id + '\',this)">Count again</button>';
           return '<div class="it"><div class="grow"><b>' + esc(b.id) + ' · ' + esc(b.karigar) + '</b><div class="muted">' + d(b.createdAt) +
             (b.claim.length ? ' · Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') : '') +
             (b.count1By ? ' · Count 1 by ' + esc(b.count1By) : '') + '</div>' +
-            (b.mismatchItems.length ? '<div class="neg" style="font-size:13px;font-weight:600">Different on: ' + b.mismatchItems.map(esc).join(', ') + '</div>' : '') +
-            (b.mismatchDetail ? '<div class="muted">Count 1: ' + b.mismatchDetail.count1.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + ' · Count 2: ' + b.mismatchDetail.count2.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + '</div>' : '') +
             '</div>' + act + '</div>';
         }).join('') + '</div>' : '<div class="muted">Nothing waiting.</div>') + '</div>';
       }).join(''));
@@ -405,7 +402,7 @@ function countForm(id, which) {
   S.data.countItems = S.data.cq.items; S.data.photo = null;
   var pre = which === 1 ? b.claim.map(function (c) { return c.item; }) : b.items;
   modal('Count ' + which + ' · ' + id + ' · ' + (b.karigar || ''),
-    (which === 2 ? '<div class="blind">Blind count: you do not see count 1. Count every piece yourself.</div>' : b.claim.length ? '<div class="msg info">Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
+    (which === 2 ? '<div class="blind">Final count: you do not see count 1. Count every piece yourself. Your count is the one that is paid and added to the inventory.</div>' : b.claim.length ? '<div class="msg info">Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
     '<div class="lines"><div class="ln hdr"><div>Item</div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
     (which === 1 ? '<label class="f">Photo of the received goods (required)</label><input type="file" accept="image/*" capture="environment" onchange="takePhoto(this)"><img id="cPhoto" class="photo" style="display:none">' : '') +
     '<button class="btn block ok" onclick="saveCountNow(\'' + id + '\',' + which + ',this)">Save count ' + which + '</button>');
@@ -433,15 +430,10 @@ function saveCountNow(id, which, btn) {
   busy(btn, true);
   api('saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null }).then(function (r) {
     closeModal();
-    if (r.status === 'LOCKED') toast('Counts match: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : ''));
-    else if (r.status === 'MISMATCH') toast('Counts do not match: ' + r.items.join(', ') + '. Count again.');
+    if (r.status === 'LOCKED') toast('Final count saved: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : '') + (r.differs && r.differs.length ? '. Count 1 was different on ' + r.differs.join(', ') + ' (noted).' : ''));
     else toast('Count 1 saved. Now a different person does count 2.');
     go('count');
   }).catch(function (e) { fail(e, btn); });
-}
-function recount(id, btn) {
-  if (!confirm('Both counts are kept in the history and the batch is counted again from count 1.')) return;
-  busy(btn, true); api('recountBatch', S.token, id).then(function () { go('count'); }).catch(function (e) { fail(e, btn); });
 }
 
 /* ---------- batches ---------- */
@@ -455,7 +447,7 @@ VIEWS.batches = function (period) {
       '<div class="card scroll"><table class="tbl"><tr><th>Batch</th><th>Karigar</th><th>Counted</th><th>Items</th><th class="r">Good</th><th class="r">Rej.</th><th class="r">Amount</th><th>Status</th></tr>' +
       (r.list.map(function (b) {
         return '<tr class="click" onclick="showBatch(\'' + b.id + '\')"><td><b>' + esc(b.id) + '</b></td><td>' + esc(b.karigar) + '</td><td>' + (b.finalDate ? d(b.finalDate) : '–') + '</td><td>' + b.lines.map(function (l) { return esc(l.item); }).join('<br>') + '</td>' +
-          '<td class="r">' + (b.status === 'LOCKED' ? b.good : '') + '</td><td class="r ' + (b.rejected ? 'neg' : '') + '">' + (b.status === 'LOCKED' ? b.rejected : '') + '</td><td class="r">' + (b.status === 'LOCKED' ? money(b.amount) : '') + '</td><td>' + statusPill(b.status) + ' ' + invPill(b.inventory) + (b.missingRate ? ' <span class="pill warn">No rate</span>' : '') + '</td></tr>';
+          '<td class="r">' + (b.status === 'LOCKED' ? b.good : '') + '</td><td class="r ' + (b.rejected ? 'neg' : '') + '">' + (b.status === 'LOCKED' ? b.rejected : '') + '</td><td class="r">' + (b.status === 'LOCKED' ? money(b.amount) : '') + '</td><td>' + statusPill(b.status) + ' ' + invPill(b.inventory) + (b.differs && b.differs.length ? ' <span class="pill warn">Count 1 differed</span>' : '') + (b.missingRate ? ' <span class="pill warn">No rate</span>' : '') + '</td></tr>';
       }).join('') || '<tr><td colspan="8" class="muted">No batches.</td></tr>') + '</table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
@@ -465,15 +457,16 @@ function showBatch(id) {
     var cnt = function (c) { return c && c.length ? c.map(function (l) { return esc(l.item) + ': <b>' + l.good + '</b>' + (l.rejected ? ' + ' + l.rejected + ' rej.' : ''); }).join('<br>') : '–'; };
     modal(b.id + ' · ' + b.karigar,
       '<div style="margin-bottom:8px">' + statusPill(b.status) + ' ' + invPill(b.inventory) + '</div>' +
+      (b.differs && b.differs.length ? '<div class="msg warn">Count 1 was different on: ' + b.differs.map(esc).join(', ') + '. The final count (count 2) is used.</div>' : '') +
       '<div class="kv"><div>Created</div><div>' + d(b.createdAt) + '</div>' + (b.claim.length ? '<div>Karigar said</div><div>' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
       '<div>Count 1</div><div>' + esc(b.count1By || '–') + ' ' + d(b.count1At) + (b.count1 ? '<br>' + cnt(b.count1) : '') + '</div>' +
-      '<div>Count 2</div><div>' + esc(b.count2By || '–') + ' ' + d(b.count2At) + (b.count2 ? '<br>' + cnt(b.count2) : '') + '</div>' +
+      '<div>Count 2 (final)</div><div>' + esc(b.count2By || '–') + ' ' + d(b.count2At) + (b.count2 ? '<br>' + cnt(b.count2) : '') + '</div>' +
       (b.finalDate ? '<div>Final date</div><div><b>' + d(b.finalDate) + '</b> · pay period ' + esc(b.period) + '</div>' : '') +
       (b.inventoryNote ? '<div>Inventory</div><div>' + esc(b.inventoryNote) + '</div>' : '') + (b.note ? '<div>Notes</div><div style="white-space:pre-wrap">' + esc(b.note) + '</div>' : '') + '</div>' +
       (b.lines.length ? '<table class="tbl" style="margin-top:12px"><tr><th>Item</th><th class="r">Good</th><th class="r">Rej.</th><th class="r">Rate</th><th class="r">Amount</th></tr>' + b.lines.map(function (l) {
         return '<tr><td>' + esc(l.item) + (l.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + l.good + '</td><td class="r">' + l.rejected + '</td><td class="r">' + (l.rate === null ? '<span class="pill warn">No rate</span>' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>';
       }).join('') + '<tfoot><tr><td>Total</td><td class="r">' + b.good + '</td><td class="r">' + b.rejected + '</td><td></td><td class="r">' + money(b.amount) + '</td></tr></tfoot></table>' : '') +
-      (b.earlier.length ? '<h3>Earlier counts (did not match)</h3>' + b.earlier.map(function (e) { return '<div class="muted">' + d(e.at) + ': count 1 ' + e.count1.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + ' · count 2 ' + e.count2.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + '</div>'; }).join('') : '') +
+      (b.earlier.length ? '<h3>Earlier counts</h3>' + b.earlier.map(function (e) { return '<div class="muted">' + d(e.at) + ': count 1 ' + e.count1.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + ' · count 2 ' + e.count2.map(function (l) { return esc(l.item) + ' ' + l.good + '/' + l.rejected; }).join(', ') + '</div>'; }).join('') : '') +
       (b.hasPhoto ? '<div id="bPhoto" style="margin-top:10px"><button class="btn sec sm" onclick="loadPhoto(\'' + b.id + '\',this)">📷 Show photo</button></div>' : '') +
       '<div class="row" style="margin-top:12px">' + (b.inventory === 'PENDING' && S.profile.kind === 'S' ? '<button class="btn warn" onclick="retryInv(\'' + b.id + '\',this)">Send to inventory again</button>' : '') +
       (b.canCorrect ? '<button class="btn err" onclick="correctForm()">Correct (super admin)</button>' : '') + '</div>' +
