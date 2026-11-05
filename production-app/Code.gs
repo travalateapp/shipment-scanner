@@ -2,7 +2,7 @@
  *  KARIGAR PRODUCTION APP — Google Apps Script
  *
  *  Karigars make goods (inventory SKUs and parts such as straps / belts).
- *  Raw material is issued to them (2 people), finished goods are counted
+ *  Raw material is issued automatically with each work order (a second person confirms the hand-over), finished goods are counted
  *  (2 people, blind, with a photo), counted batches are locked and the
  *  inventory SKUs are added to the Travalate Inventory App. The second count is final. Karigars are
  *  paid for counted good pieces at their own rate per item, for the pay
@@ -43,7 +43,7 @@ HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
 HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source'];
 HEADERS[SHEET.MOVES] = ['ID', 'Date', 'Type', 'Karigar ID', 'Material Code', 'Qty', 'Note', 'Entered By', 'Entered At',
-  'Status', 'Confirmed By', 'Confirmed At'];
+  'Status', 'Confirmed By', 'Confirmed At', 'Work Order'];
 HEADERS[SHEET.BATCHES] = ['ID', 'Karigar ID', 'Status', 'Created At', 'Claim', 'Count 1 By', 'Count 1 At', 'Count 1', 'Photo',
   'Count 2 By', 'Count 2 At', 'Count 2', 'Final Date', 'Inventory', 'Inventory Note', 'Earlier Counts', 'Note'];
 HEADERS[SHEET.LINES] = ['Batch ID', 'Karigar ID', 'Karigar', 'Final Date', 'Item Code', 'Type', 'Good', 'Rejected', 'Work Order'];
@@ -96,7 +96,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome,
   myWork, myPayslip, submitHandover,
   adminDashboard, countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
-  correctBatch, moveList, saveMove, decideMove, materialBalance, orderList, saveOrder, setOrderStatus,
+  correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   saveMaterial, saveBom, staffList, saveStaff, changeLog,
@@ -710,7 +710,7 @@ function inventorySkus(token) {
 }
 
 /* ------------------------------------------------------------------ */
-/* Material issue / return (2 people) and balance                      */
+/* Material issue (with the work order; 2 people) and balance          */
 /* ------------------------------------------------------------------ */
 
 function moveList(token) {
@@ -725,32 +725,55 @@ function moveList(token) {
     materials: readMaterials_().filter(m => m.active), canIssue: can_(u, 'issue') };
 }
 
-/** data = { type: ISSUE|RETURN, karigarId, lines: [{ material, qty }], note } — one row per material, all PENDING. */
+/**
+ * EXTRA material only (the material of a work order is issued automatically with it, see saveOrder). There are
+ * no returns. data = { karigarId, lines: [{ material, qty }], note } — PENDING until a different person confirms.
+ */
 function saveMove(token, data) {
   const u = authStaff_(token, 'issue');
   data = data || {};
-  const type = data.type === 'RETURN' ? 'RETURN' : 'ISSUE';
   const k = readKarigars_().filter(x => x.id === String(data.karigarId || '').toUpperCase() && x.active)[0];
   if (!k) throw new Error('Choose the karigar.');
   const mats = materialMap_();
   const lines = (data.lines || []).filter(l => l.material && Number(l.qty) > 0);
   if (!lines.length) throw new Error('Add at least one material with its quantity.');
   lines.forEach(l => { if (!mats[l.material]) throw new Error('Unknown material: ' + l.material); });
-  const note = String(data.note || '').slice(0, 200);
+  addMoves_(u, k, lines, String(data.note || 'Extra material').slice(0, 200), '');
+  return moveList(token);
+}
+
+/** Writes material issues (PENDING: a different person confirms the hand-over). Returns the new IDs. */
+function addMoves_(u, k, lines, note, workOrder) {
+  if (!lines.length) return [];
   const ids = withLock_(() => {
     const sh = sheet_(SHEET.MOVES);
     let n = sh.getLastRow();
-    const rows = lines.map(l => ['M-' + ('000' + (n++)).slice(-4), "'" + todayStr_(), type, k.id, l.material, Number(l.qty), note,
-      u.id, nowStr_(), 'PENDING', '', '']);
+    const rows = lines.map(l => ['M-' + ('000' + (n++)).slice(-4), "'" + todayStr_(), 'ISSUE', k.id, l.material, Number(l.qty), note,
+      u.id, nowStr_(), 'PENDING', '', '', workOrder || '']);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
     forget_('moves');
     return rows.map(r => r[0]);
   });
-  log_(u, type, ids.join(','), k.id + ' ' + k.name + ': ' + lines.map(l => l.material + ' ' + l.qty).join(', '));
+  log_(u, 'ISSUE', ids.join(','), k.id + ' ' + k.name + (workOrder ? ' for ' + workOrder : '') + ': ' + lines.map(l => l.material + ' ' + l.qty).join(', '));
+  return ids;
+}
+
+/** Confirms every pending material line of one lot at once (a different person than the one who entered them). */
+function confirmLot(token, workOrder) {
+  const u = authStaff_(token, 'confirm');
+  const n = withLock_(() => {
+    const list = readMoves_().filter(m => m.workOrder === workOrder && m.status === 'PENDING');
+    if (!list.length) throw new Error('Nothing waiting for this lot.');
+    if (list.some(m => m.enteredBy === u.id)) throw new Error('A different person must confirm.');
+    list.forEach(m => sheet_(SHEET.MOVES).getRange(m.row, 10, 1, 3).setValues([['CONFIRMED', u.id, nowStr_()]]));
+    forget_('moves');
+    return list.length;
+  });
+  log_(u, 'CONFIRM_LOT_MATERIAL', workOrder, n + ' material line(s)');
   return moveList(token);
 }
 
-/** The second person confirms (or rejects) a material issue / return. */
+/** The second person confirms (or rejects) one material issue. */
 function decideMove(token, id, ok) {
   const u = authStaff_(token, 'confirm');
   withLock_(() => {
@@ -797,7 +820,7 @@ function materialBalances_() {
       r.balance = round3_(r.issued - r.returned - r.used);
       r.toIssue = round3_(Math.max(0, r.needed - Math.max(0, r.balance)));
       r.flag = r.balance < -0.0005 ? 'Used more than was given: check the BOM and the issues'
-        : (r.balance > 0.0005 && !openBy[r.karigarId] ? 'Material still with the karigar: no open work order' : '');
+        : (r.balance > 0.0005 && !openBy[r.karigarId] ? 'Material left with the karigar and no running lot: check' : '');
       return r;
     }).sort((a, b) => (a.karigar + a.material < b.karigar + b.material ? -1 : 1));
   });
@@ -866,10 +889,15 @@ function saveOrder(token, data) {
     return id;
   });
   if (special && data.futureToo) addKarigarRate_(u, k, data.item, Number(data.lotRate), today, 'From lot ' + id);
+  // The lot's material (quantity × material per piece) is issued with it; a different person confirms the hand-over.
+  const issue = (bomMap_()[data.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * qty) }));
+  addMoves_(u, k, issue, 'Work order ' + id, id);
   log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + data.item + ' × ' + qty + ' at ' + (rate === null ? 'no rate' : rate) +
     (source ? ' (' + source.toLowerCase() + ')' : '') + (special && data.futureToo ? ', also for future lots' : ''));
   pushInProduction_();
-  return orderList(token);
+  const mats = materialMap_();
+  return Object.assign(orderList(token), { added: { id: id, issued: issue.map(x => ({ material: (mats[x.material] || {}).name || x.material,
+    unit: (mats[x.material] || {}).unit || '', qty: x.qty })) } });
 }
 
 /**
@@ -1487,7 +1515,7 @@ function readMoves_() {
     type: String(r[2]).trim().toUpperCase() === 'RETURN' ? 'RETURN' : 'ISSUE', karigarId: String(r[3]).trim().toUpperCase(),
     materialCode: String(r[4]).trim().toUpperCase(), qty: Number(r[5]) || 0, note: String(r[6] || ''), enteredBy: String(r[7] || ''),
     enteredAt: String(r[8] || ''), status: String(r[9] || 'PENDING').trim().toUpperCase(), confirmedBy: String(r[10] || ''),
-    confirmedAt: String(r[11] || '') })).filter(m => m.id));
+    confirmedAt: String(r[11] || ''), workOrder: String(r[12] || '') })).filter(m => m.id));
 }
 
 function parseJson_(v, dflt) {

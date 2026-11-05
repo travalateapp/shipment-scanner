@@ -501,7 +501,7 @@ VIEWS.orders = function (all) {
         '<select id="woI" onchange="woHint()">' + itemOpts(r.items) + '</select></div><div class="row" style="margin-top:8px"><input id="woQ" type="number" inputmode="numeric" placeholder="Quantity"><input id="woN" placeholder="Note (optional)"></div>' +
         (r.canRate ? '<div class="row" style="margin-top:8px"><input id="woR" type="number" step="any" inputmode="decimal" placeholder="Special rate for this lot (blank = normal rate)" oninput="woHint()"></div>' +
           '<div class="chk" id="woFutureRow" style="display:none"><input type="checkbox" id="woF"> Also use this rate for this karigar\'s future lots of this item</div>' : '') +
-        '<div class="muted" id="woHint" style="margin-top:6px"></div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
+        '<div class="muted" id="woHint" style="margin-top:6px"></div><div class="muted">The lot\'s material (quantity × material per piece) is issued to the karigar automatically. A different person confirms the hand-over in Material issue.</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
       '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
@@ -520,7 +520,11 @@ function woHint() {
 function saveWo(btn) {
   busy(btn, true);
   api('saveOrder', S.token, { karigarId: val('woK'), item: val('woI'), qty: val('woQ'), note: val('woN'), lotRate: $('woR') ? val('woR') : '', futureToo: $('woF') ? $('woF').checked : false })
-    .then(function () { toast('Work order added'); go('orders'); }).catch(function (e) { fail(e, btn); });
+    .then(function (r) {
+      var a = r.added;
+      toast(a.id + ' added. ' + (a.issued.length ? 'Material issued: ' + a.issued.map(function (x) { return x.material + ' ' + num(x.qty) + ' ' + x.unit; }).join(', ') + ' (to be confirmed).' : 'This item has no BOM, so no material was issued.'));
+      go('orders');
+    }).catch(function (e) { fail(e, btn); });
 }
 function lotRate(id) {
   var o = S.data.ol.list.filter(function (x) { return x.id === id; })[0];
@@ -538,20 +542,32 @@ VIEWS.material = function () {
   api('moveList', S.token).then(function (r) {
     S.data.ml = r;
     var pending = r.list.filter(function (m) { return m.status === 'PENDING'; });
-    render('<h1 class="page">🧰 Material issue & return <small>2 people: one enters, another confirms</small></h1>' +
-      (r.canIssue ? '<div class="card"><h2>Give or take back material</h2><div class="row"><select id="mvT"><option value="ISSUE">Issue to karigar</option><option value="RETURN">Return from karigar</option></select>' +
+    render('<h1 class="page">🧰 Material issue <small>issued automatically with each work order · a different person confirms the hand-over</small></h1>' +
+      '<div class="card"><h2>Waiting for confirmation <span class="pill warn">' + pending.length + '</span></h2>' + (pending.length ? pendingByLot(pending) : '<div class="muted">Nothing waiting.</div>') + '</div>' +
+      (r.canIssue ? '<div class="card"><h2>Extra material (not part of a work order)</h2><div class="row">' +
         '<select id="mvK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select></div>' +
         '<div class="lines" style="margin-top:8px" id="mvLines"></div><button class="btn sec sm" onclick="addMvLine()">+ Add material</button><label class="f">Note</label><input id="mvN"><button class="btn block" onclick="saveMv(this)">Save (to be confirmed)</button></div>' : '') +
-      '<div class="card"><h2>Waiting for confirmation <span class="pill warn">' + pending.length + '</span></h2>' + (pending.length ? '<div class="list">' + pending.map(moveRow).join('') + '</div>' : '<div class="muted">Nothing waiting.</div>') + '</div>' +
-      '<div class="card scroll"><h2>History</h2><table class="tbl"><tr><th>ID</th><th>Date</th><th>Type</th><th>Karigar</th><th>Material</th><th class="r">Qty</th><th>Entered</th><th>Confirmed</th><th>Status</th></tr>' +
+      '<div class="card scroll"><h2>History</h2><table class="tbl"><tr><th>ID</th><th>Date</th><th>Lot</th><th>Karigar</th><th>Material</th><th class="r">Qty</th><th>Entered</th><th>Confirmed</th><th>Status</th></tr>' +
       r.list.filter(function (m) { return m.status !== 'PENDING'; }).map(function (m) {
-        return '<tr><td>' + m.id + '</td><td>' + d(m.date) + '</td><td>' + (m.type === 'ISSUE' ? 'Issue' : 'Return') + '</td><td>' + esc(m.karigar) + '</td><td>' + esc(m.material) + '</td><td class="r">' + num(m.qty) + ' ' + esc(m.unit) + '</td><td>' + esc(m.enteredByName) + '</td><td>' + esc(m.confirmedByName) + '</td><td><span class="pill ' + (m.status === 'CONFIRMED' ? 'ok' : 'err') + '">' + m.status.toLowerCase() + '</span></td></tr>';
+        return '<tr><td>' + m.id + '</td><td>' + d(m.date) + '</td><td>' + (m.workOrder || (m.type === 'RETURN' ? 'Return' : 'Extra')) + '</td><td>' + esc(m.karigar) + '</td><td>' + esc(m.material) + '</td><td class="r">' + num(m.qty) + ' ' + esc(m.unit) + '</td><td>' + esc(m.enteredByName) + '</td><td>' + esc(m.confirmedByName) + '</td><td><span class="pill ' + (m.status === 'CONFIRMED' ? 'ok' : 'err') + '">' + m.status.toLowerCase() + '</span></td></tr>';
       }).join('') + '</table></div>');
     if (r.canIssue) addMvLine();
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+function pendingByLot(pending) {
+  var lots = {}, order = [];
+  pending.forEach(function (m) { var k = m.workOrder || ('extra-' + m.id); if (!lots[k]) { lots[k] = []; order.push(k); } lots[k].push(m); });
+  return order.map(function (k) {
+    var list = lots[k], m0 = list[0];
+    if (!m0.workOrder) return '<div class="list">' + list.map(moveRow).join('') + '</div>';
+    return '<div style="border:1px solid var(--line);border-radius:10px;padding:8px 12px;margin-bottom:10px"><div class="row" style="align-items:center"><div><b>Lot ' + m0.workOrder + ' · ' + esc(m0.karigar) + '</b><div class="muted">entered by ' + esc(m0.enteredByName) + ' ' + d(m0.enteredAt) + '</div></div>' +
+      (m0.canDecide ? '<button class="btn ok fix" onclick="confirmLot(\'' + m0.workOrder + '\',this)">Confirm whole lot</button>' : '<span class="muted fix">' + (m0.enteredBy === S.profile.id ? 'Another person must confirm' : '') + '</span>') + '</div>' +
+      '<div class="list">' + list.map(moveRow).join('') + '</div></div>';
+  }).join('');
+}
+function confirmLot(lot, btn) { busy(btn, true); api('confirmLot', S.token, lot).then(function () { toast('Material of ' + lot + ' confirmed'); go('material'); }).catch(function (e) { fail(e, btn); }); }
 function moveRow(m) {
-  return '<div class="it"><div class="grow"><b>' + (m.type === 'ISSUE' ? '➡️ Issue to ' : '⬅️ Return from ') + esc(m.karigar) + '</b><div>' + esc(m.material) + ': <b>' + num(m.qty) + ' ' + esc(m.unit) + '</b></div><div class="muted">' + m.id + ' · entered by ' + esc(m.enteredByName) + ' ' + d(m.enteredAt) + (m.note ? ' · ' + esc(m.note) : '') + '</div></div>' +
+  return '<div class="it"><div class="grow"><b>➡️ ' + esc(m.karigar) + (m.workOrder ? ' · lot ' + m.workOrder : ' · extra') + '</b><div>' + esc(m.material) + ': <b>' + num(m.qty) + ' ' + esc(m.unit) + '</b></div><div class="muted">' + m.id + ' · entered by ' + esc(m.enteredByName) + ' ' + d(m.enteredAt) + (m.note ? ' · ' + esc(m.note) : '') + '</div></div>' +
     (m.canDecide ? '<button class="btn ok sm" onclick="decide(\'' + m.id + '\',true,this)">Confirm</button> <button class="btn sec sm" onclick="decide(\'' + m.id + '\',false,this)">Reject</button>' : '<span class="muted">' + (m.enteredBy === S.profile.id ? 'Another person must confirm' : '') + '</span>') + '</div>';
 }
 function addMvLine() {
@@ -561,7 +577,7 @@ function addMvLine() {
 }
 function saveMv(btn) {
   var lines = Array.prototype.map.call(document.querySelectorAll('#mvLines .ln'), function (ln) { return { material: ln.children[0].value, qty: Number(ln.children[1].value) }; }).filter(function (l) { return l.material && l.qty > 0; });
-  busy(btn, true); api('saveMove', S.token, { type: val('mvT'), karigarId: val('mvK'), lines: lines, note: val('mvN') }).then(function () { toast('Saved. Another person must confirm it.'); go('material'); }).catch(function (e) { fail(e, btn); });
+  busy(btn, true); api('saveMove', S.token, { karigarId: val('mvK'), lines: lines, note: val('mvN') }).then(function () { toast('Saved. Another person must confirm it.'); go('material'); }).catch(function (e) { fail(e, btn); });
 }
 function decide(id, ok, btn) { busy(btn, true); api('decideMove', S.token, id, ok).then(function () { toast(ok ? 'Confirmed' : 'Rejected'); go('material'); }).catch(function (e) { fail(e, btn); }); }
 
@@ -569,11 +585,11 @@ VIEWS.balance = function () {
   api('materialBalance', S.token).then(function (r) {
     var by = {};
     r.list.forEach(function (b) { (by[b.karigar] = by[b.karigar] || []).push(b); });
-    render('<h1 class="page">⚖️ Material balance <small>given − returned − used (good + rejected × BOM). No wastage allowed.</small></h1>' +
+    render('<h1 class="page">⚖️ Material balance <small>given − used (good + rejected pieces × material per piece). No wastage allowed.</small></h1>' +
       Object.keys(by).map(function (k) {
-        return '<div class="card scroll"><h2>👷 ' + esc(k) + '</h2><table class="tbl"><tr><th>Material</th><th class="r">Given</th><th class="r">Returned</th><th class="r">Used</th><th class="r">With karigar</th><th class="r">Unconfirmed</th><th class="r">Still to give</th><th></th></tr>' +
+        return '<div class="card scroll"><h2>👷 ' + esc(k) + '</h2><table class="tbl"><tr><th>Material</th><th class="r">Given</th><th class="r">Used</th><th class="r">With karigar</th><th class="r">Not confirmed yet</th><th></th></tr>' +
           by[k].map(function (b) {
-            return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued) + '</td><td class="r">' + num(b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td><td class="r">' + (b.pending ? num(b.pending) : '') + '</td><td class="r">' + (b.toIssue ? num(b.toIssue) : '') + '</td><td>' + (b.flag ? '<span class="pill ' + (b.balance < 0 ? 'err' : 'warn') + '">' + esc(b.flag) + '</span>' : '') + '</td></tr>';
+            return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued - b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td><td class="r">' + (b.pending ? num(b.pending) : '') + '</td><td>' + (b.flag ? '<span class="pill ' + (b.balance < 0 ? 'err' : 'warn') + '">' + esc(b.flag) + '</span>' : '') + '</td></tr>';
           }).join('') + '</table></div>';
       }).join('') || '<div class="card muted">No material given yet.</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });

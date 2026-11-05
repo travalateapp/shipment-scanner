@@ -4,7 +4,10 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 
 - **Work orders:** what each karigar is making (for example 300 × TR-1323-Black). What is not received yet is
   "in production" and shows small and grey in the Inventory Snapshot.
-- **Raw material, 2 people:** one person enters an issue or return, a **different** person confirms it.
+- **Raw material, issued with the work order:** creating a lot issues its material to the karigar
+  automatically (quantity × material per piece, from the item's BOM). A **different** person confirms the
+  hand-over in **Material issue**, with one tap per lot (**Confirm whole lot**). Extra material outside a lot can
+  still be issued there. There are **no returns**.
 - **Final count, 2 people:** count 1 with a **photo** of the goods, then count 2 by a **different** person who
   does **not** see count 1 (blind). **Count 2 is final:** the batch is locked with count 2's numbers. If count 1
   was different, that is kept and flagged ("Count 1 differed") but does not block anything.
@@ -29,8 +32,9 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Advances:** given with a cut per pay period (Advances tab). At **payroll**, the person who approves pay
   can **raise, lower or zero** each karigar's cut for that month (**Change** under the advance). This only
   works before approving, and later periods keep the normal cut.
-- **Material balance:** given − returned − used (good + rejected pieces × bill of materials). No wastage
-  allowance. A negative balance or material left with a karigar who has no open work order is **flagged**.
+- **Material balance:** given − used (good + rejected pieces × material per piece). No wastage allowance. A
+  negative balance (more made than the material given, e.g. goods without a lot) or material left with a
+  karigar who has no running lot is **flagged**.
 - **Locked entries** can only be corrected by a **super admin**, with a reason. Every entry and change is
   in the **Change log**.
 - **Logins:** karigars (ID + PIN) see their own work, material, work orders and payslips. Staff see the
@@ -73,7 +77,7 @@ Screens are in `production-app/screenshots/`.
 3. **Items & rates:** add inventory SKUs (picked from the Inventory App's list) and parts, each with its
    **standard rate**. Set each item's **material per piece (BOM)**.
 4. **Karigars & rates:** add karigars (ID + PIN). Set a karigar's own rate only in the rare cases it differs.
-5. **Work orders (lots)**, then **Material issue**, then counting can start.
+5. **Work orders (lots):** the material is issued with each lot. Another person confirms it, then counting can start.
 
 ### Automatic deploy (optional)
 Same as the attendance app (`.github/workflows/deploy-production-apps-script.yml`). Add the repository
@@ -161,7 +165,7 @@ How it works:
 | Rates | Standard rates (Karigar ID `*`) and karigars' own rates for future lots (`STD` = back to standard). History: a new row per change |
 | Materials / BOM | Raw materials and the material per piece of each item |
 | Work Orders | The lots: what each karigar is making, and the lot's rate (standard / karigar / special) |
-| Material Moves | Issues and returns with who entered and who confirmed |
+| Material Moves | Material issued (per lot, or extra) with who entered and who confirmed |
 | Batches | Hand-over claim, count 1 (+photo), count 2 (final), status, final date, inventory status |
 | Batch Lines | Locked counts per item and work order (what pay and the material balance use) |
 | Advances / Advance Periods | Advances and the full / partial / skipped cut per pay period |
