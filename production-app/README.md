@@ -82,7 +82,7 @@ Screens are in `production-app/screenshots/`.
 1. **Staff & permissions:** add the people who count, issue material, confirm, approve pay. Permissions:
    count goods, enter material, confirm material, work orders, approve & pay, advances, masters (karigars,
    items, materials, rates), reports. A super admin has everything.
-2. **Materials:** add the raw materials with the unit the BOM uses (sq m, inch, pcs …) and set each one's
+2. **Materials:** add the raw materials (name + the unit the BOM uses; the code is made automatically) (sq m, inch, pcs …) and set each one's
    **Price** (roll / by weight / by count).
 3. **Items & rates:** add inventory SKUs (picked from the Inventory App's list) and parts, each with its
    **standard rate**. Set each item's **material per piece (BOM)**.

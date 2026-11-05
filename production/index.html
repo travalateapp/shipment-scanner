@@ -764,11 +764,11 @@ VIEWS.materials = function () {
     S.data.il = r;
     var used = {}; r.list.forEach(function (i) { i.bom.forEach(function (b) { (used[b.material] = used[b.material] || []).push(i.code); }); });
     render('<h1 class="page">🧶 Raw materials <small>price as bought → cost per unit used in the BOM</small></h1>' +
-      (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row"><input id="mtC" placeholder="Code (e.g. FAB-1000D)"><input id="mtN" placeholder="Name (e.g. Fabric 1000D Black)">' +
+      (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row"><input id="mtN" placeholder="Name (e.g. Fabric 1000D Black)">' +
         '<select id="mtU"><option value="">Unit used per piece…</option><option>sq m</option><option>m</option><option>inch</option><option>cm</option><option>pcs</option><option>g</option><option>kg</option></select><button class="btn fix" onclick="addMat(this)">Add</button></div>' +
         '<div class="muted" style="margin-top:6px">The unit is what the BOM uses for ONE piece: fabric in sq m, chain in inch, kunda in pcs. Then set its price with "Price".</div></div>' : '') +
       '<div class="card scroll"><table class="tbl"><tr><th>Material</th><th>Unit</th><th>Bought as</th><th class="r">Price</th><th class="r">Cost per unit</th><th>Used in</th><th></th></tr>' + r.materials.map(function (m) {
-        return '<tr><td><b>' + esc(m.name) + '</b><div class="muted">' + esc(m.code) + '</div></td><td>' + esc(m.unit) + '</td><td class="muted">' + esc((m.conversion && m.conversion.text) || '') + '</td>' +
+        return '<tr><td><b>' + esc(m.name) + '</b></td><td>' + esc(m.unit) + '</td><td class="muted">' + esc((m.conversion && m.conversion.text) || '') + '</td>' +
           '<td class="r">' + (m.price === null ? '<span class="pill warn">No price</span>' : money(m.price) + ' / ' + esc(m.purchaseUnit) + '<div class="muted">' + d(m.priceDate) + '</div>') + '</td>' +
           '<td class="r">' + (m.unitCost === null ? '–' : '<b>' + money(m.unitCost) + '</b> / ' + esc(m.unit)) + '</td><td class="muted">' + (used[m.code] || []).map(esc).join(', ') + '</td>' +
           '<td>' + (r.canEdit ? '<button class="btn sm" onclick="matPrice(\'' + q(m.code) + '\')">Price</button>' : '') + '</td></tr>';
@@ -811,7 +811,7 @@ function mpCalc() {
 function itType() { $('itC').placeholder = val('itT') === 'SKU' ? 'SKU from the Inventory App' : 'Part name (e.g. Shoulder Belt)'; }
 function addItem(btn) { busy(btn, true); api('saveItem', S.token, { code: val('itC'), name: val('itN'), type: val('itT'), rate: val('itR') }).then(function () { toast('Item added'); go('items'); }).catch(function (e) { fail(e, btn); }); }
 function toggleItem(code) { var i = S.data.il.list.filter(function (x) { return x.code === code; })[0]; api('saveItem', S.token, { code: i.code, name: i.name, type: i.type, active: !i.active, checkInventory: false }).then(function () { go('items'); }).catch(function (e) { toast(e.message); }); }
-function addMat(btn) { busy(btn, true); api('saveMaterial', S.token, { code: val('mtC'), name: val('mtN'), unit: val('mtU') }).then(function () { go('materials'); }).catch(function (e) { fail(e, btn); }); }
+function addMat(btn) { busy(btn, true); api('saveMaterial', S.token, { name: val('mtN'), unit: val('mtU') }).then(function () { go('materials'); }).catch(function (e) { fail(e, btn); }); }
 function stdRate(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
   var run = i.running;
