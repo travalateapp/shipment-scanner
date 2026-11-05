@@ -826,14 +826,44 @@ var COMMON_MATERIALS = [['Fabric 1000D', 'sq m'], ['Fabric 600D', 'sq m'], ['Fab
   ['Snap Button', 'pcs'], ['Magnet Button', 'pcs'], ['Webbing 25 mm', 'm'], ['Webbing 38 mm', 'm'], ['Webbing 50 mm', 'm'], ['Chain', 'inch'],
   ['Thread', 'm'], ['Velcro', 'inch'], ['Piping', 'm'], ['Elastic', 'm'], ['Binding Tape', 'm'], ['Logo Label', 'pcs'], ['Care Label', 'pcs'],
   ['Hang Tag', 'pcs'], ['Poly Bag', 'pcs'], ['Carton', 'pcs'], ['Trolley Handle', 'pcs'], ['Wheel', 'pcs'], ['Board / Stiffener', 'sq m']];
-function unitOpts(sel) { return '<option value="">Unit used per piece…</option>' + UNITS.concat(sel && UNITS.indexOf(sel) < 0 ? [sel] : []).map(function (u) { return '<option' + (u === sel ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join(''); }
-
+function unitOpts(sel) {
+  var list = (S.data.ml2 && S.data.ml2.units) || UNITS;
+  return '<option value="">Unit used per piece…</option>' + list.concat(sel && list.indexOf(sel) < 0 ? [sel] : []).map(function (u) { return '<option' + (u === sel ? ' selected' : '') + '>' + esc(u) + '</option>'; }).join('') +
+    (S.data.ml2 && S.data.ml2.canAddUnit ? '<option value="__new">+ New unit…</option>' : '');
+}
+/* "+ New unit…" in a unit list (super admin): a small box opens under the list; the unit is added at once. */
+function unitPicked(sel) {
+  if (sel.value !== '__new') { sel.dataset.last = sel.value; return; }
+  sel.value = sel.dataset.last || '';
+  if ($('nuBox')) $('nuBox').remove();
+  var box = document.createElement('div'); box.id = 'nuBox'; box.className = 'row'; box.style.cssText = 'margin-top:8px;flex:1 1 100%';
+  box.innerHTML = '<input id="nuIn" placeholder="New unit (e.g. set, pair, roll)" maxlength="15" onkeydown="if(event.key===\'Enter\'){event.preventDefault();unitAdd()}">' +
+    '<button class="btn fix" onclick="unitAdd()">Add unit</button><button class="btn sec fix" onclick="this.parentNode.remove()">Cancel</button>';
+  (sel.closest('.row') || sel.parentNode).insertAdjacentElement('afterend', box);
+  S.data.unitSel = sel.id; $('nuIn').focus();
+}
+function unitAdd() {
+  var name = val('nuIn').trim().replace(/\s+/g, ' '), r = S.data.ml2, sel = $(S.data.unitSel);
+  if (!name) return toast('Type the unit.');
+  var have = r.units.filter(function (u) { return u.toLowerCase() === name.toLowerCase(); })[0];
+  $('nuBox').remove();
+  if (have) { if (sel) sel.value = have; return toast('"' + have + '" is already a unit: selected.'); }
+  r.units.push(name);
+  ['mtU', 'meU'].forEach(function (id) { var x = $(id); if (x) { var o = document.createElement('option'); o.text = name; o.value = name; x.add(o, x.options[x.options.length - 1]); } });
+  if (sel) { sel.value = name; sel.dataset.last = name; }
+  api('addUnit', S.token, name).then(function (res) { r.units = res.units; toast('Unit "' + name + '" added'); })
+    .catch(function (e) {
+      r.units = r.units.filter(function (u) { return u !== name; });
+      Array.prototype.slice.call(document.querySelectorAll('option')).forEach(function (op) { if (op.value === name) op.remove(); });
+      toast(e.message);
+    });
+}
 VIEWS.materials = function () {
   load('materialList', S.token).then(function (r) {
     S.data.ml2 = r;
     render('<h1 class="page">🧶 Raw materials <small>price as bought → cost per unit used in the BOM</small></h1>' +
       (r.canEdit ? '<div class="card"><h2>Add a material</h2><div class="row addrow"><div class="sugg"><input id="mtN" autocomplete="off" placeholder="Start typing a name (e.g. Fabric 1000D Black)" oninput="matSuggest()" onkeydown="matKey(event)" onblur="setTimeout(function(){var b=document.getElementById(\'mtS\');if(b)b.style.display=\'none\'},180)"><div class="box" id="mtS" style="display:none"></div></div>' +
-        '<select id="mtU">' + unitOpts('') + '</select><button class="btn fix" id="mtB" onclick="addMat()">Add</button></div>' +
+        '<select id="mtU" onchange="unitPicked(this)">' + unitOpts('') + '</select><button class="btn fix" id="mtB" onclick="addMat()">Add</button></div>' +
         '<div class="muted" style="margin-top:6px">The unit is what the BOM uses for ONE piece: fabric in sq m, chain in inch, kunda in pcs. Then set its price with "Price".</div></div>' : '') +
       '<div class="card scroll" id="matTable"></div><div class="muted">The material per piece of each item (BOM) is set in Items & rates → BOM. A new price is used for material issued from now on; earlier lots keep the cost they were issued at.</div>');
     matTable();
@@ -915,7 +945,7 @@ function matEdit(code) {
   var m = matByCode(code); if (!m) return;
   if ($('mtS')) $('mtS').style.display = 'none';
   modal('Edit · ' + m.name, '<label class="f">Name</label><input id="meN" value="' + esc(m.name) + '">' +
-    '<label class="f">Unit used per piece</label><select id="meU">' + unitOpts(m.unit) + '</select>' +
+    '<label class="f">Unit used per piece</label><select id="meU" onchange="unitPicked(this)">' + unitOpts(m.unit) + '</select>' +
     (m.usedIn.length ? '<div class="msg warn" style="margin-top:8px">Used in ' + m.usedIn.map(esc).join(', ') + '. If you change the unit, also change the material per piece in those BOMs.</div>' : '') +
     '<div class="chk"><input type="checkbox" id="meA"' + (m.active ? ' checked' : '') + '> Active (inactive materials cannot be issued)</div><button class="btn block" id="meB">Save</button>');
   $('meB').onclick = function () {
