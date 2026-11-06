@@ -1336,6 +1336,48 @@ function pushAdjustmentToInventory_(shipmentId, entries, employee, comment) {
   };
 }
 
+/** Compensating counterpart to pushAdjustmentToInventory_ — called on
+ *  shipment delete for whatever this shipment already had returned
+ *  via the Adjustment Block, so that quantity isn't credited to stock
+ *  a second time by the full reversal in deleteShipmentRecord. The
+ *  adjustment's own stock-IN (pushAdjustmentToInventory_) deliberately
+ *  never touched Inventory's sync ledger, so the full reversal has no
+ *  way to know about it on its own — see
+ *  reverseShipmentAdjustmentFromInventory on the Inventory side for
+ *  the full explanation. */
+function reverseAdjustmentFromInventory_(shipmentId, adjustedBySku, employee, comment) {
+  const skuRows = getSkuData();
+  const mapBySku = {};
+  skuRows.forEach(r => {
+    if (r.sku)       mapBySku[String(r.sku).trim().toUpperCase()]       = r.inventorySku;
+    if (r.amazonSku) mapBySku[String(r.amazonSku).trim().toUpperCase()] = r.inventorySku;
+  });
+  const qtyMap = {};
+  const unmapped = [];
+  Object.keys(adjustedBySku || {}).forEach(skuKey => {
+    const inventorySku = (mapBySku[skuKey] || "").trim();
+    if (!inventorySku) { if (unmapped.indexOf(skuKey) === -1) unmapped.push(skuKey); return; }
+    const key = inventorySku.toUpperCase();
+    qtyMap[key] = (qtyMap[key] || 0) + (parseInt(adjustedBySku[skuKey], 10) || 0);
+  });
+  if (!Object.keys(qtyMap).length) {
+    return { success: unmapped.length === 0, message: unmapped.length ? "No Inventory mapping for: " + unmapped.join(", ") : "" };
+  }
+  const today = new Date().toISOString().split("T")[0];
+  const result = callInventoryWebApp_({
+    action: "reverseAdjustment",
+    shipmentId: shipmentId,
+    items: qtyMap,
+    date: today,
+    employee: employee || "",
+    comment: comment
+  });
+  return {
+    success: result.success !== false,
+    message: result.success === false ? result.error : (unmapped.length ? "No Inventory mapping for: " + unmapped.join(", ") : "")
+  };
+}
+
 // ════════════════════════════════════════════════════════════════
 //  BLINKIT WAREHOUSES
 //  Each warehouse also carries its own Consignee + Billed-To details,
@@ -3212,8 +3254,32 @@ function deleteShipmentRecord(id, requesterName, requesterRole) {
 
         // Give back everything this shipment had deducted from Inventory.
         const invRes = reverseShipmentInventory_(id, entryDate, employee, platform, city, poNumber);
-        const inventoryWarning = invRes.success === false
-          ? "Inventory reversal failed: " + invRes.error + " (stock was NOT restored — please retry or adjust manually)"
+
+        // The reversal above gives back this shipment's ENTIRE
+        // originally-ledgered packed quantity — but if it was already
+        // adjusted (Adjustment Block — see adjustShipmentQuantities),
+        // whatever was marked short was ALREADY given back once, via
+        // the adjustment's own separate stock-IN
+        // (pushAdjustmentToInventory_, deliberately off-ledger so a
+        // later EDIT wouldn't re-deduct it). Without this, that
+        // already-returned quantity gets credited to stock a SECOND
+        // time here: once by the adjustment, once again by the full
+        // reversal above that has no idea the adjustment ever
+        // happened. Push a matching compensating Outward now to cancel
+        // that double-credit — see reverseAdjustmentFromInventory_.
+        const existingAdjustments = parseShipmentAdjustments_(data[i][SHIP_COLS.ADJUSTMENTS_JSON - 1]);
+        const adjustedBySku = sumAdjustmentsBySku_(existingAdjustments);
+        let adjRevRes = { success: true, message: "" };
+        if (Object.keys(adjustedBySku).length) {
+          const adjComment = buildShipmentComment_(platform, city, poNumber, "Shipment Deleted (Adjustment Reversed)");
+          adjRevRes = reverseAdjustmentFromInventory_(id, adjustedBySku, requesterName, adjComment);
+        }
+
+        const warnings = [];
+        if (invRes.success === false) warnings.push("Inventory reversal failed: " + invRes.error);
+        if (adjRevRes.success === false) warnings.push("Adjustment reversal failed: " + adjRevRes.message);
+        const inventoryWarning = warnings.length
+          ? warnings.join(" ") + " (stock may not be fully restored — please retry or adjust manually)"
           : "";
         return { success: true, inventoryWarning };
       }

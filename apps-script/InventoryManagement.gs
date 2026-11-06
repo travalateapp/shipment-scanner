@@ -3183,6 +3183,80 @@ function applyShipmentAdjustmentToInventory(shipmentId, itemsQtyMap, entryDate, 
   }
 }
 
+/** Compensating counterpart to applyShipmentAdjustmentToInventory —
+ *  used when a shipment that already had one or more Adjustment Block
+ *  entries applied against it is DELETED. reverseShipmentFromInventory
+ *  (the plain "reverse" action) re-syncs this shipment's ledger down
+ *  to an empty desired state, which gives back its FULL originally-
+ *  ledgered packed quantity — but that ledger was deliberately never
+ *  updated by the Adjustment Block (see applyShipmentAdjustmentToInventory's
+ *  comment), so any quantity already returned via an adjustment gets
+ *  credited to stock a SECOND time: once by the adjustment's own
+ *  Inward, and again by the full reversal that has no idea the
+ *  adjustment ever happened. This pushes a matching Outward for
+ *  exactly that already-returned quantity to cancel the double-credit.
+ *
+ *  itemsQtyMap = { "TR1323 BLACK": 20 } — the SAME shape/values
+ *  originally passed to applyShipmentAdjustmentToInventory for this
+ *  shipment (summed across every adjustment entry it ever had).
+ *  POSITIVE qty here means "take this many back OUT again" (an
+ *  Outward movement, undoing that earlier Inward). */
+function reverseShipmentAdjustmentFromInventory(shipmentId, itemsQtyMap, entryDate, employeeName, comment) {
+  try {
+    if (!shipmentId) return { success: false, error: "Missing shipmentId." };
+    if (!itemsQtyMap || !Object.keys(itemsQtyMap).length) {
+      return { success: true, applied: [], skipped: [] };
+    }
+
+    const canonicalCase = getSkuCanonicalCaseMap_();
+    const masterSkuSet = new Set(Object.keys(canonicalCase));
+
+    // Same combo-expansion rule as applyShipmentAdjustmentToInventory —
+    // a combo SKU can't itself take an Outward-of-an-Inward entry here
+    // any more than it could take the original Inward, so expand into
+    // real components first.
+    const allCombosForAdjRev = loadCombos();
+    const expandedQtyMap = {};
+    Object.keys(itemsQtyMap).forEach(sku => {
+      const qty = Number(itemsQtyMap[sku]) || 0;
+      if (qty <= 0) return;
+      if (isComboSKU(sku, allCombosForAdjRev)) {
+        getComboComponents(sku, allCombosForAdjRev).forEach(compSku => {
+          expandedQtyMap[compSku] = (expandedQtyMap[compSku] || 0) + qty;
+        });
+      } else {
+        expandedQtyMap[sku] = (expandedQtyMap[sku] || 0) + qty;
+      }
+    });
+
+    const noteComment = comment || ("Shipment " + shipmentId + " Adjustment Reversed");
+    const items = [];
+    const skipped = [];
+    Object.keys(expandedQtyMap).forEach(sku => {
+      const key = String(sku).trim().toUpperCase();
+      if (masterSkuSet.has(key)) {
+        items.push({ sku: canonicalCase[key], qty: expandedQtyMap[sku], comment: noteComment });
+      } else {
+        skipped.push(sku);
+      }
+    });
+
+    if (!items.length) return { success: true, applied: [], skipped };
+
+    const res = processInventoryEntry({
+      date: entryDate,
+      type: "Outward",
+      employee: employeeName || "Shipment Manager",
+      items: items
+    });
+    if (!res.success) return { success: false, error: "Adjustment reversal Outward failed: " + res.error };
+
+    return { success: true, applied: items.map(i => ({ sku: i.sku, qty: i.qty, direction: "out" })), skipped };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
 /** Returns the full Master_SKU list — used by Shipment Manager to
  *  power the "map this SKU to an Inventory SKU" dropdown when an
  *  employee enters a Shipment Manager SKU that has no mapping yet. */
@@ -3195,12 +3269,12 @@ function getInventorySkuListForMapping() {
 // UrlFetchApp.fetch() with a JSON POST body shaped like:
 //   {
 //     secret: "...",                  // must match SHARED_SECRET above
-//     action: "sync" | "reverse" | "adjustmentIn" | "getSkuList" | "getStock",
-//     shipmentId: "S171234...",       // required for sync/reverse/adjustmentIn
-//     date: "2026-06-23",             // required for sync/reverse/adjustmentIn
+//     action: "sync" | "reverse" | "adjustmentIn" | "reverseAdjustment" | "getSkuList" | "getStock",
+//     shipmentId: "S171234...",       // required for sync/reverse/adjustmentIn/reverseAdjustment
+//     date: "2026-06-23",             // required for sync/reverse/adjustmentIn/reverseAdjustment
 //     employee: "Pramil",             // optional, for audit notes
 //     comment: "BLINKIT - BENGALURU  (49990010044810)", // optional, cell-note tail
-//     items: { "TR1323 BLACK": 12 },  // required for "sync"/"adjustmentIn"
+//     items: { "TR1323 BLACK": 12 },  // required for "sync"/"adjustmentIn"/"reverseAdjustment"
 //     sku: "TR1323 BLACK"             // required for "getStock" only
 //   }
 //
@@ -3228,6 +3302,8 @@ function doPost(e) {
       result = reverseShipmentFromInventory(body.shipmentId, body.date, body.employee, body.comment);
     } else if (body.action === "adjustmentIn") {
       result = applyShipmentAdjustmentToInventory(body.shipmentId, body.items || {}, body.date, body.employee, body.comment);
+    } else if (body.action === "reverseAdjustment") {
+      result = reverseShipmentAdjustmentFromInventory(body.shipmentId, body.items || {}, body.date, body.employee, body.comment);
     } else if (body.action === "getSkuList") {
       result = { success: true, skus: getInventorySkuListForMapping() };
     } else if (body.action === "getStock") {
