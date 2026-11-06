@@ -877,7 +877,7 @@ VIEWS.items = function () {
     var mats = {}; r.materials.forEach(function (m) { mats[m.code] = m; });
     render('<h1 class="page">🏷️ Items & rates <small>the standard rate is paid to every karigar</small></h1>' +
       (r.canEdit ? '<div class="card"><h2>Add an item</h2><div class="row"><select id="itT" onchange="itType()"><option value="SKU">Inventory SKU (added to the Inventory App)</option><option value="PART">Part (paid, not in inventory)</option></select></div>' +
-        '<div class="row addrow" style="margin-top:8px"><div class="sugg"><input id="itC" autocomplete="off" placeholder="SKU from the Inventory App" oninput="skuSuggest()" onkeydown="if(event.key===\'Escape\')skuHide()" onblur="setTimeout(skuHide,180)"><div class="box" id="itS" style="display:none"></div></div><input id="itN" placeholder="Description (optional)"></div>' +
+        '<div class="row addrow" style="margin-top:8px"><div class="sugg"><input id="itC" autocomplete="off" placeholder="SKU from the Inventory App" oninput="skuSuggest()" onkeydown="sugKey(event,this,\'itS\')" onblur="setTimeout(skuHide,180)"><div class="box" id="itS" style="display:none"></div></div><input id="itN" placeholder="Description (optional)"></div>' +
         '<div class="row" style="margin-top:8px"><input id="itR" type="number" step="any" inputmode="decimal" placeholder="Standard rate per piece (₹)"><button class="btn fix" onclick="addItem(this)">Add item</button></div><div class="muted" id="itHint" style="margin-top:6px">Loading the SKU list from the Inventory App…</div></div>' : '') +
       '<div class="card scroll" id="itemTable"></div>');
     itemTable();
@@ -952,15 +952,44 @@ function allColors() {
   return list;
 }
 /* Colour box: suggestions only while typing (never over the keypad). */
+/*
+ * Keyboard for any suggestion box: ↑/↓ moves through the rows that can be chosen (data-v) and puts the highlighted
+ * one in the box; Enter chooses it (same as a click); Esc puts back what was typed (or closes the list).
+ * The text typed is kept in the input's data-typed (set by sugTyped on every keystroke).
+ */
+function sugTyped(inp) { inp.dataset.typed = inp.value; inp.dataset.idx = '-1'; }
+function sugKey(e, inp, boxId) {
+  var box = $(boxId); if (!box) return false;
+  var rows = Array.prototype.filter.call(box.children, function (d) { return d.dataset.v !== undefined; });
+  var open = box.style.display !== 'none' && rows.length, idx = Number(inp.dataset.idx || -1);
+  if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault();
+    idx = e.key === 'ArrowDown' ? Math.min(idx + 1, rows.length - 1) : Math.max(idx - 1, -1);
+    inp.dataset.idx = String(idx);
+    rows.forEach(function (d, n) { d.classList.toggle('on', n === idx); });
+    if (idx >= 0) rows[idx].scrollIntoView({ block: 'nearest' });
+    inp.value = idx >= 0 ? rows[idx].dataset.v : (inp.dataset.typed || '');
+    inp.setSelectionRange(inp.value.length, inp.value.length);
+    return true;
+  }
+  if (e.key === 'Enter' && open && idx >= 0) { e.preventDefault(); rows[idx].dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true })); return true; }
+  if (e.key === 'Escape') {
+    if (open && idx >= 0) { inp.dataset.idx = '-1'; rows.forEach(function (d) { d.classList.remove('on'); }); inp.value = inp.dataset.typed || ''; }
+    else box.style.display = 'none';
+    return true;
+  }
+  return false;
+}
 function colSuggest(inp, boxId) {
   var box = $(boxId), t = inp.value.trim().toLowerCase();
   if (!t) { box.style.display = 'none'; return; }
   var hits = allColors().filter(function (c) { return c.toLowerCase().indexOf(t) >= 0; }).slice(0, 8);
-  box.innerHTML = hits.map(function (c) { return '<div onmousedown="event.preventDefault();var i=document.getElementById(\'' + inp.id + '\');i.value=\'' + q(c) + '\';document.getElementById(\'' + boxId + '\').style.display=\'none\'">' + esc(c) + '</div>'; }).join('');
+  sugTyped(inp);
+  box.innerHTML = hits.map(function (c) { return '<div data-v="' + esc(c) + '" onmousedown="event.preventDefault();var i=document.getElementById(\'' + inp.id + '\');i.value=\'' + q(c) + '\';i.dataset.idx=\'-1\';document.getElementById(\'' + boxId + '\').style.display=\'none\'">' + esc(c) + '</div>'; }).join('');
   box.style.display = hits.length ? 'block' : 'none';
 }
 function colorInput(id, value) {
-  return '<div class="sugg"><input id="' + id + '" autocomplete="off" placeholder="Colour (optional, e.g. Black)" value="' + esc(value || '') + '" oninput="colSuggest(this,\'' + id + 'S\')" onblur="setTimeout(function(){var b=document.getElementById(\'' + id + 'S\');if(b)b.style.display=\'none\'},180)"><div class="box" id="' + id + 'S" style="display:none"></div></div>';
+  return '<div class="sugg"><input id="' + id + '" autocomplete="off" placeholder="Colour (optional, e.g. Black)" value="' + esc(value || '') + '" oninput="colSuggest(this,\'' + id + 'S\')" onkeydown="if(sugKey(event,this,\'' + id + 'S\')===false&&event.key===\'Enter\'&&this.id===\'mtC\'){event.preventDefault();addMat()}" onblur="setTimeout(function(){var b=document.getElementById(\'' + id + 'S\');if(b)b.style.display=\'none\'},180)"><div class="box" id="' + id + 'S" style="display:none"></div></div>';
 }
 function unitOpts(sel) {
   var list = (S.data.ml2 && S.data.ml2.units) || UNITS;
@@ -1192,6 +1221,7 @@ function mpCalc() {
 /* SKU suggestions: only once something is typed, a short list under the box (never over the keypad). */
 function skuSuggest() {
   var box = $('itS'), t = val('itC').trim().toLowerCase();
+  sugTyped($('itC'));
   if (!t || val('itT') !== 'SKU' || !S.data.invSkus) { box.style.display = 'none'; return; }
   var have = {}; S.data.il.list.forEach(function (i) { have[i.code.toLowerCase()] = 1; });
   var words = t.split(/\s+/);
@@ -1199,12 +1229,12 @@ function skuSuggest() {
   hits.sort(function (a, b) { return (a.toLowerCase().indexOf(t) === 0 ? 0 : 1) - (b.toLowerCase().indexOf(t) === 0 ? 0 : 1) || (have[a.toLowerCase()] ? 1 : 0) - (have[b.toLowerCase()] ? 1 : 0); });
   box.innerHTML = hits.slice(0, 8).map(function (k) {
     return have[k.toLowerCase()] ? '<div style="color:var(--muted);cursor:default" onmousedown="event.preventDefault()">' + esc(k) + '<small>already added</small></div>'
-      : '<div onmousedown="event.preventDefault();skuPick(\'' + q(k) + '\')">' + esc(k) + '</div>';
+      : '<div data-v="' + esc(k) + '" onmousedown="event.preventDefault();skuPick(\'' + q(k) + '\')">' + esc(k) + '</div>';
   }).join('') + (hits.length > 8 ? '<div style="cursor:default;color:var(--muted)" onmousedown="event.preventDefault()">+' + (hits.length - 8) + ' more: keep typing</div>' : '') +
     (hits.length ? '' : '<div style="cursor:default;color:var(--muted)" onmousedown="event.preventDefault()">Not in the Inventory App</div>');
   box.style.display = 'block';
 }
-function skuPick(k) { $('itC').value = k; skuHide(); var r = $('itR'); if (r) r.focus(); }
+function skuPick(k) { var i = $('itC'); i.value = k; i.dataset.idx = '-1'; skuHide(); var r = $('itR'); if (r) r.focus(); }
 function skuHide() { var b = $('itS'); if (b) b.style.display = 'none'; }
 function itType() { skuHide(); $('itC').placeholder = val('itT') === 'SKU' ? 'SKU from the Inventory App' : 'Part name (e.g. Shoulder Belt)'; }
 function addItem(btn) { busy(btn, true); api('saveItem', S.token, { code: val('itC'), name: val('itN'), type: val('itT'), rate: val('itR') }).then(function (r) { toast('Item added'); preload('itemList', r); go('items'); }).catch(function (e) { fail(e, btn); }); }
