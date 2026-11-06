@@ -1047,25 +1047,69 @@ function priceChanged(code, m) {
   });
   itemTable();
 }
+/*
+ * Name suggestions while typing. ↑/↓ moves through them and puts the highlighted one in the boxes (name, colour,
+ * unit) so it can be edited into a new material; Enter keeps it, Esc puts back what was typed. Click = the same;
+ * the small "edit" opens an existing material's Edit window.
+ */
 function matSuggest() {
-  var box = $('mtS'), t = val('mtN').trim().toLowerCase();
+  var box = $('mtS'), typed = val('mtN'), t = typed.trim().toLowerCase();
+  S.data.sug = { typed: typed, idx: -1, items: [] };
   if (!t) { box.style.display = 'none'; return; }
   var have = S.data.ml2.materials, haveNames = have.map(function (m) { return m.name.toLowerCase(); });
   var hit = function (n) { return n.toLowerCase().split(/\s+/).some(function (w) { return w.indexOf(t) === 0; }) || n.toLowerCase().indexOf(t) >= 0; };
-  var mine = have.filter(function (m) { return hit(m.name); }).slice(0, 6).map(function (m) {
-    return '<div onmousedown="event.preventDefault();matEdit(\'' + q(m.code) + '\')">✏️ <b>' + esc(m.name) + '</b><small>added · edit</small></div>';
-  });
-  var common = COMMON_MATERIALS.filter(function (c) { return hit(c[0]) && haveNames.indexOf(c[0].toLowerCase()) < 0; }).slice(0, 8).map(function (c) {
-    return '<div onmousedown="event.preventDefault();matPick(\'' + q(c[0]) + '\',\'' + q(c[1]) + '\')">➕ ' + esc(c[0]) + '<small>' + esc(c[1]) + '</small></div>';
-  });
-  var all = mine.concat(common);
-  box.innerHTML = all.join(''); box.style.display = all.length ? 'block' : 'none';
+  var items = have.filter(function (m) { return hit(m.name); }).slice(0, 6).map(function (m) {
+    var p = matParts(m); return { label: m.name, base: p.base, color: p.color, unit: m.unit, code: m.code }; // colour taken out of older names
+  }).concat(COMMON_MATERIALS.filter(function (c) { return hit(c[0]) && haveNames.indexOf(c[0].toLowerCase()) < 0; }).slice(0, 8).map(function (c) {
+    return { label: c[0], base: c[0], color: '', unit: c[1] };
+  }));
+  S.data.sug.items = items;
+  box.innerHTML = items.map(function (it, n) {
+    return '<div data-i="' + n + '" onmousedown="event.preventDefault();matChoose(' + n + ')">' + (it.code ? '✏️ <b>' + esc(it.label) + '</b><small>added · <a class="lnk" onmousedown="event.preventDefault();event.stopPropagation();matEdit(\'' + q(it.code) + '\')">edit</a></small>' : '➕ ' + esc(it.label) + '<small>' + esc(it.unit) + '</small>') + '</div>';
+  }).join('');
+  box.style.display = items.length ? 'block' : 'none';
 }
-function matPick(name, unit) {
-  var i = $('mtN'); i.value = name + ' '; $('mtU').value = unit; $('mtS').style.display = 'none';
-  i.focus(); i.setSelectionRange(i.value.length, i.value.length); // keep typing after the name (e.g. "Black")
+function matFill(it) {
+  var i = $('mtN');
+  i.value = it ? it.base : S.data.sug.typed;
+  if (it) {
+    $('mtC').value = it.color || '';
+    var u = $('mtU');
+    if (it.unit && !Array.prototype.some.call(u.options, function (o) { return o.value === it.unit; })) { var o = document.createElement('option'); o.text = it.unit; o.value = it.unit; u.add(o, u.options[u.options.length - 1]); }
+    u.value = it.unit || ''; u.dataset.last = u.value;
+  }
+  i.setSelectionRange(i.value.length, i.value.length);
 }
-function matKey(e) { if (e.key === 'Enter') { e.preventDefault(); $('mtS').style.display = 'none'; addMat(); } if (e.key === 'Escape') $('mtS').style.display = 'none'; }
+function matHighlight() {
+  var sg = S.data.sug;
+  Array.prototype.forEach.call($('mtS').children, function (d) { d.classList.toggle('on', Number(d.dataset.i) === sg.idx); });
+  var on = $('mtS').querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+  matFill(sg.idx >= 0 ? sg.items[sg.idx] : null);
+}
+/* Picked (click or Enter): the name, colour and unit stay in the boxes to edit; Add creates the new material. */
+function matChoose(n) {
+  var it = S.data.sug.items[n]; if (!it) return;
+  S.data.sug.idx = n; matFill(it); $('mtS').style.display = 'none';
+  var i = $('mtN'); i.value = it.base + ' '; i.focus(); i.setSelectionRange(i.value.length, i.value.length); // ready to type more
+}
+function matPick(name, unit) { matChoose(-1); var i = $('mtN'); i.value = name + ' '; $('mtU').value = unit; i.focus(); }
+function matKey(e) {
+  var box = $('mtS'), sg = S.data.sug, open = box && box.style.display !== 'none' && sg && sg.items.length;
+  if (open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) {
+    e.preventDefault();
+    sg.idx = e.key === 'ArrowDown' ? Math.min(sg.idx + 1, sg.items.length - 1) : Math.max(sg.idx - 1, -1);
+    matHighlight();
+    return;
+  }
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    if (open && sg.idx >= 0) { matChoose(sg.idx); return; } // keep it to edit; Add (or Enter again) creates it
+    box.style.display = 'none'; addMat(); return;
+  }
+  if (e.key === 'Escape') {
+    if (open && sg.idx >= 0) { sg.idx = -1; matHighlight(); } else if (box) box.style.display = 'none';
+  }
+}
 /* Instant: the row appears at once (saving…), the server confirms in the background. */
 function addMat() {
   var base = val('mtN').trim().replace(/\s+/g, ' '), color = val('mtC').trim().replace(/\s+/g, ' '), unit = val('mtU');
