@@ -96,6 +96,11 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg{position:relative}.addrow{align-items:flex-start}.sugg .box{margin-top:4px;background:#fff;border:1px solid #cfd6e4;border-radius:10px;box-shadow:0 8px 24px rgba(15,35,80,.15);z-index:25;max-height:300px;overflow:auto}
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
+.combo{display:block;position:relative;min-width:0}.combo>select{position:absolute;left:0;top:0;width:100%;height:42px;opacity:0;pointer-events:none}
+.combo .cbi{padding-right:30px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2364748b' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 11px center;text-overflow:ellipsis}
+.combo .box{position:absolute;left:0;min-width:100%;width:max-content;max-width:min(420px,calc(100vw - 32px));top:100%;z-index:40;max-height:min(300px,45vh)}.combo .box div.cur{font-weight:700}.combo .box div.cur::after{content:'✓';margin-left:auto;color:var(--blue)}
+.find{display:flex;align-items:center;gap:8px;margin-bottom:12px}.find input{flex:1}.find small{color:var(--muted);white-space:nowrap}
+.nofind{display:none!important}tr.hl td,.it.hl,.mcard.hl{background:#dbe8ff!important}tr.hl td:first-child,.it.hl,.mcard.hl{box-shadow:inset 3px 0 0 var(--blue)}
 tr.saving td,.mcard.saving{opacity:.6}
 .langb{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:8px;padding:5px 9px;font-weight:700;font-size:13px;cursor:pointer}
 .login .langb{background:#eef2f8;color:var(--ink);border-color:#cfd6e4;float:right}
@@ -278,10 +283,15 @@ function go(view, arg, isBack) {
   // Show the screen as it was last time at once; fresh data replaces it a moment later.
   $('main').innerHTML = cached ? cached : '<div class="card muted" style="text-align:center;padding:30px"><span class="spinner dark"></span></div>';
   loading(!!cached);
+  if (cached) findSetup();
   window.scrollTo(0, 0);
   v(arg);
 }
-function render(html) { $('main').innerHTML = html; S.html[S.view + '|' + S.arg] = html; loading(false); }
+function render(html) {
+  var f = document.activeElement && document.activeElement.id === 'findQ';
+  $('main').innerHTML = html; S.html[S.view + '|' + S.arg] = html; loading(false);
+  findSetup(f);
+}
 function loading(on) { var b = $('loadbar'); if (b) b.style.display = on ? 'block' : 'none'; }
 /** A save already sent back the fresh list: the next screen uses it instead of asking the server again. */
 function preload(fn, data) { S.pre = { fn: fn, data: data }; }
@@ -968,7 +978,7 @@ function sugKey(e, inp, boxId) {
     inp.dataset.idx = String(idx);
     rows.forEach(function (d, n) { d.classList.toggle('on', n === idx); });
     if (idx >= 0) rows[idx].scrollIntoView({ block: 'nearest' });
-    inp.value = idx >= 0 ? rows[idx].dataset.v : (inp.dataset.typed || '');
+    inp.value = idx >= 0 ? (rows[idx].dataset.t !== undefined ? rows[idx].dataset.t : rows[idx].dataset.v) : (inp.dataset.typed || '');
     inp.setSelectionRange(inp.value.length, inp.value.length);
     return true;
   }
@@ -980,10 +990,147 @@ function sugKey(e, inp, boxId) {
   }
   return false;
 }
+/* Search words: every word typed must be somewhere in the text (any order, any part of a word). "1.5" finds 1.50" too. */
+function findWords(q) { return String(q || '').toLowerCase().trim().split(/\s+/).filter(Boolean); }
+function findHit(text, words) { var t = String(text || '').toLowerCase(); return words.every(function (w) { return t.indexOf(w) >= 0; }); }
+/*
+ * Every list to choose from (<select>) with three or more choices is a search box: type any part of the name,
+ * colour or code and every match is listed; ↑/↓ moves and shows the highlighted one in the box, Enter (or a click)
+ * picks it, Esc puts back what was typed. A click/tap on the box shows the whole list.
+ * The real <select> stays underneath (hidden), so everything that reads or sets its value works as before.
+ */
+var CB = { n: 0, min: 3 }; // two-choice lists (e.g. Role) stay plain
+function comboLabel(sel) { var o = sel.options[sel.selectedIndex]; return o && o.value !== '' ? o.text : ''; }
+function comboWrap(sel) {
+  if (sel._cb || sel.multiple || sel.options.length < CB.min || !sel.parentNode) return;
+  var w = document.createElement('span'), id = 'cb' + (++CB.n);
+  w.className = 'combo sugg';
+  sel.parentNode.insertBefore(w, sel);
+  w.innerHTML = '<input autocomplete="off" class="cbi"><div class="box" id="' + id + '" style="display:none"></div>';
+  w.insertBefore(sel, w.lastChild);
+  sel.tabIndex = -1;
+  var inp = w.firstChild, box = w.lastChild;
+  Object.defineProperty(w, 'value', { get: function () { return sel.value; }, set: function (v) { sel.value = v; } }); // lines read children[0].value
+  sel._cb = function () {
+    if (document.activeElement !== inp) inp.value = comboLabel(sel);
+    var ph = Array.prototype.filter.call(sel.options, function (o) { return o.value === ''; })[0];
+    inp.placeholder = ph ? ph.text : 'Type to search…';
+  };
+  sel._cb();
+  sel.addEventListener('change', sel._cb);
+  new MutationObserver(function () { sel._cb(); }).observe(sel, { childList: true });
+  inp.onfocus = function () { inp.select(); };
+  inp.onclick = function () { if (box.style.display === 'none') comboOpen(sel, inp, box, ''); };
+  inp.oninput = function () { comboOpen(sel, inp, box, inp.value); };
+  inp.onblur = function () { setTimeout(function () { box.style.display = 'none'; if (document.activeElement !== inp) inp.value = comboLabel(sel); }, 180); };
+  box.onmousedown = function (e) { e.preventDefault(); var d = e.target.closest('[data-v]'); if (d) comboPick(sel, inp, box, d.dataset.v); };
+  inp.onkeydown = function (e) {
+    var open = box.style.display !== 'none';
+    if (!open && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); comboOpen(sel, inp, box, inp.value === comboLabel(sel) ? '' : inp.value); return; }
+    if (open && (e.key === 'Enter' || e.key === 'Tab')) {
+      var rows = box.querySelectorAll('[data-v]'), idx = Number(inp.dataset.idx);
+      if (idx < 0 && e.key === 'Enter' && inp.dataset.q) idx = 0; // typed something: Enter takes the first match
+      if (idx >= 0 && rows[idx]) { if (e.key === 'Enter') e.preventDefault(); comboPick(sel, inp, box, rows[idx].dataset.v); return; }
+    }
+    if (e.key === 'Escape' && !open) { inp.value = comboLabel(sel); inp.select(); return; }
+    sugKey(e, inp, box.id);
+  };
+}
+function comboOpen(sel, inp, box, q) {
+  var words = findWords(q);
+  var opts = Array.prototype.filter.call(sel.options, function (o) { return !o.disabled && (!words.length || (o.value !== '' && findHit(o.text + ' ' + o.value, words))); });
+  inp.dataset.typed = inp.value; inp.dataset.idx = '-1'; inp.dataset.q = words.length ? '1' : '';
+  box.innerHTML = opts.length ? opts.map(function (o) {
+    return '<div data-v="' + esc(o.value) + '" data-t="' + esc(o.value === '' ? '' : o.text) + '"' + (o.value === sel.value && o.value !== '' ? ' class="cur"' : '') + '>' + esc(o.text) + '</div>';
+  }).join('') : '<div style="color:var(--muted);cursor:default">No match</div>';
+  box.style.display = 'block';
+  var cur = box.querySelector('.cur'); if (cur && !words.length) cur.scrollIntoView({ block: 'nearest' });
+}
+function comboPick(sel, inp, box, v) {
+  box.style.display = 'none'; inp.dataset.idx = '-1';
+  var changed = sel.value !== v;
+  sel.value = v; inp.value = comboLabel(sel); inp.select();
+  if (changed) sel.dispatchEvent(new Event('change', { bubbles: true }));
+}
+// Lists that appear later (new lines, pop-ups, a screen) get their search box automatically.
+(function () {
+  ['value', 'selectedIndex'].forEach(function (p) { // code that sets a list's value also updates its box
+    var d = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, p);
+    Object.defineProperty(HTMLSelectElement.prototype, p, { configurable: true, enumerable: d.enumerable, get: d.get, set: function (v) { d.set.call(this, v); if (this._cb) this._cb(); } });
+  });
+  function scan(n) {
+    if (n.nodeType !== 1) return;
+    if (n.tagName === 'SELECT') comboWrap(n);
+    else if (n.tagName === 'OPTION') { var s = n.closest('select'); if (s) comboWrap(s); }
+    else if (n.querySelectorAll) Array.prototype.forEach.call(n.querySelectorAll('select'), comboWrap);
+  }
+  new MutationObserver(function (ms) { ms.forEach(function (m) { Array.prototype.forEach.call(m.addedNodes, scan); }); }).observe(document.documentElement, { childList: true, subtree: true });
+  if (document.body) scan(document.body);
+})();
+/*
+ * Search on every screen with a list: a box at the top filters the rows of all its tables and lists as you type
+ * (every word, any order). ↑/↓ highlights a row, Enter opens it (its first button or link), Esc clears.
+ */
+var FIND_MIN = 2; // any list of two or more rows (staff screens; karigar screens stay simple)
+function findRows() {
+  return Array.prototype.filter.call($('main').querySelectorAll('table.tbl tr, .list .it, .mcard'), function (r) {
+    return !r.querySelector('th') && !(r.parentElement && r.parentElement.closest('table.tbl tr, .list .it, .mcard'));
+  });
+}
+function findSetup(focus) {
+  findWatch();
+  var main = $('main'); if (!main || $('findQ') || main.querySelector('[data-nofind]') || !S.profile || S.profile.kind !== 'S') return;
+  var rows = findRows(), tr = rows.filter(function (r) { return r.tagName === 'TR'; }).length;
+  if (Math.max(tr, rows.length - tr) < FIND_MIN) return;
+  var d = document.createElement('div'); d.className = 'find no-print';
+  d.innerHTML = '<input id="findQ" type="search" autocomplete="off" placeholder="🔍 Search this list…" oninput="findRun()" onkeydown="findKey(event)"><small id="findN"></small>';
+  var h = main.querySelector('h1.page');
+  if (h) h.insertAdjacentElement('afterend', d); else main.insertBefore(d, main.firstChild);
+  var q = (S.find || {})[S.view];
+  if (q) { $('findQ').value = q; findRun(); }
+  if (focus) { var i = $('findQ'); i.focus(); i.setSelectionRange(i.value.length, i.value.length); }
+}
+// Rows that arrive after the screen (tables filled in later, a saved row) are searched too.
+var FIND_T = 0;
+function findWatch() {
+  var m = $('main'); if (!m || m._fw) return; m._fw = 1;
+  new MutationObserver(function (ms) {
+    if (FIND_T || !ms.some(function (x) { return !(x.target.closest && x.target.closest('.find')); })) return; // not the search box itself
+    FIND_T = requestAnimationFrame(function () { FIND_T = 0; if (!$('findQ')) findSetup(); else if (val('findQ')) findRun(); });
+  }).observe(m, { childList: true, subtree: true });
+}
+function findRun() {
+  var q = val('findQ'), words = findWords(q), rows = findRows();
+  S.find = S.find || {}; S.find[S.view] = q;
+  rows.forEach(function (r) { r.classList.remove('hl'); r.classList.toggle('nofind', !!words.length && !findHit(r.textContent, words)); });
+  Array.prototype.forEach.call($('main').querySelectorAll('.card'), function (c) {
+    var mine = rows.filter(function (r) { return c.contains(r); });
+    if (!mine.length) return;
+    var h = c.querySelector('h2'), all = words.length && h && findHit(h.textContent, words); // the card's title matches (e.g. a karigar): show all of it
+    if (all) mine.forEach(function (r) { r.classList.remove('nofind'); });
+    var form = Array.prototype.some.call(c.querySelectorAll('input,select,textarea'), function (x) { return !mine.some(function (r) { return r.contains(x); }); });
+    c.classList.toggle('nofind', !!words.length && !form && mine.every(function (r) { return r.classList.contains('nofind'); }));
+  });
+  var n = findVisible().length;
+  $('findN').textContent = words.length ? (n ? n + ' found' : 'Nothing found') : '';
+}
+function findVisible() { return findRows().filter(function (r) { return r.getClientRects().length > 0; }); }
+function findKey(e) {
+  var rows = findVisible(), idx = rows.map(function (r) { return r.classList.contains('hl'); }).indexOf(true);
+  if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+    e.preventDefault(); if (!rows.length) return;
+    idx = e.key === 'ArrowDown' ? Math.min(idx + 1, rows.length - 1) : Math.max(idx - 1, 0);
+    rows.forEach(function (r, n) { r.classList.toggle('hl', n === idx); });
+    rows[idx].scrollIntoView({ block: 'nearest' });
+  } else if (e.key === 'Enter') {
+    e.preventDefault(); var r = rows[idx >= 0 ? idx : 0]; if (!r || (idx < 0 && rows.length > 1)) return;
+    var b = r.querySelector('button, a.lnk, [onclick]'); if (b) b.click(); else if (r.onclick) r.click();
+  } else if (e.key === 'Escape') { e.target.value = ''; findRun(); }
+}
 function colSuggest(inp, boxId) {
   var box = $(boxId), t = inp.value.trim().toLowerCase();
   if (!t) { box.style.display = 'none'; return; }
-  var hits = allColors().filter(function (c) { return c.toLowerCase().indexOf(t) >= 0; }).slice(0, 8);
+  var words = findWords(t), hits = allColors().filter(function (c) { return findHit(c, words); });
   sugTyped(inp);
   box.innerHTML = hits.map(function (c) { return '<div data-v="' + esc(c) + '" onmousedown="event.preventDefault();var i=document.getElementById(\'' + inp.id + '\');i.value=\'' + q(c) + '\';i.dataset.idx=\'-1\';document.getElementById(\'' + boxId + '\').style.display=\'none\'">' + esc(c) + '</div>'; }).join('');
   box.style.display = hits.length ? 'block' : 'none';
@@ -1005,7 +1152,7 @@ function unitPicked(sel) {
   box.innerHTML = '<input id="nuIn" placeholder="New unit (e.g. set, pair, roll)" maxlength="15" onkeydown="if(event.key===\'Enter\'){event.preventDefault();unitAdd()}">' +
     '<button class="btn fix" onclick="unitAdd()">Add unit</button><button class="btn sec fix" onclick="this.parentNode.remove()">Cancel</button>';
   // Right under the list: below the whole add row on the Materials screen, or under the list inside Edit.
-  (sel.closest('.addrow') || sel).insertAdjacentElement('afterend', box);
+  (sel.closest('.addrow') || sel.closest('.combo') || sel).insertAdjacentElement('afterend', box);
   S.data.unitSel = sel.id; $('nuIn').focus();
 }
 function unitAdd() {
@@ -1086,10 +1233,10 @@ function matSuggest() {
   S.data.sug = { typed: typed, idx: -1, items: [] };
   if (!t) { box.style.display = 'none'; return; }
   var have = S.data.ml2.materials, haveNames = have.map(function (m) { return m.name.toLowerCase(); });
-  var hit = function (n) { return n.toLowerCase().split(/\s+/).some(function (w) { return w.indexOf(t) === 0; }) || n.toLowerCase().indexOf(t) >= 0; };
-  var items = have.filter(function (m) { return hit(m.name); }).slice(0, 6).map(function (m) {
+  var words = findWords(t), hit = function (n) { return findHit(n, words); };
+  var items = have.filter(function (m) { return hit(m.name + ' ' + (m.color || '') + ' ' + m.unit + ' ' + m.code); }).map(function (m) {
     var p = matParts(m); return { label: m.name, base: p.base, color: p.color, unit: m.unit, code: m.code }; // colour taken out of older names
-  }).concat(COMMON_MATERIALS.filter(function (c) { return hit(c[0]) && haveNames.indexOf(c[0].toLowerCase()) < 0; }).slice(0, 8).map(function (c) {
+  }).concat(COMMON_MATERIALS.filter(function (c) { return hit(c[0]) && haveNames.indexOf(c[0].toLowerCase()) < 0; }).map(function (c) {
     return { label: c[0], base: c[0], color: '', unit: c[1] };
   }));
   S.data.sug.items = items;
@@ -1227,10 +1374,10 @@ function skuSuggest() {
   var words = t.split(/\s+/);
   var hits = S.data.invSkus.filter(function (k) { var x = k.toLowerCase(); return words.every(function (w) { return x.indexOf(w) >= 0; }); });
   hits.sort(function (a, b) { return (a.toLowerCase().indexOf(t) === 0 ? 0 : 1) - (b.toLowerCase().indexOf(t) === 0 ? 0 : 1) || (have[a.toLowerCase()] ? 1 : 0) - (have[b.toLowerCase()] ? 1 : 0); });
-  box.innerHTML = hits.slice(0, 8).map(function (k) {
+  box.innerHTML = hits.map(function (k) {
     return have[k.toLowerCase()] ? '<div style="color:var(--muted);cursor:default" onmousedown="event.preventDefault()">' + esc(k) + '<small>already added</small></div>'
       : '<div data-v="' + esc(k) + '" onmousedown="event.preventDefault();skuPick(\'' + q(k) + '\')">' + esc(k) + '</div>';
-  }).join('') + (hits.length > 8 ? '<div style="cursor:default;color:var(--muted)" onmousedown="event.preventDefault()">+' + (hits.length - 8) + ' more: keep typing</div>' : '') +
+  }).join('') +
     (hits.length ? '' : '<div style="cursor:default;color:var(--muted)" onmousedown="event.preventDefault()">Not in the Inventory App</div>');
   box.style.display = 'block';
 }
@@ -1439,7 +1586,7 @@ function billLine(mat, qty, price) {
   $('bfL').appendChild(div); billUnit(div.children[0], price === undefined);
 }
 function billUnit(sel, fillPrice) {
-  var m = S.data.st.list.filter(function (x) { return x.code === sel.value; })[0], ln = sel.parentNode;
+  var m = S.data.st.list.filter(function (x) { return x.code === sel.value; })[0], ln = sel.closest('.ln');
   if (!m) { ln.querySelector('.bu').textContent = ''; return billSum(); }
   var pu = m.purchaseType && m.purchaseType !== 'UNIT' ? m.purchaseUnit : m.unit;
   ln.querySelector('.bu').textContent = 'Qty in ' + pu + 's' + (m.purchaseType && m.purchaseType !== 'UNIT' ? ' (1 ' + pu + ' = ' + num(m.perPurchase) + ' ' + m.unit + ')' : '') + (m.price !== null ? ' · last price ' + money(m.price) + ' / ' + pu : '');
@@ -1494,7 +1641,7 @@ function staffForm(id) {
 }
 VIEWS.log = function () {
   api('changeLog', S.token, S.data.logQ || '').then(function (r) {
-    render('<h1 class="page">📜 Change log <small>everything that was entered or changed</small></h1><div class="row" style="margin-bottom:12px"><input id="lgQ" placeholder="Search (batch, karigar ID…)" value="' + esc(S.data.logQ || '') + '"><button class="btn fix" onclick="S.data.logQ=val(\'lgQ\');go(\'log\')">Search</button></div>' +
+    render('<h1 class="page">📜 Change log <small>everything that was entered or changed</small></h1><div class="row" data-nofind style="margin-bottom:12px"><input id="lgQ" placeholder="Search (batch, karigar ID…)" value="' + esc(S.data.logQ || '') + '"><button class="btn fix" onclick="S.data.logQ=val(\'lgQ\');go(\'log\')">Search</button></div>' +
       '<div class="card scroll"><table class="tbl"><tr><th>When</th><th>Who</th><th>What</th><th>Ref</th><th>Details</th></tr>' + r.map(function (l) {
         return '<tr><td style="white-space:nowrap">' + esc(l.at) + '</td><td>' + esc(l.by) + '</td><td><span class="pill">' + esc(l.action) + '</span></td><td>' + esc(l.ref) + '</td><td>' + esc(l.details) + '</td></tr>';
       }).join('') + '</table></div>');
