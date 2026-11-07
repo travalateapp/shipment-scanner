@@ -1083,7 +1083,7 @@ function findSetup(focus) {
   var rows = findRows(), tr = rows.filter(function (r) { return r.tagName === 'TR'; }).length;
   if (Math.max(tr, rows.length - tr) < FIND_MIN) return;
   var d = document.createElement('div'); d.className = 'find no-print';
-  d.innerHTML = '<input id="findQ" type="search" autocomplete="off" placeholder="🔍 Search this list…" oninput="findRun()" onkeydown="findKey(event)"><small id="findN"></small>';
+  d.innerHTML = '<input id="findQ" type="search" autocomplete="off" placeholder="🔍 Search this list…' + (window.matchMedia && matchMedia('(pointer:fine)').matches ? ' (Ctrl+F)' : '') + '" oninput="findRun()" onkeydown="findKey(event)"><small id="findN"></small>';
   var h = main.querySelector('h1.page');
   if (h) h.insertAdjacentElement('afterend', d); else main.insertBefore(d, main.firstChild);
   var q = (S.find || {})[S.view];
@@ -1099,6 +1099,15 @@ function findWatch() {
     FIND_T = requestAnimationFrame(function () { FIND_T = 0; if (!$('findQ')) findSetup(); else if (val('findQ')) findRun(); });
   }).observe(m, { childList: true, subtree: true });
 }
+// Ctrl+F (⌘F on Mac) jumps to the screen's search box; on a screen without one the browser's own Find works as usual.
+document.addEventListener('keydown', function (e) {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey || e.shiftKey || String(e.key).toLowerCase() !== 'f') return;
+  var box = $('findQ') || $('lgQ');
+  if (!box || !box.getClientRects().length) return;
+  e.preventDefault();
+  box.focus(); box.select();
+  box.scrollIntoView({ block: 'center' });
+});
 function findRun() {
   var q = val('findQ'), words = findWords(q), rows = findRows();
   S.find = S.find || {}; S.find[S.view] = q;

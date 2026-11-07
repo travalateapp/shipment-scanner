@@ -47,7 +47,8 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   type any part of the name, colour or code (every word, any order: "1.5" finds Niwar (1.50") and Velcro (1.50"))
   and every match is listed. ↑/↓ moves and shows the highlighted one in the box, Enter picks it, Esc puts back what was
   typed; a click/tap shows the whole list. Every staff screen with a list has a **🔍 Search this list** box at the top
-  (filters as you type; ↑/↓ highlights a row, Enter opens it, Esc clears).
+  (filters as you type; ↑/↓ highlights a row, Enter opens it, Esc clears). **Ctrl+F** (⌘F on Mac) jumps to it from
+  anywhere on the screen (on the Change log, to its search box).
 - **Copy a BOM** from another item (Items & rates → BOM → Copy from another item), then **Change the colour**
   (e.g. Black → Grey): every material that has a Grey version is swapped; the others are marked to pick by hand.
 - **Store & bills:** enter each material's **opening stock** (what is in the store today); after that every
