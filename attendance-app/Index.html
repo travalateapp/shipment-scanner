@@ -4120,7 +4120,7 @@
       if (g.items.length) html += '<table class="given"><tr><th>Date given</th><th class="r">Amount</th><th>Note</th><th>Status</th></tr>' +
         rows.map(function (u) {
           return '<tr><td>' + esc(fmtDate(u.p.date)) + '</td><td class="r">' + money(u.p.amount, cur) + '</td><td class="muted">' + esc(u.p.note || '') + '</td>' +
-            '<td>' + (u.repaid ? '<span class="chip s-APPROVED">✓ Repaid</span>' : '<button class="link adv-st" onclick="advManage(' + u.x.i + ')">' + advStatusText(u.x.a, cur) + ' ›</button>') + '</td></tr>';
+            '<td>' + (u.repaid ? '<span class="chip s-APPROVED">✓ Repaid</span>' : '<button class="link adv-st" onclick="advManage(' + u.x.i + ')">' + advStatusText(u.x.a, cur, u.p.date) + ' ›</button>') + '</td></tr>';
         }).join('') +
         (rows.length > 1 ? '<tr class="tot"><td>Total given</td><td class="r">' + money(total, cur) + '</td><td></td><td></td></tr>' : '') + '</table>' +
         '<div class="kv" style="margin-top:8px"><div class="k-red"><b>' + money(total - recovered, cur) + '</b><span>Pending</span></div>' +
@@ -4271,10 +4271,12 @@
   }
 
   /** Deduction status of one advance: "₹5,000/month from Oct 2026", Paused, Repaid, Closed. */
-  function advStatusText(a, cur) {
+  /** from = the payment's own date (yyyy-MM-dd): an "Add more" made later is recovered from its own month, not the advance's start. */
+  function advStatusText(a, cur, from) {
     if (a.status === 'CLOSED') return '✓ Repaid (closed)';
     if (a.status === 'PAUSED') return '⏸ Paused';
-    return 'Active · ' + money(a.monthly, cur) + '/month from ' + esc(monthName(a.startMonth)) + (a.changes && a.changes.length ? ' 📌' : '');
+    var start = from && from.slice(0, 7) > a.startMonth ? from.slice(0, 7) : a.startMonth;
+    return 'Active · ' + money(a.monthly, cur) + '/month from ' + esc(monthName(start)) + (a.changes && a.changes.length ? ' 📌' : '');
   }
   /** Everything that can be done with one advance (tap its Status). */
   function advManage(i) {
