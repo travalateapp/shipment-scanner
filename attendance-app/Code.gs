@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261068;
+const SERVER_VERSION = 20261069;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -3429,18 +3429,24 @@ function pfAmounts_(emp, s) {
 function advanceState_(a, ym) {
   let remaining = a.amount;
   let deductedBefore = 0;
+  // A month can only recover money already given by the end of that month: an "Add more" in November does not
+  // raise October's deduction (e.g. ₹1,499 given in Oct + ₹12,000 added on 6 Nov at ₹6,000/month: Oct 1,499, Nov 6,000).
+  const givenBy = m => (a.given || []).filter(g => !g.date || g.date <= m + '-31').reduce((n, g) => n + g.amount, 0);
+  const due = m => Math.max(0, Math.min(remaining, givenBy(m) - deductedBefore));
   for (let m = a.startMonth; m < ym && remaining > 0; m = nextYm_(m)) {
-    const d = advanceDeduction_(a, m, remaining);
+    const d = advanceDeduction_(a, m, due(m));
     remaining -= d;
     deductedBefore += d;
   }
   let thisMonth = 0;
-  if (ym >= a.startMonth && remaining > 0) thisMonth = advanceDeduction_(a, ym, remaining);
+  const owed = ym >= a.startMonth ? due(ym) : Math.max(0, Math.min(remaining, givenBy(ym)));
+  if (ym >= a.startMonth && owed > 0) thisMonth = advanceDeduction_(a, ym, owed);
   const change = readAdvMonths_()[a.id + '|' + ym];
   return {
     deductedBefore: round2_(deductedBefore), thisMonth: round2_(thisMonth), changed: !!change,
     changeNote: change ? change.note : '',
-    balanceBefore: round2_(Math.max(0, remaining)), balanceAfter: round2_(Math.max(0, remaining - thisMonth)),
+    // Owed at the start of ym: only what had been given by then (a later "Add more" is not owed yet).
+    balanceBefore: round2_(Math.max(0, owed)), balanceAfter: round2_(Math.max(0, owed - thisMonth)),
   };
 }
 

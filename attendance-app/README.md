@@ -227,6 +227,12 @@ Go to **Admin → Employees → (employee) → Work timing**. These are saved in
 ### 💳 Giving an advance: salary so far and what is owed
 Choosing the employee in **Give an advance** shows this month so far (salary earned, OT, cuts, PF, purchases, this month's advance deduction and **payable so far**) and what they already owe (running advances with balance and monthly deduction, purchases pending, arrears to be paid). Typing an amount above the payable so far shows a warning (saving is still allowed).
 
+### 💳 Advances with "Add more"
+A month only recovers money already given by the end of that month: an amount added on 6 Nov does not raise October's deduction (₹1,499 given 23 Oct + ₹12,000 added 6 Nov at ₹6,000/month → October ₹1,499, November ₹6,000, December ₹6,000). Recovered money pays off the oldest payment first; a payment fully recovered shows **✓ Repaid** on its row.
+
+### 🔄 Reload keeps the screen
+The address carries the screen (e.g. `#admin:payroll`), so reloading the page (or the app updating itself) opens the same screen again. Logging out clears it.
+
 ### ⏱ Late / early cut without hourly OT (month balance)
 For employees with **Hourly OT** off and **Late Cut** on, late coming / early leaving is cut by the minute on the **month's balance**: the time worked on all full days is compared with their shift time. Extra time on some days covers short days; only a shortfall for the whole month is cut (extra time is never paid as OT). Example (10 h shift, ₹24,500): six days short by 14 min in total but 80 min extra on other days → ₹0 cut; 15 min short every day with nothing extra → 405 min × ₹1.36 = ₹551. The day pop-up says whether that day's short time was covered.
 
