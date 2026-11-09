@@ -3442,10 +3442,21 @@ function matchWarehouseFromPoText_(platform, text) {
   let facilityCode = "", gstin = "", pincode = "";
 
   if (platform === 'blinkit') {
+    // The facility line sits right before "Blinkit SPOC Name" in every
+    // sample seen so far — e.g. "BCPL - Hyderabad H3 Feeder warehouse"
+    // or "BCPL - Faridabad Feeder". It does NOT reliably end in the
+    // word "warehouse" (that Faridabad example doesn't), so anchor on
+    // POSITION (the last non-blank header line before the SPOC marker)
+    // rather than on specific trailing words, which silently found
+    // nothing for any facility whose line happened not to say
+    // "warehouse". Strips a leading "XXXX - " entity-code prefix (e.g.
+    // "BCPL - ") when present, keeping just the facility part itself.
     const spocIdx = t.search(/Blinkit\s*SPOC\s*Name/i);
     const header = spocIdx > 0 ? t.slice(0, spocIdx) : t.slice(0, 400);
-    const facMatch = header.match(/-\s*([A-Za-z0-9.&() ]*?\bwarehouse\b)/i);
-    if (facMatch) facilityCode = facMatch[1].trim();
+    const headerLines = header.split('\n').map(l => l.trim()).filter(Boolean);
+    const facLine = headerLines.length ? headerLines[headerLines.length - 1] : '';
+    const facMatch = facLine.match(/^[A-Za-z0-9.&]+\s*-\s*(.+)$/);
+    facilityCode = facMatch ? facMatch[1].trim() : facLine;
     const deliveredIdx = t.search(/Delivered\s*To/i);
     const itemsIdx = t.search(/Item\s*\n?\s*Code\s*\n?\s*HSN/i);
     const seg = deliveredIdx >= 0 ? t.slice(deliveredIdx, itemsIdx > deliveredIdx ? itemsIdx : deliveredIdx + 600) : "";
