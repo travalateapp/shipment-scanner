@@ -352,6 +352,8 @@ function updateSkuRow(rowIndex, cells, requesterName, requesterRole) {
     if (!sheet) return { success: false, message: "SKU_MASTER sheet not found." };
     if (rowIndex < 2) return { success: false, message: "Cannot update the header row." };
     if (!Array.isArray(cells) || !cells.length) return { success: false, message: "No data to update." };
+    const dupMsg = findDuplicateSkuRow_(sheet, cells, rowIndex);
+    if (dupMsg) return { success: false, message: dupMsg };
     sheet.getRange(rowIndex, 1, 1, cells.length).setValues([cells]);
     return { success: true };
   } catch (err) { return { success: false, message: err.message }; }
@@ -382,9 +384,39 @@ function addSkuRow(cells, requesterName, requesterRole) {
     const ss = SpreadsheetApp.getActiveSpreadsheet();
     const sheet = ss.getSheetByName(SHEET_SKU);
     if (!sheet) return { success: false, message: "SKU_MASTER sheet not found." };
+    const dupMsg = findDuplicateSkuRow_(sheet, cells, null);
+    if (dupMsg) return { success: false, message: dupMsg };
     sheet.appendRow(cells);
     return { success: true, rowIndex: sheet.getLastRow() };
   } catch (err) { return { success: false, message: err.message }; }
+}
+
+/** A duplicate SKU row (same SKU text saved twice) silently breaks
+ *  every lookup that keys off SKU_MASTER by SKU — getSkuData()'s
+ *  skuByCode/mapBySku-style maps just overwrite on each repeated key,
+ *  so whichever row happens to come LAST in the sheet wins, even if an
+ *  earlier, fully-mapped row for that same SKU already exists (this is
+ *  exactly what caused an RO Invoice to wrongly report a SKU as "not
+ *  mapped" despite a correctly-mapped row for it being right there).
+ *  Mirrors the Warehouse NAME/CODE uniqueness check — case-insensitive,
+ *  trimmed, compared against the SKU column by its actual header
+ *  position (getSkuHeaderMap_, not an assumed fixed index).
+ *  excludeRowIndex (1-based, or null) lets updateSkuRow skip comparing
+ *  a row against itself when the SKU value wasn't actually changed. */
+function findDuplicateSkuRow_(sheet, cells, excludeRowIndex) {
+  const hm = getSkuHeaderMap_();
+  const skuCol = hm['SKU'] !== undefined ? hm['SKU'] : 1;
+  const newSku = String(cells[skuCol] || "").trim();
+  if (!newSku || sheet.getLastRow() < 2) return null;
+  const existing = sheet.getRange(2, skuCol + 1, sheet.getLastRow() - 1, 1).getValues();
+  for (let i = 0; i < existing.length; i++) {
+    const rowIndex = i + 2;
+    if (rowIndex === excludeRowIndex) continue;
+    if (String(existing[i][0] || "").trim().toUpperCase() === newSku.toUpperCase()) {
+      return 'SKU "' + newSku + '" already exists in SKU Master (row ' + rowIndex + ') — edit that row instead of adding a duplicate.';
+    }
+  }
+  return null;
 }
 
 /** Reads SKU_MASTER's header row and returns {HEADER_NAME_UPPER: colIndex0based}.
