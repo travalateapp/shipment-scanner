@@ -100,6 +100,12 @@ Screens are in `production-app/screenshots/`.
   or at once with **Production App → Refresh the app after big changes made here** in the Sheet's menu.
 - **Device:** the last screens are kept on the phone / computer (per user, removed at log out), so after a refresh a
   screen shows at once and is updated a moment later. Google's own start-up time for each request (about 1 s) stays.
+- **Screens loaded in the background:** after the first screen, the other menu screens are fetched one by one in
+  the background (and again a few seconds after a save, at most once a minute), so opening them is instant. An
+  answer is used once and only within 2 minutes; one asked for while a save was running is never used.
+- **Saves in pop-up windows run in the background:** the window closes at once and "⏳ Saving…" shows at the bottom;
+  if the save fails, the window opens again as it was, with the message. Closing the page while saving asks first.
+- **Kept ready:** while the app is open, a tiny request every 4 minutes keeps the server from going cold.
 
 ## 1. Install (about 15 minutes)
 

@@ -103,6 +103,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg{position:relative}.addrow{align-items:flex-start}.sugg .box{margin-top:4px;background:#fff;border:1px solid #cfd6e4;border-radius:10px;box-shadow:0 8px 24px rgba(15,35,80,.15);z-index:25;max-height:300px;overflow:auto}
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
+.bgchip{position:fixed;left:14px;bottom:14px;z-index:90;background:#1e293b;color:#fff;padding:8px 14px;border-radius:20px;font-size:13.5px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none}
 .combo{display:block;position:relative;min-width:0}.combo>select{position:absolute;left:0;top:0;width:100%;height:42px;opacity:0;pointer-events:none}
 .combo .cbi{padding-right:30px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2364748b' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 11px center;text-overflow:ellipsis}
 .combo .box{position:absolute;left:0;min-width:100%;width:max-content;max-width:min(420px,calc(100vw - 32px));top:100%;z-index:40;max-height:min(300px,45vh)}.combo .box div.cur{font-weight:700}.combo .box div.cur::after{content:'✓';margin-left:auto;color:var(--blue)}
@@ -155,8 +156,82 @@ function apiUrl() {
   return store.get('url');
 }
 
+/*
+ * Speed: answers fetched in the background (prefetch) are kept for 2 minutes and used once, so opening a screen
+ * shows it at once; any save forgets them. A tiny request every 4 minutes keeps the server ready (no cold start).
+ */
+var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
+var RC = {}, WR = { gen: 0, busy: 0 }; // answers asked for while a save was running are never kept
+function rcKey(fn, args) { return fn + '|' + JSON.stringify(args.slice(1)); }
 function api(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
+  if (READ_FN.test(fn)) {
+    var k = rcKey(fn, args), hit = RC[k];
+    if (hit && Date.now() - hit.at < 120000 && hit.gen === WR.gen) { delete RC[k]; return hit.p; }
+    return apiCall(fn, args);
+  }
+  RC = {}; WR.gen++; WR.busy++;
+  if (fn !== 'login' && fn !== 'logout') PF.again();
+  var w = apiCall(fn, args), end = function () { WR.busy--; WR.gen++; RC = {}; };
+  w.then(end, end);
+  return w;
+}
+function prefetch(fn) {
+  var args = Array.prototype.slice.call(arguments, 1), k = rcKey(fn, args);
+  if (RC[k]) return RC[k].p;
+  if (WR.busy) return Promise.resolve(null); // not while a save is running
+  var p = apiCall(fn, args); RC[k] = { at: Date.now(), p: p, gen: WR.gen };
+  p.catch(function () { if (RC[k] && RC[k].p === p) delete RC[k]; });
+  return p;
+}
+var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], material: ['moveList'],
+  balance: ['materialBalance'], payroll: ['payroll', ''], advances: ['advances'], karigars: ['karigarList'], items: ['itemList'], materials: ['materialList'],
+  store: ['storeView'], staff: ['staffList'], home: ['getHome'], work: ['myWork', ''], slip: ['myPayslip', ''], myadv: ['myAdvances'] };
+/* After a save: load the screens again in the background (4 s later, at most once a minute). */
+var PF = { t: 0, last: 0, again: function () {
+  clearTimeout(PF.t);
+  PF.t = setTimeout(function () { if (!S.token || Date.now() - PF.last < 60000) return; if (WR.busy) return PF.again(); prefetchMenu(0); }, 4000);
+} };
+/* After the first screen: the other menu screens one by one, in the background. */
+function prefetchMenu(wait) {
+  PF.last = Date.now();
+  var list = menu().map(function (m) { return m[0]; }).filter(function (v) { return PF_VIEWS[v] && v !== S.view; }), i = 0;
+  var next = function () {
+    if (!S.token || i >= list.length) return;
+    var x = PF_VIEWS[list[i++]];
+    prefetch.apply(null, [x[0], S.token].concat(x.slice(1))).then(next, next);
+  };
+  setTimeout(next, wait === undefined ? 1500 : wait);
+}
+setInterval(function () { if (S.token && document.visibilityState === 'visible') apiCall('publicInfo', []).catch(function () {}); }, 240000);
+/* A save from a pop-up window: the window closes at once (⏳ Saving… at the bottom); if the save fails it opens
+   again as it was, with the message. Done while you are elsewhere: no jump back to that screen. */
+var BG = { n: 0 };
+function bgChip() {
+  var c = $('bgChip');
+  if (!c) { c = document.createElement('div'); c.id = 'bgChip'; c.className = 'bgchip'; document.body.appendChild(c); }
+  c.textContent = '⏳ Saving' + (BG.n > 1 ? ' ' + BG.n : '') + '…'; c.style.display = BG.n > 0 ? 'block' : 'none';
+}
+function apiBg(btn) {
+  var args = Array.prototype.slice.call(arguments, 1);
+  var m = btn && btn.closest ? btn.closest('.overlay') : null;
+  var p = api.apply(null, args);
+  if (!m || m.id !== 'modal') return p;
+  m.id = 'modalSaving'; m.style.display = 'none'; BG.n++; bgChip();
+  var where = S.view + '|' + S.arg;
+  return p.then(function (r) {
+    m.remove(); BG.n--; bgChip();
+    if (where !== S.view + '|' + S.arg || $('modal')) { BG.quiet = true; setTimeout(function () { BG.quiet = false; }, 0); }
+    return r;
+  }, function (e) {
+    BG.n--; bgChip();
+    if ($('modal')) closeModal();
+    m.id = 'modal'; m.style.display = '';
+    throw e;
+  });
+}
+window.addEventListener('beforeunload', function (e) { if (BG.n > 0) { e.preventDefault(); e.returnValue = 'Still saving'; return 'Still saving'; } });
+function apiCall(fn, args) {
   return new Promise(function (resolve, reject) {
     var done = function (txt) {
       var r; try { r = typeof txt === 'string' ? JSON.parse(txt) : txt; } catch (e) { return reject(new Error('The server did not answer properly. Try again.')); }
@@ -274,6 +349,7 @@ function closeDrawer() { $('drawer').classList.remove('open'); }
  */
 var NAV = { stack: [], inApp: !!window.AttendanceApp };
 function go(view, arg, isBack) {
+  if (BG.quiet) return; // a save finished while you are on another screen
   var changed = S.view !== undefined && S.view !== null && !(S.view === view && String(S.arg) === String(arg));
   if (changed && !isBack) {
     NAV.stack.push({ v: S.view, a: S.arg });
@@ -347,7 +423,7 @@ function modal(title, body) {
   o.addEventListener('click', function (e) { if (e.target === o) closeModalByUser(); });
   document.body.appendChild(o);
 }
-function closeModal() { var m = $('modal'); if (m) m.remove(); if (window.camStop) camStop(); }
+function closeModal() { if (BG.quiet) return; var m = $('modal'); if (m) m.remove(); if (window.camStop) camStop(); }
 function closeModalByUser() { S.costOpen = null; closeModal(); }
 
 /* ---------- login ---------- */
@@ -382,6 +458,7 @@ function start() {
   if (allowed(h) && !(last && last.v === h)) last = { v: h };
   if (last) go(last.v, last.a === null ? undefined : last.a);
   else go(S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]);
+  prefetchMenu();
 }
 
 /* ======================= KARIGAR ======================= */
@@ -602,7 +679,7 @@ function saveCountNow(id, which, btn) {
   var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { item: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.item; });
   if (which === 1 && !S.data.photo) return toast('Take a photo of the received goods.');
   busy(btn, true);
-  api('saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null }).then(function (r) {
+  apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null }).then(function (r) {
     closeModal();
     if (r.status === 'LOCKED') toast('Final count saved: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : '') + (r.differs && r.differs.length ? '. Count 1 was different on ' + r.differs.join(', ') + ' (noted).' : ''));
     else toast('Count 1 saved. Now a different person does count 2.');
@@ -659,7 +736,7 @@ function correctForm() {
 function saveCorrection(btn) {
   var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { item: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.item; });
   busy(btn, true);
-  api('correctBatch', S.token, S.data.batch.id, { lines: lines, reason: val('corrWhy') }).then(function () { toast('Corrected'); closeModal(); go(S.view, S.arg); }).catch(function (e) { fail(e, btn); });
+  apiBg(btn, 'correctBatch', S.token, S.data.batch.id, { lines: lines, reason: val('corrWhy') }).then(function () { toast('Corrected'); closeModal(); go(S.view, S.arg); }).catch(function (e) { fail(e, btn); });
 }
 
 /* ---------- work orders ---------- */
@@ -717,7 +794,7 @@ function lotRate(id) {
     '<div class="chk"><input type="checkbox" id="lrF"> Also use this rate for ' + esc(o.karigar) + '\'s future lots of ' + esc(o.item) + '</div>' +
     '<div class="muted">Without the tick, the next lot gets the standard rate again. Pieces of this lot in a pay period that is already approved keep their approved amount.</div>' +
     '<label class="f">Reason</label><input id="lrN"><button class="btn block" id="lrB">Save</button>');
-  $('lrB').onclick = function () { busy(this, true); api('setOrderRate', S.token, id, val('lrR'), $('lrF').checked, val('lrN')).then(function () { closeModal(); toast('Rate saved'); go('orders', S.arg); }).catch(function (e) { fail(e, $('lrB')); }); };
+  $('lrB').onclick = function () { busy(this, true); apiBg($('lrB'), 'setOrderRate', S.token, id, val('lrR'), $('lrF').checked, val('lrN')).then(function () { closeModal(); toast('Rate saved'); go('orders', S.arg); }).catch(function (e) { fail(e, $('lrB')); }); };
 }
 function woStatus(id, st, btn) { if (st === 'CLOSED' && !confirm('Close this work order? What is not made yet is no longer "in production".')) return; busy(btn, true); api('setOrderStatus', S.token, id, st).then(function () { go('orders', S.arg); }).catch(function (e) { fail(e, btn); }); }
 
@@ -810,7 +887,7 @@ function unapprove(k, btn) { busy(btn, true); api('unapprovePay', S.token, S.dat
 function paid(k, btn) {
   var t = new Date(), ds = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
   modal('Mark as paid', '<label class="f">Date paid</label><input type="date" id="pdD" value="' + ds + '"><button class="btn block ok" id="pdB">Save</button>');
-  $('pdB').onclick = function () { busy(this, true); api('markPaid', S.token, S.data.pay.period.key, k, val('pdD')).then(function () { closeModal(); toast('Marked as paid'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('pdB')); }); };
+  $('pdB').onclick = function () { busy(this, true); apiBg($('pdB'), 'markPaid', S.token, S.data.pay.period.key, k, val('pdD')).then(function () { closeModal(); toast('Marked as paid'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('pdB')); }); };
 }
 function adminSlip(k) { api('payslip', S.token, S.data.pay.period.key, k).then(function (r) { modal('Payslip', slipHtml(r)); }).catch(function (e) { toast(e.message); }); }
 function payAdv(k) {
@@ -826,7 +903,7 @@ function payAdv(k) {
   $('paB').onclick = function () {
     var cuts = Array.prototype.map.call(document.querySelectorAll('.paA'), function (i) { return { id: i.dataset.id, amount: i.value === '' ? '' : Number(i.value) }; });
     busy(this, true);
-    api('setPayAdvance', S.token, S.data.pay.period.key, k, cuts, val('paN')).then(function () { closeModal(); toast('Advance cut changed'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('paB')); });
+    apiBg($('paB'), 'setPayAdvance', S.token, S.data.pay.period.key, k, cuts, val('paN')).then(function () { closeModal(); toast('Advance cut changed'); go('payroll', S.data.pay.period.key); }).catch(function (e) { fail(e, $('paB')); });
   };
 }
 /* The month's statement as a WhatsApp message to the karigar's own number. */
@@ -893,7 +970,7 @@ function advPeriod(id) {
     var m = document.querySelector('input[name=apM]:checked').value;
     var amt = m === 'normal' ? '' : m === 'full' ? 'full' : m === 'skip' ? 0 : val('apA');
     busy(this, true);
-    api('setAdvancePeriod', S.token, id, val('apP'), amt, val('apN')).then(function () { closeModal(); toast('Saved'); go('advances'); }).catch(function (e) { fail(e, $('apB')); });
+    apiBg($('apB'), 'setAdvancePeriod', S.token, id, val('apP'), amt, val('apN')).then(function () { closeModal(); toast('Saved'); go('advances'); }).catch(function (e) { fail(e, $('apB')); });
   };
 }
 function advMore(id) {
@@ -903,7 +980,7 @@ function advMore(id) {
     (a.changes.length ? '<h3>Changed periods</h3>' + a.changes.map(function (c) { return '<div class="muted">' + esc(c.label) + ': ' + money(c.amount) + (c.note ? ' · ' + esc(c.note) : '') + '</div>'; }).join('') : '') +
     '<h3>Give more</h3><div class="row"><input id="amA" type="number" placeholder="Extra amount"><input id="amN" placeholder="Note"><button class="btn fix" id="amB">Add</button></div>' +
     '<h3>Status</h3><div class="row"><button class="btn sec" onclick="advStatus(\'' + id + '\',\'ACTIVE\')">Active</button><button class="btn sec" onclick="advStatus(\'' + id + '\',\'PAUSED\')">Pause</button><button class="btn sec" onclick="advStatus(\'' + id + '\',\'CLOSED\')">Close</button></div>');
-  $('amB').onclick = function () { busy(this, true); api('topUpAdvance', S.token, id, { add: val('amA'), note: val('amN') }).then(function () { closeModal(); go('advances'); }).catch(function (e) { fail(e, $('amB')); }); };
+  $('amB').onclick = function () { busy(this, true); apiBg($('amB'), 'topUpAdvance', S.token, id, { add: val('amA'), note: val('amN') }).then(function () { closeModal(); go('advances'); }).catch(function (e) { fail(e, $('amB')); }); };
 }
 function advStatus(id, st) { api('setAdvanceStatus', S.token, id, st).then(function () { closeModal(); go('advances'); }).catch(function (e) { toast(e.message); }); }
 
@@ -925,7 +1002,7 @@ function editKarigar(id) {
   modal('Edit ' + k.id, '<label class="f">Name</label><input id="ekN" value="' + esc(k.name) + '"><label class="f">Phone</label><input id="ekP" value="' + esc(k.phone) + '"><label class="f">Note</label><input id="ekO" value="' + esc(k.note) + '">' +
     '<div class="chk"><input type="checkbox" id="ekA"' + (k.active ? ' checked' : '') + '> Active</div><button class="btn block" id="ekB">Save</button>' +
     '<h3>Reset PIN</h3><div class="row"><input id="ekPin" inputmode="numeric" placeholder="New PIN"><button class="btn sec fix" id="ekR">Reset</button></div>');
-  $('ekB').onclick = function () { busy(this, true); api('saveKarigar', S.token, { id: id, name: val('ekN'), phone: val('ekP'), note: val('ekO'), active: $('ekA').checked }).then(function () { closeModal(); go('karigars'); }).catch(function (e) { fail(e, $('ekB')); }); };
+  $('ekB').onclick = function () { busy(this, true); apiBg($('ekB'), 'saveKarigar', S.token, { id: id, name: val('ekN'), phone: val('ekP'), note: val('ekO'), active: $('ekA').checked }).then(function () { closeModal(); go('karigars'); }).catch(function (e) { fail(e, $('ekB')); }); };
   $('ekR').onclick = function () { busy(this, true); api('resetPin', S.token, id, val('ekPin')).then(function () { busy($('ekR'), false); toast('PIN reset'); }).catch(function (e) { fail(e, $('ekR')); }); };
 }
 function rates(id) {
@@ -1124,6 +1201,16 @@ function comboPlace(inp, box) {
   else { box.style.bottom = 'auto'; box.style.top = (r.bottom + 4) + 'px'; box.style.maxHeight = Math.min(460, below) + 'px'; }
   if (!sheet._cbs) { sheet._cbs = 1; sheet.addEventListener('scroll', function () { Array.prototype.forEach.call(sheet.querySelectorAll('.combo .box.fixed'), function (b) { b.style.display = 'none'; }); }); }
 }
+/* Picking from a suggestion list hides the list at once, so the rest of that tap (the "click") would land on whatever
+   was under the list (the dark area closes the window, a button would be pressed). That one click is swallowed. */
+var PICK = { at: 0, x: 0, y: 0 };
+function pickStart(e, pt) { if (e.isTrusted && e.target.closest && e.target.closest('.sugg .box, .box.fixed')) { PICK.at = Date.now(); PICK.x = pt.clientX; PICK.y = pt.clientY; } }
+document.addEventListener('mousedown', function (e) { pickStart(e, e); }, true);
+document.addEventListener('touchstart', function (e) { if (e.touches && e.touches[0]) pickStart(e, e.touches[0]); }, { capture: true, passive: true });
+document.addEventListener('click', function (e) {
+  // only the rest of that same tap (same spot, right after) — never a later, separate click
+  if (Date.now() - PICK.at < 700 && Math.abs(e.clientX - PICK.x) < 30 && Math.abs(e.clientY - PICK.y) < 30 && !(e.target.closest && e.target.closest('.sugg .box, .box.fixed'))) { e.preventDefault(); e.stopPropagation(); PICK.at = 0; }
+}, true);
 function comboPick(sel, inp, box, v) {
   box.style.display = 'none'; inp.dataset.idx = '-1';
   var changed = sel.value !== v;
@@ -1494,7 +1581,7 @@ function stdRate(code) {
     var ids = Array.prototype.filter.call(document.querySelectorAll('.srL'), function (c) { return c.checked; }).map(function (c) { return c.value; });
     if (apply === 'selected' && !ids.length) return toast('Tick the lots that should get the new rate.');
     busy(this, true);
-    api('saveStandardRate', S.token, { item: code, rate: val('srR'), apply: apply, orderIds: ids, note: val('srN') }).then(function (r) { preload('itemList', r); closeModal(); toast('Standard rate saved'); go('items'); }).catch(function (e) { fail(e, $('srB')); });
+    apiBg($('srB'), 'saveStandardRate', S.token, { item: code, rate: val('srR'), apply: apply, orderIds: ids, note: val('srN') }).then(function (r) { preload('itemList', r); closeModal(); toast('Standard rate saved'); go('items'); }).catch(function (e) { fail(e, $('srB')); });
   };
 }
 function profitCell(i) {
@@ -1508,7 +1595,7 @@ function profitCell(i) {
 function sellForm(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
   modal('Selling price · ' + code, '<div class="kv"><div>Cost per piece</div><div><b>' + (i.cost.total === null ? '–' : money(i.cost.total)) + '</b></div></div><label class="f">Selling price per piece</label><input id="spP" type="number" step="any" inputmode="decimal" value="' + (i.profit.selling === null ? '' : i.profit.selling) + '"><div class="muted">Only the owner, admins and staff with the profit permission see this.</div><button class="btn block" id="spB">Save</button>');
-  $('spB').onclick = function () { busy(this, true); api('saveSellingPrice', S.token, code, val('spP')).then(function (r) { S.data.il = r; closeModal(); itemTable(); toast('Saved'); }).catch(function (e) { fail(e, $('spB')); }); };
+  $('spB').onclick = function () { busy(this, true); apiBg($('spB'), 'saveSellingPrice', S.token, code, val('spP')).then(function (r) { S.data.il = r; closeModal(); itemTable(); toast('Saved'); }).catch(function (e) { fail(e, $('spB')); }); };
 }
 function costCell(c, onclick) {
   if (c.noBom) return '<span class="pill warn">No BOM</span>';
@@ -1543,7 +1630,7 @@ function bomForm(code) {
   (i.bom.length ? i.bom : [{}]).forEach(function (b) { addBomLine(b.material, b.qty); });
   $('bomB').onclick = function () {
     var lines = Array.prototype.map.call(document.querySelectorAll('#bomLines .ln'), function (ln) { return { material: ln.children[0].value, qty: Number(ln.children[1].value) }; });
-    busy(this, true); api('saveBom', S.token, code, lines).then(function (r) { preload('itemList', r); closeModal(); go('items'); }).catch(function (e) { fail(e, $('bomB')); });
+    busy(this, true); apiBg($('bomB'), 'saveBom', S.token, code, lines).then(function (r) { preload('itemList', r); closeModal(); go('items'); }).catch(function (e) { fail(e, $('bomB')); });
   };
 }
 function bomRows() { return Array.prototype.slice.call(document.querySelectorAll('#bomLines .ln')); }
@@ -1634,7 +1721,7 @@ function openingForm(code) {
   modal('Opening stock · ' + x.name, '<div class="muted">What is in the store <b>today</b>, in ' + esc(x.unit) + '. Purchase bills entered from now on are added to it.</div>' +
     (x.perPurchase && x.purchaseType && x.purchaseType !== 'UNIT' ? '<div class="row" style="margin-top:8px"><input id="osP" type="number" step="any" inputmode="decimal" placeholder="Number of ' + esc(x.purchaseUnit) + 's" oninput="document.getElementById(\'osQ\').value=Math.round(this.value*' + x.perPurchase + '*1000)/1000"><span class="fix muted">× ' + num(x.perPurchase) + ' ' + esc(x.unit) + ' =</span></div>' : '') +
     '<label class="f">Stock in ' + esc(x.unit) + '</label><input id="osQ" type="number" step="any" inputmode="decimal" value="' + (x.tracked ? x.opening : '') + '"><label class="f">Note</label><input id="osN" placeholder="e.g. counted on 6 Nov"><button class="btn block" id="osB">Save</button>');
-  $('osB').onclick = function () { busy(this, true); api('setOpeningStock', S.token, code, val('osQ'), val('osN')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
+  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), val('osN')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
 }
 function storeBills(r) {
   return (r.canEdit ? '<div class="card"><button class="btn" onclick="billForm()">+ New purchase bill</button></div>' : '') +
@@ -1660,7 +1747,7 @@ function billForm(id) {
   $('bfB').onclick = function () {
     var lines = Array.prototype.map.call(document.querySelectorAll('#bfL .ln'), function (ln) { return { material: ln.children[0].value, qty: ln.children[1].value, price: ln.children[2].value }; }).filter(function (l) { return l.material; });
     busy(this, true);
-    api('saveBill', S.token, { id: id || '', date: val('bfD'), billNo: val('bfN'), supplier: val('bfS'), lines: lines, charges: val('bfC'), chargesNote: val('bfCN'), note: val('bfNote') })
+    apiBg($('bfB'), 'saveBill', S.token, { id: id || '', date: val('bfD'), billNo: val('bfN'), supplier: val('bfS'), lines: lines, charges: val('bfC'), chargesNote: val('bfCN'), note: val('bfNote') })
       .then(function (r) { preload('storeView', r); closeModal(); toast(id ? 'Bill saved' : 'Bill added'); go('store', 'bills'); }).catch(function (e) { fail(e, $('bfB')); });
   };
 }
@@ -1773,7 +1860,7 @@ function staffForm(id) {
   $('sfB').onclick = function () {
     var perms = Array.prototype.filter.call(document.querySelectorAll('.sfC'), function (c) { return c.checked; }).map(function (c) { return c.value; });
     busy(this, true);
-    api('saveStaff', S.token, { id: id, newId: val('sfI'), pin: val('sfP'), name: val('sfN'), phone: val('sfPh'), role: val('sfR'), perms: perms, active: id ? $('sfA').checked : true })
+    apiBg($('sfB'), 'saveStaff', S.token, { id: id, newId: val('sfI'), pin: val('sfP'), name: val('sfN'), phone: val('sfPh'), role: val('sfR'), perms: perms, active: id ? $('sfA').checked : true })
       .then(function () { closeModal(); go('staff'); }).catch(function (e) { fail(e, $('sfB')); });
   };
   if ($('sfRb')) $('sfRb').onclick = function () { api('resetPin', S.token, id, val('sfRp')).then(function () { toast('PIN reset'); }).catch(function (e) { toast(e.message); }); };
