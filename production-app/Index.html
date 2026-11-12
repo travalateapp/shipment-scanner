@@ -186,7 +186,7 @@ var HI = {
   'Hand over finished goods': 'तैयार माल जमा करें',
   'Enter what you are handing over. Two people will count it. You are paid for the counted good pieces.': 'जो माल जमा कर रहे हैं वह लिखें। दो लोग इसे गिनेंगे। पैसे गिने गए अच्छे पीस के ही मिलेंगे।',
   'Quantity': 'संख्या', '+ Add item': '+ आइटम जोड़ें', 'Note (optional)': 'नोट (चाहें तो)', 'Send': 'भेजें', 'Choose item…': 'आइटम चुनें…', 'Qty': 'संख्या',
-  'Sent': 'भेज दिया', 'Good pieces': 'अच्छे पीस', 'Rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'Net': 'कुल मिलेगा',
+  'Sent': 'भेज दिया', 'My advances': 'मेरा एडवांस', 'Advance left to repay': 'एडवांस बाकी', 'Cut this pay period': 'इस वेतन अवधि में कटेगा', 'See details': 'पूरा देखें', 'Paused': 'रुका हुआ', 'Running': 'चालू', 'Repaid': 'चुकाया', 'Left': 'बाकी', 'Cut per pay period': 'हर वेतन अवधि कटौती', 'Pay period': 'वेतन अवधि', 'Cut': 'कटा', 'Left after': 'उसके बाद बाकी', 'not final yet': 'अभी पक्का नहीं', 'Cutting starts from': 'कटौती शुरू होगी', 'You have no advance.': 'आपका कोई एडवांस नहीं है।', 'Extra given': 'और दिया', 'Recent counts': 'हाल में गिना गया माल', 'Good pieces': 'अच्छे पीस', 'Rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'Net': 'कुल मिलेगा',
   'Nothing in this period yet.': 'इस अवधि में अभी कुछ नहीं।', 'Karigar payslip': 'कारीगर पे-स्लिप', 'Paid': 'भुगतान हुआ', 'Approved': 'मंज़ूर',
   'Not final yet': 'अभी पक्का नहीं', 'Karigar': 'कारीगर', 'rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'No counted goods.': 'कोई गिना हुआ माल नहीं।',
   'Advance recovery': 'एडवांस वसूली', 'Advance': 'एडवांस', 'Balance': 'बाकी', 'Net pay': 'कुल भुगतान', 'No rate': 'रेट नहीं', '🖨️ Print / PDF': '🖨️ प्रिंट / PDF',
@@ -219,7 +219,7 @@ function invPill(s) { return s === 'DONE' ? '<span class="pill ok">' + T('In inv
 /* ---------- shell ---------- */
 function menu() {
   var p = S.profile;
-  if (p.kind === 'K') return [['home', '🏠', T('Home')], ['handover', '📦', T('Hand over goods')], ['work', '🧾', T('My work')], ['slip', '💰', T('Payslips')], ['pin', '🔑', T('Change PIN')]];
+  if (p.kind === 'K') return [['home', '🏠', T('Home')], ['work', '🧾', T('My work')], ['slip', '💰', T('Payslips')], ['myadv', '🤝', T('My advances')], ['pin', '🔑', T('Change PIN')]];
   var m = [];
   if (can('reports')) m.push(['dash', '📊', 'Dashboard']);
   if (can('count') || can('reports')) m.push(['count', '✅', 'Count goods']);
@@ -368,14 +368,16 @@ VIEWS.home = function () {
       '<div class="big" style="margin:6px 0 2px">' + money(p.net) + '</div><div class="muted">' + T('Earned') + ' ' + money(p.earned) + (p.advance ? ' · ' + T('Advance cut') + ' ' + money(p.advance) : '') + ' · ' + p.good + ' ' + T('good pieces') + '</div>' +
       (p.lines.length ? '<table class="tbl" style="margin-top:10px"><tr><th>' + T('Item') + '</th><th class="r">' + T('Good') + '</th><th class="r">' + T('Rate') + '</th><th class="r">' + T('Amount') + '</th></tr>' +
         p.lines.map(function (l) { return '<tr><td>' + esc(l.item) + '</td><td class="r">' + l.good + '</td><td class="r">' + (l.rate === null ? '<span class="pill warn">' + T('No rate') + '</span>' : money(l.rate)) + '</td><td class="r">' + money(l.amount) + '</td></tr>'; }).join('') + '</table>' : '') +
-      '<button class="btn block" onclick="go(\'handover\')">' + T('📦 Hand over finished goods') + '</button></div>' +
+      '</div>' +
+      (r.advance && r.advance.balance > 0 ? '<div class="card" onclick="go(\'myadv\')" style="cursor:pointer"><h2>🤝 ' + T('My advances') + '</h2><div class="row"><div><div class="muted">' + T('Advance left to repay') + '</div><div class="big">' + money(r.advance.balance) + '</div></div>' +
+        '<div style="text-align:right"><div class="muted">' + T('Cut this pay period') + '</div><b>' + money(r.advance.thisPeriod) + '</b><div><a class="lnk">' + T('See details') + '</a></div></div></div></div>' : '') +
       (r.orders.length ? '<div class="card"><h2>🧵 ' + T('My work orders') + '</h2><div class="list">' + r.orders.map(function (o) {
         return '<div class="it"><div class="grow"><b>' + esc(o.item) + '</b><div class="muted">' + o.id + ' · ' + T('given') + ' ' + d(o.date) + '</div></div><div style="text-align:right"><b>' + o.received + ' / ' + o.qty + '</b><div class="muted">' + o.remaining + ' ' + T('to make') + '</div></div></div>';
       }).join('') + '</div></div>' : '') +
       (r.balances.length ? '<div class="card"><h2>🧰 ' + T('Material with me') + '</h2><table class="tbl"><tr><th>' + T('Material') + '</th><th class="r">' + T('Given') + '</th><th class="r">' + T('Used') + '</th><th class="r">' + T('With me') + '</th></tr>' + r.balances.map(function (b) {
         return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued - b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td></tr>';
       }).join('') + '</table></div>' : '') +
-      (r.batches.length ? '<div class="card"><h2>📦 ' + T('Recent hand-overs') + '</h2><div class="list">' + r.batches.map(batchRow).join('') + '</div></div>' : ''));
+      (r.batches.length ? '<div class="card"><h2>📦 ' + T('Recent counts') + '</h2><div class="list">' + r.batches.map(batchRow).join('') + '</div></div>' : ''));
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 function batchRow(b) {
@@ -385,25 +387,23 @@ function batchRow(b) {
       (b.claim && b.claim.length ? '<div class="muted">' + T('Handed') + ' ' + b.claim.reduce(function (n, c) { return n + c.qty; }, 0) + ' ' + T('pcs') + '</div>' : '')) + '</div></div>';
 }
 
-VIEWS.handover = function () {
-  api('getHome', S.token).then(function (r) {
-    S.data.hoItems = r.items;
-    render('<h1 class="page">📦 ' + T('Hand over finished goods') + '</h1><div class="card"><div class="msg info">' + T('Enter what you are handing over. Two people will count it. You are paid for the counted good pieces.') + '</div>' +
-      '<div class="lines"><div class="ln claim hdr"><div>' + T('Item') + '</div><div>' + T('Quantity') + '</div><div></div></div><div id="hoLines"></div></div><button class="btn sec sm" onclick="addHoLine()">' + T('+ Add item') + '</button>' +
-      '<label class="f">' + T('Note (optional)') + '</label><input id="hoNote"><button class="btn block" onclick="sendHandover(this)">' + T('Send') + '</button></div>');
-    addHoLine();
+/* My advances (karigar): every advance, what was cut in each pay period and what is left. */
+VIEWS.myadv = function () {
+  api('myAdvances', S.token).then(function (r) {
+    render('<h1 class="page">🤝 ' + T('My advances') + '</h1>' +
+      '<div class="grid2" style="margin-bottom:14px"><div class="card stat"><div class="muted">' + T('Advance left to repay') + '</div><div class="big">' + money(r.balance) + '</div></div>' +
+      '<div class="card stat"><div class="muted">' + T('Cut this pay period') + ' · ' + esc(r.period.label) + '</div><div class="big">' + money(r.thisPeriod) + '</div></div></div>' +
+      (r.list.length ? r.list.map(function (a) {
+        return '<div class="card"><div class="mtop" style="display:flex;gap:8px;align-items:flex-start"><b style="flex:1;font-size:16px">' + money(a.amount) + ' <span class="muted" style="font-weight:400">· ' + T('given') + ' ' + d(a.dateGiven) + '</span></b>' +
+          (a.balance > 0 ? '<span class="pill ' + (a.status === 'PAUSED' ? 'warn' : 'ok') + '">' + T(a.status === 'PAUSED' ? 'Paused' : 'Running') + '</span>' : '<span class="pill ok">' + T('Repaid') + '</span>') + '</div>' +
+          (a.topUps.length ? '<div class="muted">' + T('Extra given') + ': ' + a.topUps.map(function (t) { return esc(t.date ? d(t.date) + ' ' : '') + money(t.amount); }).join(', ') + '</div>' : '') +
+          '<div class="row" style="margin:8px 0"><div><div class="muted">' + T('Repaid') + '</div><b>' + money(a.repaid) + '</b></div><div><div class="muted">' + T('Left') + '</div><b>' + money(a.balance) + '</b></div><div><div class="muted">' + T('Cut per pay period') + '</div><b>' + money(a.perPeriod) + '</b></div></div>' +
+          (a.periods.length ? '<table class="tbl"><tr><th>' + T('Pay period') + '</th><th class="r">' + T('Cut') + '</th><th class="r">' + T('Left after') + '</th></tr>' + a.periods.map(function (x) {
+            return '<tr><td>' + esc(x.label) + (x.done ? '' : ' <span class="pill warn">' + T('not final yet') + '</span>') + '</td><td class="r">' + money(x.cut) + '</td><td class="r">' + money(x.after) + '</td></tr>';
+          }).join('') + '</table>' : '<div class="muted">' + T('Cutting starts from') + ' ' + esc(a.startLabel) + '</div>') + '</div>';
+      }).join('') : '<div class="card muted">' + T('You have no advance.') + '</div>'));
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
-function addHoLine() {
-  var div = document.createElement('div'); div.className = 'ln claim';
-  div.innerHTML = '<select>' + itemOpts(S.data.hoItems || []) + '</select><input type="number" inputmode="numeric" placeholder="' + T('Qty') + '"><button class="x" onclick="this.parentNode.remove()">×</button>';
-  $('hoLines').appendChild(div);
-}
-function sendHandover(btn) {
-  var lines = Array.prototype.map.call(document.querySelectorAll('#hoLines .ln'), function (ln) { return { item: ln.children[0].value, qty: Number(ln.children[1].value) }; }).filter(function (l) { return l.item && l.qty > 0; });
-  busy(btn, true);
-  api('submitHandover', S.token, { lines: lines, note: val('hoNote') }).then(function (r) { toast(T('Sent') + ': ' + r.id); go('home'); }).catch(function (e) { fail(e, btn); });
-}
 
 VIEWS.work = function (period) {
   api('myWork', S.token, period || '').then(function (r) {
@@ -493,7 +493,7 @@ VIEWS.count = function () {
     S.data.cq = r;
     var groups = [['COUNT1', 'Waiting for count 1 (with photo)'], ['COUNT2', 'Waiting for count 2: final count (a different person, blind)']];
     render('<h1 class="page">✅ Count received goods</h1>' +
-      (r.canCount ? '<div class="card"><h2>New batch (no hand-over from the karigar)</h2><div class="row"><select id="nbK"><option value="">Choose karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
+      (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"><select id="nbK"><option value="">Choose karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
       groups.map(function (g) {
         var list = r.list.filter(function (b) { return b.status === g[0]; });
         return '<div class="card"><h2>' + esc(g[1]) + ' <span class="pill ' + (list.length ? STATUS[g[0]][1] : '') + '">' + list.length + '</span></h2>' + (list.length ? '<div class="list">' + list.map(function (b) {
