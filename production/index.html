@@ -299,6 +299,24 @@ function render(html) {
   var f = document.activeElement && document.activeElement.id === 'findQ';
   $('main').innerHTML = html; S.html[S.view + '|' + S.arg] = html; loading(false);
   findSetup(f);
+  keepScreens();
+}
+/* The last screens are also kept on this device (per user, removed at log out), so after a refresh or reopening
+   the app a screen shows at once and is updated a moment later. */
+var KEEP_T = 0;
+function keepScreens() {
+  clearTimeout(KEEP_T);
+  KEEP_T = setTimeout(function () {
+    if (!S.profile) return;
+    var keys = Object.keys(S.html), cur = S.view + '|' + S.arg;
+    keys = keys.filter(function (k) { return k !== cur; }).slice(-11).concat(S.html[cur] ? [cur] : []);
+    var o = {}; keys.forEach(function (k) { o[k] = S.html[k]; });
+    try { localStorage.setItem('prod_screens', JSON.stringify({ u: S.profile.id, html: o })); }
+    catch (e) { try { localStorage.removeItem('prod_screens'); } catch (e2) { /* full or private mode */ } }
+  }, 400);
+}
+function loadScreens() {
+  try { var x = JSON.parse(localStorage.getItem('prod_screens') || 'null'); if (x && S.profile && x.u === S.profile.id) Object.keys(x.html).forEach(function (k) { if (!S.html[k]) S.html[k] = x.html[k]; }); } catch (e) { /* ignore */ }
 }
 function loading(on) { var b = $('loadbar'); if (b) b.style.display = on ? 'block' : 'none'; }
 /** A save already sent back the fresh list: the next screen uses it instead of asking the server again. */
@@ -347,10 +365,11 @@ function doLogin(btn) {
     start();
   }).catch(function (e) { busy(btn, false); loginView(e.message); });
 }
-function logoutLocal() { S.token = null; S.profile = null; S.view = null; NAV.stack = []; S.html = {}; S.data = {}; store.set('token', null); loginView(); }
+function logoutLocal() { try { localStorage.removeItem('prod_screens'); } catch (e) { /* ignore */ } S.token = null; S.profile = null; S.view = null; NAV.stack = []; S.html = {}; S.data = {}; store.set('token', null); loginView(); }
 function logout() { var t = S.token; logoutLocal(); api('logout', t).catch(function () {}); }
 function start() {
   S.canAlerts = can('alerts');
+  loadScreens();
   shell(); bell(S.unread || 0);
   if (S.canAlerts) api('getHome', S.token).then(function (r) { bell(r.unread || 0); }).catch(function () {});
   if (S.canAlerts && !S.bellTimer) S.bellTimer = setInterval(function () { if (S.token && S.profile && S.profile.kind === 'S') api('getHome', S.token).then(function (r) { if (r.unread !== S.unread) { bell(r.unread); } }).catch(function () {}); }, 180000);
