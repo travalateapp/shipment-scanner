@@ -595,7 +595,7 @@
     'Purchases cut from this salary: {list}': 'इस तनख्वाह से कटी खरीदारी: {list}', '{amt} could not be cut (salary too low).': '{amt} नहीं कट सका (तनख्वाह कम है)।', 'Preparing PDF…': 'PDF तैयार हो रहा है…', '📝 Time correction requests': '📝 समय सुधार अनुरोध', '＋ Request a time correction': '＋ समय सुधार का अनुरोध',
     '📝 Request a time correction': '📝 समय सुधार का अनुरोध', 'guardreq.info': 'किसी कर्मचारी का चेक-इन / चेक-आउट समय गलत है या छूट गया (जैसे चेक-आउट भूल गए)? सही समय भेजें — एडमिन जाँच कर मंज़ूर करेंगे।',
     'Employee': 'कर्मचारी', 'Recorded now: {i} → {o}': 'अभी दर्ज: {i} → {o}', 'e.g. Forgot to check out, left at 19:05': 'जैसे चेक-आउट भूल गए, 19:05 पर गए',
-    'Sent for you by {n}': '{n} ने आपके लिए भेजा', 'Opening WhatsApp with the PDF…': 'PDF के साथ WhatsApp खुल रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
+    'Sent for you by {n}': '{n} ने आपके लिए भेजा', '✏️ Edit request': '✏️ अनुरोध बदलें', 'Edit': 'बदलें', 'Save changes': 'बदलाव सेव करें', 'Request updated': 'अनुरोध बदला गया', 'Opening WhatsApp with the PDF…': 'PDF के साथ WhatsApp खुल रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
     'Update the app to send the PDF on WhatsApp (sending the details as a message now).': 'WhatsApp पर PDF भेजने के लिए ऐप अपडेट करें (अभी विवरण संदेश में भेजा जा रहा है)।',
     'This browser cannot send files. Sending the details as a message; use Download PDF to attach the file.': 'यह ब्राउज़र फ़ाइल नहीं भेज सकता। विवरण संदेश में भेजा जा रहा है; फ़ाइल के लिए Download PDF दबाएँ।', 'Salary slip – {label}': 'वेतन पर्ची – {label}', 'company contribution': 'कंपनी का योगदान',
     // guard: Mark Attendance
@@ -1195,7 +1195,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261070;
+  var NEEDS_SERVER = 20261071;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2725,26 +2725,31 @@
     box.innerHTML = '<div class="row"><h2 style="margin:0">' + t('📝 Time correction requests') + '</h2></div>' +
       '<p class="muted small" style="margin:4px 0 8px">' + t('guardreq.info') + '</p>' +
       '<button class="btn" onclick="openGuardRequest()">' + t('＋ Request a time correction') + '</button>' +
-      (list.length ? list.map(function (r) {
+      (list.length ? list.map(function (r, k) {
         return '<div class="list-item"><div><div class="name">' + esc(r.name) + ' <span class="muted" style="font-weight:400">' + esc(r.empId) + '</span></div>' +
           '<div class="sub">' + esc(fmtDate(r.from)) + ' · ' + esc(r.in || '—') + ' → ' + esc(r.out || '—') + '</div><div class="sub">' + esc(r.reason) + '</div>' +
           (r.remark ? '<div class="sub">' + t('Admin: {r}', { r: esc(r.remark) }) + '</div>' : '') + '</div>' +
-          '<div class="right">' + chip(r.status) + (r.status === 'PENDING' ? '<div><button class="link" style="color:var(--red)" onclick="cancelGuardRequest(\'' + esc(r.id) + '\')">' + t('Cancel') + '</button></div>' : '') + '</div></div>';
+          '<div class="right">' + chip(r.status) + (r.status === 'PENDING' ? '<div><button class="link" onclick="openGuardRequest(null,' + k + ')">' + t('Edit') + '</button> · ' +
+            '<button class="link" style="color:var(--red)" onclick="cancelGuardRequest(\'' + esc(r.id) + '\')">' + t('Cancel') + '</button></div>' : '') + '</div></div>';
       }).join('') : '');
   }
-  function openGuardRequest(i) {
+  /** i = employee to preselect; k = index of a pending request (in S.proxy.data.raised) to edit. */
+  function openGuardRequest(i, k) {
     var d = S.proxy.data, today = todayLocal(), back = d.requestBackDays > 0 ? addDaysLocal(today, -d.requestBackDays) : '';
-    openModal('<div class="row"><h2 style="margin:0">' + t('📝 Request a time correction') + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+    var r = k != null ? d.raised[k] : null;
+    S.grEdit = r ? r.id : null;
+    if (r) d.list.forEach(function (e, n) { if (e.id === r.empId) i = n; });
+    openModal('<div class="row"><h2 style="margin:0">' + t(r ? '✏️ Edit request' : '📝 Request a time correction') + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
       '<p class="muted small" style="margin:6px 0 4px">' + t('guardreq.info') + '</p>' +
       '<div class="field"><label>' + t('Employee') + '</label><select id="grEmp" class="inp" onchange="guardReqFill()">' +
         d.list.map(function (e, k) { return '<option value="' + k + '"' + (k === i ? ' selected' : '') + '>' + esc(e.name) + ' (' + esc(e.id) + ')</option>'; }).join('') + '</select></div>' +
-      '<div class="field"><label>' + t('Date') + '</label><input id="grDate" class="inp" type="date" max="' + today + '"' + (back ? ' min="' + back + '"' : '') + ' value="' + today + '" onchange="guardReqFill()"></div>' +
+      '<div class="field"><label>' + t('Date') + '</label><input id="grDate" class="inp" type="date" max="' + today + '"' + (back ? ' min="' + back + '"' : '') + ' value="' + (r ? r.from : today) + '" onchange="guardReqFill()"></div>' +
       '<div id="grNow" class="muted small"></div>' +
-      '<div class="grid2"><div class="field"><label>' + t('Correct check-in') + '</label><input id="grIn" class="inp" type="time"></div>' +
-      '<div class="field"><label>' + t('Correct check-out') + '</label><input id="grOut" class="inp" type="time"></div></div>' +
+      '<div class="grid2"><div class="field"><label>' + t('Correct check-in') + '</label><input id="grIn" class="inp" type="time" value="' + esc(r ? r.in : '') + '"></div>' +
+      '<div class="field"><label>' + t('Correct check-out') + '</label><input id="grOut" class="inp" type="time" value="' + esc(r ? r.out : '') + '"></div></div>' +
       '<p class="muted small" style="margin:6px 0 0">' + t('Leave a time empty to keep what is already recorded.') + '</p>' +
-      '<div class="field"><label>' + t('Reason') + '</label><textarea id="grWhy" class="inp" placeholder="' + t('e.g. Forgot to check out, left at 19:05') + '"></textarea></div>' +
-      '<div id="grMsg"></div><button class="btn" id="grBtn" onclick="sendGuardRequest()">' + t('Send request') + '</button>' +
+      '<div class="field"><label>' + t('Reason') + '</label><textarea id="grWhy" class="inp" placeholder="' + t('e.g. Forgot to check out, left at 19:05') + '">' + esc(r ? r.reason : '') + '</textarea></div>' +
+      '<div id="grMsg"></div><button class="btn" id="grBtn" onclick="sendGuardRequest()">' + t(r ? 'Save changes' : 'Send request') + '</button>' +
       '<button class="btn ghost" onclick="closeModal()">' + t('Cancel') + '</button>');
     guardReqFill();
   }
@@ -2755,9 +2760,9 @@
   }
   function sendGuardRequest() {
     var e = S.proxy.data.list[+$('grEmp').value];
-    var req = { empId: e && e.id, date: $('grDate').value, in: $('grIn').value, out: $('grOut').value, reason: $('grWhy').value };
+    var req = { id: S.grEdit || undefined, empId: e && e.id, date: $('grDate').value, in: $('grIn').value, out: $('grOut').value, reason: $('grWhy').value };
     $('grBtn').disabled = true;
-    api('guardRequestTime', S.token, req).then(function (list) { S.proxy.data.raised = list; closeModal(); renderGuardRequests(); toast(t('Request sent')); })
+    api('guardRequestTime', S.token, req).then(function (list) { S.proxy.data.raised = list; closeModal(); renderGuardRequests(); toast(t(req.id ? 'Request updated' : 'Request sent')); })
       .catch(function (err) { $('grBtn').disabled = false; $('grMsg').innerHTML = errBox(err); });
   }
   function cancelGuardRequest(id) {

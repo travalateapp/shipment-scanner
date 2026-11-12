@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261070;
+const SERVER_VERSION = 20261071;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -1134,7 +1134,7 @@ function submitAdvanceRequest_(emp, req, token) {
  * Guard (anyone with "Mark Attendance for Others"): asks for an employee's check-in / check-out time to be
  * corrected (e.g. forgot to check out). It becomes a normal CORRECTION request of that employee, marked
  * "Raised By" the guard; an admin approves or rejects it in Requests as usual.
- * req = { empId, date, in, out, reason }
+ * req = { empId, date, in, out, reason }, plus id to edit a request this guard sent that is still pending.
  */
 function guardRequestTime(token, req) {
   const ctx = authAdmin_(token, 'markOthers');
@@ -1152,8 +1152,17 @@ function guardRequestTime(token, req) {
   if (!inT && !outT) throw new Error('Enter the correct check-in and/or check-out time.');
   if (!reason) throw new Error('Please write a reason.');
   assertUnlocked_(date);
-  if (readRequests_().some(r => r.empId === emp.id && r.status === 'PENDING' && r.type === 'CORRECTION' && r.from === date)) {
+  const old = req.id ? readRequests_().filter(r => r.id === req.id && r.raisedBy.split(' ')[0] === ctx.emp.id)[0] : null;
+  if (req.id && (!old || old.status !== 'PENDING')) throw new Error('Only pending requests can be edited (an admin may have decided it already).');
+  if (readRequests_().some(r => r.empId === emp.id && r.status === 'PENDING' && r.type === 'CORRECTION' && r.from === date && (!old || r.id !== old.id))) {
     throw new Error(emp.name + ' already has a pending correction for this date.');
+  }
+  if (old) { // edit in place: employee, date, times, reason
+    sheet_(SHEET.REQUESTS).getRange(old.row, 3, 1, 9).setValues([[emp.id, emp.name, 'CORRECTION', "'" + date, "'" + date,
+      inT ? "'" + inT : '', outT ? "'" + outT : '', '', reason]]);
+    forget_('requests');
+    audit_(ctx.emp, 'GUARD_REQUEST_EDIT', emp.id, date, (inT || '—') + ' → ' + (outT || '—') + ' · ' + reason);
+    return raisedRequests_(ctx.emp);
   }
   const id = 'R' + Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
   const row = [id, Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), emp.id, emp.name, 'CORRECTION',
