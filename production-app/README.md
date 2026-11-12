@@ -43,6 +43,10 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
     on the day it was issued, plus the lot's rate. A new price does not change earlier lots.
 - **Colour on materials:** a material can have a colour; it is shown at the end of the name in brackets:
   Niwar (1.00") + Black → **Niwar (1.00") (Black)**. Colour suggestions appear while typing.
+- **Suppliers.** A supplier typed on a purchase bill for the first time is saved (sheet "Suppliers"); from then on it
+  shows while typing in the bill's Supplier box (any word, any case; ↑/↓, Enter, Esc). The same name typed in another
+  case is saved with the first spelling. **edit** next to a suggestion renames the supplier on every one of its bills
+  (renaming to an existing supplier joins the two); the rename is in the Change log.
 - **Search everywhere.** Every list to choose from (karigar, item, material, unit, pay period…) is a search box:
   type any part of the name, colour or code (every word, any order: "1.5" finds Niwar (1.50") and Velcro (1.50"))
   and every match is listed. ↑/↓ moves and shows the highlighted one in the box, Enter picks it, Esc puts back what was
