@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261069;
+const SERVER_VERSION = 20261070;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -88,7 +88,7 @@ const COL = {
 };
 
 const REQ_HEADERS = ['ID', 'Created', 'Emp ID', 'Name', 'Type', 'From', 'To', 'In', 'Out', 'Leave Type',
-  'Reason', 'Status', 'Decided By', 'Decided At', 'Remark', 'Amount', 'Monthly'];
+  'Reason', 'Status', 'Decided By', 'Decided At', 'Remark', 'Amount', 'Monthly', 'Raised By'];
 const ADV_HEADERS = ['ID', 'Emp ID', 'Name', 'Date Given', 'Amount', 'Monthly Deduction', 'Start Month',
   'Status', 'Note', 'Created By', 'Created At', 'Top-ups'];
 const ADV_MONTH_HEADERS = ['Advance ID', 'Emp ID', 'Month', 'Deduct', 'Note', 'By', 'At'];
@@ -316,7 +316,7 @@ const API_FUNCTIONS = {
   proxyList, proxyCheckIn, proxyCheckOut,
   adminToday, adminDashboard, adminSummary, adminMonth, adminEmployeeMonth, adminEntryOptions, adminGetEntry, adminSaveEntry,
   adminDeleteEntry, adminBulkEntry, adminRequests, adminDecideRequest, adminDecideOt, adminClearMissed,
-  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminAdvanceInfo, adminSaveAdvance, adminSaveArrear, adminDeleteArrear, adminSavePurchase, adminDeletePurchase,
+  adminStaff, adminSaveStaff, adminResetPin, adminEmployees, adminSavePf, adminAdvances, adminAdvanceInfo, adminSaveAdvance, adminSaveArrear, adminDeleteArrear, guardRequestTime, guardCancelRequest, adminSavePurchase, adminDeletePurchase,
   adminAttendanceRegister,
   adminHolidays, adminSaveHoliday, adminDeleteHoliday, adminAddIncrement, adminDeleteIncrement,
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
@@ -1130,6 +1130,58 @@ function submitAdvanceRequest_(emp, req, token) {
   return myRequests(token);
 }
 
+/**
+ * Guard (anyone with "Mark Attendance for Others"): asks for an employee's check-in / check-out time to be
+ * corrected (e.g. forgot to check out). It becomes a normal CORRECTION request of that employee, marked
+ * "Raised By" the guard; an admin approves or rejects it in Requests as usual.
+ * req = { empId, date, in, out, reason }
+ */
+function guardRequestTime(token, req) {
+  const ctx = authAdmin_(token, 'markOthers');
+  req = req || {};
+  const emp = findEmployee_(String(req.empId || '').toUpperCase());
+  if (!emp || !emp.active || !canEditEmployee_(ctx, emp.id)) throw new Error('Choose the employee.');
+  const s = getSettings_(), today = todayStr_();
+  const minDate = s.requestBackDays > 0 ? addDays_(today, -s.requestBackDays) : '2000-01-01';
+  const date = toDateStr_(req.date);
+  const reason = String(req.reason || '').trim().slice(0, 300);
+  const inT = toTimeStr_(req.in), outT = toTimeStr_(req.out);
+  if (!date) throw new Error('Choose the date.');
+  if (date > today) throw new Error('Corrections are only for past days or today.');
+  if (date < minDate) throw new Error('You can only request for dates from ' + minDate + ' onwards.');
+  if (!inT && !outT) throw new Error('Enter the correct check-in and/or check-out time.');
+  if (!reason) throw new Error('Please write a reason.');
+  assertUnlocked_(date);
+  if (readRequests_().some(r => r.empId === emp.id && r.status === 'PENDING' && r.type === 'CORRECTION' && r.from === date)) {
+    throw new Error(emp.name + ' already has a pending correction for this date.');
+  }
+  const id = 'R' + Utilities.getUuid().replace(/-/g, '').slice(0, 8).toUpperCase();
+  const row = [id, Utilities.formatDate(new Date(), tz_(), 'yyyy-MM-dd HH:mm'), emp.id, emp.name, 'CORRECTION',
+    "'" + date, "'" + date, inT ? "'" + inT : '', outT ? "'" + outT : '', '', reason, 'PENDING', '', '', '', '', '',
+    ctx.emp.id + ' ' + ctx.emp.name];
+  const sh = sheetOrCreate_(SHEET.REQUESTS, REQ_HEADERS);
+  ensureHeaders_(sh, REQ_HEADERS);
+  sh.getRange(sh.getLastRow() + 1, 1, 1, row.length).setValues([row]);
+  forget_('requests');
+  audit_(ctx.emp, 'GUARD_REQUEST', emp.id, date, (inT || '—') + ' → ' + (outT || '—') + ' · ' + reason);
+  return raisedRequests_(ctx.emp);
+}
+
+/** The guard cancels a pending request they raised. */
+function guardCancelRequest(token, id) {
+  const ctx = authAdmin_(token, 'markOthers');
+  const r = readRequests_().filter(x => x.id === id && x.raisedBy.split(' ')[0] === ctx.emp.id)[0];
+  if (!r || r.status !== 'PENDING') throw new Error('Only pending requests can be cancelled.');
+  sheet_(SHEET.REQUESTS).getRange(r.row, 12).setValue('CANCELLED');
+  forget_('requests');
+  return raisedRequests_(ctx.emp);
+}
+
+/** Requests this person raised for others, newest first (the last 30). */
+function raisedRequests_(me) {
+  return readRequests_().filter(r => r.raisedBy.split(' ')[0] === me.id).reverse().slice(0, 30);
+}
+
 function myRequests(token) {
   const emp = auth_(token);
   return readRequests_().filter(r => r.empId === emp.id).reverse().slice(0, 30);
@@ -1162,6 +1214,7 @@ function proxyList(token) {
   const att = readAttendance_();
   return {
     date: today, offType: offType,
+    raised: raisedRequests_(ctx.emp), requestBackDays: s.requestBackDays, // time corrections this guard asked for
     office: { radius: s.radius, maxAccuracy: s.maxAccuracy,
       lat: isFinite(s.officeLat) ? s.officeLat : null, lng: isFinite(s.officeLng) ? s.officeLng : null },
     server: serverClock_(), clockTolerance: s.clockTolerance,
@@ -4065,13 +4118,15 @@ function readRequests_() {
   return memo_('requests', () => {
     const sh = SpreadsheetApp.getActive().getSheetByName(SHEET.REQUESTS);
     if (!sh || sh.getLastRow() < 2) return [];
-    return sh.getRange(2, 1, sh.getLastRow() - 1, REQ_HEADERS.length).getValues().map((r, i) => ({
+    // Older sheets have fewer columns (no "Raised By" yet): read what is there.
+    return sh.getRange(2, 1, sh.getLastRow() - 1, Math.min(REQ_HEADERS.length, sh.getLastColumn())).getValues().map((r, i) => ({
       row: i + 2, id: String(r[0]), created: r[1] instanceof Date ? Utilities.formatDate(r[1], tz_(), 'yyyy-MM-dd HH:mm') : String(r[1]),
       empId: String(r[2]).trim().toUpperCase(), name: String(r[3]), type: String(r[4]).toUpperCase(),
       from: toDateStr_(r[5]), to: toDateStr_(r[6]) || toDateStr_(r[5]), in: toTimeStr_(r[7]), out: toTimeStr_(r[8]),
       leaveType: String(r[9] || '').toUpperCase(), reason: String(r[10] || ''), status: String(r[11] || '').toUpperCase(),
       decidedBy: String(r[12] || ''), decidedAt: r[13] instanceof Date ? Utilities.formatDate(r[13], tz_(), 'yyyy-MM-dd HH:mm') : String(r[13] || ''),
       remark: String(r[14] || ''), amount: Number(r[15]) || 0, monthly: Number(r[16]) || 0,
+      raisedBy: String(r[17] || ''), // a guard (or admin) who asked for this correction on the employee's behalf
     })).filter(r => r.id);
   });
 }

@@ -592,7 +592,10 @@
     'today': 'आज', 'Leaves': 'छुट्टियाँ', '{n} days': '{n} दिन', 'Late marks cut': 'देर से आने की कटौती',
     'PF Employee': 'PF कर्मचारी', 'PF Employer': 'PF नियोक्ता', 'Basic Salary {b}': 'बेसिक वेतन {b}', 'Basic Salary {b} for {d} of {n} days': 'बेसिक वेतन {b} ({n} में से {d} दिन)',
     '📲 Share on WhatsApp': '📲 WhatsApp पर भेजें', 'Purchases': 'खरीदारी',
-    'Purchases cut from this salary: {list}': 'इस तनख्वाह से कटी खरीदारी: {list}', '{amt} could not be cut (salary too low).': '{amt} नहीं कट सका (तनख्वाह कम है)।', 'Preparing PDF…': 'PDF तैयार हो रहा है…', 'Opening WhatsApp with the PDF…': 'PDF के साथ WhatsApp खुल रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
+    'Purchases cut from this salary: {list}': 'इस तनख्वाह से कटी खरीदारी: {list}', '{amt} could not be cut (salary too low).': '{amt} नहीं कट सका (तनख्वाह कम है)।', 'Preparing PDF…': 'PDF तैयार हो रहा है…', '📝 Time correction requests': '📝 समय सुधार अनुरोध', '＋ Request a time correction': '＋ समय सुधार का अनुरोध',
+    '📝 Request a time correction': '📝 समय सुधार का अनुरोध', 'guardreq.info': 'किसी कर्मचारी का चेक-इन / चेक-आउट समय गलत है या छूट गया (जैसे चेक-आउट भूल गए)? सही समय भेजें — एडमिन जाँच कर मंज़ूर करेंगे।',
+    'Employee': 'कर्मचारी', 'Recorded now: {i} → {o}': 'अभी दर्ज: {i} → {o}', 'e.g. Forgot to check out, left at 19:05': 'जैसे चेक-आउट भूल गए, 19:05 पर गए',
+    'Sent for you by {n}': '{n} ने आपके लिए भेजा', 'Opening WhatsApp with the PDF…': 'PDF के साथ WhatsApp खुल रहा है…', '📲 PDF ready – tap to share': '📲 PDF तैयार – भेजने के लिए दबाएँ',
     'Update the app to send the PDF on WhatsApp (sending the details as a message now).': 'WhatsApp पर PDF भेजने के लिए ऐप अपडेट करें (अभी विवरण संदेश में भेजा जा रहा है)।',
     'This browser cannot send files. Sending the details as a message; use Download PDF to attach the file.': 'यह ब्राउज़र फ़ाइल नहीं भेज सकता। विवरण संदेश में भेजा जा रहा है; फ़ाइल के लिए Download PDF दबाएँ।', 'Salary slip – {label}': 'वेतन पर्ची – {label}', 'company contribution': 'कंपनी का योगदान',
     // guard: Mark Attendance
@@ -660,6 +663,7 @@
 
   /** English text for the keyed (longer) messages above. */
   var EN = {
+    'guardreq.info': 'An employee\'s check-in / check-out time is wrong or missing (e.g. forgot to check out)? Send the correct time — an admin checks and approves it.',
     'bday.wish': 'Warm wishes from everyone at {company}. Have a wonderful year ahead!',
     'bday.others': 'Don\'t forget to wish them! 🎉',
     'missed.one': 'You were checked out automatically at midnight. This day is marked until an admin fixes it. Send a correction with your real check-out time.',
@@ -1191,7 +1195,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261069;
+  var NEEDS_SERVER = 20261070;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2531,6 +2535,7 @@
     list.forEach(function (r) {
       html += '<div class="list-item"><div><div class="name">' + reqTitle(r) + '</div>' +
         '<div class="sub">' + esc(r.reason) + '</div>' +
+        (r.raisedBy ? '<div class="sub">' + t('Sent for you by {n}', { n: esc(r.raisedBy.replace(/^\S+ /, '')) }) + '</div>' : '') +
         (r.remark ? '<div class="sub">' + t('Admin: {r}', { r: esc(r.remark) }) + '</div>' : '') + '</div>' +
         '<div class="right">' + chip(r.status) +
         (r.status === 'PENDING' ? '<div><button class="link" style="color:var(--red)" onclick="cancelMyRequest(\'' + esc(r.id) + '\')">' + t('Cancel') + '</button></div>' : '') + '</div></div>';
@@ -2702,10 +2707,62 @@
       (faceSupported() ? '<button class="btn green" style="margin-top:10px" onclick="kioskStart()">' + t('🙂 Scan faces (auto check in / out)') + '</button>' : '') + '</div>';
     html += '<div class="card"><input class="inp" id="pxSearch" placeholder="' + t('🔍 Search name or ID') + '" value="' + esc(S.proxy.filter || '') + '" oninput="S.proxy.filter=this.value;renderProxyList()">' +
       '<div id="pxList" style="margin-top:8px"></div></div>';
+    html += '<div class="card" id="pxReq"></div>';
     adminBody(html);
+    renderGuardRequests();
     renderProxyLoc();
     renderProxyList();
     if (q) { var si = $('pxSearch'); si.focus(); si.setSelectionRange(si.value.length, si.value.length); }
+  }
+
+  /**
+   * Time correction requests (guard): e.g. someone forgot to check out. The guard sends the correct time; an
+   * admin approves it in Requests. Below: the requests this guard sent and their status.
+   */
+  function renderGuardRequests() {
+    var box = $('pxReq'); if (!box) return;
+    var list = S.proxy.data.raised || [];
+    box.innerHTML = '<div class="row"><h2 style="margin:0">' + t('📝 Time correction requests') + '</h2></div>' +
+      '<p class="muted small" style="margin:4px 0 8px">' + t('guardreq.info') + '</p>' +
+      '<button class="btn" onclick="openGuardRequest()">' + t('＋ Request a time correction') + '</button>' +
+      (list.length ? list.map(function (r) {
+        return '<div class="list-item"><div><div class="name">' + esc(r.name) + ' <span class="muted" style="font-weight:400">' + esc(r.empId) + '</span></div>' +
+          '<div class="sub">' + esc(fmtDate(r.from)) + ' · ' + esc(r.in || '—') + ' → ' + esc(r.out || '—') + '</div><div class="sub">' + esc(r.reason) + '</div>' +
+          (r.remark ? '<div class="sub">' + t('Admin: {r}', { r: esc(r.remark) }) + '</div>' : '') + '</div>' +
+          '<div class="right">' + chip(r.status) + (r.status === 'PENDING' ? '<div><button class="link" style="color:var(--red)" onclick="cancelGuardRequest(\'' + esc(r.id) + '\')">' + t('Cancel') + '</button></div>' : '') + '</div></div>';
+      }).join('') : '');
+  }
+  function openGuardRequest(i) {
+    var d = S.proxy.data, today = todayLocal(), back = d.requestBackDays > 0 ? addDaysLocal(today, -d.requestBackDays) : '';
+    openModal('<div class="row"><h2 style="margin:0">' + t('📝 Request a time correction') + '</h2><button class="x-btn" onclick="closeModal()" aria-label="Close">✕</button></div>' +
+      '<p class="muted small" style="margin:6px 0 4px">' + t('guardreq.info') + '</p>' +
+      '<div class="field"><label>' + t('Employee') + '</label><select id="grEmp" class="inp" onchange="guardReqFill()">' +
+        d.list.map(function (e, k) { return '<option value="' + k + '"' + (k === i ? ' selected' : '') + '>' + esc(e.name) + ' (' + esc(e.id) + ')</option>'; }).join('') + '</select></div>' +
+      '<div class="field"><label>' + t('Date') + '</label><input id="grDate" class="inp" type="date" max="' + today + '"' + (back ? ' min="' + back + '"' : '') + ' value="' + today + '" onchange="guardReqFill()"></div>' +
+      '<div id="grNow" class="muted small"></div>' +
+      '<div class="grid2"><div class="field"><label>' + t('Correct check-in') + '</label><input id="grIn" class="inp" type="time"></div>' +
+      '<div class="field"><label>' + t('Correct check-out') + '</label><input id="grOut" class="inp" type="time"></div></div>' +
+      '<p class="muted small" style="margin:6px 0 0">' + t('Leave a time empty to keep what is already recorded.') + '</p>' +
+      '<div class="field"><label>' + t('Reason') + '</label><textarea id="grWhy" class="inp" placeholder="' + t('e.g. Forgot to check out, left at 19:05') + '"></textarea></div>' +
+      '<div id="grMsg"></div><button class="btn" id="grBtn" onclick="sendGuardRequest()">' + t('Send request') + '</button>' +
+      '<button class="btn ghost" onclick="closeModal()">' + t('Cancel') + '</button>');
+    guardReqFill();
+  }
+  /** Shows the recorded times of the chosen employee for today (from the list), to help fill in the correct ones. */
+  function guardReqFill() {
+    var e = S.proxy.data.list[+$('grEmp').value], el = $('grNow'); if (!e || !el) return;
+    el.innerHTML = $('grDate').value === e.date ? t('Recorded now: {i} → {o}', { i: esc(e.in || '—'), o: esc(e.out || '—') }) : '';
+  }
+  function sendGuardRequest() {
+    var e = S.proxy.data.list[+$('grEmp').value];
+    var req = { empId: e && e.id, date: $('grDate').value, in: $('grIn').value, out: $('grOut').value, reason: $('grWhy').value };
+    $('grBtn').disabled = true;
+    api('guardRequestTime', S.token, req).then(function (list) { S.proxy.data.raised = list; closeModal(); renderGuardRequests(); toast(t('Request sent')); })
+      .catch(function (err) { $('grBtn').disabled = false; $('grMsg').innerHTML = errBox(err); });
+  }
+  function cancelGuardRequest(id) {
+    if (!confirm(t('Cancel this request?'))) return;
+    api('guardCancelRequest', S.token, id).then(function (list) { S.proxy.data.raised = list; renderGuardRequests(); }).catch(function (e) { toast(e.message); });
   }
 
   function proxyByText(by) {
@@ -3543,6 +3600,7 @@
     r.pending.forEach(function (q, i) {
       html += '<div class="list-item" style="display:block"><div class="row"><div class="name">' + esc(q.name) + ' <span class="muted" style="font-weight:400">' + esc(q.empId) + '</span></div>' + chip('PENDING') + '</div>' +
         '<div style="margin-top:4px">' + reqTitle(q) + '</div><div class="sub">' + esc(q.reason) + ' · sent ' + esc(q.created) + '</div>' +
+        (q.raisedBy ? '<div class="sub">🛡 Raised by ' + esc(q.raisedBy) + ' (guard)</div>' : '') +
  (q.type === 'ADVANCE' ? advApprovalFields(q, i, r) : '') +
         (q.type === 'LEAVE' && q.worked && q.worked.length ? '<div class="msg warn">⚠ ' + esc(q.name) + ' already worked on ' + q.worked.map(function (d) { return esc(fmtDate(d)); }).join(', ') +
           '. ' + (q.worked.length > 1 ? 'These days stay' : 'This day stays') + ' as worked; the leave is only put on the other days.</div>' : '') +
