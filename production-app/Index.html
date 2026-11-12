@@ -322,7 +322,7 @@ function modal(title, body) {
   o.addEventListener('click', function (e) { if (e.target === o) closeModalByUser(); });
   document.body.appendChild(o);
 }
-function closeModal() { var m = $('modal'); if (m) m.remove(); }
+function closeModal() { var m = $('modal'); if (m) m.remove(); if (window.camStop) camStop(); }
 function closeModalByUser() { S.costOpen = null; closeModal(); }
 
 /* ---------- login ---------- */
@@ -511,34 +511,66 @@ VIEWS.count = function () {
 function newBatch(btn) {
   if (!val('nbK')) return toast('Choose the karigar.');
   busy(btn, true);
-  api('startBatch', S.token, val('nbK')).then(function (r) { S.data.cq.list.push({ id: r.id, karigar: $('nbK').selectedOptions[0].text, claim: [], status: 'COUNT1', items: [] }); countForm(r.id, 1); busy(btn, false); }).catch(function (e) { fail(e, btn); });
+  api('startBatch', S.token, val('nbK')).then(function (r) { S.data.cq.list.push({ id: r.id, karigarId: val('nbK'), karigar: $('nbK').selectedOptions[0].text, claim: [], status: 'COUNT1', items: [] }); countForm(r.id, 1); busy(btn, false); }).catch(function (e) { fail(e, btn); });
 }
+/*
+ * Count form. The item list has only what the karigar is making now (items of their open work orders).
+ * Count 1 photo: live camera only (back or front), on a mobile phone — no gallery, no file picker.
+ */
 function countForm(id, which) {
   var b = S.data.cq.list.filter(function (x) { return x.id === id; })[0] || { id: id, claim: [], items: [] };
-  S.data.countItems = S.data.cq.items; S.data.photo = null;
   var pre = which === 1 ? b.claim.map(function (c) { return c.item; }) : b.items;
+  var mk = (S.data.cq.making || {})[b.karigarId] || [];
+  S.data.countItems = S.data.cq.items.filter(function (i) { return mk.indexOf(i.code) >= 0 || pre.indexOf(i.code) >= 0; });
+  S.data.photo = null;
+  var none = !S.data.countItems.length;
   modal('Count ' + which + ' · ' + id + ' · ' + (b.karigar || ''),
     (which === 2 ? '<div class="blind">Final count: you do not see count 1. Count every piece yourself. Your count is the one that is paid and added to the inventory.</div>' : b.claim.length ? '<div class="msg info">Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
-    '<div class="lines"><div class="ln hdr"><div>Item</div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
-    (which === 1 ? '<label class="f">Photo of the received goods (required)</label><input type="file" accept="image/*" capture="environment" onchange="takePhoto(this)"><img id="cPhoto" class="photo" style="display:none">' : '') +
-    '<button class="btn block ok" onclick="saveCountNow(\'' + id + '\',' + which + ',this)">Save count ' + which + '</button>');
-  (pre.length ? pre : ['']).forEach(function (it) { addCountLine(it); });
+    (none ? '<div class="msg err">' + esc(b.karigar || 'This karigar') + ' has no running work order. Add a work order for the item first (Work orders).</div>' :
+    '<div class="lines"><div class="ln hdr"><div>Item <span class="muted" style="font-weight:400">(what this karigar is making)</span></div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
+    (which === 1 ? '<label class="f">Photo of the received goods (required, camera only)</label>' + (isMobile() ?
+      '<div id="camBox"><button class="btn sec block" style="margin-top:0" onclick="camStart(\'environment\')">📷 Open camera</button></div><img id="cPhoto" class="photo" style="display:none">' :
+      '<div class="msg warn">📱 The photo is taken with a mobile phone camera only. Open this batch in the app on a mobile phone to save count 1.</div>') : '') +
+    (which === 1 && !isMobile() ? '' : '<button class="btn block ok" onclick="saveCountNow(\'' + id + '\',' + which + ',this)">Save count ' + which + '</button>')));
+  if (!none) (pre.length ? pre : [S.data.countItems.length === 1 ? S.data.countItems[0].code : '']).forEach(function (it) { addCountLine(it); }); // only one item: already chosen
+}
+function isMobile() {
+  if (window.AttendanceApp) return true;
+  var ua = navigator.userAgent || '';
+  return /Android|iPhone|iPad|iPod|Mobile/i.test(ua) && !!(window.matchMedia && matchMedia('(pointer:coarse)').matches);
 }
 function addCountLine(item) {
   var div = document.createElement('div'); div.className = 'ln';
   div.innerHTML = '<select>' + itemOpts(S.data.countItems, item || '') + '</select><input type="number" inputmode="numeric" placeholder="0"><input type="number" inputmode="numeric" placeholder="0"><button class="x" onclick="this.parentNode.remove()">×</button>';
   $('cLines').appendChild(div);
 }
-function takePhoto(inp) {
-  var f = inp.files && inp.files[0]; if (!f) return;
-  var img = new Image(), rd = new FileReader();
-  rd.onload = function () { img.onload = function () {
-    var max = 1280, w = img.width, h = img.height, k = Math.min(1, max / Math.max(w, h));
-    var c = document.createElement('canvas'); c.width = Math.round(w * k); c.height = Math.round(h * k);
-    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-    S.data.photo = c.toDataURL('image/jpeg', 0.72); $('cPhoto').src = S.data.photo; $('cPhoto').style.display = 'block';
-  }; img.src = rd.result; };
-  rd.readAsDataURL(f);
+/* Live camera in the page: back camera first, "Switch" for the front one; "Take photo" freezes the picture. */
+var CAM = { stream: null, facing: 'environment' };
+function camStop() { if (CAM.stream) { CAM.stream.getTracks().forEach(function (t) { t.stop(); }); CAM.stream = null; } }
+function camStart(facing) {
+  camStop(); CAM.facing = facing || CAM.facing;
+  var box = $('camBox'); if (!box) return;
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { box.innerHTML = '<div class="msg err">This phone\'s browser cannot open the camera. Use the app.</div>'; return; }
+  box.innerHTML = '<div class="muted" style="padding:8px 0">Opening the camera…</div>';
+  navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: CAM.facing }, width: { ideal: 1280 }, height: { ideal: 960 } }, audio: false }).then(function (st) {
+    if (!$('camBox')) { st.getTracks().forEach(function (t) { t.stop(); }); return; }
+    CAM.stream = st;
+    $('camBox').innerHTML = '<video id="camV" class="photo" autoplay playsinline muted style="display:block' + (CAM.facing === 'user' ? ';transform:scaleX(-1)' : '') + '"></video>' +
+      '<div class="row" style="margin-top:8px"><button class="btn ok" onclick="camShot()">📸 Take photo</button><button class="btn sec fix" onclick="camStart(CAM.facing===\'user\'?\'environment\':\'user\')">🔄 ' + (CAM.facing === 'user' ? 'Back camera' : 'Front camera') + '</button></div>';
+    $('camV').srcObject = st;
+  }).catch(function (e) {
+    var b2 = $('camBox'); if (b2) b2.innerHTML = '<div class="msg err">Camera not available: ' + esc(e.message || e.name || String(e)) + '. Allow the camera for this app and try again.</div><button class="btn sec block" onclick="camStart()">📷 Try again</button>';
+  });
+}
+function camShot() {
+  var v = $('camV'); if (!v || !v.videoWidth) return toast('Wait for the camera picture.');
+  var max = 1280, k = Math.min(1, max / Math.max(v.videoWidth, v.videoHeight));
+  var c = document.createElement('canvas'); c.width = Math.round(v.videoWidth * k); c.height = Math.round(v.videoHeight * k);
+  c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+  S.data.photo = c.toDataURL('image/jpeg', 0.72);
+  camStop();
+  $('cPhoto').src = S.data.photo; $('cPhoto').style.display = 'block';
+  $('camBox').innerHTML = '<button class="btn sec block" style="margin-top:0" onclick="camStart()">🔁 Take again</button>';
 }
 function saveCountNow(id, which, btn) {
   var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { item: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.item; });

@@ -11,6 +11,10 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Final count, 2 people:** count 1 with a **photo** of the goods, then count 2 by a **different** person who
   does **not** see count 1 (blind). **Count 2 is final:** the batch is locked with count 2's numbers. If count 1
   was different, that is kept and flagged ("Count 1 differed") but does not block anything.
+  - The item list in a count has **only what that karigar is making now** (items of their open work orders; one
+    item = already chosen). No running work order → add one first.
+  - The count 1 photo is taken with the **live camera only** (back camera, 🔄 for the front one), on a **mobile
+    phone** (best in the Android app). There is no gallery or file picker; on a computer count 1 cannot be saved.
 - **Inventory:** on lock, the good pieces of inventory SKUs are added to the **Travalate Inventory App**. The
   note there reads `05-Nov 14:20 | Harshit | +40 (In) | Received From Ramesh (P-0012)`.
 - **Parts** (straps, belts …) are paid but not added to the inventory.
