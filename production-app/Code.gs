@@ -427,8 +427,11 @@ function countQueue(token) {
     items: b.status === 'COUNT2' ? b.count1.map(l => l.item) : [],
     mine: b.count1By === u.id,
   }));
+  // Count only what each karigar is making now: the items of their open work orders.
+  const making = {};
+  ordersWithProgress_().filter(o => o.open).forEach(o => { (making[o.karigarId] = making[o.karigarId] || []).indexOf(o.item) < 0 && making[o.karigarId].push(o.item); });
   return { list: list, karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })),
-    items: activeItems_(), canCount: can_(u, 'count'), me: u.id };
+    items: activeItems_(), making: making, canCount: can_(u, 'count'), me: u.id };
 }
 
 /** Count 1: staff start the batch for a karigar (karigars do not enter hand-overs in the app). */
