@@ -273,6 +273,7 @@ function go(view, arg, isBack) {
     if (NAV.stack.length > 40) NAV.stack.shift();
   }
   S.view = view; S.arg = arg; S.costOpen = null; closeDrawer(); closeModal();
+  if (S.profile) store.set('lastView', JSON.stringify({ u: S.profile.id, v: view, a: arg === undefined ? null : arg }));
   try {
     if (changed && !isBack && !NAV.inApp) history.pushState({ v: view }, '', '#' + view);
     else history.replaceState({ v: view }, '', '#' + view);
@@ -346,9 +347,15 @@ function start() {
   shell(); bell(S.unread || 0);
   if (S.canAlerts) api('getHome', S.token).then(function (r) { bell(r.unread || 0); }).catch(function () {});
   if (S.canAlerts && !S.bellTimer) S.bellTimer = setInterval(function () { if (S.token && S.profile && S.profile.kind === 'S') api('getHome', S.token).then(function (r) { if (r.unread !== S.unread) { bell(r.unread); } }).catch(function () {}); }, 180000);
-  var h = (location.hash || '').slice(1);
-  var ok = menu().some(function (m) { return m[0] === h; });
-  go(ok ? h : (S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]));
+  // Refresh / reopen: back to the screen (and tab) that was open. The address (#store) is lost inside the Apps Script
+  // page and the Android app, so the last screen is also kept on this device, per user.
+  var allowed = function (v) { return menu().some(function (m) { return m[0] === v; }); };
+  var h = (location.hash || '').slice(1), last = null;
+  try { last = JSON.parse(store.get('lastView') || 'null'); } catch (e) { last = null; }
+  if (last && (last.u !== S.profile.id || !allowed(last.v))) last = null;
+  if (allowed(h) && !(last && last.v === h)) last = { v: h };
+  if (last) go(last.v, last.a === null ? undefined : last.a);
+  else go(S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]);
 }
 
 /* ======================= KARIGAR ======================= */
