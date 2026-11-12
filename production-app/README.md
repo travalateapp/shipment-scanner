@@ -25,8 +25,8 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
     rate, **only the running lots you select**, or **only new lots**.
   - The change log keeps every rate change. Pieces in pay periods that are already approved never change.
 - **Pay:** counted good pieces × their lot's rate. Goods without a lot use the karigar's own rate, else the
-  standard rate. **Rejected pieces are not paid.** Karigars are never paid for what they claim, only for what
-  was counted.
+  standard rate. **Rejected pieces are not paid.** Karigars are paid only for what was
+  counted. Karigars do not enter hand-overs in the app: staff start each batch in **Count goods → New batch**.
 - **Pay period 5th to 4th** (5 Nov – 4 Dec). After it ends, **1 approver** approves each karigar's pay. The
   figures are then frozen. The approver then marks it **paid** with the actual date.
 - **Advances:** given with a cut per pay period (Advances tab). At **payroll**, the person who approves pay
@@ -70,6 +70,9 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   super admins and staff given the **profit** permission.
 - **WhatsApp statement** to each karigar from Payroll (pieces, rate, earned, advance cut and balance, net,
   paid date) to the karigar's phone number.
+- **Karigar app:** Home (this pay period, work orders, material with them, recent counts, advance left), My work,
+  Payslips, **My advances** (each advance, extra given, cut in each pay period, left after, what is cut this period),
+  Change PIN. Karigars do not enter hand-overs.
 - **Hindi** on the karigar screens: the **हिंदी / English** button on the login page and in the top bar.
 - **Material balance:** given − used (good + rejected pieces × material per piece). No wastage allowance. A
   negative balance (more made than the material given, e.g. goods without a lot) or material left with a
@@ -207,7 +210,7 @@ How it works:
 | Material Prices | Every price change of a material (history) |
 | Work Orders | The lots: what each karigar is making, and the lot's rate (standard / karigar / special) |
 | Material Moves | Material issued (per lot, or extra) with who entered, who confirmed and the cost per unit on the day |
-| Batches | Hand-over claim, count 1 (+photo), count 2 (final), status, final date, inventory status |
+| Batches | (old hand-over claim), count 1 (+photo), count 2 (final), status, final date, inventory status |
 | Batch Lines | Locked counts per item and work order (what pay and the material balance use) |
 | Advances / Advance Periods | Advances and the full / partial / skipped cut per pay period |
 | Payroll | Approved and paid periods with the frozen figures |

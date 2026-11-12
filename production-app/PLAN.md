@@ -41,8 +41,8 @@ way as the attendance app.
 1. **A photo of every received batch**, taken at the final count.
 2. **Counted entries are locked.** Only a super admin can change one, with a reason, and every change
    goes to the **Change Log** (who, when, old value → new value).
-3. **Pay only on counted quantity**, never on what the karigar claims. A karigar may enter what they
-   handed over; any difference from the count is shown, but pay always uses the count.
+3. **Pay only on counted quantity.** Karigars do not enter hand-overs in the app (removed: no use); staff start
+   each batch when the goods come in.
 
 Also built in because of the 2-person rules: two-person material issue, two-person blind count, and a
 material balance per karigar that flags shortfalls (no wastage allowance). Server time is used for
@@ -72,7 +72,7 @@ ready to paste, and nothing else in the Inventory App changes.
 2. **Material issue:** person A records material and quantity for a karigar → person B confirms
    → it counts toward the karigar's material balance. Unconfirmed issues show as pending.
 3. **Material return:** same 2-person flow (unused material coming back).
-4. **(Optional) Karigar hands over:** the karigar enters the items and quantities on their phone.
+4. **Goods come in:** staff start a batch for the karigar (Count goods → New batch).
 5. **Final count:** counter 1 enters good and rejected quantities per item and takes the photo →
    counter 2 counts blind → count 2 is final: the batch is **locked**, inventory SKUs are pushed to the
    Inventory App, and pay is credited at the karigar's rate. A different count 1 is flagged, not blocked.

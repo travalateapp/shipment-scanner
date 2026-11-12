@@ -119,7 +119,7 @@ function doGet(e) {
 
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome,
-  myWork, myPayslip, submitHandover,
+  myWork, myPayslip, myAdvances,
   adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, renameSupplier, stockTake, saveSellingPrice, saveOrders,
   countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
@@ -334,8 +334,9 @@ function getHome(token) {
   const balances = materialBalances_().filter(b => b.karigarId === u.id && Math.abs(b.balance) > 1e-9);
   const orders = ordersWithProgress_().filter(o => o.karigarId === u.id && o.open);
   const batches = readBatches_().filter(b => b.karigarId === u.id).slice(-8).reverse().map(b => batchSummary_(b, u));
+  const adv = readAdvances_().filter(a => a.karigarId === u.id).map(a => advanceState_(a, per));
   return { profile: profile_(u), period: periodInfo_(per), pay: pay, balances: balances, orders: orders, batches: batches,
-    items: activeItems_().filter(i => orders.some(o => o.item === i.code) || rateOn_(u.id, i.code, todayStr_()) !== null) };
+    advance: { balance: round2_(adv.reduce((n, x) => n + x.balanceBefore, 0)), thisPeriod: round2_(adv.reduce((n, x) => n + x.thisPeriod, 0)) } };
 }
 
 /** My work: every locked batch line in a period. */
@@ -352,22 +353,29 @@ function myPayslip(token, period) {
 }
 
 /**
- * A karigar hands over finished goods: { lines: [{ item, qty }], note }. This is only their claim; pay always
- * uses the 2-person count.
+ * My advances (karigar): each advance with what was given (and extra given later), what was cut in each pay
+ * period (approved pay = what was really cut; later periods = the planned cut) and what is left.
  */
-function submitHandover(token, data) {
+function myAdvances(token) {
   const u = authKarigar_(token);
-  const lines = cleanLines_((data && data.lines) || [], true);
-  if (!lines.length) throw new Error('Add at least one item with its quantity.');
-  const id = withLock_(() => {
-    const id = nextId_(SHEET.BATCHES, 'P-');
-    sheet_(SHEET.BATCHES).appendRow([id, u.id, 'COUNT1', nowStr_(), JSON.stringify(lines.map(l => ({ item: l.item, qty: l.good }))),
-      '', '', '', '', '', '', '', '', '', '', '', String((data && data.note) || '').slice(0, 200)]);
-    forget_('batches');
-    return id;
-  });
-  log_(u, 'HANDOVER', id, lines.map(l => l.item + ' ' + l.good).join(', '));
-  return { id: id };
+  const now = periodOf_(todayStr_());
+  const done = {}; readPay_().forEach(p => { if (p.karigarId === u.id) done[p.period] = true; });
+  const list = readAdvances_().filter(a => a.karigarId === u.id).map(a => {
+    const topUps = a.topUps.map(t => { const m = /^(\d{4}-\d{2}-\d{2})\s+\+([\d.]+)/.exec(t); return m ? { date: m[1], amount: Number(m[2]) } : null; }).filter(Boolean);
+    const periods = [];
+    let left = a.amount;
+    for (let p = a.startPeriod; p <= now && left > 0.004; p = nextYm_(p)) {
+      const cut = round2_(advanceDeduction_(a, p, left));
+      left = round2_(left - cut);
+      if (cut > 0 || done[p]) periods.push({ period: p, label: periodInfo_(p).label, cut: cut, after: Math.max(0, left), done: !!done[p] });
+    }
+    const st = advanceState_(a, now);
+    return { id: a.id, dateGiven: a.dateGiven, amount: a.amount, topUps: topUps, perPeriod: a.perPeriod, status: a.status,
+      startLabel: periodInfo_(a.startPeriod).label, periods: periods.reverse(),
+      repaid: round2_(a.amount - st.balanceBefore), balance: st.balanceBefore, thisPeriod: st.thisPeriod };
+  }).reverse();
+  return { period: periodInfo_(now), list: list, balance: round2_(list.reduce((n, a) => n + a.balance, 0)),
+    thisPeriod: round2_(list.reduce((n, a) => n + a.thisPeriod, 0)) };
 }
 
 /* ------------------------------------------------------------------ */
@@ -423,7 +431,7 @@ function countQueue(token) {
     items: activeItems_(), canCount: can_(u, 'count'), me: u.id };
 }
 
-/** Count 1 without a karigar hand-over: creates the batch for a karigar. */
+/** Count 1: staff start the batch for a karigar (karigars do not enter hand-overs in the app). */
 function startBatch(token, karigarId) {
   const u = authStaff_(token, 'count');
   const k = readKarigars_().filter(x => x.id === String(karigarId || '').toUpperCase() && x.active)[0];
