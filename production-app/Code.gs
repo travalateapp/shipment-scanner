@@ -35,6 +35,7 @@ const SHEET = {
   BILLS: 'Purchase Bills',
   TAKES: 'Stock Takes',
   ALERTS: 'Alerts',
+  SUPPLIERS: 'Suppliers',
 };
 
 const HEADERS = {};
@@ -69,6 +70,8 @@ HEADERS[SHEET.STORE] = ['Material Code', 'Opening Qty', 'Date', 'Note', 'By', 'A
 HEADERS[SHEET.BILLS] = ['ID', 'Date', 'Supplier', 'Bill No', 'Lines', 'Items Total', 'Charges', 'Charges Note', 'Total', 'Note', 'By', 'At', 'Edited'];
 HEADERS[SHEET.TAKES] = ['ID', 'Date', 'Karigar ID', 'Material Code', 'Expected', 'Counted', 'Difference', 'Note', 'By', 'At'];
 HEADERS[SHEET.ALERTS] = ['ID', 'At', 'Type', 'Text', 'Ref'];
+// A supplier is saved the first time a bill uses it; renaming one also renames it on all its bills.
+HEADERS[SHEET.SUPPLIERS] = ['Name', 'Added By', 'Added At', 'Renamed'];
 
 const DEFAULT_SETTINGS = [
   ['Company', 'Travalate', 'Shown on the login screen and payslips'],
@@ -117,7 +120,7 @@ function doGet(e) {
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome,
   myWork, myPayslip, submitHandover,
-  adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, stockTake, saveSellingPrice, saveOrders,
+  adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, renameSupplier, stockTake, saveSellingPrice, saveOrders,
   countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
@@ -1711,7 +1714,7 @@ function storeView(token) {
   });
   const month = todayStr_().slice(0, 7);
   const bills = readBills_().slice().reverse();
-  return { list: list, bills: bills.slice(0, 300), canEdit: can_(u, 'store'),
+  return { list: list, bills: bills.slice(0, 300), suppliers: supplierList_(), canEdit: can_(u, 'store'),
     monthCharges: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.charges, 0)),
     monthPurchases: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.itemsTotal, 0)),
     stockValue: round2_(list.reduce((n, x) => n + (x.tracked && x.value ? x.value : 0), 0)) };
@@ -1762,7 +1765,8 @@ function saveBill(token, data) {
   const ex = data.id ? readBills_().filter(b => b.id === data.id)[0] : null;
   if (data.id && !ex) throw new Error('Bill not found.');
   const id = ex ? ex.id : withLock_(() => nextId_(SHEET.BILLS, 'B-'));
-  const row = [id, "'" + date, String(data.supplier || '').trim().slice(0, 100), String(data.billNo || '').trim().slice(0, 50), JSON.stringify(lines), itemsTotal,
+  const supplier = saveSupplier_(u, data.supplier);
+  const row = [id, "'" + date, supplier, String(data.billNo || '').trim().slice(0, 50), JSON.stringify(lines), itemsTotal,
     charges, String(data.chargesNote || '').slice(0, 200), total, String(data.note || '').slice(0, 300)];
   if (ex) {
     sheet_(SHEET.BILLS).getRange(ex.row, 1, 1, row.length).setValues([row]);
@@ -1785,6 +1789,53 @@ function saveBill(token, data) {
     sheet_(SHEET.PRICES).appendRow([m.code, "'" + date, type, m.purchaseType ? m.purchaseUnit : m.unit, l.price, per, text, round4_(l.price / per), u.id + ' ' + u.name, nowStr_(),
       'Bill ' + id + (row[3] ? ' (' + row[3] + ')' : '')]);
     forget_('materials');
+  });
+  return storeView(token);
+}
+
+/* ---------- suppliers ---------- */
+function readSuppliers_() {
+  return memo_('suppliers', () => rows_(SHEET.SUPPLIERS).map((r, i) => ({ row: i + 2, name: String(r[0] || '').trim() })).filter(x => x.name));
+}
+function cleanSupplier_(name) { return String(name || '').trim().replace(/\s+/g, ' ').slice(0, 100); }
+/** The name as saved (same spelling for the same supplier, any case); a new name is saved. */
+function saveSupplier_(u, name) {
+  name = cleanSupplier_(name);
+  if (!name) return '';
+  const have = readSuppliers_().filter(x => x.name.toLowerCase() === name.toLowerCase())[0];
+  if (have) return have.name;
+  const fromBills = readBills_().filter(b => b.supplier.toLowerCase() === name.toLowerCase())[0];
+  if (fromBills) name = fromBills.supplier; // older bills (before suppliers were saved) keep their spelling
+  sheet_(SHEET.SUPPLIERS).appendRow([name, u.id + ' ' + u.name, nowStr_(), '']);
+  forget_('suppliers');
+  return name;
+}
+/** Saved suppliers plus any name on an older bill, with how many bills and the last bill date. */
+function supplierList_() {
+  const m = {};
+  const get = n => { const k = n.toLowerCase(); return m[k] = m[k] || { name: n, bills: 0, last: '' }; };
+  readSuppliers_().forEach(x => get(x.name));
+  readBills_().forEach(b => { if (!b.supplier) return; const x = get(b.supplier); x.bills++; if (b.date > x.last) x.last = b.date; });
+  return Object.keys(m).map(k => m[k]).sort((a, b) => a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1);
+}
+/** Rename a supplier: its saved name and every bill with it. Renaming to another saved supplier joins the two. */
+function renameSupplier(token, oldName, newName) {
+  const u = authStaff_(token, 'store');
+  oldName = cleanSupplier_(oldName); newName = cleanSupplier_(newName);
+  if (!oldName) throw new Error('Supplier not found.');
+  if (!newName) throw new Error('Type the new name.');
+  const lo = oldName.toLowerCase();
+  withLock_(() => {
+    const sups = readSuppliers_(), other = sups.filter(x => x.name.toLowerCase() === newName.toLowerCase() && x.name.toLowerCase() !== lo)[0];
+    if (other) newName = other.name;
+    const sh = sheet_(SHEET.SUPPLIERS), mine = sups.filter(x => x.name.toLowerCase() === lo);
+    if (other) mine.slice().reverse().forEach(x => sh.deleteRow(x.row));
+    else if (mine.length) sh.getRange(mine[0].row, 1).setValue(newName), sh.getRange(mine[0].row, 4).setValue(nowStr_() + ' ' + u.name + ': ' + oldName + ' → ' + newName);
+    else sh.appendRow([newName, u.id + ' ' + u.name, nowStr_(), nowStr_() + ' ' + u.name + ': ' + oldName + ' → ' + newName]);
+    let n = 0;
+    readBills_().forEach(b => { if (b.supplier.toLowerCase() === lo) { sheet_(SHEET.BILLS).getRange(b.row, 3).setValue(newName); n++; } });
+    forget_('suppliers'); forget_('bills');
+    log_(u, 'RENAME_SUPPLIER', newName, oldName + ' → ' + newName + ' (' + n + ' bill' + (n === 1 ? '' : 's') + ')' + (other ? ', joined with the existing supplier' : ''));
   });
   return storeView(token);
 }

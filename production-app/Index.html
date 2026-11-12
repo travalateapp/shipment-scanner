@@ -76,7 +76,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .big{font-size:28px;font-weight:800}
 .lines .ln{display:grid;grid-template-columns:1fr 82px 82px 34px;gap:6px;margin-bottom:6px;align-items:center}
 .lines .ln.claim{grid-template-columns:1fr 90px 34px}
-.lines .ln.bill{grid-template-columns:1fr 78px 86px 34px}
+.lines .ln.bill{grid-template-columns:1fr 84px 120px 34px}
 .lines .ln.wo{grid-template-columns:1fr 80px 110px 34px}.lines .ln.wo.norate{grid-template-columns:1fr 90px 34px}
 .lines .hdr{font-size:12px;color:var(--muted);font-weight:700}
 .x{background:none;border:none;font-size:20px;color:var(--muted);cursor:pointer}
@@ -1572,11 +1572,11 @@ function billForm(id) {
   var t = new Date(), ds = t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2);
   modal(b ? 'Edit bill ' + b.id : 'New purchase bill',
     '<div class="row"><div><label class="f">Date</label><input id="bfD" type="date" value="' + (b ? b.date : ds) + '"></div><div><label class="f">Bill no.</label><input id="bfN" value="' + esc(b ? b.billNo : '') + '"></div></div>' +
-    '<label class="f">Supplier</label><input id="bfS" value="' + esc(b ? b.supplier : '') + '">' +
-    '<label class="f">Materials bought</label><div class="lines"><div class="ln bill hdr"><div>Material</div><div>Qty bought</div><div>Price each</div><div></div></div><div id="bfL"></div></div><button class="btn sec sm" onclick="billLine()">+ Add material</button>' +
+    '<label class="f">Supplier</label><div class="sugg"><input id="bfS" autocomplete="off" placeholder="Start typing: saved suppliers show here" value="' + esc(b ? b.supplier : '') + '" oninput="supSuggest()" onkeydown="sugKey(event,this,\'bfSS\')" onblur="setTimeout(function(){var x=document.getElementById(\'bfSS\');if(x)x.style.display=\'none\'},180)"><div class="box" id="bfSS" style="display:none"></div></div><div id="supRen"></div>' +
+    '<label class="f">Materials bought</label><div class="lines"><div class="ln bill hdr"><div>Material</div><div>Qty bought</div><div>Rate ₹ / unit</div><div></div></div><div id="bfL"></div></div><button class="btn sec sm" onclick="billLine()">+ Add material</button>' +
     '<label class="f">Bilty / loading / unloading charges (not part of any material\'s price)</label><div class="row"><input id="bfC" type="number" step="any" inputmode="decimal" value="' + (b && b.charges ? b.charges : '') + '" placeholder="₹" oninput="billSum()"><input id="bfCN" value="' + esc(b ? b.chargesNote : 'Bilty / loading / unloading') + '"></div>' +
     '<label class="f">Note</label><input id="bfNote" value="' + esc(b ? b.note : '') + '"><div class="msg info" id="bfT" style="margin-top:10px"></div><button class="btn block" id="bfB">Save bill</button>' +
-    '<div class="muted" style="margin-top:6px">The quantity and price are per the unit you buy in (roll, kg, pack …, as set in Materials → Price). The newest bill also becomes the material\'s price.</div>');
+    '<div class="muted" style="margin-top:6px">Qty and rate are in the unit you buy in (roll, kg, pack …, as set in Materials → Price): e.g. 2 rolls at ₹7,250 per roll = ₹14,500. Changing the material fills in its last rate. The newest bill also becomes the material\'s price.</div>');
   (b ? b.lines : [{}]).forEach(function (l) { billLine(l.material, l.qty, l.price); });
   billSum();
   $('bfB').onclick = function () {
@@ -1586,6 +1586,45 @@ function billForm(id) {
       .then(function (r) { preload('storeView', r); closeModal(); toast(id ? 'Bill saved' : 'Bill added'); go('store', 'bills'); }).catch(function (e) { fail(e, $('bfB')); });
   };
 }
+/*
+ * Supplier: a new name is saved with the bill; from then on it shows here while typing (every match, any word).
+ * ↑/↓, Enter, Esc as in the other lists. "edit" renames the supplier on all its bills.
+ */
+function supSuggest() {
+  var inp = $('bfS'), box = $('bfSS'), typed = inp.value.trim(), words = findWords(typed);
+  sugTyped(inp);
+  if (!words.length) { box.style.display = 'none'; return; }
+  var list = (S.data.st.suppliers || []).filter(function (x) { return findHit(x.name, words); });
+  var exact = list.some(function (x) { return x.name.toLowerCase() === typed.toLowerCase(); });
+  box.innerHTML = list.map(function (x) {
+    return '<div data-v="' + esc(x.name) + '" onmousedown="event.preventDefault();supPick(\'' + q(x.name) + '\')">🏪 ' + esc(x.name) +
+      '<small>' + (x.bills ? x.bills + ' bill' + (x.bills === 1 ? '' : 's') + (x.last ? ' · last ' + d(x.last) : '') : 'saved') +
+      (S.data.st.canEdit ? ' · <a class="lnk" onmousedown="event.preventDefault();event.stopPropagation();supEdit(\'' + q(x.name) + '\')">edit</a>' : '') + '</small></div>';
+  }).join('') + (exact ? '' : '<div style="cursor:default;color:var(--muted)" onmousedown="event.preventDefault()">➕ New supplier "' + esc(typed) + '": saved with this bill</div>');
+  box.style.display = 'block';
+}
+function supPick(name) { var i = $('bfS'); i.value = name; i.dataset.idx = '-1'; $('bfSS').style.display = 'none'; var n = $('bfN'); if (n && !n.value) n.focus(); }
+function supEdit(name) {
+  $('bfSS').style.display = 'none';
+  $('supRen').innerHTML = '<div class="msg info" style="margin-top:8px"><b>Rename supplier</b> <span class="muted">(changes it on every bill of "' + esc(name) + '")</span>' +
+    '<div class="row" style="margin-top:6px"><input id="srN" value="' + esc(name) + '" onkeydown="if(event.key===\'Enter\'){event.preventDefault();supRename(\'' + q(name) + '\')}if(event.key===\'Escape\'){document.getElementById(\'supRen\').innerHTML=\'\'}">' +
+    '<button class="btn fix" id="srB" onclick="supRename(\'' + q(name) + '\')">Rename</button><button class="btn sec fix" onclick="document.getElementById(\'supRen\').innerHTML=\'\'">Cancel</button></div></div>';
+  var i = $('srN'); i.focus(); i.select();
+}
+function supRename(old) {
+  var nw = val('srN').trim().replace(/\s+/g, ' ');
+  if (!nw) return toast('Type the new name.');
+  if (nw === old) { $('supRen').innerHTML = ''; return; }
+  var joins = (S.data.st.suppliers || []).some(function (x) { return x.name.toLowerCase() === nw.toLowerCase() && x.name.toLowerCase() !== old.toLowerCase(); });
+  if (joins && !confirm('"' + nw + '" is already a supplier. Join "' + old + '" into it (all its bills move to "' + nw + '")?')) return;
+  busy($('srB'), true);
+  api('renameSupplier', S.token, old, nw).then(function (r) {
+    S.data.st = r; S.html = {};
+    var s = r.suppliers.filter(function (x) { return x.name.toLowerCase() === nw.toLowerCase(); })[0], name = s ? s.name : nw;
+    if ($('bfS') && $('bfS').value.trim().toLowerCase() === old.toLowerCase()) $('bfS').value = name;
+    $('supRen').innerHTML = ''; toast('Supplier renamed to "' + name + '"');
+  }).catch(function (e) { fail(e, $('srB')); });
+}
 function billLine(mat, qty, price) {
   var div = document.createElement('div'); div.className = 'ln bill';
   div.innerHTML = '<select onchange="billUnit(this)"><option value="">Material…</option>' + S.data.st.list.filter(function (m) { return m.active || m.code === mat; }).map(function (m) {
@@ -1594,17 +1633,30 @@ function billLine(mat, qty, price) {
     '<button class="x" onclick="this.parentNode.remove();billSum()">×</button><div class="muted bu" style="grid-column:1/-1;margin-top:-4px"></div>';
   $('bfL').appendChild(div); billUnit(div.children[0], price === undefined);
 }
+/*
+ * Material picked on a bill line: the hint says what to count in (rolls, kg, packs… as set in Materials → Price),
+ * and the rate becomes that material's last bought price per that unit (blank if it has none) — a rate typed for
+ * another material never stays. Opening a saved bill (fillPrice false) keeps the bill's own rate.
+ */
 function billUnit(sel, fillPrice) {
   var m = S.data.st.list.filter(function (x) { return x.code === sel.value; })[0], ln = sel.closest('.ln');
-  if (!m) { ln.querySelector('.bu').textContent = ''; return billSum(); }
+  var qty = ln.children[1], rate = ln.children[2];
+  if (!m) { ln.querySelector('.bu').textContent = ''; qty.placeholder = 'Qty'; rate.placeholder = '₹'; if (fillPrice !== false) rate.value = ''; return billSum(); }
   var pu = m.purchaseType && m.purchaseType !== 'UNIT' ? m.purchaseUnit : m.unit;
-  ln.querySelector('.bu').textContent = 'Qty in ' + pu + 's' + (m.purchaseType && m.purchaseType !== 'UNIT' ? ' (1 ' + pu + ' = ' + num(m.perPurchase) + ' ' + m.unit + ')' : '') + (m.price !== null ? ' · last price ' + money(m.price) + ' / ' + pu : '');
-  if (fillPrice !== false && m.price !== null && !ln.children[2].value) ln.children[2].value = m.price;
+  ln.dataset.pu = pu;
+  qty.placeholder = pu + 's'; rate.placeholder = '₹ per ' + pu;
+  ln.querySelector('.bu').dataset.base = 'Qty in ' + pu + 's' + (m.purchaseType && m.purchaseType !== 'UNIT' ? ' (1 ' + pu + ' = ' + num(m.perPurchase) + ' ' + m.unit + ')' : '') +
+    ' · rate = ₹ for 1 ' + pu + (m.price !== null ? ' (last bought ' + money(m.price) + ' / ' + pu + ')' : ' (not bought before)');
+  if (fillPrice !== false) rate.value = m.price !== null ? m.price : '';
   billSum();
 }
 function billSum() {
   var items = 0;
-  Array.prototype.forEach.call(document.querySelectorAll('#bfL .ln'), function (ln) { items += (Number(ln.children[1].value) || 0) * (Number(ln.children[2].value) || 0); });
+  Array.prototype.forEach.call(document.querySelectorAll('#bfL .ln'), function (ln) {
+    var q = Number(ln.children[1].value) || 0, r = Number(ln.children[2].value) || 0, bu = ln.querySelector('.bu');
+    items += q * r;
+    if (bu && bu.dataset.base) bu.innerHTML = esc(bu.dataset.base) + (q && r ? ' · <b>' + num(q) + ' ' + esc(ln.dataset.pu) + (q === 1 ? '' : 's') + ' × ' + money(r) + ' = ' + money(Math.round(q * r * 100) / 100) + '</b>' : '');
+  });
   var c = Number(val('bfC')) || 0, o = $('bfT');
   if (o) o.innerHTML = 'Materials ' + money(Math.round(items * 100) / 100) + ' + charges ' + money(c) + ' = <b>' + money(Math.round((items + c) * 100) / 100) + '</b>';
 }
