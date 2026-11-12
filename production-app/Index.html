@@ -87,6 +87,13 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 @media(min-width:700px){.overlay{align-items:center}}
 .sheet{background:#fff;width:100%;max-width:640px;max-height:92vh;overflow:auto;border-radius:16px 16px 0 0;padding:16px}
 @media(min-width:700px){.sheet{border-radius:14px}}
+/* Windows with lines to fill (BOM, bill, count, stock-take…): about twice as wide on a computer, bigger text. */
+@media(min-width:1000px){.sheet.wide{max-width:min(1240px,94vw);padding:22px 28px;font-size:16px}.sheet.wide .hd b{font-size:20px}
+.sheet.wide input,.sheet.wide select,.sheet.wide textarea{font-size:17px;padding:12px 14px}.sheet.wide .combo>select{height:48px}
+.sheet.wide .lines .ln{grid-template-columns:1fr 150px 150px 40px;gap:10px;margin-bottom:10px}.sheet.wide .lines .ln.claim{grid-template-columns:1fr 170px 40px}
+.sheet.wide .lines .ln.bill{grid-template-columns:1fr 140px 190px 40px}.sheet.wide .lines .ln.wo{grid-template-columns:1fr 140px 170px 40px}
+.sheet.wide .lines .hdr{font-size:14px}.sheet.wide .btn{font-size:16px}}
+.combo .box.fixed{position:fixed;right:auto;top:auto;z-index:80}.sheet.wide .combo .box div,.combo .box.fixed div{font-size:16px;padding:11px 14px}
 .sheet .hd{display:flex;align-items:center;gap:8px;margin-bottom:8px}.sheet .hd b{flex:1;font-size:17px}
 .spinner{display:inline-block;width:15px;height:15px;border:2px solid rgba(255,255,255,.45);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite}
 .spinner.dark{border-color:#cbd5e1;border-top-color:var(--blue)}
@@ -318,7 +325,7 @@ window.addEventListener('popstate', function () {
 function modal(title, body) {
   closeModal();
   var o = document.createElement('div'); o.className = 'overlay'; o.id = 'modal';
-  o.innerHTML = '<div class="sheet"><div class="hd"><b>' + esc(title) + '</b><button class="x" onclick="closeModalByUser()">×</button></div>' + body + '</div>';
+  o.innerHTML = '<div class="sheet' + (/class="lines/.test(body) ? ' wide' : '') + '"><div class="hd"><b>' + esc(title) + '</b><button class="x" onclick="closeModalByUser()">×</button></div>' + body + '</div>';
   o.addEventListener('click', function (e) { if (e.target === o) closeModalByUser(); });
   document.body.appendChild(o);
 }
@@ -1083,7 +1090,20 @@ function comboOpen(sel, inp, box, q) {
     return '<div data-v="' + esc(o.value) + '" data-t="' + esc(o.value === '' ? '' : o.text) + '"' + (o.value === sel.value && o.value !== '' ? ' class="cur"' : '') + '>' + esc(o.text) + '</div>';
   }).join('') : '<div style="color:var(--muted);cursor:default">No match</div>';
   box.style.display = 'block';
+  comboPlace(inp, box);
   var cur = box.querySelector('.cur'); if (cur && !words.length) cur.scrollIntoView({ block: 'nearest' });
+}
+/* Inside a pop-up window the list is placed on the screen itself (never cut off by the window's edge): under the box,
+   or above it when there is more room there. Scrolling the window closes it. */
+function comboPlace(inp, box) {
+  var sheet = inp.closest('.sheet');
+  if (!sheet) { box.classList.remove('fixed'); box.style.cssText = 'display:block'; return; }
+  var r = inp.getBoundingClientRect(), below = window.innerHeight - r.bottom - 12, above = r.top - 12;
+  box.classList.add('fixed');
+  box.style.left = r.left + 'px'; box.style.width = Math.max(r.width, Math.min(320, window.innerWidth - r.left - 16)) + 'px'; box.style.minWidth = '0'; box.style.maxWidth = 'none';
+  if (below < 240 && above > below) { box.style.top = 'auto'; box.style.bottom = (window.innerHeight - r.top + 4) + 'px'; box.style.maxHeight = Math.min(460, above) + 'px'; }
+  else { box.style.bottom = 'auto'; box.style.top = (r.bottom + 4) + 'px'; box.style.maxHeight = Math.min(460, below) + 'px'; }
+  if (!sheet._cbs) { sheet._cbs = 1; sheet.addEventListener('scroll', function () { Array.prototype.forEach.call(sheet.querySelectorAll('.combo .box.fixed'), function (b) { b.style.display = 'none'; }); }); }
 }
 function comboPick(sel, inp, box, v) {
   box.style.display = 'none'; inp.dataset.idx = '-1';
