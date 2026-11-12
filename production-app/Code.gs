@@ -130,6 +130,7 @@ const API_FUNCTIONS = {
 
 function doPost(e) {
   let json, rid = '';
+  Object.keys(TOUCHED).forEach(k => { delete TOUCHED[k]; }); CACHE_VERS = null; // a new request
   try {
     const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     rid = /^[\w-]{8,64}$/.test(String(req.rid || '')) ? 'rid_' + req.rid : '';
@@ -142,6 +143,7 @@ function doPost(e) {
   } catch (err) {
     json = JSON.stringify({ ok: false, error: String((err && err.message) || err) });
   }
+  touchedDone_();
   if (rid && json.length < 95000) {
     try { CacheService.getScriptCache().put(rid, json, 600); } catch (err) { /* ignore */ }
   }
@@ -158,6 +160,7 @@ function onOpen() {
   SpreadsheetApp.getUi().createMenu('Production App')
     .addItem('Run setup / repair sheets', 'setup')
     .addItem('Send stock to the Inventory App now', 'syncInventory')
+    .addItem('Refresh the app after big changes made here', 'clearCache')
     .addToUi();
 }
 
@@ -184,6 +187,7 @@ function setup() {
   }
   ['Karigars', 'Staff'].forEach(n => { try { ss.getSheetByName(n).getRange('D:D').setNumberFormat('@'); } catch (e) { /* ignore */ } });
   ensureSyncTrigger_();
+  clearCache();
   return 'Setup done';
 }
 
@@ -1912,14 +1916,78 @@ function saveSellingPrice(token, code, price) {
 /* Readers                                                             */
 /* ------------------------------------------------------------------ */
 
-/** All data rows of a tab, read once per request (forgotten after any write). */
+/**
+ * All data rows of a tab, read once per request (forgotten after any write).
+ * Speed: a copy of each tab is kept in the script cache (fast memory), so a screen reads it in one quick call
+ * instead of opening the tab. Every write through sheet_() gives the tab a new version (the old copy is never
+ * used again), a tab written in this request is always read from the sheet itself, and editing a cell in the
+ * Google Sheet by hand (onEdit) also renews it. Copies expire after CACHE_TTL anyway.
+ */
 function rows_(name) {
   return memo_('rows|' + name, () => {
-    const sh = SpreadsheetApp.getActive().getSheetByName(name);
-    if (!sh || sh.getLastRow() < 2) return [];
-    return sh.getRange(2, 1, sh.getLastRow() - 1, HEADERS[name].length).getValues();
+    const hit = name !== SHEET.LOG && !TOUCHED[name] ? cacheRows_(name) : null;
+    if (hit) return hit;
+    const sh = MEMO['sh|' + name] || SpreadsheetApp.getActive().getSheetByName(name), last = sh ? sh.getLastRow() : 0;
+    const rows = last < 2 ? [] : sh.getRange(2, 1, last - 1, HEADERS[name].length).getValues();
+    if (name !== SHEET.LOG && !TOUCHED[name]) cacheStore_(name, rows);
+    return rows;
   });
 }
+
+const CACHE_TTL = 1200;          // seconds a copy may be used (20 min) — hand edits that onEdit misses show within this time
+const CACHE_CHUNK = 80000;       // characters per cache value (the limit is 100 KB)
+const CACHE_MAX_CHUNKS = 40;
+const TOUCHED = {};              // tabs written in this request
+let CACHE_VERS = null;
+function sc_() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
+function cacheVersions_() {
+  if (CACHE_VERS) return CACHE_VERS;
+  const c = sc_(); CACHE_VERS = {};
+  if (!c) return CACHE_VERS;
+  try { const all = c.getAll(Object.keys(SHEET).map(k => 'ver|' + SHEET[k])); Object.keys(all).forEach(k => { CACHE_VERS[k.slice(4)] = all[k]; }); } catch (e) { /* ignore */ }
+  return CACHE_VERS;
+}
+function cacheRows_(name) {
+  const c = sc_(), v = cacheVersions_()[name];
+  if (!c || !v) return null;
+  try {
+    const keys = []; for (let i = 0; i <= CACHE_MAX_CHUNKS; i++) keys.push('d|' + name + '|' + v + '|' + i);
+    const got = c.getAll(keys), parts = [];
+    for (let i = 0; i <= CACHE_MAX_CHUNKS; i++) {
+      const x = got[keys[i]];
+      if (x === undefined || x === null) return null;
+      if (x === '\u0000end') break;
+      parts.push(x);
+    }
+    return JSON.parse(parts.join('')).map(r => r.map(x => (x && typeof x === 'object' && '$d' in x ? new Date(x.$d) : x)));
+  } catch (e) { return null; }
+}
+function cacheStore_(name, rows) {
+  const c = sc_(); if (!c) return;
+  try {
+    let v = cacheVersions_()[name];
+    if (!v) { v = Utilities.getUuid().slice(0, 8); c.put('ver|' + name, v, 21600); CACHE_VERS[name] = v; }
+    const json = JSON.stringify(rows.map(r => r.map(x => (x instanceof Date ? { $d: x.getTime() } : x))));
+    if (json.length > CACHE_CHUNK * CACHE_MAX_CHUNKS) return; // too big to keep: read from the sheet
+    const put = {};
+    let i = 0;
+    for (; i * CACHE_CHUNK < json.length; i++) put['d|' + name + '|' + v + '|' + i] = json.slice(i * CACHE_CHUNK, (i + 1) * CACHE_CHUNK);
+    put['d|' + name + '|' + v + '|' + i] = '\u0000end';
+    c.putAll(put, CACHE_TTL);
+  } catch (e) { /* the cache is only for speed */ }
+}
+/** A tab is being written: its copy is not used any more (new version), and not again in this request. */
+function touch_(name) {
+  TOUCHED[name] = true;
+  const c = sc_(); if (!c) return;
+  try { const v = Utilities.getUuid().slice(0, 8); c.put('ver|' + name, v, 21600); if (CACHE_VERS) CACHE_VERS[name] = v; } catch (e) { /* ignore */ }
+}
+/** End of a request that wrote: renew the versions once more (a reader that slipped in mid-write is never used). */
+function touchedDone_() { Object.keys(TOUCHED).forEach(n => { const c = sc_(); try { if (c) c.put('ver|' + n, Utilities.getUuid().slice(0, 8), 21600); } catch (e) { /* ignore */ } }); }
+/** Everything is read fresh from the sheet next time (setup, or the menu item after big hand edits). */
+function clearCache() { Object.keys(SHEET).forEach(k => touch_(SHEET[k])); }
+/** Simple trigger: a cell edited by hand in the Google Sheet renews that tab's copy at once. */
+function onEdit(e) { try { if (e && e.range) touch_(e.range.getSheet().getName()); } catch (err) { /* ignore */ } }
 
 function bool_(v) { return !(v === false || /^(false|no|0)$/i.test(String(v).trim())); }
 
@@ -2189,7 +2257,7 @@ function getSettings_() {
 }
 
 function setSetting_(name, value) {
-  const sh = sheetOrCreate_(SHEET.SETTINGS);
+  const sh = sheet_(SHEET.SETTINGS);
   const vals = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, 1).getValues() : [];
   for (let i = 0; i < vals.length; i++) {
     if (String(vals[i][0]).trim() === name) { sh.getRange(i + 2, 2).setValue(value); forget_('settings'); return; }
@@ -2214,7 +2282,8 @@ function forget_() {
 }
 
 function sheet_(name) {
-  return sheetOrCreate_(name);
+  if (!TOUCHED[name]) touch_(name);
+  return memo_('sh|' + name, () => sheetOrCreate_(name)); // the tab object once per request
 }
 
 function sheetOrCreate_(name) {
@@ -2234,6 +2303,7 @@ function ensureHeaders_(sh, headers) {
 }
 
 function deleteRowsWhere_(name, fn) {
+  touch_(name);
   const sh = SpreadsheetApp.getActive().getSheetByName(name);
   if (!sh || sh.getLastRow() < 2) return;
   const vals = sh.getRange(2, 1, sh.getLastRow() - 1, sh.getLastColumn()).getValues();

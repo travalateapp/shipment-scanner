@@ -91,6 +91,16 @@ Screens are in `production-app/screenshots/`.
 
 ---
 
+## Speed
+
+- **Server:** a copy of every tab (except the Change Log) is kept in the Apps Script cache, so opening a screen reads
+  it in one quick call instead of opening 5–13 tabs (about 0.1–0.3 s instead of 1–4 s of sheet reads). Every save
+  through the app renews the copy of the tabs it wrote, at once. A cell edited **by hand** in the Google Sheet renews
+  that tab at once too (onEdit). Rows inserted / deleted by hand, or changes by other scripts, show within 20 minutes,
+  or at once with **Production App → Refresh the app after big changes made here** in the Sheet's menu.
+- **Device:** the last screens are kept on the phone / computer (per user, removed at log out), so after a refresh a
+  screen shows at once and is updated a moment later. Google's own start-up time for each request (about 1 s) stays.
+
 ## 1. Install (about 15 minutes)
 
 1. Create a **new Google Sheet** (separate from attendance), e.g. "Karigar Production".
