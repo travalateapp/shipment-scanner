@@ -322,6 +322,14 @@ function menu() {
   m.push(['pin', '🔑', 'Change PIN']);
   return m;
 }
+/* The first screen: Home for a karigar, the Dashboard for staff who see reports, else the first screen of their
+   menu (skipping the dividers: a staff with only Payroll / Store … rights has a divider first). */
+function firstView() {
+  if (S.profile.kind === 'K') return 'home';
+  if (can('reports')) return 'dash';
+  var m = menu().filter(function (x) { return x[0] !== '-' && VIEWS[x[0]]; })[0];
+  return m ? m[0] : 'pin';
+}
 function navHtml() {
   return '<div class="nav">' + menu().map(function (x) {
     if (x[0] === '-') return '<div class="sep"></div>';
@@ -351,6 +359,8 @@ function closeDrawer() { $('drawer').classList.remove('open'); }
 var NAV = { stack: [], inApp: !!window.AttendanceApp };
 function go(view, arg, isBack) {
   if (BG.quiet) return; // a save finished while you are on another screen
+  // An unknown screen (or a menu divider, or a karigar screen for staff) opens the user's first screen instead.
+  if (S.profile && (!VIEWS[view] || view === '-' || (S.profile.kind === 'S' && /^(home|work|slip|myadv)$/.test(view)))) { view = firstView(); arg = undefined; }
   var changed = S.view !== undefined && S.view !== null && !(S.view === view && String(S.arg) === String(arg));
   if (changed && !isBack) {
     NAV.stack.push({ v: S.view, a: S.arg });
@@ -363,7 +373,7 @@ function go(view, arg, isBack) {
     else history.replaceState({ v: view }, '', '#' + view);
   } catch (e) { /* ignore */ }
   $('side').innerHTML = navHtml(); $('drawerNav').innerHTML = navHtml();
-  var v = VIEWS[view] || VIEWS.home;
+  var v = VIEWS[view];
   var cached = S.html[view + '|' + arg];
   // Show the screen as it was last time at once; fresh data replaces it a moment later.
   $('main').innerHTML = cached ? cached : '<div class="card muted" style="text-align:center;padding:30px"><span class="spinner dark"></span></div>';
@@ -468,7 +478,7 @@ function start() {
   if (last && (last.u !== S.profile.id || !allowed(last.v))) last = null;
   try { localStorage.removeItem('prod_lastView'); } catch (e) { /* the old place */ }
   if (last) go(last.v, last.a === null ? undefined : last.a);
-  else go(S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]);
+  else go(firstView());
   prefetchMenu();
 }
 
@@ -574,7 +584,7 @@ VIEWS.pin = function () {
 function savePin(btn) {
   if (val('p1') !== val('p2')) return toast(T('The new PINs do not match.'));
   busy(btn, true);
-  api('changePin', S.token, val('p0'), val('p1')).then(function () { toast(T('PIN changed')); go(S.profile.kind === 'K' ? 'home' : menu()[0][0]); }).catch(function (e) { fail(e, btn); });
+  api('changePin', S.token, val('p0'), val('p1')).then(function () { toast(T('PIN changed')); go(firstView()); }).catch(function (e) { fail(e, btn); });
 }
 
 /* ======================= STAFF ======================= */
