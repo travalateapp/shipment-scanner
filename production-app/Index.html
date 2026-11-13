@@ -269,7 +269,7 @@ var HI = {
   'Hand over finished goods': 'तैयार माल जमा करें',
   'Enter what you are handing over. Two people will count it. You are paid for the counted good pieces.': 'जो माल जमा कर रहे हैं वह लिखें। दो लोग इसे गिनेंगे। पैसे गिने गए अच्छे पीस के ही मिलेंगे।',
   'Quantity': 'संख्या', '+ Add item': '+ आइटम जोड़ें', 'Note (optional)': 'नोट (चाहें तो)', 'Send': 'भेजें', 'Choose item…': 'आइटम चुनें…', 'Qty': 'संख्या',
-  'Sent': 'भेज दिया', 'My advances': 'मेरा एडवांस', 'Advance left to repay': 'एडवांस बाकी', 'Cut this pay period': 'इस वेतन अवधि में कटेगा', 'See details': 'पूरा देखें', 'Paused': 'रुका हुआ', 'Running': 'चालू', 'Repaid': 'चुकाया', 'Left': 'बाकी', 'Cut per pay period': 'हर वेतन अवधि कटौती', 'Pay period': 'वेतन अवधि', 'Cut': 'कटा', 'Left after': 'उसके बाद बाकी', 'not final yet': 'अभी पक्का नहीं', 'Cutting starts from': 'कटौती शुरू होगी', 'You have no advance.': 'आपका कोई एडवांस नहीं है।', 'Extra given': 'और दिया', 'Recent counts': 'हाल में गिना गया माल', 'Good pieces': 'अच्छे पीस', 'Rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'Net': 'कुल मिलेगा',
+  'Sent': 'भेज दिया', 'extra': 'ज़्यादा', 'My advances': 'मेरा एडवांस', 'Advance left to repay': 'एडवांस बाकी', 'Cut this pay period': 'इस वेतन अवधि में कटेगा', 'See details': 'पूरा देखें', 'Paused': 'रुका हुआ', 'Running': 'चालू', 'Repaid': 'चुकाया', 'Left': 'बाकी', 'Cut per pay period': 'हर वेतन अवधि कटौती', 'Pay period': 'वेतन अवधि', 'Cut': 'कटा', 'Left after': 'उसके बाद बाकी', 'not final yet': 'अभी पक्का नहीं', 'Cutting starts from': 'कटौती शुरू होगी', 'You have no advance.': 'आपका कोई एडवांस नहीं है।', 'Extra given': 'और दिया', 'Recent counts': 'हाल में गिना गया माल', 'Good pieces': 'अच्छे पीस', 'Rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'Net': 'कुल मिलेगा',
   'Nothing in this period yet.': 'इस अवधि में अभी कुछ नहीं।', 'Karigar payslip': 'कारीगर पे-स्लिप', 'Paid': 'भुगतान हुआ', 'Approved': 'मंज़ूर',
   'Not final yet': 'अभी पक्का नहीं', 'Karigar': 'कारीगर', 'rejected (not paid)': 'रिजेक्ट (पैसे नहीं)', 'No counted goods.': 'कोई गिना हुआ माल नहीं।',
   'Advance recovery': 'एडवांस वसूली', 'Advance': 'एडवांस', 'Balance': 'बाकी', 'Net pay': 'कुल भुगतान', 'No rate': 'रेट नहीं', '🖨️ Print / PDF': '🖨️ प्रिंट / PDF',
@@ -477,7 +477,7 @@ VIEWS.home = function () {
       (r.advance && r.advance.balance > 0 ? '<div class="card" onclick="go(\'myadv\')" style="cursor:pointer"><h2>🤝 ' + T('My advances') + '</h2><div class="row"><div><div class="muted">' + T('Advance left to repay') + '</div><div class="big">' + money(r.advance.balance) + '</div></div>' +
         '<div style="text-align:right"><div class="muted">' + T('Cut this pay period') + '</div><b>' + money(r.advance.thisPeriod) + '</b><div><a class="lnk">' + T('See details') + '</a></div></div></div></div>' : '') +
       (r.orders.length ? '<div class="card"><h2>🧵 ' + T('My work orders') + '</h2><div class="list">' + r.orders.map(function (o) {
-        return '<div class="it"><div class="grow"><b>' + esc(o.item) + '</b><div class="muted">' + o.id + ' · ' + T('given') + ' ' + d(o.date) + '</div></div><div style="text-align:right"><b>' + o.received + ' / ' + o.qty + '</b><div class="muted">' + o.remaining + ' ' + T('to make') + '</div></div></div>';
+        return '<div class="it"><div class="grow"><b>' + esc(o.item) + '</b><div class="muted">' + o.id + ' · ' + T('given') + ' ' + d(o.date) + '</div></div><div style="text-align:right"><b>' + o.received + ' / ' + o.qty + '</b>' + (o.extra ? ' <span class="pill warn">+' + o.extra + ' ' + T('extra') + '</span>' : '') + '<div class="muted">' + o.remaining + ' ' + T('to make') + '</div></div></div>';
       }).join('') + '</div></div>' : '') +
       (r.balances.length ? '<div class="card"><h2>🧰 ' + T('Material with me') + '</h2><table class="tbl"><tr><th>' + T('Material') + '</th><th class="r">' + T('Given') + '</th><th class="r">' + T('Used') + '</th><th class="r">' + T('With me') + '</th></tr>' + r.balances.map(function (b) {
         return '<tr><td>' + esc(b.materialName) + '</td><td class="r">' + num(b.issued - b.returned) + '</td><td class="r">' + num(b.used) + '</td><td class="r ' + (b.balance < 0 ? 'neg' : '') + '"><b>' + num(b.balance) + '</b> ' + esc(b.unit) + '</td></tr>';
@@ -637,20 +637,21 @@ function newBatch(btn) {
  */
 function countForm(id, which) {
   var b = S.data.cq.list.filter(function (x) { return x.id === id; })[0] || { id: id, claim: [], items: [] };
-  var pre = which === 1 ? b.claim.map(function (c) { return c.item; }) : b.items;
-  var mk = (S.data.cq.making || {})[b.karigarId] || [];
-  S.data.countItems = S.data.cq.items.filter(function (i) { return mk.indexOf(i.code) >= 0 || pre.indexOf(i.code) >= 0; });
+  // Counted against the karigar's work orders (W-0008): each line is one work order.
+  var wos = ((S.data.cq.wos || {})[b.karigarId] || []).filter(function (o) { return which === 2 ? (b.items.indexOf(o.id) >= 0 || !o.inBatch || o.inBatch === id) : !o.inBatch || o.inBatch === id; });
+  var pre = which === 2 ? b.items.filter(function (x) { return wos.some(function (o) { return o.id === x; }); }) : [];
+  S.data.countWos = wos; S.data.countItems = null;
   S.data.photo = null;
-  var none = !S.data.countItems.length;
+  var none = !wos.length;
   modal('Count ' + which + ' · ' + id + ' · ' + (b.karigar || ''),
     (which === 2 ? '<div class="blind">Final count: you do not see count 1. Count every piece yourself. Your count is the one that is paid and added to the inventory.</div>' : b.claim.length ? '<div class="msg info">Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
-    (none ? '<div class="msg err">' + esc(b.karigar || 'This karigar') + ' has no running work order. Add a work order for the item first (Work orders).</div>' :
-    '<div class="lines"><div class="ln hdr"><div>Item <span class="muted" style="font-weight:400">(what this karigar is making)</span></div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
+    (none ? '<div class="msg err">' + esc(b.karigar || 'This karigar') + ' has no running work order to count (or it is already being counted in another batch). Add a work order first (Work orders).</div>' :
+    '<div class="lines"><div class="ln hdr"><div>Work order <span class="muted" style="font-weight:400">(this karigar\'s)</span></div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add work order</button>' +
     (which === 1 ? '<label class="f">Photo of the received goods (required, camera only)</label>' + (isMobile() ?
       '<div id="camBox"><button class="btn sec block" style="margin-top:0" onclick="camStart(\'environment\')">📷 Open camera</button></div><img id="cPhoto" class="photo" style="display:none">' :
       '<div class="msg warn">📱 The photo is taken with a mobile phone camera only. Open this batch in the app on a mobile phone to save count 1.</div>') : '') +
     (which === 1 && !isMobile() ? '' : '<button class="btn block ok" onclick="saveCountNow(\'' + id + '\',' + which + ',this)">Save count ' + which + '</button>')));
-  if (!none) (pre.length ? pre : [S.data.countItems.length === 1 ? S.data.countItems[0].code : '']).forEach(function (it) { addCountLine(it); }); // only one item: already chosen
+  if (!none) (pre.length ? pre : [wos.length === 1 ? wos[0].id : '']).forEach(function (w) { addCountLine(w); }); // only one work order: already chosen
 }
 function isMobile() {
   if (window.AttendanceApp) return true;
@@ -659,8 +660,21 @@ function isMobile() {
 }
 function addCountLine(item) {
   var div = document.createElement('div'); div.className = 'ln';
+  if (S.data.countWos) { // a work order per line: given / received / still to make; more than given is marked extra
+    div.innerHTML = '<select onchange="countHint(this)"><option value="">Choose the work order…</option>' + S.data.countWos.map(function (o) {
+      return '<option value="' + esc(o.id) + '"' + (o.id === item ? ' selected' : '') + '>' + esc(o.id) + ' · ' + esc(o.item) + ' · given ' + o.qty + ' · received ' + o.received + ' · to make ' + o.remaining + '</option>';
+    }).join('') + '</select><input type="number" inputmode="numeric" placeholder="0" oninput="countHint(this)"><input type="number" inputmode="numeric" placeholder="0"><button class="x" onclick="this.parentNode.remove()">×</button><div class="muted ch" style="grid-column:1/-1;margin-top:-4px"></div>';
+    $('cLines').appendChild(div); countHint(div.children[0]); return;
+  }
   div.innerHTML = '<select>' + itemOpts(S.data.countItems, item || '') + '</select><input type="number" inputmode="numeric" placeholder="0"><input type="number" inputmode="numeric" placeholder="0"><button class="x" onclick="this.parentNode.remove()">×</button>';
   $('cLines').appendChild(div);
+}
+function countHint(el) {
+  var ln = el.closest('.ln'), h = ln.querySelector('.ch'); if (!h) return;
+  var o = (S.data.countWos || []).filter(function (x) { return x.id === ln.children[0].value; })[0], g = Number(ln.children[1].value) || 0;
+  // count 2 is blind: only the work order, never count 1's numbers
+  h.innerHTML = !o ? '' : esc(o.item) + ' · given ' + o.qty + ' · received so far ' + o.received + ' · still to make ' + o.remaining +
+    (g > o.remaining ? ' · <b style="color:var(--warn)">' + (g - o.remaining) + ' more than still to make: saved and marked as extra (given ' + o.qty + ', received ' + (o.received + g) + ')</b>' : '');
 }
 /* Live camera in the page: back camera first, "Switch" for the front one; "Take photo" freezes the picture. */
 var CAM = { stream: null, facing: 'environment' };
@@ -690,16 +704,25 @@ function camShot() {
   $('cPhoto').src = S.data.photo; $('cPhoto').style.display = 'block';
   $('camBox').innerHTML = '<button class="btn sec block" style="margin-top:0" onclick="camStart()">🔁 Take again</button>';
 }
-function saveCountNow(id, which, btn) {
-  var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { item: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.item; });
+function saveCountNow(id, which, btn, repeatOk) {
+  var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { wo: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.wo; });
+  if (!lines.length) return toast('Choose the work order and enter the count.');
+  var seen = {}, dup = lines.filter(function (l) { if (seen[l.wo]) return true; seen[l.wo] = 1; return false; })[0];
+  if (dup) return toast(dup.wo + ' is entered twice: put its whole count on one line.');
   if (which === 1 && !S.data.photo) return toast('Take a photo of the received goods.');
   busy(btn, true);
-  apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null }).then(function (r) {
+  apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null, repeatOk: !!repeatOk }).then(function (r) {
     closeModal();
     if (r.status === 'LOCKED') toast('Final count saved: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : '') + (r.differs && r.differs.length ? '. Count 1 was different on ' + r.differs.join(', ') + ' (noted).' : ''));
     else toast('Count 1 saved. Now a different person does count 2.');
     go('count');
-  }).catch(function (e) { fail(e, btn); });
+  }).catch(function (e) {
+    var m = /^REPEAT:(.+)$/.exec(e.message || '');
+    if (!m) return fail(e, btn);
+    busy(btn, false);
+    if (confirm('This is exactly the same count as ' + m[1] + ', finished in the last 12 hours. Is it really another delivery?\n\nOK = yes, save it · Cancel = no, it is a duplicate')) saveCountNow(id, which, btn, true);
+    else toast('Not saved (same as ' + m[1] + '). Remove this batch if it was started by mistake.');
+  });
 }
 
 /* ---------- batches ---------- */
@@ -742,7 +765,7 @@ function showBatch(id) {
 function loadPhoto(id, btn) { busy(btn, true); api('batchPhoto', S.token, id).then(function (src) { $('bPhoto').innerHTML = '<img class="photo" src="' + src + '">'; }).catch(function (e) { fail(e, btn); }); }
 function retryInv(id, btn) { busy(btn, true); api('retryInventory', S.token, id).then(function (r) { toast(r.inventory === 'DONE' ? 'Added to the inventory' : 'Still not added: ' + r.note); showBatch(id); }).catch(function (e) { fail(e, btn); }); }
 function correctForm() {
-  var b = S.data.batch; S.data.countItems = b.items;
+  var b = S.data.batch; S.data.countItems = b.items; S.data.countWos = null;
   modal('Correct ' + b.id + ' (locked)', '<div class="msg warn">Only for real mistakes. The old and new counts and your reason go to the change log; the Inventory App gets only the difference.</div>' +
     '<div class="lines"><div class="ln hdr"><div>Item</div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
     '<label class="f">Reason (required)</label><input id="corrWhy"><button class="btn block err" onclick="saveCorrection(this)">Save correction</button>');
@@ -769,7 +792,7 @@ VIEWS.orders = function (all) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
         var btns = (o.open && r.canRate ? '<button class="btn sm" onclick="lotRate(\'' + o.id + '\')">Rate</button> ' : '') +
           (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : ''));
-        return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
+        return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
           '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td>' +
           '<td class="r"><b>' + (o.cost.perPiece === null ? '–' : money(o.cost.perPiece)) + '</b><div class="muted">material ' + money(o.cost.materialPerPiece) + '</div>' + (o.cost.missing.length ? '<span class="pill warn">no price</span>' : '') + '</td>' +
           '<td class="r">' + (o.cost.total === null ? '–' : money(o.cost.total)) + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';

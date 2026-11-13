@@ -15,6 +15,11 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
     batch waiting for count 1, that one opens (no second batch). A batch waiting for count 1 (nothing counted yet)
     can be **removed**; a super admin can also remove one waiting for count 2 (a duplicate or a mistake: count 1
     changes no stock or pay). Every removal is in the Change log.
+  - **Counted against the work order:** each count line is one of the karigar's open work orders (W-0008 ·
+    item · given · received · still to make). No double count: a work order already in a batch waiting for its
+    final count cannot be counted in another batch, the same work order twice in one count is refused, and an
+    exact repeat of a batch finished in the last 12 hours asks "is it really another delivery?". **More than the
+    work order** is saved and marked: Work orders shows "+N extra" (given X, received Y).
   - The item list in a count has **only what that karigar is making now** (items of their open work orders; one
     item = already chosen). No running work order → add one first.
   - The count 1 photo is taken with the **live camera only** (back camera, 🔄 for the front one), on a **mobile
