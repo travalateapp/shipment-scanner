@@ -5,12 +5,14 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Work orders:** what each karigar is making (for example 300 × TR-1323-Black). What is not received yet is
   "in production" and shows small and grey in the Inventory Snapshot.
 - **Raw material, issued with the work order:** creating a lot issues its material to the karigar
-  automatically (quantity × material per piece, from the item's BOM). A **different** person confirms the
-  hand-over in **Material issue**, with one tap per lot (**Confirm whole lot**). Extra material outside a lot can
-  still be issued there. There are **no returns**.
+  automatically (quantity × material per piece, from the item's BOM). It counts as **given at once** (no
+  confirmation). Extra material outside a lot can still be issued in **Material issue**, where a **different**
+  person confirms it. There are **no returns**.
 - **Final count, 2 people:** count 1 with a **photo** of the goods, then count 2 by a **different** person who
   does **not** see count 1 (blind). **Count 2 is final:** the batch is locked with count 2's numbers. If count 1
   was different, that is kept and flagged ("Count 1 differed") but does not block anything.
+  - **New batch** lists only karigars with a running work order. A batch waiting for count 1 (nothing counted
+    yet) can be **removed**; one whose karigar has no running work order shows only Remove.
   - The item list in a count has **only what that karigar is making now** (items of their open work orders; one
     item = already chosen). No running work order → add one first.
   - The count 1 photo is taken with the **live camera only** (back camera, 🔄 for the front one), on a **mobile

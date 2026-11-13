@@ -356,7 +356,7 @@ function go(view, arg, isBack) {
     if (NAV.stack.length > 40) NAV.stack.shift();
   }
   S.view = view; S.arg = arg; S.costOpen = null; closeDrawer(); closeModal();
-  if (S.profile) store.set('lastView', JSON.stringify({ u: S.profile.id, v: view, a: arg === undefined ? null : arg }));
+  if (S.profile) { try { sessionStorage.setItem('prod_lastView', JSON.stringify({ u: S.profile.id, v: view, a: arg === undefined ? null : arg })); } catch (e) { /* private mode */ } }
   try {
     if (changed && !isBack && !NAV.inApp) history.pushState({ v: view }, '', '#' + view);
     else history.replaceState({ v: view }, '', '#' + view);
@@ -449,13 +449,14 @@ function start() {
   shell(); bell(S.unread || 0);
   if (S.canAlerts) api('getHome', S.token).then(function (r) { bell(r.unread || 0); }).catch(function () {});
   if (S.canAlerts && !S.bellTimer) S.bellTimer = setInterval(function () { if (S.token && S.profile && S.profile.kind === 'S') api('getHome', S.token).then(function (r) { if (r.unread !== S.unread) { bell(r.unread); } }).catch(function () {}); }, 180000);
-  // Refresh / reopen: back to the screen (and tab) that was open. The address (#store) is lost inside the Apps Script
-  // page and the Android app, so the last screen is also kept on this device, per user.
+  // A refresh keeps the screen (and tab) that was open; closing the app (or the tab) and opening it again starts on
+  // the Dashboard / Home. The last screen is kept in the session (cleared when the app or tab is closed), since the
+  // address (#store) is lost inside the Apps Script page and the Android app.
   var allowed = function (v) { return menu().some(function (m) { return m[0] === v; }); };
-  var h = (location.hash || '').slice(1), last = null;
-  try { last = JSON.parse(store.get('lastView') || 'null'); } catch (e) { last = null; }
+  var last = null;
+  try { last = JSON.parse(sessionStorage.getItem('prod_lastView') || 'null'); } catch (e) { last = null; }
   if (last && (last.u !== S.profile.id || !allowed(last.v))) last = null;
-  if (allowed(h) && !(last && last.v === h)) last = { v: h };
+  try { localStorage.removeItem('prod_lastView'); } catch (e) { /* the old place */ }
   if (last) go(last.v, last.a === null ? undefined : last.a);
   else go(S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]);
   prefetchMenu();
@@ -596,21 +597,28 @@ VIEWS.count = function () {
     S.data.cq = r;
     var groups = [['COUNT1', 'Waiting for count 1 (with photo)'], ['COUNT2', 'Waiting for count 2: final count (a different person, blind)']];
     render('<h1 class="page">✅ Count received goods</h1>' +
-      (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"><select id="nbK"><option value="">Choose karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
+      (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"><select id="nbK"><option value="">' + (r.karigars.length ? 'Choose karigar (with a running work order)…' : 'No karigar has a running work order') + '</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
       groups.map(function (g) {
         var list = r.list.filter(function (b) { return b.status === g[0]; });
         return '<div class="card"><h2>' + esc(g[1]) + ' <span class="pill ' + (list.length ? STATUS[g[0]][1] : '') + '">' + list.length + '</span></h2>' + (list.length ? '<div class="list">' + list.map(function (b) {
           var act = '';
-          if (r.canCount && b.status === 'COUNT1') act = '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">Count 1</button>';
+          if (r.canCount && b.status === 'COUNT1') act = '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (b.noOrder ? '' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">Count 1</button>') +
+            '<button class="btn sec sm" onclick="cancelBatch(\'' + b.id + '\',this)">Remove</button></div>';
           if (r.canCount && b.status === 'COUNT2') act = b.mine ? '<span class="muted">You did count 1</span>' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',2)">Count 2</button>';
           return '<div class="it"><div class="grow"><b>' + esc(b.id) + ' · ' + esc(b.karigar) + '</b><div class="muted">' + d(b.createdAt) +
             (b.claim.length ? ' · Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') : '') +
             (b.count1By ? ' · Count 1 by ' + esc(b.count1By) : '') + '</div>' +
+            (b.noOrder && b.status === 'COUNT1' ? '<div class="pill warn" style="margin-top:4px">No running work order</div>' : '') +
             '</div>' + act + '</div>';
         }).join('') + '</div>' : '<div class="muted">Nothing waiting.</div>') + '</div>';
       }).join(''));
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+function cancelBatch(id, btn) {
+  if (!confirm('Remove batch ' + id + '? Nothing has been counted in it.')) return;
+  busy(btn, true);
+  api('cancelBatch', S.token, id).then(function (r) { S.data.cq = r; toast(id + ' removed'); go('count'); }).catch(function (e) { fail(e, btn); });
+}
 function newBatch(btn) {
   if (!val('nbK')) return toast('Choose the karigar.');
   busy(btn, true);
@@ -748,7 +756,7 @@ VIEWS.orders = function (all) {
       (r.canEdit ? '<div class="card"><h2>New work order</h2><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
         '<div class="lines" style="margin-top:8px"><div class="ln wo hdr"><div>Item</div><div>Qty</div>' + (r.canRate ? '<div>Special rate</div>' : '') + '<div></div></div><div id="woL"></div></div>' +
         '<button class="btn sec sm" onclick="woLine()">+ Add another item</button><input id="woN" style="margin-top:8px" placeholder="Note (optional)">' +
-        '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is issued to the karigar automatically; a different person confirms the hand-over in Material issue.</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
+        '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is given to the karigar automatically when the work order is added (no confirmation needed).</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
       '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
@@ -781,7 +789,7 @@ function saveWo(btn) {
   api('saveOrders', S.token, { karigarId: val('woK'), note: val('woN'), lines: lines })
     .then(function (r) {
       preload('orderList', r);
-      var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material issued (to be confirmed).';
+      var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material given to the karigar.';
       if (r.short && r.short.length) msg += ' ⚠ Not enough in the store: ' + r.short.map(function (x) { return x.material + ' needs ' + num(x.need) + ', has ' + num(x.inStore) + ' ' + x.unit; }).join('; ');
       busy(btn, false); go('orders');
       modal('Work order added', '<div class="msg ' + (r.short && r.short.length ? 'warn' : 'ok') + '">' + esc(msg) + '</div><button class="btn block" onclick="closeModalByUser()">OK</button>');
@@ -803,7 +811,7 @@ VIEWS.material = function () {
   api('moveList', S.token).then(function (r) {
     S.data.ml = r;
     var pending = r.list.filter(function (m) { return m.status === 'PENDING'; });
-    render('<h1 class="page">🧰 Material issue <small>issued automatically with each work order · a different person confirms the hand-over</small></h1>' +
+    render('<h1 class="page">🧰 Material issue <small>work-order material is given automatically · extra material entered here is confirmed by a different person</small></h1>' +
       '<div class="card"><h2>Waiting for confirmation <span class="pill warn">' + pending.length + '</span></h2>' + (pending.length ? pendingByLot(pending) : '<div class="muted">Nothing waiting.</div>') + '</div>' +
       (r.canIssue ? '<div class="card"><h2>Extra material (not part of a work order)</h2><div class="row">' +
         '<select id="mvK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select></div>' +

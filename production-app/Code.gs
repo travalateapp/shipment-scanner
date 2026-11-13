@@ -121,7 +121,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome,
   myWork, myPayslip, myAdvances,
   adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, renameSupplier, stockTake, saveSellingPrice, saveOrders,
-  countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
+  countQueue, startBatch, cancelBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
@@ -434,15 +434,29 @@ function countQueue(token) {
   // Count only what each karigar is making now: the items of their open work orders.
   const making = {};
   ordersWithProgress_().filter(o => o.open).forEach(o => { (making[o.karigarId] = making[o.karigarId] || []).indexOf(o.item) < 0 && making[o.karigarId].push(o.item); });
-  return { list: list, karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })),
+  list.forEach(b => { b.noOrder = !(making[b.karigarId] || []).length; });
+  return { list: list, karigars: readKarigars_().filter(k => k.active && (making[k.id] || []).length).map(k => ({ id: k.id, name: k.name })),
     items: activeItems_(), making: making, canCount: can_(u, 'count'), me: u.id };
 }
 
 /** Count 1: staff start the batch for a karigar (karigars do not enter hand-overs in the app). */
+/** A batch waiting for count 1 (nothing counted yet) can be removed, e.g. started by mistake. */
+function cancelBatch(token, id) {
+  const u = authStaff_(token, 'count');
+  const b = readBatches_().filter(x => x.id === id)[0];
+  if (!b) throw new Error('Batch not found.');
+  if (b.status !== 'COUNT1' || b.count1By) throw new Error('Only a batch waiting for count 1 can be removed.');
+  sheet_(SHEET.BATCHES).getRange(b.row, 3).setValue('CANCELLED');
+  forget_('batches');
+  log_(u, 'CANCEL_BATCH', id, 'Removed before count 1 (' + b.karigarId + ')');
+  return countQueue(token);
+}
+
 function startBatch(token, karigarId) {
   const u = authStaff_(token, 'count');
   const k = readKarigars_().filter(x => x.id === String(karigarId || '').toUpperCase() && x.active)[0];
   if (!k) throw new Error('Choose the karigar.');
+  if (!ordersWithProgress_().some(o => o.open && o.karigarId === k.id)) throw new Error(k.name + ' has no running work order. Add a work order first.');
   const id = withLock_(() => {
     const id = nextId_(SHEET.BATCHES, 'P-');
     sheet_(SHEET.BATCHES).appendRow([id, k.id, 'COUNT1', nowStr_(), '', '', '', '', '', '', '', '', '', '', '', '', '']);
@@ -823,7 +837,7 @@ function addMoves_(u, k, lines, note, workOrder) {
     let n = sh.getLastRow();
     const mats = materialMap_();
     const rows = lines.map(l => ['M-' + ('000' + (n++)).slice(-4), "'" + todayStr_(), 'ISSUE', k.id, l.material, Number(l.qty), note,
-      u.id, nowStr_(), 'PENDING', '', '', workOrder || '', (mats[l.material] || {}).unitCost === null || !mats[l.material] ? '' : mats[l.material].unitCost]);
+      u.id, nowStr_(), workOrder ? 'CONFIRMED' : 'PENDING', workOrder ? u.id + ' (with the work order)' : '', workOrder ? nowStr_() : '', workOrder || '', (mats[l.material] || {}).unitCost === null || !mats[l.material] ? '' : mats[l.material].unitCost]);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
     forget_('moves');
     return rows.map(r => r[0]);
@@ -1928,7 +1942,9 @@ function rows_(name) {
     const hit = name !== SHEET.LOG && !TOUCHED[name] ? cacheRows_(name) : null;
     if (hit) return hit;
     const sh = MEMO['sh|' + name] || SpreadsheetApp.getActive().getSheetByName(name), last = sh ? sh.getLastRow() : 0;
-    const rows = last < 2 ? [] : sh.getRange(2, 1, last - 1, HEADERS[name].length).getValues();
+    // Google Sheets turns written times ('2026-11-12 09:24') into dates: read them back as that same text.
+    const rows = last < 2 ? [] : sh.getRange(2, 1, last - 1, HEADERS[name].length).getValues()
+      .map(r => r.map(x => (x instanceof Date ? Utilities.formatDate(x, tz_(), 'yyyy-MM-dd HH:mm') : x)));
     if (name !== SHEET.LOG && !TOUCHED[name]) cacheStore_(name, rows);
     return rows;
   });
@@ -2155,7 +2171,10 @@ function readMoves_() {
   return memo_('moves', () => rows_(SHEET.MOVES).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]),
     type: String(r[2]).trim().toUpperCase() === 'RETURN' ? 'RETURN' : 'ISSUE', karigarId: String(r[3]).trim().toUpperCase(),
     materialCode: String(r[4]).trim().toUpperCase(), qty: Number(r[5]) || 0, note: String(r[6] || ''), enteredBy: String(r[7] || ''),
-    enteredAt: String(r[8] || ''), status: String(r[9] || 'PENDING').trim().toUpperCase(), confirmedBy: String(r[10] || ''),
+    enteredAt: String(r[8] || ''),
+    // Material of a work order is given with it (no confirmation): older lot lines still marked PENDING count as given.
+    status: (s => (s === 'PENDING' && String(r[12] || '') ? 'CONFIRMED' : s))(String(r[9] || 'PENDING').trim().toUpperCase()),
+    confirmedBy: String(r[10] || '') || (String(r[12] || '') && String(r[9] || 'PENDING').trim().toUpperCase() === 'PENDING' ? 'with the work order' : ''),
     confirmedAt: String(r[11] || ''), workOrder: String(r[12] || ''),
     unitCost: r[13] === '' || r[13] === null || !isFinite(Number(r[13])) ? null : Number(r[13]) })).filter(m => m.id));
 }
@@ -2181,7 +2200,7 @@ function readBatches_() {
         count1: parseJson_(r[7], []), photo: String(r[8] || ''), count2By: String(r[9] || ''), count2At: String(r[10] || ''),
         count2: parseJson_(r[11], []), finalDate: toDateStr_(r[12]), inventory: String(r[13] || ''), inventoryNote: String(r[14] || ''),
         earlier: parseJson_(r[15], []), note: String(r[16] || ''), lines: Object.keys(per).sort().map(k => per[k]), rawLines: lines[id] || [] };
-    }).filter(b => b.id);
+    }).filter(b => b.id && b.status !== 'CANCELLED'); // removed before count 1
   });
 }
 
