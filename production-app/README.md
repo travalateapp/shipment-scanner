@@ -5,12 +5,16 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Work orders:** what each karigar is making (for example 300 × TR-1323-Black). What is not received yet is
   "in production" and shows small and grey in the Inventory Snapshot.
 - **Raw material, issued with the work order:** creating a lot issues its material to the karigar
-  automatically (quantity × material per piece, from the item's BOM). A **different** person confirms the
-  hand-over in **Material issue**, with one tap per lot (**Confirm whole lot**). Extra material outside a lot can
-  still be issued there. There are **no returns**.
+  automatically (quantity × material per piece, from the item's BOM). It counts as **given at once** (no
+  confirmation). Extra material outside a lot can still be issued in **Material issue**, where a **different**
+  person confirms it. There are **no returns**.
 - **Final count, 2 people:** count 1 with a **photo** of the goods, then count 2 by a **different** person who
   does **not** see count 1 (blind). **Count 2 is final:** the batch is locked with count 2's numbers. If count 1
   was different, that is kept and flagged ("Count 1 differed") but does not block anything.
+  - **New batch** lists only karigars with a running work order, one batch at a time: if the karigar already has a
+    batch waiting for count 1, that one opens (no second batch). A batch waiting for count 1 (nothing counted yet)
+    can be **removed**; a super admin can also remove one waiting for count 2 (a duplicate or a mistake: count 1
+    changes no stock or pay). Every removal is in the Change log.
   - The item list in a count has **only what that karigar is making now** (items of their open work orders; one
     item = already chosen). No running work order → add one first.
   - The count 1 photo is taken with the **live camera only** (back camera, 🔄 for the front one), on a **mobile
@@ -51,6 +55,11 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   shows while typing in the bill's Supplier box (any word, any case; ↑/↓, Enter, Esc). The same name typed in another
   case is saved with the first spelling. **edit** next to a suggestion renames the supplier on every one of its bills
   (renaming to an existing supplier joins the two); the rename is in the Change log.
+- **Roll sizes.** On a purchase bill each line has its own roll size (length × width; or the size of a pack / kg),
+  filled in with the usual one: change it when these rolls are different. The store gets rolls × that size, and the
+  newest bill becomes the material's price with its size. **Opening stock** can be counted roll by roll, one line
+  per size (3 rolls × 50 m × 1.47 m + 2 rolls × 45 m × 1.47 m …); the total is worked out and the breakdown is kept
+  in the note.
 - **Search everywhere.** Every list to choose from (karigar, item, material, unit, pay period…) is a search box:
   type any part of the name, colour or code (every word, any order: "1.5" finds Niwar (1.50") and Velcro (1.50"))
   and every match is listed. ↑/↓ moves and shows the highlighted one in the box, Enter picks it, Esc puts back what was

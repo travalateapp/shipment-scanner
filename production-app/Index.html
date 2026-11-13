@@ -103,6 +103,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg{position:relative}.addrow{align-items:flex-start}.sugg .box{margin-top:4px;background:#fff;border:1px solid #cfd6e4;border-radius:10px;box-shadow:0 8px 24px rgba(15,35,80,.15);z-index:25;max-height:300px;overflow:auto}
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
+.szrow{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 4px}.szrow input{width:80px;padding:6px 8px;font-size:14px}
 .bgchip{position:fixed;left:14px;bottom:14px;z-index:90;background:#1e293b;color:#fff;padding:8px 14px;border-radius:20px;font-size:13.5px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none}
 .combo{display:block;position:relative;min-width:0}.combo>select{position:absolute;left:0;top:0;width:100%;height:42px;opacity:0;pointer-events:none}
 .combo .cbi{padding-right:30px;background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%2364748b' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 11px center;text-overflow:ellipsis}
@@ -356,7 +357,7 @@ function go(view, arg, isBack) {
     if (NAV.stack.length > 40) NAV.stack.shift();
   }
   S.view = view; S.arg = arg; S.costOpen = null; closeDrawer(); closeModal();
-  if (S.profile) store.set('lastView', JSON.stringify({ u: S.profile.id, v: view, a: arg === undefined ? null : arg }));
+  if (S.profile) { try { sessionStorage.setItem('prod_lastView', JSON.stringify({ u: S.profile.id, v: view, a: arg === undefined ? null : arg })); } catch (e) { /* private mode */ } }
   try {
     if (changed && !isBack && !NAV.inApp) history.pushState({ v: view }, '', '#' + view);
     else history.replaceState({ v: view }, '', '#' + view);
@@ -449,13 +450,14 @@ function start() {
   shell(); bell(S.unread || 0);
   if (S.canAlerts) api('getHome', S.token).then(function (r) { bell(r.unread || 0); }).catch(function () {});
   if (S.canAlerts && !S.bellTimer) S.bellTimer = setInterval(function () { if (S.token && S.profile && S.profile.kind === 'S') api('getHome', S.token).then(function (r) { if (r.unread !== S.unread) { bell(r.unread); } }).catch(function () {}); }, 180000);
-  // Refresh / reopen: back to the screen (and tab) that was open. The address (#store) is lost inside the Apps Script
-  // page and the Android app, so the last screen is also kept on this device, per user.
+  // A refresh keeps the screen (and tab) that was open; closing the app (or the tab) and opening it again starts on
+  // the Dashboard / Home. The last screen is kept in the session (cleared when the app or tab is closed), since the
+  // address (#store) is lost inside the Apps Script page and the Android app.
   var allowed = function (v) { return menu().some(function (m) { return m[0] === v; }); };
-  var h = (location.hash || '').slice(1), last = null;
-  try { last = JSON.parse(store.get('lastView') || 'null'); } catch (e) { last = null; }
+  var last = null;
+  try { last = JSON.parse(sessionStorage.getItem('prod_lastView') || 'null'); } catch (e) { last = null; }
   if (last && (last.u !== S.profile.id || !allowed(last.v))) last = null;
-  if (allowed(h) && !(last && last.v === h)) last = { v: h };
+  try { localStorage.removeItem('prod_lastView'); } catch (e) { /* the old place */ }
   if (last) go(last.v, last.a === null ? undefined : last.a);
   else go(S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]);
   prefetchMenu();
@@ -596,25 +598,38 @@ VIEWS.count = function () {
     S.data.cq = r;
     var groups = [['COUNT1', 'Waiting for count 1 (with photo)'], ['COUNT2', 'Waiting for count 2: final count (a different person, blind)']];
     render('<h1 class="page">✅ Count received goods</h1>' +
-      (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"><select id="nbK"><option value="">Choose karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
+      (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"><select id="nbK"><option value="">' + (r.karigars.length ? 'Choose karigar (with a running work order)…' : 'No karigar has a running work order') + '</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
       groups.map(function (g) {
         var list = r.list.filter(function (b) { return b.status === g[0]; });
         return '<div class="card"><h2>' + esc(g[1]) + ' <span class="pill ' + (list.length ? STATUS[g[0]][1] : '') + '">' + list.length + '</span></h2>' + (list.length ? '<div class="list">' + list.map(function (b) {
           var act = '';
-          if (r.canCount && b.status === 'COUNT1') act = '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">Count 1</button>';
+          if (r.canCount && b.status === 'COUNT1') act = '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (b.noOrder ? '' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">Count 1</button>') +
+            '<button class="btn sec sm" onclick="cancelBatch(\'' + b.id + '\',this)">Remove</button></div>';
           if (r.canCount && b.status === 'COUNT2') act = b.mine ? '<span class="muted">You did count 1</span>' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',2)">Count 2</button>';
+          if (b.status === 'COUNT2' && isSuper()) act = '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center">' + act + '<button class="btn sec sm" onclick="cancelBatch(\'' + b.id + '\',this,1)">Remove</button></div>';
           return '<div class="it"><div class="grow"><b>' + esc(b.id) + ' · ' + esc(b.karigar) + '</b><div class="muted">' + d(b.createdAt) +
             (b.claim.length ? ' · Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') : '') +
             (b.count1By ? ' · Count 1 by ' + esc(b.count1By) : '') + '</div>' +
+            (b.noOrder && b.status === 'COUNT1' ? '<div class="pill warn" style="margin-top:4px">No running work order</div>' : '') +
             '</div>' + act + '</div>';
         }).join('') + '</div>' : '<div class="muted">Nothing waiting.</div>') + '</div>';
       }).join(''));
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+function cancelBatch(id, btn, after1) {
+  if (!confirm(after1 ? 'Remove batch ' + id + '? Use this only for a duplicate or a mistake. Count 1 has not changed any stock or pay; the removal and its count 1 go to the Change log.' : 'Remove batch ' + id + '? Nothing has been counted in it.')) return;
+  busy(btn, true);
+  api('cancelBatch', S.token, id).then(function (r) { S.data.cq = r; toast(id + ' removed'); go('count'); }).catch(function (e) { fail(e, btn); });
+}
 function newBatch(btn) {
   if (!val('nbK')) return toast('Choose the karigar.');
   busy(btn, true);
-  api('startBatch', S.token, val('nbK')).then(function (r) { S.data.cq.list.push({ id: r.id, karigarId: val('nbK'), karigar: $('nbK').selectedOptions[0].text, claim: [], status: 'COUNT1', items: [] }); countForm(r.id, 1); busy(btn, false); }).catch(function (e) { fail(e, btn); });
+  api('startBatch', S.token, val('nbK')).then(function (r) {
+    // one batch at a time per karigar: if one is already waiting for count 1, that one opens (no second batch)
+    if (r.existing) toast($('nbK').selectedOptions[0].text + ' already has ' + r.id + ' waiting for count 1: opening it.');
+    else S.data.cq.list.push({ id: r.id, karigarId: val('nbK'), karigar: $('nbK').selectedOptions[0].text, claim: [], status: 'COUNT1', items: [] });
+    countForm(r.id, 1); busy(btn, false);
+  }).catch(function (e) { fail(e, btn); });
 }
 /*
  * Count form. The item list has only what the karigar is making now (items of their open work orders).
@@ -748,7 +763,7 @@ VIEWS.orders = function (all) {
       (r.canEdit ? '<div class="card"><h2>New work order</h2><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
         '<div class="lines" style="margin-top:8px"><div class="ln wo hdr"><div>Item</div><div>Qty</div>' + (r.canRate ? '<div>Special rate</div>' : '') + '<div></div></div><div id="woL"></div></div>' +
         '<button class="btn sec sm" onclick="woLine()">+ Add another item</button><input id="woN" style="margin-top:8px" placeholder="Note (optional)">' +
-        '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is issued to the karigar automatically; a different person confirms the hand-over in Material issue.</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
+        '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is given to the karigar automatically when the work order is added (no confirmation needed).</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
       '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
@@ -781,7 +796,7 @@ function saveWo(btn) {
   api('saveOrders', S.token, { karigarId: val('woK'), note: val('woN'), lines: lines })
     .then(function (r) {
       preload('orderList', r);
-      var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material issued (to be confirmed).';
+      var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material given to the karigar.';
       if (r.short && r.short.length) msg += ' ⚠ Not enough in the store: ' + r.short.map(function (x) { return x.material + ' needs ' + num(x.need) + ', has ' + num(x.inStore) + ' ' + x.unit; }).join('; ');
       busy(btn, false); go('orders');
       modal('Work order added', '<div class="msg ' + (r.short && r.short.length ? 'warn' : 'ok') + '">' + esc(msg) + '</div><button class="btn block" onclick="closeModalByUser()">OK</button>');
@@ -803,7 +818,7 @@ VIEWS.material = function () {
   api('moveList', S.token).then(function (r) {
     S.data.ml = r;
     var pending = r.list.filter(function (m) { return m.status === 'PENDING'; });
-    render('<h1 class="page">🧰 Material issue <small>issued automatically with each work order · a different person confirms the hand-over</small></h1>' +
+    render('<h1 class="page">🧰 Material issue <small>work-order material is given automatically · extra material entered here is confirmed by a different person</small></h1>' +
       '<div class="card"><h2>Waiting for confirmation <span class="pill warn">' + pending.length + '</span></h2>' + (pending.length ? pendingByLot(pending) : '<div class="muted">Nothing waiting.</div>') + '</div>' +
       (r.canIssue ? '<div class="card"><h2>Extra material (not part of a work order)</h2><div class="row">' +
         '<select id="mvK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select></div>' +
@@ -1718,10 +1733,13 @@ function storeStock(r) {
 }
 function openingForm(code) {
   var x = S.data.st.list.filter(function (y) { return y.code === code; })[0];
+  S.data.osX = x;
+  var sized = x.purchaseType && x.purchaseType !== 'UNIT' && x.perPurchase;
   modal('Opening stock · ' + x.name, '<div class="muted">What is in the store <b>today</b>, in ' + esc(x.unit) + '. Purchase bills entered from now on are added to it.</div>' +
-    (x.perPurchase && x.purchaseType && x.purchaseType !== 'UNIT' ? '<div class="row" style="margin-top:8px"><input id="osP" type="number" step="any" inputmode="decimal" placeholder="Number of ' + esc(x.purchaseUnit) + 's" oninput="document.getElementById(\'osQ\').value=Math.round(this.value*' + x.perPurchase + '*1000)/1000"><span class="fix muted">× ' + num(x.perPurchase) + ' ' + esc(x.unit) + ' =</span></div>' : '') +
-    '<label class="f">Stock in ' + esc(x.unit) + '</label><input id="osQ" type="number" step="any" inputmode="decimal" value="' + (x.tracked ? x.opening : '') + '"><label class="f">Note</label><input id="osN" placeholder="e.g. counted on 6 Nov"><button class="btn block" id="osB">Save</button>');
-  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), val('osN')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
+    (sized ? '<label class="f">Count by ' + esc(x.purchaseUnit) + ' (add a line for each size)</label><div id="osL"></div><button class="btn sec sm" onclick="osLine()">+ ' + esc(x.purchaseUnit) + 's of another size</button>' : '') +
+    '<label class="f">Stock in ' + esc(x.unit) + (sized ? ' (worked out from the lines above, or type it)' : '') + '</label><input id="osQ" type="number" step="any" inputmode="decimal" value="' + (x.tracked ? x.opening : '') + '"><label class="f">Note</label><input id="osN" placeholder="e.g. counted on 6 Nov"><button class="btn block" id="osB">Save</button>');
+  if (sized) osLine();
+  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), [val('osN'), osText()].filter(String).join(' · ')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
 }
 function storeBills(r) {
   return (r.canEdit ? '<div class="card"><button class="btn" onclick="billForm()">+ New purchase bill</button></div>' : '') +
@@ -1742,10 +1760,13 @@ function billForm(id) {
     '<label class="f">Bilty / loading / unloading charges (not part of any material\'s price)</label><div class="row"><input id="bfC" type="number" step="any" inputmode="decimal" value="' + (b && b.charges ? b.charges : '') + '" placeholder="₹" oninput="billSum()"><input id="bfCN" value="' + esc(b ? b.chargesNote : 'Bilty / loading / unloading') + '"></div>' +
     '<label class="f">Note</label><input id="bfNote" value="' + esc(b ? b.note : '') + '"><div class="msg info" id="bfT" style="margin-top:10px"></div><button class="btn block" id="bfB">Save bill</button>' +
     '<div class="muted" style="margin-top:6px">Qty and rate are in the unit you buy in (roll, kg, pack …, as set in Materials → Price): e.g. 2 rolls at ₹7,250 per roll = ₹14,500. Changing the material fills in its last rate. The newest bill also becomes the material\'s price.</div>');
-  (b ? b.lines : [{}]).forEach(function (l) { billLine(l.material, l.qty, l.price); });
+  (b ? b.lines : [{}]).forEach(function (l) { billLine(l.material, l.qty, l.price, l.material ? { per: l.perPurchase, length: l.length, width: l.width } : null); });
   billSum();
   $('bfB').onclick = function () {
-    var lines = Array.prototype.map.call(document.querySelectorAll('#bfL .ln'), function (ln) { return { material: ln.children[0].value, qty: ln.children[1].value, price: ln.children[2].value }; }).filter(function (l) { return l.material; });
+    var lines = Array.prototype.map.call(document.querySelectorAll('#bfL .ln'), function (ln) {
+      var L = ln.querySelector('.bL'), W = ln.querySelector('.bW'), P = ln.querySelector('.bP');
+      return { material: ln.children[0].value, qty: ln.children[1].value, price: ln.children[2].value, length: L ? L.value : '', width: W ? W.value : '', per: P ? P.value : '' };
+    }).filter(function (l) { return l.material; });
     busy(this, true);
     apiBg($('bfB'), 'saveBill', S.token, { id: id || '', date: val('bfD'), billNo: val('bfN'), supplier: val('bfS'), lines: lines, charges: val('bfC'), chargesNote: val('bfCN'), note: val('bfNote') })
       .then(function (r) { preload('storeView', r); closeModal(); toast(id ? 'Bill saved' : 'Bill added'); go('store', 'bills'); }).catch(function (e) { fail(e, $('bfB')); });
@@ -1790,12 +1811,38 @@ function supRename(old) {
     $('supRen').innerHTML = ''; toast('Supplier renamed to "' + name + '"');
   }).catch(function (e) { fail(e, $('srB')); });
 }
-function billLine(mat, qty, price) {
+/* Opening stock counted by roll / pack: one line per size; the total in the BOM unit is worked out. */
+function osLine() {
+  var x = S.data.osX, d = document.createElement('div'); d.className = 'szrow osl';
+  d.innerHTML = '<input class="oN" type="number" step="any" inputmode="decimal" placeholder="0" oninput="osSum()"> ' + esc(x.purchaseUnit) + 's ×' +
+    (x.purchaseType === 'ROLL' ? ' <input class="oL" type="number" step="any" inputmode="decimal" value="' + (x.rollL || '') + '" oninput="osSum()"> m × <input class="oW" type="number" step="any" inputmode="decimal" value="' + (x.rollW || '') + '" oninput="osSum()"> m'
+      : ' <input class="oP" type="number" step="any" inputmode="decimal" value="' + (x.perPurchase || '') + '" oninput="osSum()"> ' + esc(x.unit) + ' each') +
+    ' = <b class="oT">0</b> ' + esc(x.unit) + ' <button class="x" onclick="this.parentNode.remove();osSum()">×</button>';
+  $('osL').appendChild(d);
+}
+function osRows() {
+  return Array.prototype.map.call(document.querySelectorAll('#osL .osl'), function (r) {
+    var n = Number(r.querySelector('.oN').value) || 0, L = r.querySelector('.oL'), W = r.querySelector('.oW'), P = r.querySelector('.oP');
+    var each = L ? (Number(L.value) || 0) * (Number(W.value) || 0) : (Number(P.value) || 0);
+    return { r: r, n: n, each: Math.round(each * 10000) / 10000, L: L && L.value, W: W && W.value, total: Math.round(n * each * 1000) / 1000 };
+  });
+}
+function osSum() {
+  var rows = osRows(), t = 0;
+  rows.forEach(function (x) { x.r.querySelector('.oT').textContent = num(x.total); t += x.total; });
+  if (rows.some(function (x) { return x.n; })) $('osQ').value = Math.round(t * 1000) / 1000;
+}
+function osText() {
+  var x = S.data.osX;
+  return osRows().filter(function (r) { return r.n; }).map(function (r) { return r.n + ' ' + x.purchaseUnit + (r.n === 1 ? '' : 's') + ' × ' + (r.L ? r.L + ' m × ' + r.W + ' m' : r.each + ' ' + x.unit); }).join(' + ');
+}
+function billLine(mat, qty, price, size) {
   var div = document.createElement('div'); div.className = 'ln bill';
   div.innerHTML = '<select onchange="billUnit(this)"><option value="">Material…</option>' + S.data.st.list.filter(function (m) { return m.active || m.code === mat; }).map(function (m) {
     return '<option value="' + esc(m.code) + '"' + (m.code === mat ? ' selected' : '') + '>' + esc(m.name) + '</option>'; }).join('') + '</select>' +
     '<input type="number" step="any" inputmode="decimal" placeholder="Qty" value="' + (qty || '') + '" oninput="billSum()"><input type="number" step="any" inputmode="decimal" placeholder="₹" value="' + (price !== undefined ? price : '') + '" oninput="billSum()">' +
-    '<button class="x" onclick="this.parentNode.remove();billSum()">×</button><div class="muted bu" style="grid-column:1/-1;margin-top:-4px"></div>';
+    '<button class="x" onclick="this.parentNode.remove();billSum()">×</button><div class="muted bu" style="grid-column:1/-1;margin-top:-4px"></div><div class="bsz" style="grid-column:1/-1"></div>';
+  if (size) div.dataset.size = JSON.stringify(size);
   $('bfL').appendChild(div); billUnit(div.children[0], price === undefined);
 }
 /*
@@ -1806,21 +1853,40 @@ function billLine(mat, qty, price) {
 function billUnit(sel, fillPrice) {
   var m = S.data.st.list.filter(function (x) { return x.code === sel.value; })[0], ln = sel.closest('.ln');
   var qty = ln.children[1], rate = ln.children[2];
-  if (!m) { ln.querySelector('.bu').textContent = ''; qty.placeholder = 'Qty'; rate.placeholder = '₹'; if (fillPrice !== false) rate.value = ''; return billSum(); }
+  if (!m) { ln.querySelector('.bu').textContent = ''; ln.querySelector('.bsz').innerHTML = ''; qty.placeholder = 'Qty'; rate.placeholder = '₹'; if (fillPrice !== false) rate.value = ''; return billSum(); }
   var pu = m.purchaseType && m.purchaseType !== 'UNIT' ? m.purchaseUnit : m.unit;
-  ln.dataset.pu = pu;
+  ln.dataset.pu = pu; ln.dataset.unit = m.unit;
   qty.placeholder = pu + 's'; rate.placeholder = '₹ per ' + pu;
-  ln.querySelector('.bu').dataset.base = 'Qty in ' + pu + 's' + (m.purchaseType && m.purchaseType !== 'UNIT' ? ' (1 ' + pu + ' = ' + num(m.perPurchase) + ' ' + m.unit + ')' : '') +
-    ' · rate = ₹ for 1 ' + pu + (m.price !== null ? ' (last bought ' + money(m.price) + ' / ' + pu + ')' : ' (not bought before)');
+  ln.querySelector('.bu').dataset.base = 'Qty in ' + pu + 's · rate = ₹ for 1 ' + pu + (m.price !== null ? ' (last bought ' + money(m.price) + ' / ' + pu + ')' : ' (not bought before)');
+  // This bill's own size of one roll / pack / kg: the usual one is filled in, change it when these rolls are different.
+  var saved = fillPrice === false && ln.dataset.size ? JSON.parse(ln.dataset.size) : null, box = ln.querySelector('.bsz');
+  if (m.purchaseType === 'ROLL') {
+    var L = saved && saved.length ? saved.length : m.rollL, W = saved && saved.width ? saved.width : m.rollW;
+    box.innerHTML = '<div class="szrow">Roll size in this bill: <input class="bL" type="number" step="any" inputmode="decimal" value="' + (L || '') + '" oninput="billSum()"> m × <input class="bW" type="number" step="any" inputmode="decimal" value="' + (W || '') + '" oninput="billSum()"> m' +
+      ' <span class="muted">(usual ' + (m.rollL ? num(m.rollL) + ' × ' + num(m.rollW) + ' m = ' : '') + num(m.perPurchase) + ' ' + esc(m.unit) + ')</span></div>';
+  } else if (m.purchaseType && m.purchaseType !== 'UNIT') {
+    var P = saved && saved.per ? saved.per : m.perPurchase;
+    box.innerHTML = '<div class="szrow">1 ' + esc(pu) + ' in this bill = <input class="bP" type="number" step="any" inputmode="decimal" value="' + (P || '') + '" oninput="billSum()"> ' + esc(m.unit) +
+      ' <span class="muted">(usual ' + num(m.perPurchase) + ')</span></div>';
+  } else box.innerHTML = '';
   if (fillPrice !== false) rate.value = m.price !== null ? m.price : '';
   billSum();
+}
+/* The size of one roll / pack of this line (in the BOM unit), from its own boxes. */
+function billPer(ln) {
+  var L = ln.querySelector('.bL'), W = ln.querySelector('.bW'), P = ln.querySelector('.bP');
+  if (L && W) return Number(L.value) > 0 && Number(W.value) > 0 ? Math.round(Number(L.value) * Number(W.value) * 10000) / 10000 : 0;
+  if (P) return Number(P.value) > 0 ? Number(P.value) : 0;
+  return 1;
 }
 function billSum() {
   var items = 0;
   Array.prototype.forEach.call(document.querySelectorAll('#bfL .ln'), function (ln) {
     var q = Number(ln.children[1].value) || 0, r = Number(ln.children[2].value) || 0, bu = ln.querySelector('.bu');
     items += q * r;
-    if (bu && bu.dataset.base) bu.innerHTML = esc(bu.dataset.base) + (q && r ? ' · <b>' + num(q) + ' ' + esc(ln.dataset.pu) + (q === 1 ? '' : 's') + ' × ' + money(r) + ' = ' + money(Math.round(q * r * 100) / 100) + '</b>' : '');
+    var per = billPer(ln);
+    if (bu && bu.dataset.base) bu.innerHTML = esc(bu.dataset.base) + (q && r ? ' · <b>' + num(q) + ' ' + esc(ln.dataset.pu) + (q === 1 ? '' : 's') + ' × ' + money(r) + ' = ' + money(Math.round(q * r * 100) / 100) + '</b>' : '') +
+      (q && per ? ' · ' + num(Math.round(q * per * 1000) / 1000) + ' ' + esc(ln.dataset.unit || '') + ' into the store' : '');
   });
   var c = Number(val('bfC')) || 0, o = $('bfT');
   if (o) o.innerHTML = 'Materials ' + money(Math.round(items * 100) / 100) + ' + charges ' + money(c) + ' = <b>' + money(Math.round((items + c) * 100) / 100) + '</b>';

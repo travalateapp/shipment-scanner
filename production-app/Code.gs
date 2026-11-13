@@ -121,7 +121,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getHome,
   myWork, myPayslip, myAdvances,
   adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, renameSupplier, stockTake, saveSellingPrice, saveOrders,
-  countQueue, startBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
+  countQueue, startBatch, cancelBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
@@ -434,15 +434,32 @@ function countQueue(token) {
   // Count only what each karigar is making now: the items of their open work orders.
   const making = {};
   ordersWithProgress_().filter(o => o.open).forEach(o => { (making[o.karigarId] = making[o.karigarId] || []).indexOf(o.item) < 0 && making[o.karigarId].push(o.item); });
-  return { list: list, karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })),
+  list.forEach(b => { b.noOrder = !(making[b.karigarId] || []).length; });
+  return { list: list, karigars: readKarigars_().filter(k => k.active && (making[k.id] || []).length).map(k => ({ id: k.id, name: k.name })),
     items: activeItems_(), making: making, canCount: can_(u, 'count'), me: u.id };
 }
 
 /** Count 1: staff start the batch for a karigar (karigars do not enter hand-overs in the app). */
+/** A batch waiting for count 1 (nothing counted yet) can be removed, e.g. started by mistake. */
+function cancelBatch(token, id) {
+  const u = authStaff_(token, 'count');
+  const b = readBatches_().filter(x => x.id === id)[0];
+  if (!b) throw new Error('Batch not found.');
+  const before1 = b.status === 'COUNT1' && !b.count1By;
+  if (!before1 && !(b.status === 'COUNT2' && u.role === 'SUPER')) throw new Error(b.status === 'COUNT2' ? 'Only a super admin can remove a batch after count 1.' : 'A final (counted) batch cannot be removed.');
+  sheet_(SHEET.BATCHES).getRange(b.row, 3).setValue('CANCELLED');
+  forget_('batches');
+  log_(u, 'CANCEL_BATCH', id, (before1 ? 'Removed before count 1' : 'Removed after count 1 (duplicate / mistake): count 1 was ' + JSON.stringify(b.count1)) + ' (' + b.karigarId + ')');
+  return countQueue(token);
+}
+
 function startBatch(token, karigarId) {
   const u = authStaff_(token, 'count');
   const k = readKarigars_().filter(x => x.id === String(karigarId || '').toUpperCase() && x.active)[0];
   if (!k) throw new Error('Choose the karigar.');
+  if (!ordersWithProgress_().some(o => o.open && o.karigarId === k.id)) throw new Error(k.name + ' has no running work order. Add a work order first.');
+  const waiting = readBatches_().filter(b => b.karigarId === k.id && b.status === 'COUNT1')[0];
+  if (waiting) return { id: waiting.id, existing: true }; // one batch at a time: count 1 of the one already waiting
   const id = withLock_(() => {
     const id = nextId_(SHEET.BATCHES, 'P-');
     sheet_(SHEET.BATCHES).appendRow([id, k.id, 'COUNT1', nowStr_(), '', '', '', '', '', '', '', '', '', '', '', '', '']);
@@ -823,7 +840,7 @@ function addMoves_(u, k, lines, note, workOrder) {
     let n = sh.getLastRow();
     const mats = materialMap_();
     const rows = lines.map(l => ['M-' + ('000' + (n++)).slice(-4), "'" + todayStr_(), 'ISSUE', k.id, l.material, Number(l.qty), note,
-      u.id, nowStr_(), 'PENDING', '', '', workOrder || '', (mats[l.material] || {}).unitCost === null || !mats[l.material] ? '' : mats[l.material].unitCost]);
+      u.id, nowStr_(), workOrder ? 'CONFIRMED' : 'PENDING', workOrder ? u.id + ' (with the work order)' : '', workOrder ? nowStr_() : '', workOrder || '', (mats[l.material] || {}).unitCost === null || !mats[l.material] ? '' : mats[l.material].unitCost]);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
     forget_('moves');
     return rows.map(r => r[0]);
@@ -1725,7 +1742,8 @@ function storeView(token) {
       opening: round3_(x.opening), openingDate: (open[m.code] || {}).date || '', purchased: round3_(x.purchased), issued: round3_(x.issued),
       inStore: x.inStore, tracked: x.tracked, value: m.unitCost === null ? null : round2_(x.inStore * m.unitCost),
       low: x.tracked && m.reorder > 0 && x.inStore < m.reorder, negative: x.tracked && x.inStore < -0.0005,
-      purchaseType: m.purchaseType, purchaseUnit: m.purchaseUnit, perPurchase: m.perPurchase, price: m.price };
+      purchaseType: m.purchaseType, purchaseUnit: m.purchaseUnit, perPurchase: m.perPurchase, price: m.price,
+      rollL: (m.conversion || {}).length || null, rollW: (m.conversion || {}).width || null };
   });
   const month = todayStr_().slice(0, 7);
   const bills = readBills_().slice().reverse();
@@ -1769,8 +1787,12 @@ function saveBill(token, data) {
     const qty = Number(l.qty), price = Number(l.price);
     if (!(qty > 0)) throw new Error('Enter the quantity bought of ' + m.name + '.');
     if (!(price >= 0) || l.price === '' || l.price === null) throw new Error('Enter the price of ' + m.name + '.');
-    const per = m.perPurchase || 1, pu = m.purchaseType ? m.purchaseUnit : m.unit;
-    return { material: m.code, name: m.name, qty: qty, purchaseUnit: pu, perPurchase: per, units: round3_(qty * per), unit: m.unit, price: price, amount: round2_(qty * price) };
+    // This bill's own size of one roll / pack / kg (rolls can differ from the usual size); else the material's usual one.
+    const L = Number(l.length), W = Number(l.width), own = m.purchaseType === 'ROLL' && L > 0 && W > 0 ? round4_(L * W) : Number(l.per);
+    const per = own > 0 ? own : (m.perPurchase || 1), pu = m.purchaseType ? m.purchaseUnit : m.unit;
+    const out = { material: m.code, name: m.name, qty: qty, purchaseUnit: pu, perPurchase: per, units: round3_(qty * per), unit: m.unit, price: price, amount: round2_(qty * price) };
+    if (m.purchaseType === 'ROLL' && L > 0 && W > 0) { out.length = L; out.width = W; }
+    return out;
   });
   if (!lines.length) throw new Error('Add at least one material.');
   const charges = Number(data.charges) || 0;
@@ -1796,11 +1818,15 @@ function saveBill(token, data) {
   lines.forEach(l => {
     const m = materialMap_()[l.material];
     const newer = readBills_().some(b => b.id !== id && b.date > date && b.lines.some(x => x.material === l.material));
-    if (newer || (m.price === l.price && m.priceDate >= date)) return;
-    const type = m.purchaseType || 'UNIT', per = m.perPurchase || 1;
-    const text = (m.conversion && m.conversion.text) || ('Per ' + m.unit);
+    if (newer || (m.price === l.price && (m.perPurchase || 1) === (l.perPurchase || 1) && m.priceDate >= date)) return;
+    const type = m.purchaseType || 'UNIT', per = l.perPurchase || m.perPurchase || 1;
+    const conv = Object.assign({}, m.conversion || {}, l.length ? { length: l.length, width: l.width } : {});
+    const sized = per !== (m.perPurchase || 1);
+    const text = sized ? (l.length ? 'Per roll (' + l.length + ' m × ' + l.width + ' m = ' + per + ' ' + m.unit + ')' : '1 ' + (m.purchaseUnit || m.unit) + ' = ' + per + ' ' + m.unit)
+      : ((m.conversion && m.conversion.text) || ('Per ' + m.unit));
+    if (sized && !l.length && type === 'PACK') conv.count = per;
     sheet_(SHEET.MATERIALS).getRange(m.row, 5, 1, 6).setValues([[type, m.purchaseType ? m.purchaseUnit : m.unit, l.price, per,
-      JSON.stringify(Object.assign({}, m.conversion || {}, { text: text })), "'" + date]]);
+      JSON.stringify(Object.assign(conv, { text: text })), "'" + date]]);
     sheet_(SHEET.PRICES).appendRow([m.code, "'" + date, type, m.purchaseType ? m.purchaseUnit : m.unit, l.price, per, text, round4_(l.price / per), u.id + ' ' + u.name, nowStr_(),
       'Bill ' + id + (row[3] ? ' (' + row[3] + ')' : '')]);
     forget_('materials');
@@ -1928,7 +1954,9 @@ function rows_(name) {
     const hit = name !== SHEET.LOG && !TOUCHED[name] ? cacheRows_(name) : null;
     if (hit) return hit;
     const sh = MEMO['sh|' + name] || SpreadsheetApp.getActive().getSheetByName(name), last = sh ? sh.getLastRow() : 0;
-    const rows = last < 2 ? [] : sh.getRange(2, 1, last - 1, HEADERS[name].length).getValues();
+    // Google Sheets turns written times ('2026-11-12 09:24') into dates: read them back as that same text.
+    const rows = last < 2 ? [] : sh.getRange(2, 1, last - 1, HEADERS[name].length).getValues()
+      .map(r => r.map(x => (x instanceof Date ? Utilities.formatDate(x, tz_(), 'yyyy-MM-dd HH:mm') : x)));
     if (name !== SHEET.LOG && !TOUCHED[name]) cacheStore_(name, rows);
     return rows;
   });
@@ -2155,7 +2183,10 @@ function readMoves_() {
   return memo_('moves', () => rows_(SHEET.MOVES).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]),
     type: String(r[2]).trim().toUpperCase() === 'RETURN' ? 'RETURN' : 'ISSUE', karigarId: String(r[3]).trim().toUpperCase(),
     materialCode: String(r[4]).trim().toUpperCase(), qty: Number(r[5]) || 0, note: String(r[6] || ''), enteredBy: String(r[7] || ''),
-    enteredAt: String(r[8] || ''), status: String(r[9] || 'PENDING').trim().toUpperCase(), confirmedBy: String(r[10] || ''),
+    enteredAt: String(r[8] || ''),
+    // Material of a work order is given with it (no confirmation): older lot lines still marked PENDING count as given.
+    status: (s => (s === 'PENDING' && String(r[12] || '') ? 'CONFIRMED' : s))(String(r[9] || 'PENDING').trim().toUpperCase()),
+    confirmedBy: String(r[10] || '') || (String(r[12] || '') && String(r[9] || 'PENDING').trim().toUpperCase() === 'PENDING' ? 'with the work order' : ''),
     confirmedAt: String(r[11] || ''), workOrder: String(r[12] || ''),
     unitCost: r[13] === '' || r[13] === null || !isFinite(Number(r[13])) ? null : Number(r[13]) })).filter(m => m.id));
 }
@@ -2181,7 +2212,7 @@ function readBatches_() {
         count1: parseJson_(r[7], []), photo: String(r[8] || ''), count2By: String(r[9] || ''), count2At: String(r[10] || ''),
         count2: parseJson_(r[11], []), finalDate: toDateStr_(r[12]), inventory: String(r[13] || ''), inventoryNote: String(r[14] || ''),
         earlier: parseJson_(r[15], []), note: String(r[16] || ''), lines: Object.keys(per).sort().map(k => per[k]), rawLines: lines[id] || [] };
-    }).filter(b => b.id);
+    }).filter(b => b.id && b.status !== 'CANCELLED'); // removed before count 1
   });
 }
 
