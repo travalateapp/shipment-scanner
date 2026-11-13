@@ -428,15 +428,20 @@ function countQueue(token) {
   const list = readBatches_().filter(b => ['COUNT1', 'COUNT2'].indexOf(b.status) >= 0).map(b => ({
     id: b.id, karigarId: b.karigarId, karigar: names[b.karigarId] || b.karigarId, status: b.status, createdAt: b.createdAt,
     claim: b.claim, count1By: b.count1By ? staffName_(b.count1By) : '', count1At: b.count1At,
-    items: b.status === 'COUNT2' ? b.count1.map(l => l.item) : [],
+    items: b.status === 'COUNT2' ? b.count1.map(l => l.wo || l.item) : [],
     mine: b.count1By === u.id,
   }));
+  // Goods are counted against the work order (W-0008): the open ones of each karigar (+ those already in a count 1).
+  const prog = ordersWithProgress_(), wos = {}, inCount1 = {};
+  readBatches_().filter(b => b.status === 'COUNT2').forEach(b => b.count1.forEach(l => { if (l.wo) inCount1[l.wo] = b.id; }));
+  prog.filter(o => o.open || inCount1[o.id]).forEach(o => (wos[o.karigarId] = wos[o.karigarId] || []).push({ id: o.id, item: o.item, qty: o.qty,
+    received: o.received, remaining: o.remaining, date: o.date, inBatch: inCount1[o.id] || '' }));
   // Count only what each karigar is making now: the items of their open work orders.
   const making = {};
   ordersWithProgress_().filter(o => o.open).forEach(o => { (making[o.karigarId] = making[o.karigarId] || []).indexOf(o.item) < 0 && making[o.karigarId].push(o.item); });
   list.forEach(b => { b.noOrder = !(making[b.karigarId] || []).length; });
   return { list: list, karigars: readKarigars_().filter(k => k.active && (making[k.id] || []).length).map(k => ({ id: k.id, name: k.name })),
-    items: activeItems_(), making: making, canCount: can_(u, 'count'), me: u.id };
+    items: activeItems_(), making: making, wos: wos, canCount: can_(u, 'count'), me: u.id };
 }
 
 /** Count 1: staff start the batch for a karigar (karigars do not enter hand-overs in the app). */
@@ -479,7 +484,9 @@ function startBatch(token, karigarId) {
 function saveCount(token, batchId, data) {
   const u = authStaff_(token, 'count');
   data = data || {};
-  const lines = cleanLines_(data.lines || [], false);
+  const b0 = readBatches_().filter(x => x.id === batchId)[0];
+  if (!b0) throw new Error('Batch not found.');
+  const lines = cleanLines_(data.lines || [], false, b0.karigarId);
   if (!lines.length) throw new Error('Add at least one item with its count.');
   const res = withLock_(() => {
     const b = readBatches_().filter(x => x.id === batchId)[0];
@@ -487,6 +494,20 @@ function saveCount(token, batchId, data) {
     const sh = sheet_(SHEET.BATCHES);
     if (b.status === 'COUNT1') {
       if (!data.photo) throw new Error('Take a photo of the received goods.');
+      // No double count: a work order already waiting for its final count in another batch cannot be counted again.
+      const busy = readBatches_().filter(x => x.id !== b.id && x.karigarId === b.karigarId && x.status === 'COUNT2');
+      lines.filter(l => l.wo).forEach(l => {
+        const other = busy.filter(x => x.count1.some(y => y.wo === l.wo))[0];
+        if (other) throw new Error(l.wo + ' is already counted in ' + other.id + ' (waiting for the final count). Finish or remove ' + other.id + ' first.');
+      });
+      // An exact repeat of a batch finished in the last 12 hours needs a yes ("another delivery").
+      if (!data.repeatOk) {
+        const key = ls => ls.map(l => (l.wo || l.item) + ':' + l.good + '/' + l.rejected).sort().join('|');
+        const since = Utilities.formatDate(new Date(Date.now() - 12 * 3600 * 1000), tz_(), 'yyyy-MM-dd HH:mm');
+        const same = readBatches_().filter(x => x.id !== b.id && x.karigarId === b.karigarId && x.status === 'LOCKED' && String(x.count2At || '') >= since &&
+          key(x.count2 || []) === key(lines))[0];
+        if (same) throw new Error('REPEAT:' + same.id);
+      }
       const photoId = savePhoto_(b.id + ' ' + (karigarNames_()[b.karigarId] || b.karigarId), data.photo);
       sh.getRange(b.row, 3).setValue('COUNT2');
       sh.getRange(b.row, 6, 1, 4).setValues([[u.id, nowStr_(), JSON.stringify(lines), photoId]]);
@@ -557,6 +578,7 @@ function writeLines_(b, lines) {
   const orders = ordersWithProgress_().filter(o => o.karigarId === b.karigarId && o.open);
   const rows = [];
   lines.forEach(l => {
+    if (l.wo) { rows.push([b.id, b.karigarId, k.name, "'" + b.finalDate, l.item, (items[l.item] || {}).type || '', l.good, l.rejected, l.wo]); return; }
     let left = l.good, rej = l.rejected;
     orders.filter(o => o.item === l.item && o.remaining > 0).forEach(o => {
       if (left <= 0) return;
@@ -575,10 +597,23 @@ function writeLines_(b, lines) {
   forget_('lines');
 }
 
-function cleanLines_(lines, claim) {
+function cleanLines_(lines, claim, karigarId) {
   const items = itemMap_();
-  const by = {};
+  const by = {}, orders = {};
+  readOrders_().forEach(o => { orders[o.id] = o; });
   lines.forEach(l => {
+    const wo = String(l.wo || '').trim().toUpperCase();
+    if (wo) { // counted against a work order: its item, and it must be this karigar's
+      const o = orders[wo];
+      if (!o) throw new Error('Unknown work order: ' + wo);
+      if (karigarId && o.karigarId !== karigarId) throw new Error(wo + ' is not this karigar\'s work order.');
+      const good = Number(l.good) || 0, rej = Number(l.rejected) || 0;
+      if (good < 0 || rej < 0 || good % 1 || rej % 1) throw new Error('Counts must be whole numbers.');
+      if (!good && !rej) return;
+      by['#' + wo] = by['#' + wo] || { wo: wo, item: o.item, good: 0, rejected: 0 };
+      by['#' + wo].good += good; by['#' + wo].rejected += rej;
+      return;
+    }
     const item = String(l.item || '').trim();
     if (!item) return;
     if (!items[item]) throw new Error('Unknown item: ' + item);
@@ -599,14 +634,14 @@ function sameCount_(a, b) {
 
 function mismatchItems_(b) {
   const m = {};
-  (b.count1 || []).forEach(l => { m[l.item] = (l.good + '/' + l.rejected); });
+  (b.count1 || []).forEach(l => { m[l.wo || l.item] = (l.good + '/' + l.rejected); });
   const out = [];
-  (b.count2 || []).forEach(l => { if (m[l.item] !== l.good + '/' + l.rejected) out.push(l.item); delete m[l.item]; });
+  (b.count2 || []).forEach(l => { const k = l.wo || l.item; if (m[k] !== l.good + '/' + l.rejected) out.push(k); delete m[k]; });
   return out.concat(Object.keys(m));
 }
 
 function linesText_(lines) {
-  return lines.map(l => l.item + ' ' + l.good + (l.rejected ? ' (+' + l.rejected + ' rejected)' : '')).join(', ');
+  return lines.map(l => (l.wo ? l.wo + ' ' : '') + l.item + ' ' + l.good + (l.rejected ? ' (+' + l.rejected + ' rejected)' : '')).join(', ');
 }
 
 function savePhoto_(name, dataUrl) {
@@ -937,7 +972,7 @@ function ordersWithProgress_() {
       const received = got[o.id] || 0;
       const remaining = Math.max(0, o.qty - received);
       return Object.assign({}, o, { received: received, remaining: remaining, open: o.status === 'OPEN' && remaining > 0,
-        done: received >= o.qty });
+        done: received >= o.qty, extra: Math.max(0, received - o.qty) });
     });
   });
 }
