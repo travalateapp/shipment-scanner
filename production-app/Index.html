@@ -425,7 +425,12 @@ function modal(title, body) {
   document.body.appendChild(o);
 }
 function closeModal() { if (BG.quiet) return; var m = $('modal'); if (m) m.remove(); if (window.camStop) camStop(); }
-function closeModalByUser() { S.costOpen = null; closeModal(); }
+function closeModalByUser() {
+  // A price window opened from "Cost of 1 piece" (change / + Add price): closing it goes back to that cost window.
+  var m = $('modal');
+  if (m && m.dataset.fromCost && S.costOpen && !BG.quiet) { var item = S.costOpen; closeModal(); itemCost(item); return; }
+  S.costOpen = null; closeModal();
+}
 
 /* ---------- login ---------- */
 function loginView(msg) {
@@ -1660,7 +1665,7 @@ function itemCost(code) {
   $('modal').dataset.cost = code;
 }
 /* From the cost breakdown: the price window; when it is saved the breakdown opens again with the new cost. */
-function costPrice(matCode) { var item = S.costOpen; matPrice(matCode); S.costOpen = item; }
+function costPrice(matCode) { var item = S.costOpen; matPrice(matCode); S.costOpen = item; if ($('modal')) $('modal').dataset.fromCost = '1'; }
 function srSel() { $('srLots').style.display = document.querySelector('input[name=srA]:checked').value === 'selected' ? 'block' : 'none'; }
 function bomForm(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
