@@ -1531,12 +1531,15 @@ function matEdit(code) {
 }
 function matPrice(code) {
   var m = matByCode(code), c = m.conversion || {};
-  var t = m.purchaseType || (/^sq/i.test(m.unit) ? 'ROLL' : m.unit === 'pcs' ? 'PACK' : 'UNIT');
+  // A material used in grams / kg: bought by weight, price per kg (worked out per g by itself).
+  var wg = unitGrams(m.unit);
+  var t = m.purchaseType || (/^sq/i.test(m.unit) ? 'ROLL' : m.unit === 'pcs' ? 'PACK' : wg ? 'WEIGHT' : 'UNIT');
   var radio = function (v, label) { return '<div class="chk"><input type="radio" name="mpT" value="' + v + '"' + (t === v ? ' checked' : '') + ' onchange="mpShow()"> ' + label + '</div>'; };
   modal('Price · ' + m.name, '<div class="kv"><div>Unit per piece</div><div><b>' + esc(m.unit) + '</b></div><div>Cost now</div><div>' + (m.unitCost === null ? '–' : money(m.unitCost) + ' / ' + esc(m.unit)) + '</div></div>' +
-    '<label class="f">How is it bought?</label>' + radio('ROLL', 'Roll (length × width, priced per roll)') + radio('WEIGHT', 'By weight (priced per kg)') + radio('PACK', 'By count (per piece or per pack)') + radio('UNIT', 'Per ' + esc(m.unit)) +
+    '<label class="f">How is it bought?</label>' + radio('ROLL', 'Roll (length × width, priced per roll)') + radio('WEIGHT', wg ? 'Per kg (worked out per ' + esc(m.unit) + ' by itself)' : 'By weight (priced per kg)') + radio('PACK', 'By count (per piece or per pack)') + radio('UNIT', 'Per ' + esc(m.unit)) +
     '<div id="mpROLL" class="mp"><div class="row"><div><label class="f">Roll length (m)</label><input id="mpL" type="number" step="any" value="' + (c.length || '') + '" oninput="mpCalc()"></div><div><label class="f">Width (m)</label><input id="mpW" type="number" step="any" value="' + (c.width || '') + '" oninput="mpCalc()"></div></div></div>' +
-    '<div id="mpWEIGHT" class="mp"><label class="f">Weight of 1 ' + esc(m.unit) + ' in grams</label><input id="mpG" type="number" step="any" value="' + (c.grams || '') + '" oninput="mpCalc()"></div>' +
+    '<div id="mpWEIGHT" class="mp">' + (wg ? '<input id="mpG" type="hidden" value="' + wg + '"><div class="muted" style="margin-top:6px">1 kg = ' + (wg === 1 ? '1000 g' : '1 kg') + ': enter the price per kg below.</div>' :
+      '<label class="f">Weight of 1 ' + esc(m.unit) + ' in grams</label><input id="mpG" type="number" step="any" value="' + (c.grams || '') + '" oninput="mpCalc()">') + '</div>' +
     '<div id="mpPACK" class="mp"><label class="f">Pieces in one pack (1 = priced per piece)</label><input id="mpN" type="number" step="any" value="' + (c.count || 1) + '" oninput="mpCalc()"></div>' +
     '<label class="f" id="mpPL">Price</label><input id="mpP" type="number" step="any" inputmode="decimal" value="' + (m.price || '') + '" oninput="mpCalc()">' +
     '<div class="msg info" id="mpOut" style="margin-top:10px"></div><label class="f">Note (e.g. new roll received)</label><input id="mpNote"><button class="btn block" id="mpB">Save price</button>' +
@@ -1561,6 +1564,8 @@ function matPrice(code) {
       .catch(function (e) { Object.assign(m, before, { saving: false }); matTable(); priceChanged(code, m); toast(e.message); });
   };
 }
+/* Grams in one unit when the unit itself is a weight (g → 1, kg → 1000), else 0. */
+function unitGrams(u) { u = String(u || '').trim().toLowerCase(); return /^(g|gm|gms|gram|grams)$/.test(u) ? 1 : /^(kg|kgs|kilo|kilogram|kilograms)$/.test(u) ? 1000 : 0; }
 function mpType() { return document.querySelector('input[name=mpT]:checked').value; }
 function mpShow() {
   var t = mpType(); ['ROLL', 'WEIGHT', 'PACK'].forEach(function (x) { $('mp' + x).style.display = x === t ? 'block' : 'none'; });
@@ -1570,7 +1575,7 @@ function mpShow() {
 function mpCalc() {
   var t = mpType(), m = S.data.mp, p = Number(val('mpP')), per = 0, how = '', unitName = m.unit;
   if (t === 'ROLL') { per = Number(val('mpL')) * Number(val('mpW')); how = 'Roll ' + val('mpL') + ' m × ' + val('mpW') + ' m = ' + num(per) + ' sq m'; unitName = 'roll'; }
-  else if (t === 'WEIGHT') { var g = Number(val('mpG')); per = g > 0 ? 1000 / g : 0; how = '1 ' + m.unit + ' = ' + val('mpG') + ' g, so 1 kg = ' + num(per) + ' ' + m.unit; unitName = 'kg'; }
+  else if (t === 'WEIGHT') { var g = Number(val('mpG')); per = g > 0 ? 1000 / g : 0; how = unitGrams(m.unit) ? '1 kg = ' + num(per) + ' ' + m.unit : '1 ' + m.unit + ' = ' + val('mpG') + ' g, so 1 kg = ' + num(per) + ' ' + m.unit; unitName = 'kg'; }
   else if (t === 'PACK') { per = Number(val('mpN')); how = per === 1 ? 'Per ' + m.unit : 'Pack of ' + num(per) + ' ' + m.unit; unitName = per === 1 ? m.unit : 'pack'; }
   else { per = 1; how = 'Per ' + m.unit; }
   var ok = p > 0 && per > 0, cost = ok ? Math.round(p / per * 10000) / 10000 : 0;
@@ -1878,7 +1883,7 @@ function billUnit(sel, fillPrice) {
   var qty = ln.children[1], rate = ln.children[2];
   if (!m) { ln.querySelector('.bu').textContent = ''; ln.querySelector('.bsz').innerHTML = ''; qty.placeholder = 'Qty'; rate.placeholder = '₹'; if (fillPrice !== false) rate.value = ''; return billSum(); }
   var pu = m.purchaseType && m.purchaseType !== 'UNIT' ? m.purchaseUnit : m.unit;
-  ln.dataset.pu = pu; ln.dataset.unit = m.unit;
+  ln.dataset.pu = pu; ln.dataset.unit = m.unit; ln.dataset.per = m.purchaseType && m.purchaseType !== 'UNIT' ? (m.perPurchase || 1) : 1;
   qty.placeholder = pu + 's'; rate.placeholder = '₹ per ' + pu;
   ln.querySelector('.bu').dataset.base = 'Qty in ' + pu + 's · rate = ₹ for 1 ' + pu + (m.price !== null ? ' (last bought ' + money(m.price) + ' / ' + pu + ')' : ' (not bought before)');
   // This bill's own size of one roll / pack / kg: the usual one is filled in, change it when these rolls are different.
@@ -1887,7 +1892,7 @@ function billUnit(sel, fillPrice) {
     var L = saved && saved.length ? saved.length : m.rollL, W = saved && saved.width ? saved.width : m.rollW;
     box.innerHTML = '<div class="szrow">Roll size in this bill: <input class="bL" type="number" step="any" inputmode="decimal" value="' + (L || '') + '" oninput="billSum()"> m × <input class="bW" type="number" step="any" inputmode="decimal" value="' + (W || '') + '" oninput="billSum()"> m' +
       ' <span class="muted">(usual ' + (m.rollL ? num(m.rollL) + ' × ' + num(m.rollW) + ' m = ' : '') + num(m.perPurchase) + ' ' + esc(m.unit) + ')</span></div>';
-  } else if (m.purchaseType && m.purchaseType !== 'UNIT') {
+  } else if (m.purchaseType && m.purchaseType !== 'UNIT' && !(m.purchaseType === 'WEIGHT' && unitGrams(m.unit))) { // 1 kg is always 1000 g
     var P = saved && saved.per ? saved.per : m.perPurchase;
     box.innerHTML = '<div class="szrow">1 ' + esc(pu) + ' in this bill = <input class="bP" type="number" step="any" inputmode="decimal" value="' + (P || '') + '" oninput="billSum()"> ' + esc(m.unit) +
       ' <span class="muted">(usual ' + num(m.perPurchase) + ')</span></div>';
@@ -1900,7 +1905,7 @@ function billPer(ln) {
   var L = ln.querySelector('.bL'), W = ln.querySelector('.bW'), P = ln.querySelector('.bP');
   if (L && W) return Number(L.value) > 0 && Number(W.value) > 0 ? Math.round(Number(L.value) * Number(W.value) * 10000) / 10000 : 0;
   if (P) return Number(P.value) > 0 ? Number(P.value) : 0;
-  return 1;
+  return Number(ln.dataset.per) || 1;
 }
 function billSum() {
   var items = 0;

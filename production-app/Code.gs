@@ -1575,10 +1575,12 @@ function setMaterialPrice(token, data) {
     per = round4_(L * W); purchaseUnit = 'roll'; conv = { length: L, width: W };
     text = 'Roll ' + L + ' m × ' + W + ' m = ' + per + ' sq m';
   } else if (type === 'WEIGHT') {
-    const g = Number(data.grams);
+    // A unit that is itself a weight (g / kg) needs no weight per unit: price per kg → per g by itself.
+    const u = String(m.unit).trim().toLowerCase(), self = /^(g|gm|gms|gram|grams)$/.test(u) ? 1 : /^(kg|kgs|kilo|kilogram|kilograms)$/.test(u) ? 1000 : 0;
+    const g = self || Number(data.grams);
     if (!(g > 0)) throw new Error('Enter the weight of 1 ' + m.unit + ' in grams.');
     per = round4_(1000 / g); purchaseUnit = 'kg'; conv = { grams: g };
-    text = '1 ' + m.unit + ' = ' + g + ' g, so 1 kg = ' + per + ' ' + m.unit;
+    text = self ? '1 kg = ' + per + ' ' + m.unit : '1 ' + m.unit + ' = ' + g + ' g, so 1 kg = ' + per + ' ' + m.unit;
   } else if (type === 'PACK') {
     const n = Number(data.count);
     if (!(n > 0)) throw new Error('Enter how many ' + m.unit + ' are in one pack.');
