@@ -125,7 +125,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
-  materialList, addUnit, saveMaterial, setMaterialPrice, saveBom, staffList, saveStaff, changeLog,
+  materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, saveBom, staffList, saveStaff, changeLog,
 };
 
 function doPost(e) {
@@ -1566,9 +1566,15 @@ function setMaterialPrice(token, data) {
   if (!m) throw new Error('Material not found.');
   const price = Number(data.price);
   if (!(price > 0)) throw new Error('Enter the price.');
-  const type = ['ROLL', 'WEIGHT', 'PACK', 'UNIT'].indexOf(data.type) >= 0 ? data.type : 'UNIT';
+  const type = ['ROLL', 'METER', 'WEIGHT', 'PACK', 'UNIT'].indexOf(data.type) >= 0 ? data.type : 'UNIT';
   let per, purchaseUnit, conv, text;
-  if (type === 'ROLL') {
+  if (type === 'METER') { // fabric sold by the running meter: rate per m; a roll is just its length
+    const L = Number(data.length), W = Number(data.width) || 0;
+    if (!(L > 0)) throw new Error('Enter the usual roll length in meters.');
+    if (!/^m$/i.test(String(m.unit).trim())) throw new Error('This material is in ' + m.unit + '. Use "Change to meters" first (it changes the BOM, stock and issues to meters).');
+    per = 1; purchaseUnit = 'm'; conv = { length: L, width: W || undefined };
+    text = 'Roll ' + L + ' m' + (W ? ' (width ' + W + ' m)' : '') + ' · per meter';
+  } else if (type === 'ROLL') {
     const L = Number(data.length), W = Number(data.width);
     if (!(L > 0) || !(W > 0)) throw new Error('Enter the roll length and width in meters.');
     if (!/^sq\.? ?m/i.test(m.unit)) throw new Error('A roll is priced per sq m: set this material\'s unit to "sq m" first (and its BOM per piece in sq m).');
@@ -1595,6 +1601,72 @@ function setMaterialPrice(token, data) {
   forget_('materials');
   log_(u, 'MATERIAL_PRICE', m.code, (m.unitCost === null ? 'none' : m.unitCost) + ' → ' + cost + ' per ' + m.unit + ' (' + text + ', ' + price + ' per ' + purchaseUnit + ')' +
     (data.note ? ' | ' + data.note : ''));
+  return materialList(token);
+}
+
+/**
+ * One time, for a fabric bought by the running meter: everything of this material in sq m is changed to m by
+ * dividing by the width — unit, BOM per piece, opening stock, bills (what went into the store), material given to
+ * karigars, stock-takes, reorder level — and every ₹ per sq m is multiplied by it, so ₹ totals stay the same.
+ * apply = false only shows what would change (now → after).
+ */
+function changeToMeters(token, code, width, apply) {
+  const u = authStaff_(token, 'masters');
+  const m = readMaterials_().filter(x => x.code === String(code || '').toUpperCase())[0];
+  if (!m) throw new Error('Material not found.');
+  if (!/^sq\.? ?m/i.test(m.unit)) throw new Error(m.name + ' is in ' + m.unit + ', not sq m.');
+  const W = Number(width) || Number((m.conversion || {}).width) || 0;
+  if (!(W > 0) || W > 10) throw new Error('Enter the width of the fabric in meters (e.g. 1.47).');
+  const d = q => round4_(Number(q) / W), out = [];
+  rows_(SHEET.BOM).forEach((r, i) => { if (String(r[1]).trim().toUpperCase() === m.code && Number(r[2]) > 0) out.push({ where: 'BOM · ' + r[0] + ', per piece', now: Number(r[2]), after: d(r[2]), sheet: SHEET.BOM, row: i + 2, col: 3 }); });
+  const open = readOpening_()[m.code];
+  if (open) out.push({ where: 'Opening stock', now: open.qty, after: d(open.qty), sheet: SHEET.STORE, row: open.row, col: 2 });
+  if (m.reorder) out.push({ where: 'Reorder level', now: m.reorder, after: d(m.reorder), sheet: SHEET.MATERIALS, row: m.row, col: 12 });
+  let bought = 0, given = 0, takes = 0;
+  const bills = readBills_().filter(b => b.lines.some(l => String(l.material).toUpperCase() === m.code));
+  bills.forEach(b => b.lines.forEach(l => { if (String(l.material).toUpperCase() === m.code) bought += Number(l.units) || 0; }));
+  if (bills.length) out.push({ where: 'Bought on ' + bills.length + ' bill' + (bills.length === 1 ? '' : 's'), now: round3_(bought), after: d(bought) });
+  const moves = readMoves_().filter(x => x.materialCode === m.code);
+  moves.forEach(x => { given += x.qty; });
+  if (moves.length) out.push({ where: 'Material given to karigars (' + moves.length + ' line' + (moves.length === 1 ? '' : 's') + ': balances, lot costs)', now: round3_(given), after: d(given) });
+  const tk = rows_(SHEET.TAKES).map((r, i) => ({ r: r, row: i + 2 })).filter(x => String(x.r[3]).toUpperCase() === m.code);
+  tk.forEach(x => { takes += Number(x.r[5]) || 0; });
+  if (tk.length) out.push({ where: 'Stock-takes (' + tk.length + ')', now: round3_(takes), after: d(takes) });
+  const costNow = m.unitCost, costAfter = m.unitCost === null ? null : round4_(m.unitCost * W);
+  const L = m.purchaseType === 'ROLL' ? Number((m.conversion || {}).length) || 0 : 0;
+  const preview = { code: m.code, name: m.name, width: W, lines: out.map(x => ({ where: x.where, now: x.now, after: x.after })), costNow: costNow, costAfter: costAfter, rollLength: L };
+  if (!apply) return preview;
+  withLock_(() => {
+    out.filter(x => x.sheet).forEach(x => sheet_(x.sheet).getRange(x.row, x.col).setValue(x.after));
+    // the material: unit m; a roll priced per roll becomes "per meter" (roll price ÷ length)
+    const sh = sheet_(SHEET.MATERIALS);
+    sh.getRange(m.row, 3).setValue('m');
+    if (m.price !== null) {
+      const cv = Object.assign({}, m.conversion || {}, { width: W });
+      if (L > 0) { cv.length = L; cv.text = 'Roll ' + L + ' m (width ' + W + ' m) · per meter'; sh.getRange(m.row, 5, 1, 5).setValues([['METER', 'm', round4_(m.price / L), 1, JSON.stringify(cv)]]); }
+      else { cv.text = 'Per m'; sh.getRange(m.row, 5, 1, 5).setValues([['UNIT', 'm', costAfter, 1, JSON.stringify(cv)]]); }
+    }
+    // bills: rolls stay rolls; meters into the store; a roll price becomes a price per meter (same ₹ amount)
+    bills.forEach(b => {
+      const lines = b.lines.map(l => {
+        if (String(l.material).toUpperCase() !== m.code) return l;
+        const meters = d(l.units), len = Number(l.qty) > 0 ? round4_(meters / Number(l.qty)) : 0;
+        return Object.assign({}, l, { unit: 'm', units: meters, perPurchase: len, length: len, purchaseUnit: 'roll', byMeter: true, price: meters > 0 ? round4_(l.amount / meters) : l.price });
+      });
+      sheet_(SHEET.BILLS).getRange(b.row, 5).setValue(JSON.stringify(lines));
+    });
+    // material given: qty ÷ width, cost per unit × width (each lot's ₹ cost stays the same)
+    moves.forEach(x => {
+      sheet_(SHEET.MOVES).getRange(x.row, 6).setValue(d(x.qty));
+      if (x.unitCost !== null) sheet_(SHEET.MOVES).getRange(x.row, 14).setValue(round4_(x.unitCost * W));
+    });
+    tk.forEach(x => sheet_(SHEET.TAKES).getRange(x.row, 5, 1, 3).setValues([[d(x.r[4]), d(x.r[5]), d(x.r[6])]]));
+    // price history in ₹ per m from now on
+    rows_(SHEET.PRICES).forEach((r, i) => { if (String(r[0]).trim().toUpperCase() === m.code && Number(r[7]) > 0) sheet_(SHEET.PRICES).getRange(i + 2, 8).setValue(round4_(Number(r[7]) * W)); });
+    sheet_(SHEET.PRICES).appendRow([m.code, "'" + todayStr_(), L > 0 ? 'METER' : 'UNIT', 'm', L > 0 ? round4_(m.price / L) : costAfter, 1, 'Changed from sq m to m (width ' + W + ' m)', costAfter, u.id + ' ' + u.name, nowStr_(), 'Change to meters']);
+    forget_('materials', 'bom', 'bills', 'moves', 'opening', 'takes');
+  });
+  log_(u, 'CHANGE_TO_METERS', m.code, m.name + ' width ' + W + ' m: ' + out.map(x => x.where + ' ' + x.now + ' → ' + x.after).join('; ') + ' | cost ' + costNow + '/sq m → ' + costAfter + '/m');
   return materialList(token);
 }
 
@@ -1824,6 +1896,13 @@ function saveBill(token, data) {
     const qty = Number(l.qty), price = Number(l.price);
     if (!(qty > 0)) throw new Error('Enter the quantity bought of ' + m.name + '.');
     if (!(price >= 0) || l.price === '' || l.price === null) throw new Error('Enter the price of ' + m.name + '.');
+    if (m.purchaseType === 'METER') { // rolls × length of each roll = meters; the rate is per meter
+      const len = Number(l.length) > 0 ? Number(l.length) : Number((m.conversion || {}).length) || 0;
+      if (!(len > 0)) throw new Error('Enter the length of each roll of ' + m.name + '.');
+      const meters = round3_(qty * len);
+      return { material: m.code, name: m.name, qty: qty, purchaseUnit: 'roll', perPurchase: len, length: len, byMeter: true, units: meters, unit: m.unit,
+        price: price, amount: round2_(meters * price) };
+    }
     // This bill's own size of one roll / pack / kg (rolls can differ from the usual size); else the material's usual one.
     const L = Number(l.length), W = Number(l.width), own = m.purchaseType === 'ROLL' && L > 0 && W > 0 ? round4_(L * W) : Number(l.per);
     const per = own > 0 ? own : (m.perPurchase || 1), pu = m.purchaseType ? m.purchaseUnit : m.unit;
@@ -1856,6 +1935,15 @@ function saveBill(token, data) {
     const m = materialMap_()[l.material];
     const newer = readBills_().some(b => b.id !== id && b.date > date && b.lines.some(x => x.material === l.material));
     if (newer || (m.price === l.price && (m.perPurchase || 1) === (l.perPurchase || 1) && m.priceDate >= date)) return;
+    if (l.byMeter) { // price per meter; the newest roll length becomes the usual one
+      const cv = Object.assign({}, m.conversion || {}, { length: l.length });
+      cv.text = 'Roll ' + l.length + ' m' + (cv.width ? ' (width ' + cv.width + ' m)' : '') + ' · per meter';
+      if (newer || (m.price === l.price && Number((m.conversion || {}).length) === l.length && m.priceDate >= date)) return;
+      sheet_(SHEET.MATERIALS).getRange(m.row, 5, 1, 6).setValues([['METER', 'm', l.price, 1, JSON.stringify(cv), "'" + date]]);
+      sheet_(SHEET.PRICES).appendRow([m.code, "'" + date, 'METER', 'm', l.price, 1, cv.text, l.price, u.id + ' ' + u.name, nowStr_(), 'Bill ' + id + (row[3] ? ' (' + row[3] + ')' : '')]);
+      forget_('materials');
+      return;
+    }
     const type = m.purchaseType || 'UNIT', per = l.perPurchase || m.perPurchase || 1;
     const conv = Object.assign({}, m.conversion || {}, l.length ? { length: l.length, width: l.width } : {});
     const sized = per !== (m.perPurchase || 1);
@@ -1919,7 +2007,7 @@ function renameSupplier(token, oldName, newName) {
 }
 
 function billText_(b) {
-  return (b.date || '') + ' ' + (b.supplier || '') + (b.billNo ? ' #' + b.billNo : '') + ': ' + b.lines.map(l => l.name + ' ' + l.qty + ' ' + l.purchaseUnit + ' @ ' + l.price).join(', ') +
+  return (b.date || '') + ' ' + (b.supplier || '') + (b.billNo ? ' #' + b.billNo : '') + ': ' + b.lines.map(l => l.byMeter ? l.name + ' ' + l.qty + ' rolls × ' + l.length + ' m = ' + l.units + ' m @ ' + l.price + '/m' : l.name + ' ' + l.qty + ' ' + l.purchaseUnit + ' @ ' + l.price).join(', ') +
     (b.charges ? ' + charges ' + b.charges : '') + ' = ' + b.total;
 }
 

@@ -60,6 +60,13 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   shows while typing in the bill's Supplier box (any word, any case; ↑/↓, Enter, Esc). The same name typed in another
   case is saved with the first spelling. **edit** next to a suggestion renames the supplier on every one of its bills
   (renaming to an existing supplier joins the two); the rename is in the Change log.
+- **Fabric bought by the running meter.** Price → **Roll, priced per meter**: usual roll length (m), width (for
+  information) and the rate per meter. A purchase bill line is then **rolls × length of each roll = meters × ₹/m**
+  (20 rolls × 50 m = 1,000 m × ₹141 = ₹1,41,000), the store is in m (≈ rolls), and opening stock is rolls × length.
+  A fabric still in sq m has **Change to meters** in its Price window: it shows "now → after" first, then divides
+  everything of that material by the width (BOM per piece, opening stock, bills, material given to karigars,
+  stock-takes, reorder level) and multiplies ₹ per sq m by it, so every ₹ total (lot costs, bills) stays the same.
+  Logged in the Change log.
 - **Roll sizes.** On a purchase bill each line has its own roll size (length × width; or the size of a pack / kg),
   filled in with the usual one: change it when these rolls are different. The store gets rolls × that size, and the
   newest bill becomes the material's price with its size. **Opening stock** can be counted roll by roll, one line
