@@ -322,6 +322,14 @@ function menu() {
   m.push(['pin', '🔑', 'Change PIN']);
   return m;
 }
+/* The first screen: Home for a karigar, the Dashboard for staff who see reports, else the first screen of their
+   menu (skipping the dividers: a staff with only Payroll / Store … rights has a divider first). */
+function firstView() {
+  if (S.profile.kind === 'K') return 'home';
+  if (can('reports')) return 'dash';
+  var m = menu().filter(function (x) { return x[0] !== '-' && VIEWS[x[0]]; })[0];
+  return m ? m[0] : 'pin';
+}
 function navHtml() {
   return '<div class="nav">' + menu().map(function (x) {
     if (x[0] === '-') return '<div class="sep"></div>';
@@ -351,6 +359,8 @@ function closeDrawer() { $('drawer').classList.remove('open'); }
 var NAV = { stack: [], inApp: !!window.AttendanceApp };
 function go(view, arg, isBack) {
   if (BG.quiet) return; // a save finished while you are on another screen
+  // An unknown screen (or a menu divider, or a karigar screen for staff) opens the user's first screen instead.
+  if (S.profile && (!VIEWS[view] || view === '-' || (S.profile.kind === 'S' && /^(home|work|slip|myadv)$/.test(view)))) { view = firstView(); arg = undefined; }
   var changed = S.view !== undefined && S.view !== null && !(S.view === view && String(S.arg) === String(arg));
   if (changed && !isBack) {
     NAV.stack.push({ v: S.view, a: S.arg });
@@ -363,7 +373,7 @@ function go(view, arg, isBack) {
     else history.replaceState({ v: view }, '', '#' + view);
   } catch (e) { /* ignore */ }
   $('side').innerHTML = navHtml(); $('drawerNav').innerHTML = navHtml();
-  var v = VIEWS[view] || VIEWS.home;
+  var v = VIEWS[view];
   var cached = S.html[view + '|' + arg];
   // Show the screen as it was last time at once; fresh data replaces it a moment later.
   $('main').innerHTML = cached ? cached : '<div class="card muted" style="text-align:center;padding:30px"><span class="spinner dark"></span></div>';
@@ -425,10 +435,14 @@ function modal(title, body) {
   document.body.appendChild(o);
 }
 function closeModal() { if (BG.quiet) return; var m = $('modal'); if (m) m.remove(); if (window.camStop) camStop(); }
+/*
+ * A pop-up opened from another pop-up (Price from "Cost of 1 piece", Correct from a batch…) gets back(): closing
+ * it with ×, a tap outside or the phone's Back goes back to the first pop-up instead of closing both.
+ */
+function modalBack(fn) { var m = $('modal'); if (m) m._back = fn; }
 function closeModalByUser() {
-  // A price window opened from "Cost of 1 piece" (change / + Add price): closing it goes back to that cost window.
   var m = $('modal');
-  if (m && m.dataset.fromCost && S.costOpen && !BG.quiet) { var item = S.costOpen; closeModal(); itemCost(item); return; }
+  if (m && m._back && !BG.quiet) { var back = m._back; closeModal(); back(); return; }
   S.costOpen = null; closeModal();
 }
 
@@ -464,7 +478,7 @@ function start() {
   if (last && (last.u !== S.profile.id || !allowed(last.v))) last = null;
   try { localStorage.removeItem('prod_lastView'); } catch (e) { /* the old place */ }
   if (last) go(last.v, last.a === null ? undefined : last.a);
-  else go(S.profile.kind === 'K' ? 'home' : can('reports') ? 'dash' : menu()[0][0]);
+  else go(firstView());
   prefetchMenu();
 }
 
@@ -570,7 +584,7 @@ VIEWS.pin = function () {
 function savePin(btn) {
   if (val('p1') !== val('p2')) return toast(T('The new PINs do not match.'));
   busy(btn, true);
-  api('changePin', S.token, val('p0'), val('p1')).then(function () { toast(T('PIN changed')); go(S.profile.kind === 'K' ? 'home' : menu()[0][0]); }).catch(function (e) { fail(e, btn); });
+  api('changePin', S.token, val('p0'), val('p1')).then(function () { toast(T('PIN changed')); go(firstView()); }).catch(function (e) { fail(e, btn); });
 }
 
 /* ======================= STAFF ======================= */
@@ -770,16 +784,17 @@ function showBatch(id) {
 function loadPhoto(id, btn) { busy(btn, true); api('batchPhoto', S.token, id).then(function (src) { $('bPhoto').innerHTML = '<img class="photo" src="' + src + '">'; }).catch(function (e) { fail(e, btn); }); }
 function retryInv(id, btn) { busy(btn, true); api('retryInventory', S.token, id).then(function (r) { toast(r.inventory === 'DONE' ? 'Added to the inventory' : 'Still not added: ' + r.note); showBatch(id); }).catch(function (e) { fail(e, btn); }); }
 function correctForm() {
-  var b = S.data.batch; S.data.countItems = b.items; S.data.countWos = null;
+  var b = S.data.batch, bid = b.id; S.data.countItems = b.items; S.data.countWos = null;
   modal('Correct ' + b.id + ' (locked)', '<div class="msg warn">Only for real mistakes. The old and new counts and your reason go to the change log; the Inventory App gets only the difference.</div>' +
     '<div class="lines"><div class="ln hdr"><div>Item</div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add item</button>' +
     '<label class="f">Reason (required)</label><input id="corrWhy"><button class="btn block err" onclick="saveCorrection(this)">Save correction</button>');
+  modalBack(function () { showBatch(bid); }); // × goes back to the batch
   b.lines.forEach(function (l) { addCountLine(l.item); var ln = $('cLines').lastChild; ln.children[1].value = l.good; ln.children[2].value = l.rejected; });
 }
 function saveCorrection(btn) {
   var lines = Array.prototype.map.call(document.querySelectorAll('#cLines .ln'), function (ln) { return { item: ln.children[0].value, good: Number(ln.children[1].value) || 0, rejected: Number(ln.children[2].value) || 0 }; }).filter(function (l) { return l.item; });
   busy(btn, true);
-  apiBg(btn, 'correctBatch', S.token, S.data.batch.id, { lines: lines, reason: val('corrWhy') }).then(function () { toast('Corrected'); closeModal(); go(S.view, S.arg); }).catch(function (e) { fail(e, btn); });
+  apiBg(btn, 'correctBatch', S.token, S.data.batch.id, { lines: lines, reason: val('corrWhy') }).then(function () { var id = S.data.batch.id, quiet = BG.quiet; toast('Corrected'); closeModal(); go(S.view, S.arg); if (!quiet) showBatch(id); }).catch(function (e) { fail(e, btn); });
 }
 
 /* ---------- work orders ---------- */
@@ -1665,7 +1680,7 @@ function itemCost(code) {
   $('modal').dataset.cost = code;
 }
 /* From the cost breakdown: the price window; when it is saved the breakdown opens again with the new cost. */
-function costPrice(matCode) { var item = S.costOpen; matPrice(matCode); S.costOpen = item; if ($('modal')) $('modal').dataset.fromCost = '1'; }
+function costPrice(matCode) { var item = S.costOpen; matPrice(matCode); S.costOpen = item; modalBack(function () { itemCost(item); }); }
 function srSel() { $('srLots').style.display = document.querySelector('input[name=srA]:checked').value === 'selected' ? 'block' : 'none'; }
 function bomForm(code) {
   var i = S.data.il.list.filter(function (x) { return x.code === code; })[0];
