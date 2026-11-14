@@ -1566,9 +1566,15 @@ function setMaterialPrice(token, data) {
   if (!m) throw new Error('Material not found.');
   const price = Number(data.price);
   if (!(price > 0)) throw new Error('Enter the price.');
-  const type = ['ROLL', 'METER', 'WEIGHT', 'PACK', 'UNIT'].indexOf(data.type) >= 0 ? data.type : 'UNIT';
+  const type = ['ROLL', 'METER', 'SQM', 'WEIGHT', 'PACK', 'UNIT'].indexOf(data.type) >= 0 ? data.type : 'UNIT';
   let per, purchaseUnit, conv, text;
-  if (type === 'METER') { // fabric sold by the running meter: rate per m; a roll is just its length
+  if (type === 'SQM') { // used in m, bought per sq m: 1 m of a W m wide fabric = W sq m, so cost per m = rate × W
+    const W = Number(data.width);
+    if (!(W > 0) || W > 10) throw new Error('Enter the width of the fabric in meters (e.g. 1.4).');
+    if (!/^m$/i.test(String(m.unit).trim())) throw new Error('"Per sq m" is for a material used in m.');
+    per = 1 / W; purchaseUnit = 'sq m'; conv = { width: W, length: (m.conversion || {}).length };
+    text = 'Per sq m · width ' + W + ' m (1 m = ' + W + ' sq m)';
+  } else if (type === 'METER') { // fabric sold by the running meter: rate per m; a roll is just its length
     const L = Number(data.length), W = Number(data.width) || 0;
     if (!(L > 0)) throw new Error('Enter the usual roll length in meters.');
     if (!/^m$/i.test(String(m.unit).trim())) throw new Error('This material is in ' + m.unit + '. Use "Change to meters" first (it changes the BOM, stock and issues to meters).');
@@ -1663,7 +1669,8 @@ function changeToMeters(token, code, width, apply) {
     tk.forEach(x => sheet_(SHEET.TAKES).getRange(x.row, 5, 1, 3).setValues([[d(x.r[4]), d(x.r[5]), d(x.r[6])]]));
     // price history in ₹ per m from now on
     rows_(SHEET.PRICES).forEach((r, i) => { if (String(r[0]).trim().toUpperCase() === m.code && Number(r[7]) > 0) sheet_(SHEET.PRICES).getRange(i + 2, 8).setValue(round4_(Number(r[7]) * W)); });
-    sheet_(SHEET.PRICES).appendRow([m.code, "'" + todayStr_(), L > 0 ? 'METER' : 'UNIT', 'm', L > 0 ? round4_(m.price / L) : costAfter, 1, 'Changed from sq m to m (width ' + W + ' m)', costAfter, u.id + ' ' + u.name, nowStr_(), 'Change to meters']);
+    if (m.price !== null) sheet_(SHEET.PRICES).appendRow([m.code, "'" + todayStr_(), L > 0 ? 'METER' : 'UNIT', 'm', L > 0 ? round4_(m.price / L) : costAfter, 1, 'Changed from sq m to m (width ' + W + ' m)', costAfter, u.id + ' ' + u.name, nowStr_(), 'Change to meters']);
+    else { const cv = Object.assign({}, m.conversion || {}, { width: W }); sheet_(SHEET.MATERIALS).getRange(m.row, 9).setValue(JSON.stringify(cv)); } // keep the width for later
     forget_('materials', 'bom', 'bills', 'moves', 'opening', 'takes');
   });
   log_(u, 'CHANGE_TO_METERS', m.code, m.name + ' width ' + W + ' m: ' + out.map(x => x.where + ' ' + x.now + ' → ' + x.after).join('; ') + ' | cost ' + costNow + '/sq m → ' + costAfter + '/m');
@@ -2194,6 +2201,7 @@ function priceHistory_(code) {
     const m = {};
     rows_(SHEET.PRICES).forEach(r => {
       const c = String(r[0]).trim().toUpperCase();
+      if (!(Number(r[4]) > 0)) return; // a line without a price (e.g. 'Change to meters' of a material with no price yet)
       (m[c] = m[c] || []).push({ date: toDateStr_(r[1]), price: Number(r[4]), purchaseUnit: String(r[3]), text: String(r[6]),
         unitCost: Number(r[7]), by: String(r[8]).replace(/^\S+ /, ''), note: String(r[10] || '') });
     });
