@@ -1837,9 +1837,11 @@ function openingForm(code) {
   var sized = x.purchaseType && x.purchaseType !== 'UNIT' && x.purchaseType !== 'SQM' && x.perPurchase;
   modal('Opening stock · ' + x.name, '<div class="muted">What is in the store <b>today</b>, in ' + esc(x.unit) + '. Purchase bills entered from now on are added to it.</div>' +
     (sized ? '<label class="f">Count by ' + esc(osPU(x)) + ' (add a line for each size)</label><div id="osL"></div><button class="btn sec sm" onclick="osLine()">+ ' + esc(osPU(x)) + 's of another size</button>' : '') +
+    // a material in m can also be counted in sq m: sq m ÷ width = m
+    (/^m$/i.test(String(x.unit).trim()) ? '<label class="f">Or count it in sq m (worked out in m from the width)</label><div class="szrow" style="font-size:14px"><input id="osSq" type="number" step="any" inputmode="decimal" placeholder="sq m" style="width:110px" oninput="osSqm()"> sq m ÷ width <input id="osSw" type="number" step="any" inputmode="decimal" value="' + (x.rollW || '') + '" style="width:80px" oninput="osSqm()"> m = <b id="osSm">–</b> m</div>' : '') +
     '<label class="f">Stock in ' + esc(x.unit) + (sized ? ' (worked out from the lines above, or type it)' : '') + '</label><input id="osQ" type="number" step="any" inputmode="decimal" value="' + (x.tracked ? x.opening : '') + '"><label class="f">Note</label><input id="osN" placeholder="e.g. counted on 6 Nov"><button class="btn block" id="osB">Save</button>');
   if (sized) osLine();
-  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), [val('osN'), osText()].filter(String).join(' · ')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
+  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), [val('osN'), osText(), $('osSq') && Number(val('osSq')) > 0 && Number(val('osSw')) > 0 ? val('osSq') + ' sq m ÷ width ' + val('osSw') + ' m' : ''].filter(String).join(' · ')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
 }
 function storeBills(r) {
   return (r.canEdit ? '<div class="card"><button class="btn" onclick="billForm()">+ New purchase bill</button></div>' : '') +
@@ -1921,6 +1923,11 @@ function osLine() {
       : ' <input class="oP" type="number" step="any" inputmode="decimal" value="' + (x.perPurchase || '') + '" oninput="osSum()"> ' + esc(x.unit) + ' each') +
     ' = <b class="oT">0</b> ' + esc(x.unit) + ' <button class="x" onclick="this.parentNode.remove();osSum()">×</button>';
   $('osL').appendChild(d);
+}
+function osSqm() {
+  var a = Number(val('osSq')), w = Number(val('osSw')), out = a > 0 && w > 0 ? Math.round(a / w * 1000) / 1000 : 0;
+  $('osSm').textContent = out ? num(out) : '–';
+  if (out) $('osQ').value = out;
 }
 function osRows() {
   return Array.prototype.map.call(document.querySelectorAll('#osL .osl'), function (r) {
