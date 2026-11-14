@@ -103,6 +103,7 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg{position:relative}.addrow{align-items:flex-start}.sugg .box{margin-top:4px;background:#fff;border:1px solid #cfd6e4;border-radius:10px;box-shadow:0 8px 24px rgba(15,35,80,.15);z-index:25;max-height:300px;overflow:auto}
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
+.mdot{width:22px;height:22px;border-radius:50%;border:2px solid #94a3b8;background:#fff;display:inline-block;vertical-align:middle;margin-right:8px;padding:0;cursor:pointer;flex:0 0 auto}.mdot.g{background:#16a34a;border-color:#15803d}.mdot.y{background:#facc15;border-color:#ca8a04}
 .szrow{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 4px}.szrow input{width:80px;padding:6px 8px;font-size:14px}
 .bgchip{position:fixed;left:14px;bottom:14px;z-index:90;background:#1e293b;color:#fff;padding:8px 14px;border-radius:20px;font-size:13.5px;font-weight:600;box-shadow:0 4px 14px rgba(0,0,0,.25);display:none}
 .combo{display:block;position:relative;min-width:0}.combo>select{position:absolute;left:0;top:0;width:100%;height:42px;opacity:0;pointer-events:none}
@@ -1422,19 +1423,29 @@ function matTable() {
   var tags = function (m) { return (m.saving ? ' <span class="pill info">saving…</span>' : '') + (m.active ? '' : ' <span class="pill">inactive</span>'); };
   var priceTxt = function (m) { return m.price === null ? '<span class="pill warn">No price</span>' : money(m.price) + ' / ' + esc(m.purchaseUnit); };
   var costTxt = function (m) { return m.unitCost === null ? '–' : money(m.unitCost) + ' <span class="muted" style="font-weight:600">/ ' + esc(m.unit) + '</span>'; };
-  t.innerHTML = '<div class="only-desk"><table class="tbl"><tr><th>Material</th><th>Unit</th><th>Bought as</th><th class="r">Price</th><th class="r">Cost per unit</th><th>Used in</th><th></th></tr>' + list.map(function (m) {
-    return '<tr class="' + (m.saving ? 'saving' : '') + '"><td><b>' + esc(m.name) + '</b>' + tags(m) + '</td><td>' + esc(m.unit) + '</td><td class="muted">' + esc((m.conversion && m.conversion.text) || '') + '</td>' +
+  // A round mark while going through prices: tap → green → yellow → white. Saved for everyone.
+  var dot = function (m) { var c = m.check === 'G' ? 'g' : m.check === 'Y' ? 'y' : ''; return '<button class="mdot ' + c + '" title="' + (c === 'g' ? 'Green (tap: yellow)' : c === 'y' ? 'Yellow (tap: white)' : 'White (tap: green)') + '"' + (r.canEdit ? ' onclick="matCheck(\'' + q(m.code) + '\',this)"' : ' disabled') + '></button>'; };
+  var nG = r.materials.filter(function (m) { return m.check === 'G'; }).length, nY = r.materials.filter(function (m) { return m.check === 'Y'; }).length;
+  t.innerHTML = '<div class="muted" style="margin-bottom:8px"><span class="mdot g" style="cursor:default"></span> ' + nG + ' green · <span class="mdot y" style="cursor:default"></span> ' + nY + ' yellow · <span class="mdot" style="cursor:default"></span> ' + (r.materials.length - nG - nY) + ' white · tap the circle to mark a material</div>' +
+    '<div class="only-desk"><table class="tbl"><tr><th>Material</th><th>Unit</th><th>Bought as</th><th class="r">Price</th><th class="r">Cost per unit</th><th>Used in</th><th></th></tr>' + list.map(function (m) {
+    return '<tr class="' + (m.saving ? 'saving' : '') + '"><td style="white-space:nowrap">' + dot(m) + '<b style="white-space:normal">' + esc(m.name) + '</b>' + tags(m) + '</td><td>' + esc(m.unit) + '</td><td class="muted">' + esc((m.conversion && m.conversion.text) || '') + '</td>' +
       '<td class="r">' + priceTxt(m) + (m.priceDate ? '<div class="muted">' + d(m.priceDate) + '</div>' : '') + '</td>' +
       '<td class="r">' + (m.unitCost === null ? '–' : '<b>' + money(m.unitCost) + '</b> / ' + esc(m.unit)) + '</td><td class="muted">' + (m.usedIn || []).map(esc).join(', ') + '</td>' +
       '<td style="white-space:nowrap">' + btns(m) + '</td></tr>';
   }).join('') + '</table></div>' +
   '<div class="only-phone">' + list.map(function (m) {
-    return '<div class="mcard' + (m.saving ? ' saving' : '') + '"><div class="mtop"><b>' + esc(m.name) + tags(m) + '</b><span class="cost">' + costTxt(m) + '</span></div>' +
+    return '<div class="mcard' + (m.saving ? ' saving' : '') + '"><div class="mtop">' + dot(m) + '<b>' + esc(m.name) + tags(m) + '</b><span class="cost">' + costTxt(m) + '</span></div>' +
       '<div class="muted">' + esc(m.unit) + ' per piece · ' + priceTxt(m) + (m.conversion && m.conversion.text ? ' · ' + esc(m.conversion.text) : '') + '</div>' +
       (m.usedIn && m.usedIn.length ? '<div class="muted">Used in ' + m.usedIn.map(esc).join(', ') + '</div>' : '') +
       '<div style="margin-top:6px">' + btns(m) + '</div></div>';
   }).join('') + '</div>';
   S.html[S.view + '|' + S.arg] = $('main').innerHTML;
+}
+function matCheck(code, btn) {
+  var m = matByCode(code); if (!m) return;
+  var before = m.check || '', next = before === '' ? 'G' : before === 'G' ? 'Y' : '';
+  m.check = next; matTable(); // at once; saved in the background
+  api('setMaterialCheck', S.token, code, next).catch(function (e) { m.check = before; matTable(); toast(e.message); });
 }
 function matByCode(code) {
   var lists = [S.data.ml2 && S.data.ml2.materials, S.data.il && S.data.il.materials];

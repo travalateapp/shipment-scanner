@@ -48,7 +48,7 @@ HEADERS[SHEET.RATES] = ['Karigar ID', 'Item Code', 'Rate', 'From Date', 'Set By'
 // Unit = the unit the BOM uses (sq m, inch, pcs …). The price is entered as bought (a roll, a kg, a pack) with how many
 // units one purchase gives: cost per unit = Purchase Price ÷ Units Per Purchase.
 HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase',
-  'Conversion', 'Price Date', 'Color', 'Reorder Level'];
+  'Conversion', 'Price Date', 'Color', 'Reorder Level', 'Check'];
 HEADERS[SHEET.PRICES] = ['Material Code', 'Date', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase', 'Conversion',
   'Cost Per Unit', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
@@ -125,7 +125,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
-  materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, saveBom, staffList, saveStaff, changeLog,
+  materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
 };
 
 function doPost(e) {
@@ -2178,7 +2178,8 @@ function readMaterials_() {
     return { row: i + 2, code: String(r[0]).trim().toUpperCase(), name: withColor_(base, color), baseName: base, color: color,
       reorder: Number(r[11]) > 0 ? Number(r[11]) : 0, unit: String(r[2] || ''), active: bool_(r[3]),
       purchaseType: String(r[4] || ''), purchaseUnit: String(r[5] || ''), price: price, perPurchase: per, conversion: parseJson_(r[8], {}),
-      priceDate: toDateStr_(r[9]), unitCost: price !== null && per ? round4_(price / per) : null };
+      priceDate: toDateStr_(r[9]), unitCost: price !== null && per ? round4_(price / per) : null,
+      check: /^[GY]$/.test(String(r[12] || '').trim().toUpperCase()) ? String(r[12]).trim().toUpperCase() : '' };
   }).filter(x => x.code));
 }
 
@@ -2202,6 +2203,19 @@ function priceHistory_(code) {
 }
 
 /** The Materials screen: every material with its price, cost per unit, price history and the items using it. */
+/** A check mark on a material while going through prices: '' (white) → G (green) → Y (yellow). Shared by all staff. */
+function setMaterialCheck(token, code, mark) {
+  const u = authStaff_(token, 'masters');
+  const m = readMaterials_().filter(x => x.code === String(code || '').toUpperCase())[0];
+  if (!m) throw new Error('Material not found.');
+  mark = /^[GY]$/.test(String(mark || '').toUpperCase()) ? String(mark).toUpperCase() : '';
+  const sh = sheet_(SHEET.MATERIALS);
+  if (String(sh.getRange(1, 13).getValues()[0][0] || '') === '') sh.getRange(1, 13).setValue('Check').setFontWeight('bold').setBackground('#e8eefc');
+  sh.getRange(m.row, 13).setValue(mark);
+  forget_('materials');
+  return { code: m.code, check: mark };
+}
+
 function materialList(token) {
   const u = authStaff_(token, 'masters|reports|issue|confirm');
   const used = {};
