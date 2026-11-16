@@ -1060,11 +1060,11 @@ VIEWS.cutting = function () {
   load('cuttingView', S.token).then(function (r) {
     S.data.cv = r;
     var todo = r.list.filter(function (c) { return c.status === 'TODO'; }), done = r.list.filter(function (c) { return c.status === 'DONE'; });
-    var mats = function (c) { return c.materials.map(function (m) { return esc(m.name) + ' <b>' + num(m.qty) + '</b> ' + esc(m.unit); }).join('<br>'); };
+    var mats = function (c) { return c.materials.map(function (m) { return esc(m.name) + ' <b>' + num(m.qty) + '</b> ' + esc(m.unit) + (m.rolls ? ' <span class="pill">' + num(m.rolls) + ' roll' + (m.rolls === 1 ? '' : 's') + '</span>' : ''); }).join('<br>'); };
     render('<h1 class="page">✂️ Cutting Room <small>cutting of CR-tagged materials, per SKU</small></h1>' +
       (r.canCut ? '<div class="card"><h2>New cutting</h2>' + (r.items.length ?
-        '<div class="row"><div><label class="f">SKU</label><select id="cuI" onchange="cutPreview()"><option value="">Choose SKU…</option>' + r.items.map(function (i) { return '<option value="' + esc(i.code) + '">' + esc(i.code) + '</option>'; }).join('') + '</select></div>' +
-        '<div><label class="f">Total quantity (pieces)</label><input id="cuQ" type="number" inputmode="numeric" oninput="cutPreview()"></div><div><label class="f">Date</label><input id="cuD" type="date" value="' + todayIso() + '"></div></div>' +
+        '<div class="row"><div><label class="f">SKU</label><select id="cuI" onchange="S.data.cuRolls={};cutPreview()"><option value="">Choose SKU…</option>' + r.items.map(function (i) { return '<option value="' + esc(i.code) + '">' + esc(i.code) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label class="f">Total quantity (pieces)</label><input id="cuQ" type="number" inputmode="numeric" oninput="cutCalc()"></div><div><label class="f">Date</label><input id="cuD" type="date" value="' + todayIso() + '"></div></div>' +
         '<div id="cuP" class="muted" style="margin-top:8px">Choose the SKU: its CR materials show here.</div><input id="cuN" style="margin-top:8px" placeholder="Note (optional)">' +
         '<button class="btn block" onclick="cutSave(this)">Add cutting</button>' :
         '<div class="msg warn">No SKU has a CR material yet. In <a class="lnk" onclick="go(\'materials\')">Materials</a>, tap <b>CR</b> next to the materials that are cut in the cutting room.</div>') + '</div>' : '') +
@@ -1085,18 +1085,40 @@ VIEWS.cutting = function () {
       }).join('') + '</table></div>' : '<div class="muted">No completed cutting yet.</div>') + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+/* New cutting: the SKU's CR materials. Rolls (for a material bought in rolls) work out the pieces: rolls × roll size ÷
+   per piece (the smallest when several have rolls); the pieces can still be changed. */
+function cutItem() { return (S.data.cv.items || []).filter(function (i) { return i.code === val('cuI'); })[0]; }
 function cutPreview() {
-  var it = (S.data.cv.items || []).filter(function (i) { return i.code === val('cuI'); })[0], q = Number(val('cuQ')) || 0;
-  if (!$('cuP')) return;
-  $('cuP').innerHTML = !it ? 'Choose the SKU: its CR materials show here.' : '<div class="scroll"><table class="tbl"><tr><th>CR material</th><th class="r">Per piece</th><th class="r">For ' + (q || '…') + ' pieces</th></tr>' + it.cr.map(function (m) {
-    return '<tr><td>' + esc(m.name) + '</td><td class="r">' + num(m.perPiece) + ' ' + esc(m.unit) + '</td><td class="r"><b>' + (q ? num(Math.round(m.perPiece * q * 1000) / 1000) : '–') + '</b> ' + esc(m.unit) + '</td></tr>';
+  var it = cutItem(); if (!$('cuP')) return;
+  S.data.cuRolls = S.data.cuRolls || {};
+  $('cuP').innerHTML = !it ? 'Choose the SKU: its CR materials show here.' : '<div class="scroll"><table class="tbl"><tr><th>CR material</th><th class="r">Per piece</th><th class="r">Rolls</th><th class="r" id="cuH">For … pieces</th></tr>' + it.cr.map(function (m, i) {
+    return '<tr><td>' + esc(m.name) + '</td><td class="r">' + num(m.perPiece) + ' ' + esc(m.unit) + '</td>' +
+      '<td class="r">' + (m.perRoll ? '<input type="number" step="any" inputmode="decimal" style="width:90px;display:inline-block" value="' + (S.data.cuRolls[m.code] || '') + '" oninput="cutRolls(\'' + q(m.code) + '\',this.value)"><div class="muted" style="font-size:12px">1 roll = ' + num(m.perRoll) + ' ' + esc(m.unit) + '</div>' : '<span class="muted" style="font-size:12px">not bought in rolls</span>') + '</td>' +
+      '<td class="r"><b id="cuA' + i + '">–</b> ' + esc(m.unit) + '<div class="muted" id="cuR' + i + '" style="font-size:12px"></div></td></tr>';
   }).join('') + '</table></div>';
+  cutCalc();
+}
+function cutRolls(code, v) {
+  S.data.cuRolls[code] = v;
+  var it = cutItem(), best = null;
+  it.cr.forEach(function (m) { var r = Number(S.data.cuRolls[m.code]) || 0; if (r > 0 && m.perRoll) { var p = Math.floor(r * m.perRoll / m.perPiece + 1e-9); best = best === null ? p : Math.min(best, p); } });
+  if (best !== null) $('cuQ').value = best;
+  cutCalc();
+}
+function cutCalc() {
+  var it = cutItem(), qn = Number(val('cuQ')) || 0; if (!it || !$('cuH')) return;
+  $('cuH').textContent = 'For ' + (qn || '…') + ' pieces';
+  it.cr.forEach(function (m, i) {
+    var need = Math.round(m.perPiece * qn * 1000) / 1000, r = Number(S.data.cuRolls[m.code]) || 0, have = r * m.perRoll;
+    $('cuA' + i).textContent = qn ? num(need) : '–';
+    $('cuR' + i).textContent = qn && m.perRoll ? (r > 0 ? (have >= need - 1e-9 ? 'left over ' + num(Math.round((have - need) * 1000) / 1000) + ' ' + m.unit : 'short ' + num(Math.round((need - have) * 1000) / 1000) + ' ' + m.unit) : '≈ ' + num(Math.round(need / m.perRoll * 100) / 100) + ' rolls') : '';
+  });
 }
 function cutSave(btn) {
   if (!val('cuI')) return toast('Choose the SKU.');
   if (!(Number(val('cuQ')) > 0)) return toast('Enter the quantity (pieces).');
   busy(btn, true);
-  api('saveCutting', S.token, { item: val('cuI'), qty: val('cuQ'), date: val('cuD'), note: val('cuN') }).then(function (r) { toast('Cutting added'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
+  api('saveCutting', S.token, { item: val('cuI'), qty: val('cuQ'), date: val('cuD'), note: val('cuN'), rolls: S.data.cuRolls || {} }).then(function (r) { toast('Cutting added'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
 }
 function cutStatus(id, st, btn) {
   if (st === 'CANCELLED' && !confirm('Remove cutting ' + id + '?')) return;

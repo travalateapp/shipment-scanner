@@ -33,7 +33,10 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   - Work Orders columns added: Machine, Target Date, Off Machine (when Complete job freed the machine).
 - **Cutting Room** (permission "cutting" to enter; staff with reports / machines can see it). In Materials, tap
   **CR** next to a material that is cut in the cutting room (filter "CR"; column Tags). A cutting = an SKU and a
-  quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). It waits in **To cut**
+  quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). For a CR material bought
+  in rolls, type the **number of rolls**: rolls × the usual roll size (from its price) ÷ per piece gives the pieces
+  (the smallest when several materials have rolls; it can still be changed), with what is left over or short. The
+  rolls are saved with the cutting. It waits in **To cut**
   until someone taps **Cutting completed** (undo is possible while it is not used; remove while not done). The
   store is not changed by cutting (material still leaves the store with the job). Completed cutting is **used up
   when a job of that SKU starts** (Work Orders column Cut Used). **Next jobs & cutting** (Cutting Room and the

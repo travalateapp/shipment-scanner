@@ -1247,7 +1247,15 @@ function readCuttings_() {
 function crMaterials_(item) {
   const mats = materialMap_();
   return (bomMap_()[item] || []).filter(x => mats[x.material] && mats[x.material].tags.indexOf('CR') >= 0)
-    .map(x => ({ code: x.material, name: mats[x.material].name, unit: mats[x.material].unit, perPiece: x.qty }));
+    .map(x => ({ code: x.material, name: mats[x.material].name, unit: mats[x.material].unit, perPiece: x.qty, perRoll: perRoll_(mats[x.material]) }));
+}
+
+/** How much of a material (in its unit) one usual roll gives; 0 if it is not bought in rolls (or the size is not known). */
+function perRoll_(m) {
+  const c = m.conversion || {}, L = Number(c.length) || 0, W = Number(c.width) || 0, unit = String(m.unit || '').toLowerCase();
+  if (m.purchaseType === 'ROLL') return unit === 'm' ? L : m.perPurchase || 0;
+  if (m.purchaseType === 'METER' || m.purchaseType === 'SQM') return unit === 'm' ? L : unit === 'sq m' && W ? round4_(L * W) : 0;
+  return 0;
 }
 
 /** Completed cutting not used yet, per item (pieces). */
@@ -1306,14 +1314,16 @@ function saveCutting(token, data) {
   const q = Number(data.qty);
   if (!(q > 0) || q % 1) throw new Error('Enter the quantity (pieces).');
   const date = data.date ? toDateStr_(data.date) : todayStr_();
-  const mats = cr.map(x => ({ code: x.code, name: x.name, unit: x.unit, qty: round3_(x.perPiece * q) }));
+  const rolls = data.rolls || {};
+  const mats = cr.map(x => Object.assign({ code: x.code, name: x.name, unit: x.unit, qty: round3_(x.perPiece * q) },
+    Number(rolls[x.code]) > 0 ? { rolls: Number(rolls[x.code]) } : {}));
   const id = withLock_(() => {
     const id = nextId_(SHEET.CUTTINGS, 'C-');
     sheet_(SHEET.CUTTINGS).appendRow([id, "'" + date, item, q, JSON.stringify(mats), 'TODO', String(data.note || '').slice(0, 200), u.id, nowStr_(), '', '']);
     forget_('cuttings');
     return id;
   });
-  log_(u, 'CUTTING', id, item + ' × ' + q + ': ' + mats.map(m => m.name + ' ' + m.qty + ' ' + m.unit).join(', '));
+  log_(u, 'CUTTING', id, item + ' × ' + q + ': ' + mats.map(m => m.name + ' ' + m.qty + ' ' + m.unit + (m.rolls ? ' (' + m.rolls + ' rolls)' : '')).join(', '));
   return cuttingView(token);
 }
 
