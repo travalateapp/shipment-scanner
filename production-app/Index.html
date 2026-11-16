@@ -849,8 +849,9 @@ VIEWS.machines = function (f) {
     render('<h1 class="page">🏭 Machine Dashboard <small>tap a machine to start a job, count the goods or plan the next job</small></h1>' +
       '<div class="tabs">' + tab('', 'All (' + r.list.length + ')') + tab('run', 'Running (' + n('run') + ')') + tab('c2', 'Count 2 pending (' + n('c2') + ')') + tab('late', 'Late (' + n('late') + ')') + tab('idle', 'Idle (' + n('idle') + ')') + '</div>' +
       '<div class="muted" style="margin:-4px 0 10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">Next job starts at: ' +
-      (r.canSetup ? '<select class="fix" style="width:auto" onchange="machSetting(this.value)"><option value="COUNT1"' + (r.nextAt === 'COUNT1' ? ' selected' : '') + '>Count 1 of the job before</option><option value="COUNT2"' + (r.nextAt === 'COUNT2' ? ' selected' : '') + '>Count 2 (final count) of the job before</option></select>' +
+      (r.canSetup ? '<select class="fix" style="width:auto" onchange="machSetting(this.value)"><option value="COUNT2"' + (r.nextAt === 'COUNT2' ? ' selected' : '') + '>Count 2 (final count) of the job before</option><option value="COUNT1"' + (r.nextAt === 'COUNT1' ? ' selected' : '') + '>Count 1 of the job before</option></select>' +
         ' <button class="btn sec sm" onclick="machAdd(this)">+ Add machine</button>' : '<b>' + (r.nextAt === 'COUNT2' ? 'Count 2 (final count)' : 'Count 1') + '</b> of the job before') + '</div>' +
+      (function () { var aw = r.karigars.filter(function (k) { return k.away; }); return aw.length ? '<div class="msg warn" style="margin:0 0 10px">🏠 Gone home: ' + aw.map(function (k) { return '<b>' + esc(k.name) + '</b> <span class="muted">(' + d(k.away) + ')</span> <a class="lnk" onclick="machAway(\'' + k.id + '\',false)">back</a>'; }).join(' · ') + '</div>' : ''; })() +
       '<div class="mgrid">' + (list.map(function (m) {
         var st = mState(m), j = m.job || m.pending[0];
         var head = '<div class="mtop"><span class="mid">' + esc(m.name) + '</span><span class="mst ' + st + '">● ' + lab[st] + '</span></div>';
@@ -858,7 +859,7 @@ VIEWS.machines = function (f) {
         if (!j) return '<div class="mc idle" onclick="machWin(\'' + m.id + '\')">' + head + (m.next ? '<div class="ms" style="margin-top:20px">Next job waiting to start</div>' + nx : '<div class="mhint">Tap to start a job</div>') + '</div>';
         var pct = Math.min(100, Math.round(100 * j.received / Math.max(1, j.qty)));
         return '<div class="mc' + (st === 'c2' ? ' c2b' : st === 'late' ? ' lateb' : '') + '" onclick="machWin(\'' + m.id + '\')">' + head +
-          '<div class="mk">' + esc(j.karigar) + '</div><div class="mj">' + esc(j.id) + ' · ' + esc(j.item) + ' × ' + j.qty + '</div>' +
+          '<div class="mk">' + esc(j.karigar) + (r.karigars.some(function (k) { return k.id === j.karigarId && k.away; }) ? ' <span class="pill warn" style="font-size:11px">gone home</span>' : '') + '</div><div class="mj">' + esc(j.id) + ' · ' + esc(j.item) + ' × ' + j.qty + '</div>' +
           (m.job ? '<div class="ms">Started ' + d(j.date) + (j.target ? ' · ' + (j.late ? '<b style="color:var(--err)">due ' + d(j.target) + '</b>' : 'due ' + d(j.target)) : '') + (j.received ? ' · received ' + j.received : '') + '</div>' +
             '<div class="mbar"><i style="width:' + pct + '%"></i></div>' : '') +
           m.pending.map(function (p) { return '<div class="ms" style="color:#b45309">' + esc(p.id) + ': ' + (p.batch ? 'count 1 done, waiting for count 2' : 'count again (count 1 was removed)') + '</div>'; }).join('') + nx + '</div>';
@@ -874,35 +875,45 @@ function machRateHtml(pre, val) {
     (pre === 'mne' ? '' : '<div class="chk" id="' + pre + 'Fw" style="display:none;margin-top:6px"><input type="checkbox" id="' + pre + 'F"> Also use this rate for this karigar\'s future lots of this item</div>');
 }
 function machRateVals(pre) { return { lotRate: $(pre + 'R') ? val(pre + 'R') : '', futureToo: $(pre + 'F') ? $(pre + 'F').checked : false, note: $(pre + 'N') ? val(pre + 'N') : '' }; }
+function machCountBtn(wo, karigarId, remaining, label) {
+  if (!S.data.mv.canCount) return '';
+  return isMobile() ? '<button class="btn sm ok" onclick="machComplete(\'' + wo + '\',\'' + karigarId + '\',' + remaining + ')">' + (label || 'Start count') + '</button>'
+    : '<span class="pill" style="white-space:nowrap" title="Count 1 needs the phone camera">Open app on phone</span>';
+}
+function machAway(id, away, back) {
+  api('setKarigarAway', S.token, id, away).then(function () { toast(away ? 'Marked as gone home' : 'Marked present'); if (back) { closeModal(); go(S.view, S.arg); } else machReload(); }).catch(function (e) { toast(e.message); });
+}
 function machOf(id) { return (S.data.mv.list || []).filter(function (m) { return m.id === id; })[0]; }
-function machKarOpts(m, sel) {
+function machKarOpts(m, sel, forStart) {
   return '<option value="">Karigar…</option>' + S.data.mv.karigars.map(function (k) {
     var busy = k.on && k.on !== m.name;
-    return '<option value="' + esc(k.id) + '"' + (k.id === sel ? ' selected' : '') + '>' + esc(k.name) + (busy ? ' (on ' + esc(k.on) + ')' : '') + '</option>';
+    return '<option value="' + esc(k.id) + '"' + (k.id === sel ? ' selected' : '') + (k.away && forStart ? ' disabled' : '') + '>' + esc(k.name) + (busy ? ' (on ' + esc(k.on) + ')' : '') + (k.away ? ' (gone home)' : '') + '</option>';
   }).join('');
 }
 function machWin(id) {
   var r = S.data.mv, m = machOf(id); if (!m) return;
   var j = m.job, h = '';
   if (j) {
-    h += '<div class="kv"><div>Karigar</div><div><b>' + esc(j.karigar) + '</b></div><div>Job</div><div><b>' + esc(j.id) + '</b> · ' + esc(j.item) + ' × ' + j.qty + (j.rate !== null && j.rate !== undefined ? ' · ' + money(j.rate) + ' / piece' : '') + '</div>' +
+    var kj = r.karigars.filter(function (k) { return k.id === j.karigarId; })[0] || {};
+    h += '<div class="kv"><div>Karigar</div><div><b>' + esc(j.karigar) + '</b> ' + (kj.away ? '<span class="pill warn">gone home ' + d(kj.away) + '</span> <a class="lnk" onclick="machAway(\'' + j.karigarId + '\',false)">mark present</a>' : '<a class="lnk" style="font-size:12.5px" onclick="machAway(\'' + j.karigarId + '\',true)">gone home?</a>') + '</div><div>Job</div><div><b>' + esc(j.id) + '</b> · ' + esc(j.item) + ' × ' + j.qty + (j.rate !== null && j.rate !== undefined ? ' · ' + money(j.rate) + ' / piece' : '') + '</div>' +
       '<div>Started</div><div>' + d(j.date) + '</div><div>Target date</div><div>' + (j.target ? (j.late ? '<b style="color:var(--err)">' + d(j.target) + ' · late</b>' : d(j.target)) : '<span class="muted">none</span>') + ' <a class="lnk" onclick="machTarget(\'' + j.id + '\',\'' + (j.target || '') + '\',\'' + m.id + '\')">change</a></div>' +
       '<div>Received so far</div><div>' + j.received + ' of ' + j.qty + (j.extra ? ' <span class="pill warn">+' + j.extra + ' extra</span>' : '') + '</div></div>' +
       '<h2 style="margin-top:14px">Goods ready? Complete the job</h2>' +
-      '<div class="mstep"><div class="n">1</div><div class="grow"><b>Count 1</b> <span class="muted">(photo with the phone camera)</span><div class="muted">Opens count 1 with ' + esc(j.id) + ' chosen and ' + j.remaining + ' filled in. The machine is free once count 1 is saved.</div></div>' +
-      (r.canCount ? '<button class="btn sm ok" onclick="machComplete(\'' + j.id + '\',\'' + j.karigarId + '\',' + j.remaining + ')">✅ Complete job</button>' : '') + '</div>' +
-      '<div class="mstep"><div class="n">2</div><div class="grow"><b>Count 2</b> <span class="muted">(another person, blind)</span><div class="muted">The final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came.</div></div></div>';
+      '<div class="mstep"><div class="n">1</div><div class="grow"><b>Count 1</b> <span class="muted">(photo with the phone camera)</span><div class="muted">Opens count 1 with ' + esc(j.id) + ' chosen and ' + j.remaining + ' filled in.</div></div>' +
+      machCountBtn(j.id, j.karigarId, j.remaining) + '</div>' +
+      '<div class="mstep"><div class="n">2</div><div class="grow"><b>Count 2</b> <span class="muted">(another person, blind)</span><div class="muted">The final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came. ' +
+      (r.nextAt === 'COUNT1' ? 'The next job starts at count 1.' : 'Then the next job starts by itself; with no next job the machine is idle and the karigar is free.') + '</div></div></div>';
   }
   m.pending.forEach(function (p) {
     var can2 = r.canCount && p.batch && p.count1By !== r.me;
     h += '<div class="mstep wait"><div class="n">2</div><div class="grow"><b>' + esc(p.id) + '</b> · ' + esc(p.karigar) + ' · ' + esc(p.item) + ' × ' + p.qty +
       '<div class="muted">' + (p.batch ? 'Count 1 done (' + esc(p.batch) + (p.count1ByName ? ', by ' + esc(p.count1ByName) : '') + '): waiting for count 2 by a different person' : 'Count 1 was removed: count it again') + '</div></div>' +
       (p.batch ? (can2 ? '<button class="btn sm" onclick="machCount2(\'' + p.batch + '\')">Count 2</button>' : r.canCount ? '<span class="muted">You did count 1</span>' : '') :
-        r.canCount ? '<button class="btn sm" onclick="machComplete(\'' + p.id + '\',\'' + p.karigarId + '\',' + p.remaining + ')">Count 1 again</button>' : '') + '</div>';
+        machCountBtn(p.id, p.karigarId, p.remaining, 'Count 1 again')) + '</div>';
   });
   if (!j && !m.next) {
     h += '<h2 style="margin-top:' + (h ? 16 : 0) + 'px">Start a job on ' + esc(m.name) + '</h2>' +
-      '<div class="row"><div><label class="f">Karigar</label><select id="mwK">' + machKarOpts(m, '') + '</select></div><div><label class="f">Item</label><select id="mwI">' + itemOpts(r.items, '') + '</select></div></div>' +
+      '<div class="row"><div><label class="f">Karigar</label><select id="mwK">' + machKarOpts(m, '', true) + '</select></div><div><label class="f">Item</label><select id="mwI">' + itemOpts(r.items, '') + '</select></div></div>' +
       '<div class="row"><div><label class="f">Qty</label><input id="mwQ" type="number" inputmode="numeric"></div><div><label class="f">Date</label><input id="mwD" type="date" value="' + todayIso() + '" max="' + todayIso() + '"></div><div><label class="f">Target date (optional)</label><input id="mwT" type="date"></div></div>' +
       machRateHtml('mw') +
       '<div class="muted" style="margin-top:6px">A work order is made for this machine and its material is given to the karigar at once. Its rate: the special rate if you type one, otherwise the karigar\'s own rate, otherwise the standard rate.</div>' +
@@ -921,8 +932,7 @@ function machWin(id) {
       '<div class="row"><div><label class="f">Qty</label><input id="mnQ" type="number" inputmode="numeric"></div><div><label class="f">Target date (optional)</label><input id="mnT" type="date"></div></div>' +
       machRateHtml('mn') +
       '<div class="muted" style="margin-top:6px">Saved as a <b>Next</b> work order (Work orders → Next). It starts by itself at ' + (r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of the job before; its material is given to the karigar then.</div>' +
-      '<div class="row" style="margin-top:8px"><button class="btn sec" onclick="machNext(\'' + m.id + '\',0,this)">💾 Save next job</button>' +
-      (j && r.canCount ? '<button class="btn" onclick="machNext(\'' + m.id + '\',1,this)">✅ Complete job &amp; start next</button>' : '') + '</div>';
+      '<button class="btn block" onclick="machNext(\'' + m.id + '\',0,this)">💾 Save next job</button>';
   }
   if (r.canSetup) h += '<div class="muted" style="margin-top:14px;text-align:right"><a class="lnk" onclick="machRename(\'' + m.id + '\')">Rename ' + esc(m.name) + '</a>' +
     (!j && !m.pending.length && !m.next ? ' · <a class="lnk" onclick="machRemove(\'' + m.id + '\')">Remove machine</a>' : '') + '</div>';
@@ -1295,7 +1305,9 @@ VIEWS.karigars = function () {
     render('<h1 class="page">👷 Karigars & rates</h1>' +
       (r.canEdit ? '<div class="card"><h2>Add a karigar</h2><div class="row"><input id="kN" placeholder="Name"><input id="kP" placeholder="Phone"></div><div class="row" style="margin-top:8px"><input id="kI" placeholder="ID (blank = automatic)"><input id="kPin" inputmode="numeric" placeholder="PIN (4–8 digits)"><button class="btn fix" onclick="addKarigar(this)">Add</button></div></div>' : '') +
       '<div class="card scroll"><table class="tbl"><tr><th>ID</th><th>Name</th><th>Phone</th><th>Joined</th><th>Status</th><th></th></tr>' + r.list.map(function (k) {
-        return '<tr><td><b>' + esc(k.id) + '</b></td><td>' + esc(k.name) + '</td><td>' + esc(k.phone) + '</td><td>' + d(k.joined) + '</td><td>' + (k.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td>' +
+        return '<tr><td><b>' + esc(k.id) + '</b></td><td>' + esc(k.name) + '</td><td>' + esc(k.phone) + '</td><td>' + d(k.joined) + '</td><td>' + (k.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') +
+          (k.active ? (k.away ? ' <span class="pill warn">gone home ' + d(k.away) + '</span>' : ' <span class="pill info">present</span>') +
+            (r.canEdit || can('machines') ? ' <a class="lnk" style="font-size:12.5px;white-space:nowrap" onclick="machAway(\'' + k.id + '\',' + (k.away ? 'false' : 'true') + ',1)">' + (k.away ? 'mark present' : 'gone home') + '</a>' : '') : '') + '</td>' +
           '<td style="white-space:nowrap"><button class="btn sm" onclick="rates(\'' + k.id + '\')">Rates</button> ' + (r.canEdit ? '<button class="btn sec sm" onclick="editKarigar(\'' + k.id + '\')">Edit</button>' : '') + '</td></tr>';
       }).join('') + '</table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
