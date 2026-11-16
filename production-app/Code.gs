@@ -1566,9 +1566,14 @@ function setMaterialPrice(token, data) {
   if (!m) throw new Error('Material not found.');
   const price = Number(data.price);
   if (!(price > 0)) throw new Error('Enter the price.');
-  const type = ['ROLL', 'METER', 'SQM', 'WEIGHT', 'PACK', 'UNIT'].indexOf(data.type) >= 0 ? data.type : 'UNIT';
+  const type = ['ROLL', 'METER', 'SQM', 'LEN', 'WEIGHT', 'PACK', 'UNIT'].indexOf(data.type) >= 0 ? data.type : 'UNIT';
   let per, purchaseUnit, conv, text;
-  if (type === 'SQM') { // used in m, bought per sq m: 1 m of a W m wide fabric = W sq m, so cost per m = rate × W
+  if (type === 'LEN') { // used in inch / cm / mm / ft, bought per meter: 1 m = 39.3701 inch …
+    const f = perMeter_(m.unit);
+    if (!f) throw new Error('"Per m" is for a material used in inch, cm, mm or ft.');
+    per = f; purchaseUnit = 'm'; conv = { perM: f };
+    text = '1 m = ' + round4_(f) + ' ' + m.unit;
+  } else if (type === 'SQM') { // used in m, bought per sq m: 1 m of a W m wide fabric = W sq m, so cost per m = rate × W
     const W = Number(data.width);
     if (!(W > 0) || W > 10) throw new Error('Enter the width of the fabric in meters (e.g. 1.4).');
     if (!/^m$/i.test(String(m.unit).trim())) throw new Error('"Per sq m" is for a material used in m.');
@@ -1608,6 +1613,12 @@ function setMaterialPrice(token, data) {
   log_(u, 'MATERIAL_PRICE', m.code, (m.unitCost === null ? 'none' : m.unitCost) + ' → ' + cost + ' per ' + m.unit + ' (' + text + ', ' + price + ' per ' + purchaseUnit + ')' +
     (data.note ? ' | ' + data.note : ''));
   return materialList(token);
+}
+
+/** How many of this length unit make 1 meter (inch 39.3701, cm 100, mm 1000, ft 3.28084); 0 for other units. */
+function perMeter_(unit) {
+  const u = String(unit || '').trim().toLowerCase();
+  return /^(inch|inches|in|")$/.test(u) ? 39.3701 : /^cm$/.test(u) ? 100 : /^mm$/.test(u) ? 1000 : /^(ft|feet|foot)$/.test(u) ? 3.28084 : 0;
 }
 
 /**
