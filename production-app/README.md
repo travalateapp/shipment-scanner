@@ -13,8 +13,12 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   the next job starts). M1 … M20 to start with (sheet Machines). Each card shows the machine, the karigar, the job
   (work order · SKU × qty), started / due, a progress bar and the next job; filters All / Running / Count 2
   pending / Late / Idle. Tap a machine:
-  - **Start a job** (idle machine): karigar, item, qty, date, target date → a work order on that machine; its
-    material is given at once. One karigar works on one machine; one job per machine.
+  - **Start a job** (idle machine): karigar, item, qty, date, target date, special rate (staff with "masters";
+    blank = the karigar's own or the standard rate; optionally also for that karigar's future lots) and a note →
+    a work order on that machine; its material is given at once. One karigar works on one machine; one job per
+    machine. **This is now the only place to create work orders**: the Work orders screen keeps the list (All /
+    Current / Last completed / Next) with Rate, Close and target dates, without the New work order form.
+  - A next job can have a special rate too; it is used when the job starts.
   - **Complete job** = **count 1** of that work order (the usual count 1 with the phone camera photo, work order
     and quantity filled in). The machine is free once count 1 is saved; the job waits for **count 2** (another
     person, blind) and is then **marked completed even if fewer pieces came** ("N fewer" in Work orders).

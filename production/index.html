@@ -865,6 +865,15 @@ VIEWS.machines = function (f) {
       }).join('') || '<div class="muted">No machine here.</div>') + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+/* Special rate on a machine job (staff with 'masters'): blank = the karigar's own or the standard rate. */
+function machRateHtml(pre, val) {
+  if (!S.data.mv.canRate) return '';
+  return '<div class="row"><div><label class="f">Special rate ₹ / piece (optional)</label><input id="' + pre + 'R" type="number" step="any" inputmode="decimal" placeholder="blank = normal rate" value="' + (val === null || val === undefined ? '' : val) + '"' +
+    ' oninput="var c=$(\'' + pre + 'Fw\');if(c)c.style.display=this.value!==\'\'?\'flex\':\'none\'"></div>' +
+    (pre === 'mne' ? '' : '<div><label class="f">Note (optional)</label><input id="' + pre + 'N"></div>') + '</div>' +
+    (pre === 'mne' ? '' : '<div class="chk" id="' + pre + 'Fw" style="display:none;margin-top:6px"><input type="checkbox" id="' + pre + 'F"> Also use this rate for this karigar\'s future lots of this item</div>');
+}
+function machRateVals(pre) { return { lotRate: $(pre + 'R') ? val(pre + 'R') : '', futureToo: $(pre + 'F') ? $(pre + 'F').checked : false, note: $(pre + 'N') ? val(pre + 'N') : '' }; }
 function machOf(id) { return (S.data.mv.list || []).filter(function (m) { return m.id === id; })[0]; }
 function machKarOpts(m, sel) {
   return '<option value="">Karigar…</option>' + S.data.mv.karigars.map(function (k) {
@@ -895,12 +904,13 @@ function machWin(id) {
     h += '<h2 style="margin-top:' + (h ? 16 : 0) + 'px">Start a job on ' + esc(m.name) + '</h2>' +
       '<div class="row"><div><label class="f">Karigar</label><select id="mwK">' + machKarOpts(m, '') + '</select></div><div><label class="f">Item</label><select id="mwI">' + itemOpts(r.items, '') + '</select></div></div>' +
       '<div class="row"><div><label class="f">Qty</label><input id="mwQ" type="number" inputmode="numeric"></div><div><label class="f">Date</label><input id="mwD" type="date" value="' + todayIso() + '" max="' + todayIso() + '"></div><div><label class="f">Target date (optional)</label><input id="mwT" type="date"></div></div>' +
-      '<div class="muted" style="margin-top:6px">A work order is made for this machine and its material is given to the karigar at once.</div>' +
+      machRateHtml('mw') +
+      '<div class="muted" style="margin-top:6px">A work order is made for this machine and its material is given to the karigar at once. Its rate: the special rate if you type one, otherwise the karigar\'s own rate, otherwise the standard rate.</div>' +
       '<button class="btn block" onclick="machStart(\'' + m.id + '\',this)">▶ Start job</button>';
   }
   if (m.next) {
     var nx = m.next;
-    h += '<h2 style="margin-top:16px">Next job on ' + esc(m.name) + '</h2><div class="mstep"><div class="grow"><b>' + esc(nx.id) + '</b> · ' + esc(nx.karigar) + ' · ' + esc(nx.item) + ' × ' + nx.qty + (nx.target ? ' · target ' + d(nx.target) : '') +
+    h += '<h2 style="margin-top:16px">Next job on ' + esc(m.name) + '</h2><div class="mstep"><div class="grow"><b>' + esc(nx.id) + '</b> · ' + esc(nx.karigar) + ' · ' + esc(nx.item) + ' × ' + nx.qty + (nx.rate !== null && nx.rate !== undefined ? ' · special rate ' + money(nx.rate) : '') + (nx.target ? ' · target ' + d(nx.target) : '') +
       '<div class="muted">' + (j ? 'Starts by itself at ' + (r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of ' + esc(j.id) + '.' : m.pending.length ? 'Starts by itself at count 2 of ' + esc(m.pending[0].id) + ', or start it now.' : 'Waiting to start' + (nx.karigarId && S.data.mv.karigars.some(function (k) { return k.id === nx.karigarId && k.on && k.on !== m.name; }) ? ': ' + esc(nx.karigar) + ' is still on another machine' : '') + '.') + '</div></div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (!j ? '<button class="btn sm" onclick="machNextStart(\'' + nx.id + '\',this)">▶ Start now</button>' : '') +
       '<button class="btn sec sm" onclick="machNextEdit(\'' + m.id + '\')">Edit</button><button class="btn sec sm" onclick="machNextRemove(\'' + nx.id + '\',this)">Remove</button></div></div>';
@@ -909,6 +919,7 @@ function machWin(id) {
     h += '<h2 style="margin-top:16px">Next job on ' + esc(m.name) + '</h2>' +
       '<div class="row"><div><label class="f">Karigar</label><select id="mnK">' + machKarOpts(m, base.karigarId) + '</select></div><div><label class="f">Item</label><select id="mnI">' + itemOpts(r.items, base.item) + '</select></div></div>' +
       '<div class="row"><div><label class="f">Qty</label><input id="mnQ" type="number" inputmode="numeric"></div><div><label class="f">Target date (optional)</label><input id="mnT" type="date"></div></div>' +
+      machRateHtml('mn') +
       '<div class="muted" style="margin-top:6px">Saved as a <b>Next</b> work order (Work orders → Next). It starts by itself at ' + (r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of the job before; its material is given to the karigar then.</div>' +
       '<div class="row" style="margin-top:8px"><button class="btn sec" onclick="machNext(\'' + m.id + '\',0,this)">💾 Save next job</button>' +
       (j && r.canCount ? '<button class="btn" onclick="machNext(\'' + m.id + '\',1,this)">✅ Complete job &amp; start next</button>' : '') + '</div>';
@@ -924,7 +935,8 @@ function machStart(id, btn) {
   if (!val('mwI')) return toast('Choose the item.');
   if (!(Number(val('mwQ')) > 0)) return toast('Enter the quantity.');
   busy(btn, true);
-  api('saveOrders', S.token, { karigarId: val('mwK'), machine: id, date: val('mwD') !== todayIso() ? val('mwD') : '', target: val('mwT'), lines: [{ item: val('mwI'), qty: val('mwQ') }] }).then(function (r) {
+  var rv = machRateVals('mw');
+  api('saveOrders', S.token, { karigarId: val('mwK'), machine: id, date: val('mwD') !== todayIso() ? val('mwD') : '', target: val('mwT'), note: rv.note, lines: [{ item: val('mwI'), qty: val('mwQ'), lotRate: rv.lotRate, futureToo: rv.futureToo }] }).then(function (r) {
     toast((r.added && r.added[0] ? r.added[0].id + ' started' : 'Job started') + ': its material is given to the karigar');
     machReload(r);
   }).catch(function (e) { fail(e, btn); });
@@ -935,7 +947,8 @@ function machNext(id, andComplete, btn) {
   if (!(Number(val('mnQ')) > 0)) return toast('Enter the quantity.');
   var m = machOf(id), j = m.job;
   busy(btn, true);
-  api('saveOrders', S.token, { karigarId: val('mnK'), machine: id, next: true, target: val('mnT'), lines: [{ item: val('mnI'), qty: val('mnQ') }] }).then(function (r) {
+  var rv = machRateVals('mn');
+  api('saveOrders', S.token, { karigarId: val('mnK'), machine: id, next: true, target: val('mnT'), note: rv.note, lines: [{ item: val('mnI'), qty: val('mnQ'), lotRate: rv.lotRate, futureToo: rv.futureToo }] }).then(function (r) {
     S.data.mv = r;
     toast('Next job saved');
     if (andComplete && j) machComplete(j.id, j.karigarId, j.remaining); else machReload(r);
@@ -945,12 +958,15 @@ function machNextEdit(id) {
   var m = machOf(id), nx = m.next, r = S.data.mv;
   modal('Next job · ' + m.name, '<div class="row"><div><label class="f">Karigar</label><select id="mnK">' + machKarOpts(m, nx.karigarId) + '</select></div><div><label class="f">Item</label><select id="mnI">' + itemOpts(r.items, nx.item) + '</select></div></div>' +
     '<div class="row"><div><label class="f">Qty</label><input id="mnQ" type="number" inputmode="numeric" value="' + nx.qty + '"></div><div><label class="f">Target date (optional)</label><input id="mnT" type="date" value="' + (nx.target || '') + '"></div></div>' +
+    machRateHtml('mne', nx.rate) +
     '<button class="btn block" onclick="machNextSave(\'' + nx.id + '\',this)">Save</button>');
   modalBack(function () { machWin(id); });
 }
 function machNextSave(wo, btn) {
   busy(btn, true);
-  api('saveNextOrder', S.token, wo, { karigarId: val('mnK'), item: val('mnI'), qty: val('mnQ'), target: val('mnT') }).then(function () { toast('Next job changed'); machReload(); }).catch(function (e) { fail(e, btn); });
+  var nd = { karigarId: val('mnK'), item: val('mnI'), qty: val('mnQ'), target: val('mnT') };
+  if ($('mneR')) nd.lotRate = val('mneR');
+  api('saveNextOrder', S.token, wo, nd).then(function () { toast('Next job changed'); machReload(); }).catch(function (e) { fail(e, btn); });
 }
 function machNextStart(wo, btn) {
   busy(btn, true);
@@ -1020,12 +1036,7 @@ VIEWS.orders = function (f) {
     var filters = '<div class="tabs" style="margin:0 0 10px">' + tab('all', 'All') + tab('', 'Current') + tab('done', 'Last completed') + tab('next', 'Next') + '</div>';
     var empty = { '': 'No running work orders.', all: 'No work orders.', done: 'No completed work orders yet.', next: 'No next jobs. Plan one on the Machine Dashboard (tap a machine → Next job).' }[f];
     render('<h1 class="page">🧵 Work orders (lots) <small>what each karigar is making, and at what rate</small></h1>' +
-      (r.canEdit ? '<div class="card"><h2>New work order</h2><div class="row"><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
-        '<label class="fix muted" style="font-size:13px">Date</label><input id="woD" type="date" class="fix" style="width:auto" value="' + todayIso() + '" max="' + todayIso() + '">' +
-        '<label class="fix muted" style="font-size:13px">Target date</label><input id="woT" type="date" class="fix" style="width:auto" title="Optional: when it should be finished"></div>' +
-        '<div class="lines" style="margin-top:8px"><div class="ln wo hdr"><div>Item</div><div>Qty</div>' + (r.canRate ? '<div>Special rate</div>' : '') + '<div></div></div><div id="woL"></div></div>' +
-        '<button class="btn sec sm" onclick="woLine()">+ Add another item</button><input id="woN" style="margin-top:8px" placeholder="Note (optional)">' +
-        '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is given to the karigar automatically when the work order is added (no confirmation needed).</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
+      '<div class="muted" style="margin:-4px 0 10px">New work orders are started on a machine in the ' + (can('machines') ? '<a class="lnk" onclick="go(\'machines\')">Machine Dashboard</a>' : 'Machine Dashboard') + ' (tap an idle machine), with the special rate there.</div>' +
       '<div class="card scroll">' + filters + (f === 'next' ? woNextTable(r, empty) : '<table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
@@ -1034,12 +1045,11 @@ VIEWS.orders = function (f) {
             (o.completedOn ? '<div class="muted" style="font-size:12.5px;margin-top:4px">' + (o.done ? 'Completed ' : 'Closed ') + d(o.completedOn) + '</div>' : ''));
         var due = o.target ? '<div class="' + (o.late ? '' : 'muted') + '" style="font-size:12.5px;white-space:nowrap' + (o.late ? ';color:var(--err);font-weight:700' : '') + '">due ' + d(o.target) + (o.late ? ' · late' : '') + '</div>' : '';
         if (r.canEdit && o.open) due += '<a class="lnk" style="font-size:12px;white-space:nowrap" onclick="machTarget(\'' + o.id + '\',\'' + (o.target || '') + '\')">' + (o.target ? 'change' : '+ target') + '</a>';
-        return '<tr' + (o.late ? ' style="background:#fef2f2"' : '') + '><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div>' + due + '</td><td>' + esc(o.karigar) + (o.machineName ? '<div class="muted">' + esc(o.machineName) + '</div>' : '') + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + (o.short ? '<div class="pill" title="Marked completed at its final count">' + o.short + ' fewer</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
+        return '<tr' + (o.late ? ' style="background:#fef2f2"' : '') + '><td><b style="white-space:nowrap">' + o.id + '</b><div class="muted">' + d(o.date) + '</div>' + due + '</td><td>' + esc(o.karigar) + (o.machineName ? '<div class="muted">' + esc(o.machineName) + '</div>' : '') + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + (o.short ? '<div class="pill" title="Marked completed at its final count">' + o.short + ' fewer</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
           '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td>' +
           '<td class="r"><b>' + (o.cost.perPiece === null ? '–' : money(o.cost.perPiece)) + '</b><div class="muted">material ' + money(o.cost.materialPerPiece) + '</div>' + (o.cost.missing.length ? '<span class="pill warn">no price</span>' : '') + '</td>' +
           '<td class="r">' + (o.cost.total === null ? '–' : money(o.cost.total)) + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
       }).join('') || '<tr><td colspan="11" class="muted">' + empty + '</td></tr>') + '</table>') + '</div>');
-    if (r.canEdit) woLine();
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 /* Work orders → Next: planned jobs (not started: no material given, not in production). */
