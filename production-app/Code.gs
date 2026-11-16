@@ -868,13 +868,13 @@ function saveMove(token, data) {
 }
 
 /** Writes material issues (PENDING: a different person confirms the hand-over). Returns the new IDs. */
-function addMoves_(u, k, lines, note, workOrder) {
+function addMoves_(u, k, lines, note, workOrder, date) {
   if (!lines.length) return [];
   const ids = withLock_(() => {
     const sh = sheet_(SHEET.MOVES);
     let n = sh.getLastRow();
     const mats = materialMap_();
-    const rows = lines.map(l => ['M-' + ('000' + (n++)).slice(-4), "'" + todayStr_(), 'ISSUE', k.id, l.material, Number(l.qty), note,
+    const rows = lines.map(l => ['M-' + ('000' + (n++)).slice(-4), "'" + (date || todayStr_()), 'ISSUE', k.id, l.material, Number(l.qty), note,
       u.id, nowStr_(), workOrder ? 'CONFIRMED' : 'PENDING', workOrder ? u.id + ' (with the work order)' : '', workOrder ? nowStr_() : '', workOrder || '', (mats[l.material] || {}).unitCost === null || !mats[l.material] ? '' : mats[l.material].unitCost]);
     sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
     forget_('moves');
@@ -1014,7 +1014,7 @@ function orderList(token, all) {
  */
 function saveOrder(token, data) {
   data = data || {};
-  const r = saveOrders(token, { karigarId: data.karigarId, note: data.note, lines: [{ item: data.item, qty: data.qty, lotRate: data.lotRate, futureToo: data.futureToo }] });
+  const r = saveOrders(token, { karigarId: data.karigarId, date: data.date, note: data.note, lines: [{ item: data.item, qty: data.qty, lotRate: data.lotRate, futureToo: data.futureToo }] });
   r.added = r.added[0]; // one lot: same answer as before
   return r;
 }
@@ -1040,8 +1040,14 @@ function saveOrders(token, data) {
       if (!(Number(l.lotRate) >= 0)) throw new Error('Enter a valid special rate for ' + l.item + '.');
     }
   });
+  // The work order's date (default today; not in the future): its rate and its material go by this date.
+  const date = data.date ? toDateStr_(data.date) : todayStr_();
+  if (!date) throw new Error('Enter a valid date.');
+  const tomorrow = Utilities.formatDate(new Date(Date.now() + 864e5), tz_(), 'yyyy-MM-dd');
+  if (date > tomorrow) throw new Error('The date cannot be in the future.');
+  const day = date > todayStr_() ? todayStr_() : date; // a phone a little ahead (or just past midnight): today
   const storeBefore = storeStockMap_();
-  const added = lines.map(l => createOrder_(u, k, l, data.note));
+  const added = lines.map(l => createOrder_(u, k, l, data.note, day));
   // Store: what each lot needs against what is in the store (before these lots took it).
   const need = {};
   added.forEach(a => a.issueCodes.forEach(x => { need[x.material] = (need[x.material] || 0) + x.qty; }));
@@ -1053,10 +1059,10 @@ function saveOrders(token, data) {
   return Object.assign(orderList(token), { added: added.map(a => ({ id: a.id, item: a.item, qty: a.qty, issued: a.issued })), short: short });
 }
 
-function createOrder_(u, k, l, note) {
+function createOrder_(u, k, l, note, date) {
   const qty = Number(l.qty);
   const special = l.lotRate !== '' && l.lotRate !== null && l.lotRate !== undefined;
-  const today = todayStr_();
+  const today = date || todayStr_();
   const kr = karigarRateOn_(k.id, l.item, today), sr = standardRateOn_(l.item, today);
   const rate = special ? Number(l.lotRate) : kr !== null ? kr : sr;
   const source = special ? 'LOT' : kr !== null ? 'KARIGAR' : sr !== null ? 'STANDARD' : '';
@@ -1070,8 +1076,8 @@ function createOrder_(u, k, l, note) {
   if (special && l.futureToo) addKarigarRate_(u, k, l.item, Number(l.lotRate), today, 'From lot ' + id);
   // The lot's material (quantity × material per piece) is issued with it; a different person confirms the hand-over.
   const issue = (bomMap_()[l.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * qty) }));
-  addMoves_(u, k, issue, 'Work order ' + id, id);
-  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + ' at ' + (rate === null ? 'no rate' : rate) +
+  addMoves_(u, k, issue, 'Work order ' + id, id, today);
+  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + (today !== todayStr_() ? ' (dated ' + today + ')' : '') + ' at ' + (rate === null ? 'no rate' : rate) +
     (source ? ' (' + source.toLowerCase() + ')' : '') + (special && l.futureToo ? ', also for future lots' : ''));
   const mats = materialMap_();
   return { id: id, item: l.item, qty: qty, issueCodes: issue,
