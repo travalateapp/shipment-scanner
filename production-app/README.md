@@ -6,7 +6,25 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   "in production" and shows small and grey in the Inventory Snapshot.
   Filters above the list: **All**, **Current** (the default: work orders still running), **Last completed**
   (finished or closed ones, newest first, with the day: "Completed" = the count that finished it, "Closed" = the
-  day it was closed by hand, kept in the new column Closed On) and **Next** (coming later; the filter is there).
+  day it was closed by hand, kept in the new column Closed On) and **Next** (planned jobs, see Machine Dashboard).
+  Every work order can have an optional **target date**; one past it and still running is **late** (red in Work
+  orders, on the machine card, a Dashboard tile "Late work orders").
+- **Machine Dashboard** (permission "machines"; "machinesetup" adds, renames and removes machines and sets when
+  the next job starts). M1 … M20 to start with (sheet Machines). Each card shows the machine, the karigar, the job
+  (work order · SKU × qty), started / due, a progress bar and the next job; filters All / Running / Count 2
+  pending / Late / Idle. Tap a machine:
+  - **Start a job** (idle machine): karigar, item, qty, date, target date → a work order on that machine; its
+    material is given at once. One karigar works on one machine; one job per machine.
+  - **Complete job** = **count 1** of that work order (the usual count 1 with the phone camera photo, work order
+    and quantity filled in). The machine is free once count 1 is saved; the job waits for **count 2** (another
+    person, blind) and is then **marked completed even if fewer pieces came** ("N fewer" in Work orders).
+  - **Next job**: saved as a work order with status **Next** (Work orders → Next): no rate, no material, not "in
+    production". It **starts by itself** when the machine is free, at **count 1** of the job before (default) or
+    at **count 2** (setting "Next Job Starts At", on the Machine Dashboard); "Start now" starts it at once, and it
+    can be edited or removed. Its material is given and its rate is set when it starts.
+  - Work Orders columns added: Machine, Target Date, Off Machine (when Complete job freed the machine).
+  - The Dashboard shows a **Machine Dashboard** block (running / waiting for count 2 / late / idle), and
+    **In production** shows each karigar and work order (and machine) per SKU.
 - **Raw material, issued with the work order:** creating a lot issues its material to the karigar
   automatically (quantity × material per piece, from the item's BOM). It counts as **given at once** (no
   confirmation). Extra material outside a lot can still be issued in **Material issue**, where a **different**

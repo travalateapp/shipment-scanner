@@ -42,6 +42,19 @@ h1.page small{font-size:13px;color:var(--muted);font-weight:500}
 .tile{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 1px 6px rgba(15,35,80,.07);cursor:default}
 .tile[onclick]{cursor:pointer}
 .tile .n{font-size:24px;font-weight:800;margin-top:2px}
+.tile.mblock{background:#eef2ff;border:1px solid #c7d2fe;margin-bottom:12px}
+.mgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
+@media(min-width:700px){.mgrid{grid-template-columns:repeat(3,1fr)}}@media(min-width:1100px){.mgrid{grid-template-columns:repeat(5,1fr)}}
+.mc{background:#fff;border:1px solid #e3e8f2;border-radius:14px;padding:11px 13px;min-height:132px;cursor:pointer;box-shadow:0 1px 6px rgba(15,35,80,.05)}
+.mc:hover{border-color:#93c5fd}.mc .mtop{display:flex;justify-content:space-between;align-items:center;gap:6px}.mc .mid{font-weight:800;color:#3730a3;font-size:15.5px}
+.mst{font-size:11px;font-weight:800;letter-spacing:.04em;white-space:nowrap}.mst.run{color:#1d4ed8}.mst.idle{color:#94a3b8}.mst.c2{color:#b45309}.mst.late{color:#dc2626}
+.mc .mk{font-weight:800;font-size:15px;margin-top:6px}.mc .mj{font-size:13.5px;color:#334155;margin-top:1px}.mc .ms{font-size:12.5px;color:#64748b;margin-top:2px}
+.mbar{height:6px;background:#e5e7eb;border-radius:4px;margin-top:7px;overflow:hidden}.mbar i{display:block;height:100%;background:#16a34a}
+.mc .mnx{border-top:1px dashed #e2e8f0;margin-top:7px;padding-top:5px;font-size:12.5px;color:#475569}
+.mc.idle .mhint{color:#94a3b8;margin-top:26px;font-size:13.5px}.mc.c2b{border-color:#f59e0b;background:#fffbeb}.mc.lateb{border-color:#fca5a5}
+.mstep{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e2e8f0;border-radius:10px;margin-top:8px}
+.mstep .n{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none;background:#e2e8f0;color:#475569}
+.mstep.done .n{background:#16a34a;color:#fff}.mstep.wait{border-color:#f59e0b;background:#fffbeb}.mstep.wait .n{background:#f59e0b;color:#fff}
 .tile .l{font-size:12.5px;color:var(--muted);font-weight:600}
 .tile.warn .n{color:var(--warn)}.tile.err .n{color:var(--err)}.tile.ok .n{color:var(--ok)}.tile.info .n{color:var(--info)}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
@@ -164,7 +177,7 @@ function apiUrl() {
  * Speed: answers fetched in the background (prefetch) are kept for 2 minutes and used once, so opening a screen
  * shows it at once; any save forgets them. A tiny request every 4 minutes keeps the server ready (no cold start).
  */
-var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
+var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
 var RC = {}, WR = { gen: 0, busy: 0 }; // answers asked for while a save was running are never kept
 function rcKey(fn, args) { return fn + '|' + JSON.stringify(args.slice(1)); }
 function api(fn) {
@@ -188,7 +201,7 @@ function prefetch(fn) {
   p.catch(function () { if (RC[k] && RC[k].p === p) delete RC[k]; });
   return p;
 }
-var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], material: ['moveList'],
+var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], material: ['moveList'],
   balance: ['materialBalance'], payroll: ['payroll', ''], advances: ['advances'], karigars: ['karigarList'], items: ['itemList'], materials: ['materialList'],
   store: ['storeView'], staff: ['staffList'], home: ['getHome'], work: ['myWork', ''], slip: ['myPayslip', ''], myadv: ['myAdvances'] };
 /* After a save: load the screens again in the background (4 s later, at most once a minute). */
@@ -318,6 +331,7 @@ function menu() {
   if (can('count') || can('reports')) m.push(['count', '✅', 'Count goods']);
   if (can('count') || can('reports')) m.push(['batches', '📦', 'Batches']);
   if (can('orders') || can('reports') || can('issue')) m.push(['orders', '🧵', 'Work orders']);
+  if (can('machines')) m.push(['machines', '🏭', 'Machine Dashboard']);
   if (can('issue') || can('confirm') || can('reports')) m.push(['material', '🧰', 'Material issue']);
   if (can('reports') || can('issue') || can('confirm')) m.push(['balance', '⚖️', 'Material balance']);
   m.push(['-']);
@@ -600,8 +614,12 @@ function savePin(btn) {
 /* ======================= STAFF ======================= */
 VIEWS.dash = function () {
   api('adminDashboard', S.token).then(function (r) {
+    var mc = r.machines;
     render('<h1 class="page">📊 Dashboard <small>Pay period ' + esc(r.period.label) + '</small></h1>' +
+      (mc ? '<div class="tile mblock" onclick="go(\'machines\')"><div class="l">🏭 Machine Dashboard</div><div class="n">' + mc.running + ' / ' + mc.total + ' running</div>' +
+        '<div class="muted">' + [mc.count2 ? mc.count2 + ' waiting for count 2' : '', mc.late ? '<b style="color:var(--err)">' + mc.late + ' late</b>' : '', mc.idle + ' idle'].filter(String).join(' · ') + '</div></div>' : '') +
       '<div class="tiles">' +
+      '<div class="tile ' + (r.lateOrders ? 'err' : '') + '" onclick="go(\'orders\')"><div class="l">Late work orders (past target date)</div><div class="n">' + r.lateOrders + '</div></div>' +
       '<div class="tile warn" onclick="go(\'count\')"><div class="l">Waiting for count 1</div><div class="n">' + r.waitCount1 + '</div></div>' +
       '<div class="tile info" onclick="go(\'count\')"><div class="l">Waiting for count 2</div><div class="n">' + r.waitCount2 + '</div></div>' +
       '<div class="tile ' + (r.differed ? 'err' : '') + '" onclick="go(\'batches\')"><div class="l">Count 1 ≠ final (this period)</div><div class="n">' + r.differed + '</div></div>' +
@@ -613,7 +631,13 @@ VIEWS.dash = function () {
       '</div>' +
       (r.missingRates ? '<div class="msg warn">' + r.missingRates + ' counted line(s) have no rate for the karigar. Set the rate in Karigars & rates.</div>' : '') +
       '<div class="grid2"><div class="card"><h2>🧵 In production (inventory SKUs)</h2>' +
-      (r.inProduction.length ? '<table class="tbl"><tr><th>SKU</th><th class="r">In production</th></tr>' + r.inProduction.map(function (x) { return '<tr><td>' + esc(x.item) + '</td><td class="r"><b>' + x.qty + '</b></td></tr>'; }).join('') + '</table>' : '<div class="muted">No open work orders.</div>') +
+      (r.inProduction.length ? '<table class="tbl"><tr><th>SKU</th><th>Karigar · work order</th><th class="r">In production</th></tr>' + r.inProduction.map(function (x) {
+        var parts = x.parts || [{ karigar: '', wo: '', qty: x.qty }];
+        return parts.map(function (p, i) {
+          return '<tr' + (p.wo ? ' style="cursor:pointer" onclick="go(\'orders\')"' : '') + '><td>' + (i ? '' : '<b>' + esc(x.item) + '</b>' + (parts.length > 1 ? '<div class="muted">' + x.qty + ' in total</div>' : '')) + '</td><td>' + esc(p.karigar) + (p.wo ? ' · ' + esc(p.wo) : '') + (p.machine ? ' <span class="muted">(' + esc(p.machine) + ')</span>' : '') + (p.late ? ' <span class="pill err">late</span>' : '') + '</td>' +
+            '<td class="r">' + (parts.length > 1 ? p.qty : '<b>' + x.qty + '</b>') + '</td></tr>';
+        }).join('');
+      }).join('') + '</table>' : '<div class="muted">No open work orders.</div>') +
       '<div class="muted" style="margin-top:8px">Shown small and grey in the Inventory Snapshot. Last sent: ' + esc(r.inventorySync || 'never') + '</div></div>' +
       '<div class="card"><h2>🚩 Material flags</h2>' + (r.flags.length ? '<div class="list">' + r.flags.map(function (f) {
         return '<div class="it"><div class="grow"><b>' + esc(f.karigar) + '</b> · ' + esc(f.materialName) + '<div class="muted">' + esc(f.flag) + '</div></div><b class="' + (f.balance < 0 ? 'neg' : '') + '">' + num(f.balance) + ' ' + esc(f.unit) + '</b></div>';
@@ -669,7 +693,7 @@ function countForm(id, which) {
   // Counted against the karigar's work orders (W-0008): each line is one work order.
   var wos = ((S.data.cq.wos || {})[b.karigarId] || []).filter(function (o) { return which === 2 ? (b.items.indexOf(o.id) >= 0 || !o.inBatch || o.inBatch === id) : !o.inBatch || o.inBatch === id; });
   var pre = which === 2 ? b.items.filter(function (x) { return wos.some(function (o) { return o.id === x; }); }) : [];
-  S.data.countWos = wos; S.data.countItems = null;
+  S.data.countWos = wos; S.data.countItems = null; S.data.completeWo = null;
   S.data.photo = null;
   var none = !wos.length;
   modal('Count ' + which + ' · ' + id + ' · ' + (b.karigar || ''),
@@ -740,11 +764,13 @@ function saveCountNow(id, which, btn, repeatOk) {
   if (dup) return toast(dup.wo + ' is entered twice: put its whole count on one line.');
   if (which === 1 && !S.data.photo) return toast('Take a photo of the received goods.');
   busy(btn, true);
-  apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null, repeatOk: !!repeatOk }).then(function (r) {
+  var complete = which === 1 && S.data.completeWo ? [S.data.completeWo] : null, back = S.view === 'machines';
+  apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null, repeatOk: !!repeatOk, complete: complete }).then(function (r) {
     closeModal();
-    if (r.status === 'LOCKED') toast('Final count saved: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : '') + (r.differs && r.differs.length ? '. Count 1 was different on ' + r.differs.join(', ') + ' (noted).' : ''));
+    if (complete && r.status !== 'LOCKED') toast('Count 1 saved: the machine is free. A different person does count 2.');
+    else if (r.status === 'LOCKED') toast('Final count saved: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : '') + (r.differs && r.differs.length ? '. Count 1 was different on ' + r.differs.join(', ') + ' (noted).' : ''));
     else toast('Count 1 saved. Now a different person does count 2.');
-    go('count');
+    if (back) go('machines', S.arg); else go('count');
   }).catch(function (e) {
     var m = /^REPEAT:(.+)$/.exec(e.message || '');
     if (!m) return fail(e, btn);
@@ -807,36 +833,227 @@ function saveCorrection(btn) {
   apiBg(btn, 'correctBatch', S.token, S.data.batch.id, { lines: lines, reason: val('corrWhy') }).then(function () { var id = S.data.batch.id, quiet = BG.quiet; toast('Corrected'); closeModal(); go(S.view, S.arg); if (!quiet) showBatch(id); }).catch(function (e) { fail(e, btn); });
 }
 
+/* ---------- machine dashboard ---------- */
+// A machine runs one job (work order) at a time; one karigar per machine. 'Complete job' = count 1 of the job (the
+// machine is free at once); the job is marked completed at its final count. The next job is a 'Next' work order.
+function mState(m) { return m.job && m.job.late ? 'late' : m.pending.length ? 'c2' : m.job ? 'run' : 'idle'; }
+VIEWS.machines = function (f) {
+  f = /^(run|c2|late|idle)$/.test(f || '') ? f : '';
+  load('machineView', S.token).then(function (r) {
+    S.data.mv = r;
+    var has = { run: function (m) { return !!m.job; }, c2: function (m) { return m.pending.length > 0; }, late: function (m) { return !!(m.job && m.job.late); }, idle: function (m) { return !m.job && !m.pending.length; } };
+    var n = function (k) { return r.list.filter(has[k]).length; };
+    var tab = function (k, label) { return '<a class="' + (f === k ? 'on' : '') + '" onclick="go(\'machines\'' + (k ? ',\'' + k + '\'' : '') + ')">' + label + '</a>'; };
+    var list = f ? r.list.filter(has[f]) : r.list;
+    var lab = { late: 'LATE', c2: 'COUNT 2 PENDING', run: 'RUNNING', idle: 'IDLE' };
+    render('<h1 class="page">🏭 Machine Dashboard <small>tap a machine to start a job, count the goods or plan the next job</small></h1>' +
+      '<div class="tabs">' + tab('', 'All (' + r.list.length + ')') + tab('run', 'Running (' + n('run') + ')') + tab('c2', 'Count 2 pending (' + n('c2') + ')') + tab('late', 'Late (' + n('late') + ')') + tab('idle', 'Idle (' + n('idle') + ')') + '</div>' +
+      '<div class="muted" style="margin:-4px 0 10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">Next job starts at: ' +
+      (r.canSetup ? '<select class="fix" style="width:auto" onchange="machSetting(this.value)"><option value="COUNT1"' + (r.nextAt === 'COUNT1' ? ' selected' : '') + '>Count 1 of the job before</option><option value="COUNT2"' + (r.nextAt === 'COUNT2' ? ' selected' : '') + '>Count 2 (final count) of the job before</option></select>' +
+        ' <button class="btn sec sm" onclick="machAdd(this)">+ Add machine</button>' : '<b>' + (r.nextAt === 'COUNT2' ? 'Count 2 (final count)' : 'Count 1') + '</b> of the job before') + '</div>' +
+      '<div class="mgrid">' + (list.map(function (m) {
+        var st = mState(m), j = m.job || m.pending[0];
+        var head = '<div class="mtop"><span class="mid">' + esc(m.name) + '</span><span class="mst ' + st + '">● ' + lab[st] + '</span></div>';
+        var nx = m.next ? '<div class="mnx">Next: ' + esc(m.next.item) + ' × ' + m.next.qty + (m.next.karigarId !== (j || {}).karigarId ? ' · ' + esc(m.next.karigar) : '') + '</div>' : '';
+        if (!j) return '<div class="mc idle" onclick="machWin(\'' + m.id + '\')">' + head + (m.next ? '<div class="ms" style="margin-top:20px">Next job waiting to start</div>' + nx : '<div class="mhint">Tap to start a job</div>') + '</div>';
+        var pct = Math.min(100, Math.round(100 * j.received / Math.max(1, j.qty)));
+        return '<div class="mc' + (st === 'c2' ? ' c2b' : st === 'late' ? ' lateb' : '') + '" onclick="machWin(\'' + m.id + '\')">' + head +
+          '<div class="mk">' + esc(j.karigar) + '</div><div class="mj">' + esc(j.id) + ' · ' + esc(j.item) + ' × ' + j.qty + '</div>' +
+          (m.job ? '<div class="ms">Started ' + d(j.date) + (j.target ? ' · ' + (j.late ? '<b style="color:var(--err)">due ' + d(j.target) + '</b>' : 'due ' + d(j.target)) : '') + (j.received ? ' · received ' + j.received : '') + '</div>' +
+            '<div class="mbar"><i style="width:' + pct + '%"></i></div>' : '') +
+          m.pending.map(function (p) { return '<div class="ms" style="color:#b45309">' + esc(p.id) + ': ' + (p.batch ? 'count 1 done, waiting for count 2' : 'count again (count 1 was removed)') + '</div>'; }).join('') + nx + '</div>';
+      }).join('') || '<div class="muted">No machine here.</div>') + '</div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function machOf(id) { return (S.data.mv.list || []).filter(function (m) { return m.id === id; })[0]; }
+function machKarOpts(m, sel) {
+  return '<option value="">Karigar…</option>' + S.data.mv.karigars.map(function (k) {
+    var busy = k.on && k.on !== m.name;
+    return '<option value="' + esc(k.id) + '"' + (k.id === sel ? ' selected' : '') + '>' + esc(k.name) + (busy ? ' (on ' + esc(k.on) + ')' : '') + '</option>';
+  }).join('');
+}
+function machWin(id) {
+  var r = S.data.mv, m = machOf(id); if (!m) return;
+  var j = m.job, h = '';
+  if (j) {
+    h += '<div class="kv"><div>Karigar</div><div><b>' + esc(j.karigar) + '</b></div><div>Job</div><div><b>' + esc(j.id) + '</b> · ' + esc(j.item) + ' × ' + j.qty + (j.rate !== null && j.rate !== undefined ? ' · ' + money(j.rate) + ' / piece' : '') + '</div>' +
+      '<div>Started</div><div>' + d(j.date) + '</div><div>Target date</div><div>' + (j.target ? (j.late ? '<b style="color:var(--err)">' + d(j.target) + ' · late</b>' : d(j.target)) : '<span class="muted">none</span>') + ' <a class="lnk" onclick="machTarget(\'' + j.id + '\',\'' + (j.target || '') + '\',\'' + m.id + '\')">change</a></div>' +
+      '<div>Received so far</div><div>' + j.received + ' of ' + j.qty + (j.extra ? ' <span class="pill warn">+' + j.extra + ' extra</span>' : '') + '</div></div>' +
+      '<h2 style="margin-top:14px">Goods ready? Complete the job</h2>' +
+      '<div class="mstep"><div class="n">1</div><div class="grow"><b>Count 1</b> <span class="muted">(photo with the phone camera)</span><div class="muted">Opens count 1 with ' + esc(j.id) + ' chosen and ' + j.remaining + ' filled in. The machine is free once count 1 is saved.</div></div>' +
+      (r.canCount ? '<button class="btn sm ok" onclick="machComplete(\'' + j.id + '\',\'' + j.karigarId + '\',' + j.remaining + ')">✅ Complete job</button>' : '') + '</div>' +
+      '<div class="mstep"><div class="n">2</div><div class="grow"><b>Count 2</b> <span class="muted">(another person, blind)</span><div class="muted">The final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came.</div></div></div>';
+  }
+  m.pending.forEach(function (p) {
+    var can2 = r.canCount && p.batch && p.count1By !== r.me;
+    h += '<div class="mstep wait"><div class="n">2</div><div class="grow"><b>' + esc(p.id) + '</b> · ' + esc(p.karigar) + ' · ' + esc(p.item) + ' × ' + p.qty +
+      '<div class="muted">' + (p.batch ? 'Count 1 done (' + esc(p.batch) + (p.count1ByName ? ', by ' + esc(p.count1ByName) : '') + '): waiting for count 2 by a different person' : 'Count 1 was removed: count it again') + '</div></div>' +
+      (p.batch ? (can2 ? '<button class="btn sm" onclick="machCount2(\'' + p.batch + '\')">Count 2</button>' : r.canCount ? '<span class="muted">You did count 1</span>' : '') :
+        r.canCount ? '<button class="btn sm" onclick="machComplete(\'' + p.id + '\',\'' + p.karigarId + '\',' + p.remaining + ')">Count 1 again</button>' : '') + '</div>';
+  });
+  if (!j && !m.next) {
+    h += '<h2 style="margin-top:' + (h ? 16 : 0) + 'px">Start a job on ' + esc(m.name) + '</h2>' +
+      '<div class="row"><div><label class="f">Karigar</label><select id="mwK">' + machKarOpts(m, '') + '</select></div><div><label class="f">Item</label><select id="mwI">' + itemOpts(r.items, '') + '</select></div></div>' +
+      '<div class="row"><div><label class="f">Qty</label><input id="mwQ" type="number" inputmode="numeric"></div><div><label class="f">Date</label><input id="mwD" type="date" value="' + todayIso() + '" max="' + todayIso() + '"></div><div><label class="f">Target date (optional)</label><input id="mwT" type="date"></div></div>' +
+      '<div class="muted" style="margin-top:6px">A work order is made for this machine and its material is given to the karigar at once.</div>' +
+      '<button class="btn block" onclick="machStart(\'' + m.id + '\',this)">▶ Start job</button>';
+  }
+  if (m.next) {
+    var nx = m.next;
+    h += '<h2 style="margin-top:16px">Next job on ' + esc(m.name) + '</h2><div class="mstep"><div class="grow"><b>' + esc(nx.id) + '</b> · ' + esc(nx.karigar) + ' · ' + esc(nx.item) + ' × ' + nx.qty + (nx.target ? ' · target ' + d(nx.target) : '') +
+      '<div class="muted">' + (j ? 'Starts by itself at ' + (r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of ' + esc(j.id) + '.' : m.pending.length ? 'Starts by itself at count 2 of ' + esc(m.pending[0].id) + ', or start it now.' : 'Waiting to start' + (nx.karigarId && S.data.mv.karigars.some(function (k) { return k.id === nx.karigarId && k.on && k.on !== m.name; }) ? ': ' + esc(nx.karigar) + ' is still on another machine' : '') + '.') + '</div></div>' +
+      '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (!j ? '<button class="btn sm" onclick="machNextStart(\'' + nx.id + '\',this)">▶ Start now</button>' : '') +
+      '<button class="btn sec sm" onclick="machNextEdit(\'' + m.id + '\')">Edit</button><button class="btn sec sm" onclick="machNextRemove(\'' + nx.id + '\',this)">Remove</button></div></div>';
+  } else if (j || m.pending.length) {
+    var base = j || m.pending[0];
+    h += '<h2 style="margin-top:16px">Next job on ' + esc(m.name) + '</h2>' +
+      '<div class="row"><div><label class="f">Karigar</label><select id="mnK">' + machKarOpts(m, base.karigarId) + '</select></div><div><label class="f">Item</label><select id="mnI">' + itemOpts(r.items, base.item) + '</select></div></div>' +
+      '<div class="row"><div><label class="f">Qty</label><input id="mnQ" type="number" inputmode="numeric"></div><div><label class="f">Target date (optional)</label><input id="mnT" type="date"></div></div>' +
+      '<div class="muted" style="margin-top:6px">Saved as a <b>Next</b> work order (Work orders → Next). It starts by itself at ' + (r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of the job before; its material is given to the karigar then.</div>' +
+      '<div class="row" style="margin-top:8px"><button class="btn sec" onclick="machNext(\'' + m.id + '\',0,this)">💾 Save next job</button>' +
+      (j && r.canCount ? '<button class="btn" onclick="machNext(\'' + m.id + '\',1,this)">✅ Complete job &amp; start next</button>' : '') + '</div>';
+  }
+  if (r.canSetup) h += '<div class="muted" style="margin-top:14px;text-align:right"><a class="lnk" onclick="machRename(\'' + m.id + '\')">Rename ' + esc(m.name) + '</a>' +
+    (!j && !m.pending.length && !m.next ? ' · <a class="lnk" onclick="machRemove(\'' + m.id + '\')">Remove machine</a>' : '') + '</div>';
+  modal(m.name + (j ? ' · ' + j.karigar : ''), h);
+  var sh = document.querySelector('#modal .sheet'); if (sh) sh.classList.add('wide');
+}
+function machReload(r) { if (r && r.list) preload('machineView', r); closeModal(); go('machines', S.arg); }
+function machStart(id, btn) {
+  if (!val('mwK')) return toast('Choose the karigar.');
+  if (!val('mwI')) return toast('Choose the item.');
+  if (!(Number(val('mwQ')) > 0)) return toast('Enter the quantity.');
+  busy(btn, true);
+  api('saveOrders', S.token, { karigarId: val('mwK'), machine: id, date: val('mwD') !== todayIso() ? val('mwD') : '', target: val('mwT'), lines: [{ item: val('mwI'), qty: val('mwQ') }] }).then(function (r) {
+    toast((r.added && r.added[0] ? r.added[0].id + ' started' : 'Job started') + ': its material is given to the karigar');
+    machReload(r);
+  }).catch(function (e) { fail(e, btn); });
+}
+function machNext(id, andComplete, btn) {
+  if (!val('mnK')) return toast('Choose the karigar.');
+  if (!val('mnI')) return toast('Choose the item.');
+  if (!(Number(val('mnQ')) > 0)) return toast('Enter the quantity.');
+  var m = machOf(id), j = m.job;
+  busy(btn, true);
+  api('saveOrders', S.token, { karigarId: val('mnK'), machine: id, next: true, target: val('mnT'), lines: [{ item: val('mnI'), qty: val('mnQ') }] }).then(function (r) {
+    S.data.mv = r;
+    toast('Next job saved');
+    if (andComplete && j) machComplete(j.id, j.karigarId, j.remaining); else machReload(r);
+  }).catch(function (e) { fail(e, btn); });
+}
+function machNextEdit(id) {
+  var m = machOf(id), nx = m.next, r = S.data.mv;
+  modal('Next job · ' + m.name, '<div class="row"><div><label class="f">Karigar</label><select id="mnK">' + machKarOpts(m, nx.karigarId) + '</select></div><div><label class="f">Item</label><select id="mnI">' + itemOpts(r.items, nx.item) + '</select></div></div>' +
+    '<div class="row"><div><label class="f">Qty</label><input id="mnQ" type="number" inputmode="numeric" value="' + nx.qty + '"></div><div><label class="f">Target date (optional)</label><input id="mnT" type="date" value="' + (nx.target || '') + '"></div></div>' +
+    '<button class="btn block" onclick="machNextSave(\'' + nx.id + '\',this)">Save</button>');
+  modalBack(function () { machWin(id); });
+}
+function machNextSave(wo, btn) {
+  busy(btn, true);
+  api('saveNextOrder', S.token, wo, { karigarId: val('mnK'), item: val('mnI'), qty: val('mnQ'), target: val('mnT') }).then(function () { toast('Next job changed'); machReload(); }).catch(function (e) { fail(e, btn); });
+}
+function machNextStart(wo, btn) {
+  busy(btn, true);
+  api('startNextOrder', S.token, wo).then(function () { toast(wo + ' started: its material is given to the karigar'); machReload(); }).catch(function (e) { fail(e, btn); });
+}
+function machNextRemove(wo, btn) {
+  if (!confirm('Remove the next job ' + wo + '? It has not started (no material was given).')) return;
+  busy(btn, true);
+  api('removeNextOrder', S.token, wo).then(function () { toast(wo + ' removed'); machReload(); }).catch(function (e) { fail(e, btn); });
+}
+function machTarget(wo, cur, mid) {
+  modal('Target date · ' + wo, '<label class="f">Target date (empty = none)</label><input id="tdD" type="date" value="' + esc(cur || '') + '"><button class="btn block" onclick="saveTarget(\'' + wo + '\',this)">Save</button>');
+  if (mid) modalBack(function () { machWin(mid); });
+}
+function saveTarget(wo, btn) {
+  busy(btn, true);
+  api('setOrderTarget', S.token, wo, val('tdD')).then(function () { toast('Target date saved'); closeModal(); go(S.view, S.arg); }).catch(function (e) { fail(e, btn); });
+}
+/* Complete job = count 1 of that work order (the usual count 1: phone camera photo), with the job marked. */
+function machComplete(wo, karigarId, remaining) {
+  api('countQueue', S.token).then(function (cq) {
+    S.data.cq = cq;
+    return api('startBatch', S.token, karigarId);
+  }).then(function (b) {
+    var k = (S.data.cq.karigars || []).filter(function (x) { return x.id === karigarId; })[0];
+    if (!b.existing) S.data.cq.list.push({ id: b.id, karigarId: karigarId, karigar: k ? k.name : karigarId, claim: [], status: 'COUNT1', items: [] });
+    countForm(b.id, 1);
+    if (!$('cLines')) return;
+    if (!(S.data.countWos || []).some(function (o) { return o.id === wo; })) return toast(wo + ' is already in a count waiting for count 2.');
+    $('cLines').innerHTML = ''; addCountLine(wo);
+    var ln = $('cLines').lastChild; ln.children[1].value = remaining; countHint(ln.children[1]);
+    S.data.completeWo = wo;
+  }).catch(function (e) { toast(e.message); });
+}
+function machCount2(batchId) {
+  api('countQueue', S.token).then(function (cq) { S.data.cq = cq; countForm(batchId, 2); }).catch(function (e) { toast(e.message); });
+}
+function machSetting(v) {
+  api('machineSetting', S.token, v).then(function (r) { toast('Next job starts at ' + (v === 'COUNT2' ? 'count 2' : 'count 1')); machReload(r); }).catch(function (e) { toast(e.message); });
+}
+function machAdd(btn) {
+  busy(btn, true);
+  api('machineSave', S.token, {}).then(function (r) { toast(r.list[r.list.length - 1].name + ' added'); machReload(r); }).catch(function (e) { fail(e, btn); });
+}
+function machRename(id) {
+  var m = machOf(id);
+  modal('Rename ' + m.name, '<label class="f">Name</label><input id="mrN" value="' + esc(m.name) + '"><button class="btn block" onclick="machRenameSave(\'' + id + '\',this)">Save</button>');
+  modalBack(function () { machWin(id); });
+}
+function machRenameSave(id, btn) {
+  busy(btn, true);
+  api('machineSave', S.token, { id: id, name: val('mrN') }).then(function (r) { toast('Renamed'); machReload(r); }).catch(function (e) { fail(e, btn); });
+}
+function machRemove(id) {
+  var m = machOf(id);
+  if (!confirm('Remove ' + m.name + ' from the Machine Dashboard?')) return;
+  api('machineRemove', S.token, id).then(function (r) { toast(m.name + ' removed'); machReload(r); }).catch(function (e) { toast(e.message); });
+}
+
 /* ---------- work orders ---------- */
 // Filter: '' = Current (open, the default), 'all' (or 1 from older links), 'done' = Last completed, 'next' = coming later.
 VIEWS.orders = function (f) {
   f = f === 1 || f === '1' ? 'all' : (f === 'all' || f === 'done' || f === 'next' ? f : '');
-  (f === 'all' || f === 'done' ? api('orderList', S.token, f.toUpperCase()) : load('orderList', S.token)).then(function (r) {
+  (f ? api('orderList', S.token, f.toUpperCase()) : load('orderList', S.token)).then(function (r) {
     S.data.ol = r;
-    if (f === 'next') r = Object.assign({}, r, { list: [] });
     var tab = function (k, label) { return '<a class="' + (f === k ? 'on' : '') + '" onclick="go(\'orders\'' + (k ? ',\'' + k + '\'' : '') + ')">' + label + '</a>'; };
     var filters = '<div class="tabs" style="margin:0 0 10px">' + tab('all', 'All') + tab('', 'Current') + tab('done', 'Last completed') + tab('next', 'Next') + '</div>';
-    var empty = { '': 'No running work orders.', all: 'No work orders.', done: 'No completed work orders yet.', next: 'Next: coming soon. This filter is ready; what it shows will be added later.' }[f];
+    var empty = { '': 'No running work orders.', all: 'No work orders.', done: 'No completed work orders yet.', next: 'No next jobs. Plan one on the Machine Dashboard (tap a machine → Next job).' }[f];
     render('<h1 class="page">🧵 Work orders (lots) <small>what each karigar is making, and at what rate</small></h1>' +
       (r.canEdit ? '<div class="card"><h2>New work order</h2><div class="row"><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
-        '<label class="fix muted" style="font-size:13px">Date</label><input id="woD" type="date" class="fix" style="width:auto" value="' + todayIso() + '" max="' + todayIso() + '"></div>' +
+        '<label class="fix muted" style="font-size:13px">Date</label><input id="woD" type="date" class="fix" style="width:auto" value="' + todayIso() + '" max="' + todayIso() + '">' +
+        '<label class="fix muted" style="font-size:13px">Target date</label><input id="woT" type="date" class="fix" style="width:auto" title="Optional: when it should be finished"></div>' +
         '<div class="lines" style="margin-top:8px"><div class="ln wo hdr"><div>Item</div><div>Qty</div>' + (r.canRate ? '<div>Special rate</div>' : '') + '<div></div></div><div id="woL"></div></div>' +
         '<button class="btn sec sm" onclick="woLine()">+ Add another item</button><input id="woN" style="margin-top:8px" placeholder="Note (optional)">' +
         '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is given to the karigar automatically when the work order is added (no confirmation needed).</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
-      '<div class="card scroll">' + filters + '<table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
+      '<div class="card scroll">' + filters + (f === 'next' ? woNextTable(r, empty) : '<table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
         var btns = (o.open && r.canRate ? '<button class="btn sm" onclick="lotRate(\'' + o.id + '\')">Rate</button> ' : '') +
           (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : (o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : '')) +
             (o.completedOn ? '<div class="muted" style="font-size:12.5px;margin-top:4px">' + (o.done ? 'Completed ' : 'Closed ') + d(o.completedOn) + '</div>' : ''));
-        return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
+        var due = o.target ? '<div class="' + (o.late ? '' : 'muted') + '" style="font-size:12.5px;white-space:nowrap' + (o.late ? ';color:var(--err);font-weight:700' : '') + '">due ' + d(o.target) + (o.late ? ' · late' : '') + '</div>' : '';
+        if (r.canEdit && o.open) due += '<a class="lnk" style="font-size:12px;white-space:nowrap" onclick="machTarget(\'' + o.id + '\',\'' + (o.target || '') + '\')">' + (o.target ? 'change' : '+ target') + '</a>';
+        return '<tr' + (o.late ? ' style="background:#fef2f2"' : '') + '><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div>' + due + '</td><td>' + esc(o.karigar) + (o.machineName ? '<div class="muted">' + esc(o.machineName) + '</div>' : '') + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + (o.short ? '<div class="pill" title="Marked completed at its final count">' + o.short + ' fewer</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
           '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td>' +
           '<td class="r"><b>' + (o.cost.perPiece === null ? '–' : money(o.cost.perPiece)) + '</b><div class="muted">material ' + money(o.cost.materialPerPiece) + '</div>' + (o.cost.missing.length ? '<span class="pill warn">no price</span>' : '') + '</td>' +
           '<td class="r">' + (o.cost.total === null ? '–' : money(o.cost.total)) + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
-      }).join('') || '<tr><td colspan="11" class="muted">' + empty + '</td></tr>') + '</table></div>');
+      }).join('') || '<tr><td colspan="11" class="muted">' + empty + '</td></tr>') + '</table>') + '</div>');
     if (r.canEdit) woLine();
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+/* Work orders → Next: planned jobs (not started: no material given, not in production). */
+function woNextTable(r, empty) {
+  return '<table class="tbl"><tr><th>Lot</th><th>Machine</th><th>Karigar</th><th>Item</th><th class="r">Qty</th><th>Target date</th><th></th></tr>' +
+    (r.list.map(function (o) {
+      return '<tr><td><b>' + o.id + '</b><div class="muted">planned ' + d(o.date) + '</div></td><td>' + esc(o.machineName || '–') + '</td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + '</td><td class="r">' + o.qty + '</td>' +
+        '<td>' + (o.target ? d(o.target) : '<span class="muted">–</span>') + '</td><td style="white-space:nowrap">' + (r.canEdit || r.canMachines ?
+          '<button class="btn sm" onclick="woNextStart(\'' + o.id + '\',this)">▶ Start now</button> <button class="btn sec sm" onclick="woNextRemove(\'' + o.id + '\',this)">Remove</button>' : '') + '</td></tr>';
+    }).join('') || '<tr><td colspan="7" class="muted">' + empty + '</td></tr>') + '</table>' +
+    '<div class="muted" style="margin-top:6px">A next job starts by itself when its machine is free (at count 1 or count 2 of the job before, as set on the Machine Dashboard). Its material is given to the karigar when it starts.</div>';
+}
+function woNextStart(wo, btn) { busy(btn, true); api('startNextOrder', S.token, wo).then(function () { toast(wo + ' started: its material is given to the karigar'); go('orders', 'next'); }).catch(function (e) { fail(e, btn); }); }
+function woNextRemove(wo, btn) { if (!confirm('Remove the next job ' + wo + '? It has not started (no material was given).')) return; busy(btn, true); api('removeNextOrder', S.token, wo).then(function () { toast(wo + ' removed'); go('orders', 'next'); }).catch(function (e) { fail(e, btn); }); }
 function woLine() {
   var r = S.data.ol, div = document.createElement('div'); div.className = 'ln wo' + (r.canRate ? '' : ' norate');
   div.innerHTML = '<select>' + itemOpts(r.items) + '</select><input type="number" inputmode="numeric" placeholder="Qty">' +
@@ -855,7 +1072,7 @@ function saveWo(btn) {
   if (!lines.length) return toast('Choose an item and its quantity.');
   busy(btn, true);
   if (val('woD') && val('woD') > todayIso()) return toast('The date cannot be in the future.');
-  api('saveOrders', S.token, { karigarId: val('woK'), date: val('woD') && val('woD') !== todayIso() ? val('woD') : '', note: val('woN'), lines: lines }) // today: the server's own today
+  api('saveOrders', S.token, { karigarId: val('woK'), date: val('woD') && val('woD') !== todayIso() ? val('woD') : '', target: val('woT'), note: val('woN'), lines: lines }) // today: the server's own today
     .then(function (r) {
       preload('orderList', r);
       var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material given to the karigar.';
