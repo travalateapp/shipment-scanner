@@ -19,12 +19,16 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
     machine. **This is now the only place to create work orders**: the Work orders screen keeps the list (All /
     Current / Last completed / Next) with Rate, Close and target dates, without the New work order form.
   - A next job can have a special rate too; it is used when the job starts.
-  - **Complete job** = **count 1** of that work order (the usual count 1 with the phone camera photo, work order
-    and quantity filled in). The machine is free once count 1 is saved; the job waits for **count 2** (another
-    person, blind) and is then **marked completed even if fewer pieces came** ("N fewer" in Work orders).
+  - **Start count** (on a phone; a computer shows "Open app on phone") = **count 1** of that work order (the usual
+    count 1 with the phone camera photo, work order and quantity filled in). Then **count 2** (another person,
+    blind); the job is **marked completed even if fewer pieces came** ("N fewer" in Work orders). After count 2
+    the next job starts by itself; with no next job the machine is idle and the karigar is free.
+  - **Gone home**: a karigar can be marked "gone home" (Karigars & rates, or the machine window) and back again.
+    While gone home they get no new machine job and their next job waits; it starts when they are marked
+    present. Different from Active = No, which is for a karigar who left (no login, not in the lists).
   - **Next job**: saved as a work order with status **Next** (Work orders → Next): no rate, no material, not "in
-    production". It **starts by itself** when the machine is free, at **count 1** of the job before (default) or
-    at **count 2** (setting "Next Job Starts At", on the Machine Dashboard); "Start now" starts it at once, and it
+    production". It **starts by itself** when the machine is free, after **count 2** of the job before (default) or
+    at **count 1** (setting "Next Job Starts At", on the Machine Dashboard); "Start now" starts it at once, and it
     can be edited or removed. Its material is given and its rate is set when it starts.
   - Work Orders columns added: Machine, Target Date, Off Machine (when Complete job freed the machine).
   - The Dashboard shows a **Machine Dashboard** block (running / waiting for count 2 / late / idle), and

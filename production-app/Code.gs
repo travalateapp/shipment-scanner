@@ -41,7 +41,9 @@ const SHEET = {
 
 const HEADERS = {};
 HEADERS[SHEET.SETTINGS] = ['Setting', 'Value', 'Notes'];
-HEADERS[SHEET.KARIGARS] = ['ID', 'Name', 'Phone', 'PIN', 'Active', 'Joined', 'Note'];
+// Gone Home = the day a karigar went home (empty = present): no new machine job and their next job waits. Active = No is
+// for a karigar who left (cannot log in, not in the lists).
+HEADERS[SHEET.KARIGARS] = ['ID', 'Name', 'Phone', 'PIN', 'Active', 'Joined', 'Note', 'Gone Home'];
 HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Active'];
 HEADERS[SHEET.ITEMS] = ['Code', 'Name', 'Type', 'Active', 'Selling Price'];
 // Karigar ID * = the STANDARD rate (all karigars). A karigar ID = that karigar's own rate for future lots; Rate STD = back to standard.
@@ -90,7 +92,7 @@ const DEFAULT_SETTINGS = [
   ['Units', '', 'Extra units for materials, added by a super admin (comma-separated)'],
   ['Large Advance Alert', 10000, 'An alert is sent when one advance (or a top-up) is this amount or more'],
   ['Low Margin %', 20, 'Items whose profit margin is below this are marked'],
-  ['Next Job Starts At', 'Count 1', 'Machine Dashboard: a machine\'s next job starts at Count 1 (default) or Count 2 of the job before'],
+  ['Next Job Starts At', 'Count 2', 'Machine Dashboard: a machine\'s next job starts at Count 2 (default) or Count 1 of the job before'],
 ];
 
 /* Permissions a super admin can give to staff. */
@@ -131,7 +133,7 @@ const API_FUNCTIONS = {
   adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, renameSupplier, stockTake, saveSellingPrice, saveOrders,
   countQueue, startBatch, cancelBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
-  machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting,
+  machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1063,6 +1065,7 @@ function machineAdvance_(u) {
     if (mode === 'COUNT2' && m.pending.length) return;
     const on = karigarMachine_(m.next.karigarId);
     if (on && on !== m.id) return; // the karigar is still on another machine
+    if ((readKarigars_().filter(k => k.id === m.next.karigarId)[0] || {}).away) return; // gone home: waits
     startOrder_(u, m.next.id);
   });
 }
@@ -1092,7 +1095,7 @@ function machineView(token) {
   ensureMachines_(u);
   const st = machineState_(), on = {};
   st.forEach(m => { if (m.job) on[m.job.karigarId] = m.name; });
-  return { list: st.filter(m => m.active), karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name, on: on[k.id] || '' })),
+  return { list: st.filter(m => m.active), karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name, on: on[k.id] || '', away: k.away })),
     items: activeItems_(), nextAt: getSettings_().nextAt, canSetup: can_(u, 'machinesetup'), canCount: can_(u, 'count'), canRate: can_(u, 'masters'),
     me: u.id, today: todayStr_() };
 }
@@ -1132,6 +1135,8 @@ function startNextOrder(token, id) {
     if (m && m.job) throw new Error((m.name) + ' is still running ' + m.job.id + '. Complete it first.');
     const on = karigarMachine_(o.karigarId);
     if (on && on !== o.machine) throw new Error((karigarNames_()[o.karigarId] || o.karigarId) + ' is working on ' + (machineNames_()[on] || on) + '. One karigar, one machine.');
+    const kk = readKarigars_().filter(k => k.id === o.karigarId)[0];
+    if (kk && kk.away) throw new Error(kk.name + ' has gone home. Mark them present first.');
   }
   startOrder_(u, id);
   return true;
@@ -1197,7 +1202,21 @@ function machineRemove(token, id) {
   return machineView(token);
 }
 
-/** When a machine's next job starts: 'COUNT1' (default) or 'COUNT2' of the job before. */
+/** Gone home (away = true) or present again. A karigar who is back gets their waiting next job started. */
+function setKarigarAway(token, id, away) {
+  const u = authStaff_(token, 'masters|machines');
+  const k = readKarigars_().filter(x => x.id === String(id || '').toUpperCase())[0];
+  if (!k) throw new Error('Karigar not found.');
+  const sh = sheet_(SHEET.KARIGARS);
+  if (String(sh.getRange(1, 8).getValues()[0][0] || '') === '') sh.getRange(1, 8).setValue('Gone Home').setFontWeight('bold').setBackground('#e8eefc');
+  sh.getRange(k.row, 8).setValue(away ? "'" + todayStr_() : '');
+  forget_('karigars');
+  log_(u, away ? 'KARIGAR_AWAY' : 'KARIGAR_BACK', k.id, k.name + (away ? ' has gone home' : ' is back'));
+  if (!away) machineAdvance_(u);
+  return true;
+}
+
+/** When a machine's next job starts: 'COUNT2' (default) or 'COUNT1' of the job before. */
 function machineSetting(token, at) {
   const u = authStaff_(token, 'machinesetup');
   setSetting_('Next Job Starts At', at === 'COUNT2' ? 'Count 2' : 'Count 1');
@@ -1324,6 +1343,7 @@ function saveOrders(token, data) {
       if (st.job) throw new Error(st.name + ' is already running ' + st.job.id + '.');
       const on = karigarMachine_(k.id);
       if (on && on !== machine) throw new Error(k.name + ' is already working on ' + (machineNames_()[on] || on) + '. One karigar, one machine.');
+      if (k.away) throw new Error(k.name + ' has gone home (since ' + k.away + '). Mark them present first.');
     }
   }
   if (data.next) { // a planned job: no rate, no material and not "in production" until it starts
@@ -1714,7 +1734,7 @@ function advanceDeduction_(a, period, remaining) {
 
 function karigarList(token) {
   const u = authStaff_(token, 'masters|reports|advances|approve');
-  return { list: readKarigars_().map(k => ({ id: k.id, name: k.name, phone: k.phone, active: k.active, joined: k.joined, note: k.note })),
+  return { list: readKarigars_().map(k => ({ id: k.id, name: k.name, phone: k.phone, active: k.active, joined: k.joined, note: k.note, away: k.away })),
     canEdit: can_(u, 'masters') };
 }
 
@@ -2513,7 +2533,7 @@ function bool_(v) { return !(v === false || /^(false|no|0)$/i.test(String(v).tri
 
 function readKarigars_() {
   return memo_('karigars', () => rows_(SHEET.KARIGARS).map((r, i) => ({ row: i + 2, kind: 'K', id: String(r[0]).trim().toUpperCase(),
-    name: String(r[1]).trim(), phone: String(r[2]), pin: String(r[3]), active: bool_(r[4]), joined: toDateStr_(r[5]), note: String(r[6] || '') }))
+    name: String(r[1]).trim(), phone: String(r[2]), pin: String(r[3]), active: bool_(r[4]), joined: toDateStr_(r[5]), note: String(r[6] || ''), away: toDateStr_(r[7]) }))
     .filter(k => k.id));
 }
 
@@ -2791,7 +2811,7 @@ function getSettings_() {
       extraUnits: String(m['Units'] || '').split(',').map(x => x.trim()).filter(String),
       largeAdvance: Number(m['Large Advance Alert']) > 0 ? Number(m['Large Advance Alert']) : 10000,
       lowMargin: m['Low Margin %'] === '' || m['Low Margin %'] === undefined ? 20 : Number(m['Low Margin %']) || 0,
-      nextAt: /2/.test(String(m['Next Job Starts At'] || '')) ? 'COUNT2' : 'COUNT1',
+      nextAt: /1/.test(String(m['Next Job Starts At'] || '')) ? 'COUNT1' : 'COUNT2', // default: after count 2
     };
   });
 }
