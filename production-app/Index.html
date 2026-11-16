@@ -241,18 +241,25 @@ function apiCall(fn, args) {
       var r; try { r = typeof txt === 'string' ? JSON.parse(txt) : txt; } catch (e) { return reject(new Error('The server did not answer properly. Try again.')); }
       if (r.ok) return resolve(r.result);
       if (r.error === 'SESSION_EXPIRED') { logoutLocal(); return reject(new Error('Please log in again.')); }
+      if (r.error === 'STORAGE_BUSY') { // Google's storage timed out: try again by itself, then a clear message
+        if ((done.tries = (done.tries || 0) + 1) <= 2) return setTimeout(function () { send(); }, 1500 * done.tries);
+        return reject(new Error('Google is busy right now. Please try again in a moment.'));
+      }
       reject(new Error(r.error));
     };
-    if (IN_GAS) { google.script.run.withSuccessHandler(done).withFailureHandler(reject).api(fn, args); return; }
-    var url = apiUrl();
-    if (!url) return reject(new Error('Open the app with its full link (…?id=YOUR_DEPLOYMENT_ID).'));
+    var send = function () {
+      if (IN_GAS) { google.script.run.withSuccessHandler(done).withFailureHandler(reject).api(fn, args); return; }
+      attempt(0);
+    };
+    var url = IN_GAS ? '' : apiUrl();
+    if (!IN_GAS && !url) return reject(new Error('Open the app with its full link (…?id=YOUR_DEPLOYMENT_ID).'));
     var rid = Math.random().toString(36).slice(2) + Date.now().toString(36);
     var attempt = function (n) {
       fetch(url, { method: 'POST', body: JSON.stringify({ fn: fn, args: args, rid: rid }), headers: { 'Content-Type': 'text/plain;charset=utf-8' }, credentials: 'omit', redirect: 'follow' })
         .then(function (r) { return r.text(); }).then(done)
         .catch(function (e) { if (n < 2) setTimeout(function () { attempt(n + 1); }, 1200 * (n + 1)); else reject(new Error('No internet or the server is not reachable.')); });
     };
-    attempt(0);
+    send();
   });
 }
 
