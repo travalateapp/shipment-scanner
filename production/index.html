@@ -806,7 +806,8 @@ VIEWS.orders = function (all) {
     S.data.ol = r;
     render('<h1 class="page">🧵 Work orders (lots) <small>what each karigar is making, and at what rate</small></h1>' +
       '<div class="tabs"><a class="' + (all ? '' : 'on') + '" onclick="go(\'orders\')">Open</a><a class="' + (all ? 'on' : '') + '" onclick="go(\'orders\',1)">All</a></div>' +
-      (r.canEdit ? '<div class="card"><h2>New work order</h2><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
+      (r.canEdit ? '<div class="card"><h2>New work order</h2><div class="row"><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
+        '<label class="fix muted" style="font-size:13px">Date</label><input id="woD" type="date" class="fix" style="width:auto" value="' + todayIso() + '" max="' + todayIso() + '"></div>' +
         '<div class="lines" style="margin-top:8px"><div class="ln wo hdr"><div>Item</div><div>Qty</div>' + (r.canRate ? '<div>Special rate</div>' : '') + '<div></div></div><div id="woL"></div></div>' +
         '<button class="btn sec sm" onclick="woLine()">+ Add another item</button><input id="woN" style="margin-top:8px" placeholder="Note (optional)">' +
         '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is given to the karigar automatically when the work order is added (no confirmation needed).</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
@@ -831,6 +832,7 @@ function woLine() {
     (r.canRate ? '<div class="chk fut" style="display:none;grid-column:1/-1;margin-top:-4px"><input type="checkbox"> Also use this rate for this karigar\'s future lots of this item</div>' : '');
   $('woL').appendChild(div);
 }
+function todayIso() { var t = new Date(); return t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); }
 function saveWo(btn) {
   var lines = Array.prototype.map.call(document.querySelectorAll('#woL .ln'), function (ln) {
     var rate = ln.querySelector('input[step="any"]'), fut = ln.querySelector('.fut input');
@@ -839,7 +841,8 @@ function saveWo(btn) {
   if (!val('woK')) return toast('Choose the karigar.');
   if (!lines.length) return toast('Choose an item and its quantity.');
   busy(btn, true);
-  api('saveOrders', S.token, { karigarId: val('woK'), note: val('woN'), lines: lines })
+  if (val('woD') && val('woD') > todayIso()) return toast('The date cannot be in the future.');
+  api('saveOrders', S.token, { karigarId: val('woK'), date: val('woD'), note: val('woN'), lines: lines })
     .then(function (r) {
       preload('orderList', r);
       var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material given to the karigar.';
