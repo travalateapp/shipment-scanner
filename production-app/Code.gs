@@ -134,18 +134,20 @@ function doPost(e) {
   try {
     const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
     rid = /^[\w-]{8,64}$/.test(String(req.rid || '')) ? 'rid_' + req.rid : '';
-    const done = rid ? CacheService.getScriptCache().get(rid) : null;
+    const done = rid ? cGet_(rid) : null;
     if (done) return ContentService.createTextOutput(done).setMimeType(ContentService.MimeType.JSON);
     const fn = Object.prototype.hasOwnProperty.call(API_FUNCTIONS, req.fn) ? API_FUNCTIONS[req.fn] : null;
     if (!fn) throw new Error('Unknown action.');
     const result = fn.apply(null, Array.isArray(req.args) ? req.args : []);
     json = JSON.stringify({ ok: true, result: result === undefined ? null : result, sv: SERVER_VERSION });
   } catch (err) {
-    json = JSON.stringify({ ok: false, error: String((err && err.message) || err) });
+    const msg = String((err && err.message) || err);
+    // Google's own storage / service timeouts: the app retries by itself (never "logged out")
+    json = JSON.stringify({ ok: false, error: /DEADLINE_EXCEEDED|reading from storage|Service invoked too many times|Service Spreadsheets timed out|STORAGE_BUSY/i.test(msg) ? 'STORAGE_BUSY' : msg });
   }
   touchedDone_();
-  if (rid && json.length < 95000) {
-    try { CacheService.getScriptCache().put(rid, json, 600); } catch (err) { /* ignore */ }
+  if (rid && json.length < 95000 && json.indexOf('{"ok":true') === 0) { // only answers that worked (a retry asks again)
+    cPut_(rid, json, 600);
   }
   return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
 }
@@ -205,16 +207,15 @@ function login(id, pin) {
   id = String(id || '').trim().toUpperCase();
   pin = String(pin || '').trim();
   if (!id || !pin) throw new Error('Enter your ID and PIN.');
-  const cache = CacheService.getScriptCache();
   const failKey = 'fail_' + id;
-  const fails = Number(cache.get(failKey) || 0);
+  const fails = Number(cGet_(failKey) || 0);
   if (fails >= 5) throw new Error('Too many wrong attempts. Try again after 15 minutes.');
   const user = findUser_(id);
   if (!user || !user.active || !verifyPin_(user.pin, pin)) {
-    cache.put(failKey, String(fails + 1), 900);
+    cPut_(failKey, String(fails + 1), 900);
     throw new Error('Wrong ID or PIN.');
   }
-  cache.remove(failKey);
+  cDel_(failKey);
   if (!isHashed_(user.pin)) writePin_(user, pin);
   const token = Utilities.getUuid();
   saveSession_(token, user.kind + ':' + user.id);
@@ -223,8 +224,8 @@ function login(id, pin) {
 
 function logout(token) {
   if (token) {
-    CacheService.getScriptCache().remove('tok_' + token);
-    try { PropertiesService.getScriptProperties().deleteProperty('tok_' + token); } catch (e) { /* ignore */ }
+    cDel_('tok_' + token);
+    pDel_('tok_' + token);
   }
   return true;
 }
@@ -246,23 +247,22 @@ function profile_(u) {
 }
 
 function saveSession_(token, who) {
-  CacheService.getScriptCache().put('tok_' + token, who, 21600);
   const days = Number(getSettings_().sessionDays) || 0;
-  if (days > 0) {
-    try {
-      PropertiesService.getScriptProperties().setProperty('tok_' + token, JSON.stringify({ w: who, x: Date.now() + days * 86400000 }));
-    } catch (e) { /* the session still lasts 6 hours */ }
-  }
+  if (!cPut_('tok_' + token, who, 21600) && !(days > 0)) throw new Error('STORAGE_BUSY');
+  if (days > 0 && !pSet_('tok_' + token, JSON.stringify({ w: who, x: Date.now() + days * 86400000 })) && !cGet_('tok_' + token)) throw new Error('STORAGE_BUSY');
 }
 
 function sessionWho_(token) {
   if (!token) return null;
-  const c = CacheService.getScriptCache().get('tok_' + token);
-  if (c) return c;
+  const c = cGetB_('tok_' + token);
+  if (c && c !== BUSY) return c;
+  const pv = pGetB_('tok_' + token);
+  if (pv === BUSY) throw new Error('STORAGE_BUSY'); // Google's storage timed out: not "logged out"
   let v = null;
-  try { v = JSON.parse(PropertiesService.getScriptProperties().getProperty('tok_' + token) || 'null'); } catch (e) { v = null; }
+  try { v = JSON.parse(pv || 'null'); } catch (e) { v = null; }
+  if (!v && c === BUSY) throw new Error('STORAGE_BUSY');
   if (!v || !v.w || !(v.x > Date.now())) return null;
-  CacheService.getScriptCache().put('tok_' + token, v.w, 21600);
+  cPut_('tok_' + token, v.w, 21600);
   return v.w;
 }
 
@@ -769,11 +769,8 @@ function retryInventory(token, batchId) {
  */
 function pushInProduction_() {
   // Saving must not wait for the Inventory App: mark it and let the 5-minute background job send it.
-  try {
-    const props = PropertiesService.getScriptProperties();
-    props.setProperty('inprod_dirty', '1');
-    if (props.getProperty('sync_every') !== '5') ensureSyncTrigger_();
-  } catch (e) { /* the hourly job still sends it */ }
+  pSet_('inprod_dirty', '1');
+  if (pGet_('sync_every') !== '5') { try { ensureSyncTrigger_(); } catch (e) { /* the hourly job still sends it */ } }
   return true;
 }
 
@@ -781,7 +778,7 @@ function pushInProduction_() {
 function ensureSyncTrigger_() {
   ScriptApp.getProjectTriggers().filter(t => t.getHandlerFunction() === 'syncInventory').forEach(t => ScriptApp.deleteTrigger(t));
   ScriptApp.newTrigger('syncInventory').timeBased().everyMinutes(5).create();
-  PropertiesService.getScriptProperties().setProperty('sync_every', '5');
+  pSet_('sync_every', '5');
 }
 
 function sendInProduction_() {
@@ -811,24 +808,23 @@ function inProductionList_() {
  */
 function syncInventory() {
   readBatches_().filter(b => b.status === 'LOCKED' && b.inventory === 'PENDING').forEach(b => pushBatch_(b, 'Production (retry)'));
-  const props = PropertiesService.getScriptProperties();
-  const last = Number(props.getProperty('inprod_at') || 0);
-  if (props.getProperty('inprod_dirty') === '1' || Date.now() - last > 3600000) {
-    props.deleteProperty('inprod_dirty');
+  const last = Number(pGet_('inprod_at') || 0);
+  if (pGet_('inprod_dirty') === '1' || Date.now() - last > 3600000) {
+    pDel_('inprod_dirty');
     sendInProduction_();
-    props.setProperty('inprod_at', String(Date.now()));
+    pSet_('inprod_at', String(Date.now()));
   }
+  cleanSessions_();
 }
 
 /** Inventory SKUs for the Items screen (cached 10 minutes). */
 function inventorySkus(token) {
   authStaff_(token, 'masters');
-  const c = CacheService.getScriptCache();
-  const hit = c.get('inv_skus');
+  const hit = cGet_('inv_skus');
   if (hit) return JSON.parse(hit);
   const out = inventoryCall_({ action: 'getSkuList' });
   const skus = out.skus || [];
-  try { c.put('inv_skus', JSON.stringify(skus), 600); } catch (e) { /* ignore */ }
+  cPut_('inv_skus', JSON.stringify(skus), 600);
   return skus;
 }
 
@@ -1783,7 +1779,7 @@ const ALERT_TITLES = { COUNT_DIFFERS: 'count 1 and final count differ', MATERIAL
 function readAlerts_() {
   return rows_(SHEET.ALERTS).map(r => ({ id: String(r[0]), at: String(r[1]), type: String(r[2]), text: String(r[3]), ref: String(r[4]) })).filter(a => a.id);
 }
-function seenAt_(u) { return PropertiesService.getScriptProperties().getProperty('alerts_seen_' + u.id) || ''; }
+function seenAt_(u) { return pGet_('alerts_seen_' + u.id) || ''; }
 function unreadAlerts_(u) { const s = seenAt_(u); return readAlerts_().filter(a => a.at > s).length; }
 
 function alertList(token) {
@@ -1794,7 +1790,7 @@ function alertList(token) {
 }
 function alertsSeen(token) {
   const u = authStaff_(token);
-  PropertiesService.getScriptProperties().setProperty('alerts_seen_' + u.id, nowStr_());
+  pSet_('alerts_seen_' + u.id, nowStr_());
   return true;
 }
 
@@ -2117,6 +2113,38 @@ const CACHE_MAX_CHUNKS = 40;
 const TOUCHED = {};              // tabs written in this request
 let CACHE_VERS = null;
 function sc_() { try { return CacheService.getScriptCache(); } catch (e) { return null; } }
+/*
+ * Google's storage (cache, script properties) can time out now and then ("DEADLINE_EXCEEDED"). Every read and write
+ * goes through these: one quick retry, then it carries on without (the cache is only for speed).
+ */
+function tryTwice_(fn, fallback) {
+  for (let i = 0; i < 2; i++) { try { return fn(); } catch (e) { if (i === 0) { try { Utilities.sleep(150); } catch (e2) { /* ignore */ } } } }
+  return fallback;
+}
+function cGet_(k) { return tryTwice_(() => CacheService.getScriptCache().get(k), null); }
+const BUSY = {};
+/** Like cGet_/pGet_ but a storage failure (not just "not there") comes back as BUSY. */
+function cGetB_(k) { return tryTwice_(() => CacheService.getScriptCache().get(k), BUSY); }
+function pGetB_(k) { return tryTwice_(() => PropertiesService.getScriptProperties().getProperty(k), BUSY); }
+function cPut_(k, v, t) { return tryTwice_(() => { CacheService.getScriptCache().put(k, v, t); return true; }, false); }
+function cDel_(k) { return tryTwice_(() => { CacheService.getScriptCache().remove(k); return true; }, false); }
+function pGet_(k) { return tryTwice_(() => PropertiesService.getScriptProperties().getProperty(k), null); }
+function pSet_(k, v) { return tryTwice_(() => { PropertiesService.getScriptProperties().setProperty(k, v); return true; }, false); }
+function pDel_(k) { return tryTwice_(() => { PropertiesService.getScriptProperties().deleteProperty(k); return true; }, false); }
+/** Once a day (from the 5-minute job): expired login sessions are removed from the script properties. */
+function cleanSessions_() {
+  if (Number(pGet_('sessions_cleaned') || 0) > Date.now() - 86400000) return;
+  tryTwice_(() => {
+    const props = PropertiesService.getScriptProperties(), all = props.getProperties(), now = Date.now();
+    Object.keys(all).forEach(k => {
+      if (k.indexOf('tok_') !== 0) return;
+      let v = null; try { v = JSON.parse(all[k]); } catch (e) { v = null; }
+      if (!v || !(v.x > now)) props.deleteProperty(k);
+    });
+    return true;
+  }, false);
+  pSet_('sessions_cleaned', String(Date.now()));
+}
 function cacheVersions_() {
   if (CACHE_VERS) return CACHE_VERS;
   const c = sc_(); CACHE_VERS = {};
