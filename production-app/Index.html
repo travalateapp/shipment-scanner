@@ -117,6 +117,8 @@ input:focus,select:focus,textarea:focus{outline:2px solid #bfd5fb;border-color:v
 .sugg .box div{padding:9px 12px;cursor:pointer;display:flex;gap:8px;align-items:center;font-size:14px}.sugg .box div:hover,.sugg .box div.on{background:#eef4ff}
 .sugg .box small{margin-left:auto;color:var(--muted)}
 .mdot{width:12px;height:12px;border-radius:50%;border:1.5px solid #94a3b8;background:#fff;display:inline-block;vertical-align:middle;margin-right:7px;padding:0;cursor:pointer;flex:0 0 auto}.mdot.g{background:#16a34a;border-color:#15803d}.mdot.y{background:#facc15;border-color:#ca8a04}
+.crtag{font-size:10.5px;font-weight:800;border:1.5px dashed #cbd5e1;color:#94a3b8;background:#fff;border-radius:6px;padding:0 5px;margin-left:6px;cursor:pointer;vertical-align:middle;line-height:16px}
+.crtag.on{border:1.5px solid #c2410c;background:#ffedd5;color:#c2410c}.crtag[disabled]{cursor:default}
 .mfilter a{display:inline-flex;align-items:center}.mfilter .mdot{margin-right:6px}
 .mdot{position:relative}.mdot::after{content:'';position:absolute;inset:-9px}.mfilter .mdot::after{display:none}.mcard .mtop .mdot{margin-top:6px}
 .szrow{font-size:13px;color:var(--muted);display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:2px 0 4px}.szrow input{width:80px;padding:6px 8px;font-size:14px}
@@ -177,7 +179,7 @@ function apiUrl() {
  * Speed: answers fetched in the background (prefetch) are kept for 2 minutes and used once, so opening a screen
  * shows it at once; any save forgets them. A tiny request every 4 minutes keeps the server ready (no cold start).
  */
-var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
+var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|cuttingView|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
 var RC = {}, WR = { gen: 0, busy: 0 }; // answers asked for while a save was running are never kept
 function rcKey(fn, args) { return fn + '|' + JSON.stringify(args.slice(1)); }
 function api(fn) {
@@ -201,7 +203,7 @@ function prefetch(fn) {
   p.catch(function () { if (RC[k] && RC[k].p === p) delete RC[k]; });
   return p;
 }
-var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], material: ['moveList'],
+var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], cutting: ['cuttingView'], material: ['moveList'],
   balance: ['materialBalance'], payroll: ['payroll', ''], advances: ['advances'], karigars: ['karigarList'], items: ['itemList'], materials: ['materialList'],
   store: ['storeView'], staff: ['staffList'], home: ['getHome'], work: ['myWork', ''], slip: ['myPayslip', ''], myadv: ['myAdvances'] };
 /* After a save: load the screens again in the background (4 s later, at most once a minute). */
@@ -332,6 +334,7 @@ function menu() {
   if (can('count') || can('reports')) m.push(['batches', '📦', 'Batches']);
   if (can('orders') || can('reports') || can('issue')) m.push(['orders', '🧵', 'Work orders']);
   if (can('machines')) m.push(['machines', '🏭', 'Machine Dashboard']);
+  if (can('cutting') || can('reports') || can('machines')) m.push(['cutting', '✂️', 'Cutting Room']);
   if (can('issue') || can('confirm') || can('reports')) m.push(['material', '🧰', 'Material issue']);
   if (can('reports') || can('issue') || can('confirm')) m.push(['balance', '⚖️', 'Material balance']);
   m.push(['-']);
@@ -630,6 +633,7 @@ VIEWS.dash = function () {
       '<div class="tile ' + (r.inventoryPending ? 'err' : 'ok') + '" onclick="go(\'batches\')"><div class="l">Not in inventory yet</div><div class="n">' + r.inventoryPending + '</div></div>' +
       '</div>' +
       (r.missingRates ? '<div class="msg warn">' + r.missingRates + ' counted line(s) have no rate for the karigar. Set the rate in Karigars & rates.</div>' : '') +
+      (r.nextBlock && r.nextBlock.length ? '<div class="card"><h2>✂️ Next jobs &amp; cutting</h2>' + nextBlockTable(r.nextBlock) + '</div>' : '') +
       '<div class="grid2"><div class="card"><h2>🧵 In production (inventory SKUs)</h2>' +
       (r.inProduction.length ? '<table class="tbl"><tr><th>SKU</th><th>Karigar · work order</th><th class="r">In production</th></tr>' + r.inProduction.map(function (x) {
         var parts = x.parts || [{ karigar: '', wo: '', qty: x.qty }];
@@ -1034,6 +1038,59 @@ function machRemove(id) {
   var m = machOf(id);
   if (!confirm('Remove ' + m.name + ' from the Machine Dashboard?')) return;
   api('machineRemove', S.token, id).then(function (r) { toast(m.name + ' removed'); machReload(r); }).catch(function (e) { toast(e.message); });
+}
+
+/* ---------- cutting room ---------- */
+// Cuttings of an SKU in pieces; its CR-tagged materials (BOM × pieces) are listed. Completed cutting is used up when a
+// job of that SKU starts. OK / Short = available cutting against the SKU's Next jobs.
+function nextBlockTable(rows) {
+  return '<table class="tbl"><tr><th>SKU</th><th class="r">Available cutting</th><th class="r">Running jobs (to make)</th><th class="r">Next jobs</th><th>Status</th></tr>' + rows.map(function (x) {
+    return '<tr><td><b>' + esc(x.item) + '</b></td><td class="r"><b>' + x.available + '</b></td><td class="r">' + (x.runningJobs ? x.running + ' <span class="muted">(' + x.runningJobs + ' job' + (x.runningJobs > 1 ? 's' : '') + ')</span>' : '<span class="muted">–</span>') + '</td>' +
+      '<td class="r">' + (x.next ? '<b>' + x.next + '</b><div class="muted" style="font-size:12px">' + x.nextJobs.map(function (j) { return esc(j.id) + ' ' + esc(j.karigar) + (j.machine ? ' (' + esc(j.machine) + ')' : '') + ' × ' + j.qty; }).join('<br>') + '</div>' : '<span class="muted">–</span>') + '</td>' +
+      '<td>' + (x.status === 'OK' ? '<span class="pill ok">OK</span>' : x.status === 'SHORT' ? '<span class="pill err">Short ' + x.short + '</span>' : '<span class="muted">no next job</span>') + '</td></tr>';
+  }).join('') + '</table><div class="muted" style="margin-top:6px">Available cutting = completed cuttings not yet used; a job takes its cutting when it starts. OK = enough cutting for the SKU\'s Next jobs.</div>';
+}
+VIEWS.cutting = function () {
+  load('cuttingView', S.token).then(function (r) {
+    S.data.cv = r;
+    var todo = r.list.filter(function (c) { return c.status === 'TODO'; }), done = r.list.filter(function (c) { return c.status === 'DONE'; });
+    var mats = function (c) { return c.materials.map(function (m) { return esc(m.name) + ' <b>' + num(m.qty) + '</b> ' + esc(m.unit); }).join('<br>'); };
+    render('<h1 class="page">✂️ Cutting Room <small>cutting of CR-tagged materials, per SKU</small></h1>' +
+      (r.canCut ? '<div class="card"><h2>New cutting</h2>' + (r.items.length ?
+        '<div class="row"><div><label class="f">SKU</label><select id="cuI" onchange="cutPreview()"><option value="">Choose SKU…</option>' + r.items.map(function (i) { return '<option value="' + esc(i.code) + '">' + esc(i.code) + '</option>'; }).join('') + '</select></div>' +
+        '<div><label class="f">Total quantity (pieces)</label><input id="cuQ" type="number" inputmode="numeric" oninput="cutPreview()"></div><div><label class="f">Date</label><input id="cuD" type="date" value="' + todayIso() + '"></div></div>' +
+        '<div id="cuP" class="muted" style="margin-top:8px">Choose the SKU: its CR materials show here.</div><input id="cuN" style="margin-top:8px" placeholder="Note (optional)">' +
+        '<button class="btn block" onclick="cutSave(this)">Add cutting</button>' :
+        '<div class="msg warn">No SKU has a CR material yet. In <a class="lnk" onclick="go(\'materials\')">Materials</a>, tap <b>CR</b> next to the materials that are cut in the cutting room.</div>') + '</div>' : '') +
+      '<div class="card"><h2>To cut <span class="pill ' + (todo.length ? 'warn' : '') + '">' + todo.length + '</span></h2>' + (todo.length ? '<table class="tbl"><tr><th>Cutting</th><th>SKU</th><th class="r">Pieces</th><th>CR materials</th><th></th></tr>' + todo.map(function (c) {
+        return '<tr><td><b style="white-space:nowrap">' + esc(c.id) + '</b><div class="muted">' + d(c.date) + ' · ' + esc(c.byName) + '</div>' + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') + '</td><td><b>' + esc(c.item) + '</b></td><td class="r"><b>' + c.qty + '</b></td><td class="muted">' + mats(c) + '</td>' +
+          '<td style="white-space:nowrap">' + (r.canCut ? '<button class="btn sm ok" onclick="cutStatus(\'' + c.id + '\',\'DONE\',this)">Cutting completed</button> <button class="btn sec sm" onclick="cutStatus(\'' + c.id + '\',\'CANCELLED\',this)">Remove</button>' : '') + '</td></tr>';
+      }).join('') + '</table>' : '<div class="muted">Nothing to cut.</div>') + '</div>' +
+      '<div class="card"><h2>Next jobs &amp; cutting</h2>' + (r.block.length ? nextBlockTable(r.block) : '<div class="muted">No running or next jobs and no cutting available.</div>') + '</div>' +
+      '<div class="card"><h2>Completed (last 30 days)</h2>' + (done.length ? '<table class="tbl"><tr><th>Cutting</th><th>SKU</th><th class="r">Pieces</th><th>CR materials</th><th>Completed</th><th></th></tr>' + done.map(function (c) {
+        return '<tr><td><b style="white-space:nowrap">' + esc(c.id) + '</b><div class="muted">' + d(c.date) + '</div></td><td>' + esc(c.item) + '</td><td class="r">' + c.qty + '</td><td class="muted">' + mats(c) + '</td><td class="muted">' + d(c.doneAt) + (c.doneByName ? ' · ' + esc(c.doneByName) : '') + '</td>' +
+          '<td>' + (r.canCut ? '<a class="lnk" style="font-size:12.5px" onclick="cutStatus(\'' + c.id + '\',\'TODO\',this)">undo</a>' : '') + '</td></tr>';
+      }).join('') + '</table>' : '<div class="muted">No completed cutting yet.</div>') + '</div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function cutPreview() {
+  var it = (S.data.cv.items || []).filter(function (i) { return i.code === val('cuI'); })[0], q = Number(val('cuQ')) || 0;
+  if (!$('cuP')) return;
+  $('cuP').innerHTML = !it ? 'Choose the SKU: its CR materials show here.' : '<table class="tbl"><tr><th>CR material</th><th class="r">Per piece</th><th class="r">For ' + (q || '…') + ' pieces</th></tr>' + it.cr.map(function (m) {
+    return '<tr><td>' + esc(m.name) + '</td><td class="r">' + num(m.perPiece) + ' ' + esc(m.unit) + '</td><td class="r"><b>' + (q ? num(Math.round(m.perPiece * q * 1000) / 1000) : '–') + '</b> ' + esc(m.unit) + '</td></tr>';
+  }).join('') + '</table>';
+}
+function cutSave(btn) {
+  if (!val('cuI')) return toast('Choose the SKU.');
+  if (!(Number(val('cuQ')) > 0)) return toast('Enter the quantity (pieces).');
+  busy(btn, true);
+  api('saveCutting', S.token, { item: val('cuI'), qty: val('cuQ'), date: val('cuD'), note: val('cuN') }).then(function (r) { toast('Cutting added'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
+}
+function cutStatus(id, st, btn) {
+  if (st === 'CANCELLED' && !confirm('Remove cutting ' + id + '?')) return;
+  if (st === 'TODO' && !confirm('Undo: ' + id + ' goes back to "To cut"?')) return;
+  busy(btn, true);
+  api('setCuttingStatus', S.token, id, st).then(function (r) { toast(st === 'DONE' ? id + ' completed: available for the next jobs' : st === 'TODO' ? id + ' back to To cut' : id + ' removed'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
 }
 
 /* ---------- work orders ---------- */
@@ -1678,18 +1735,19 @@ function matTable() {
   var all = r.materials.slice().reverse(); // newest first
   // Filter by the mark: all / green / yellow / white (kept while the app is open)
   var f = S.data.matF || '', markOf = function (m) { return m.check || 'W'; };
-  var list = f ? all.filter(function (m) { return markOf(m) === f; }) : all;
+  var isCR = function (m) { return (m.tags || []).indexOf('CR') >= 0; };
+  var list = f === 'CR' ? all.filter(isCR) : f ? all.filter(function (m) { return markOf(m) === f; }) : all;
   var btns = function (m) { return r.canEdit && !m.saving ? '<button class="btn sm" onclick="matPrice(\'' + q(m.code) + '\')">Price</button> <button class="btn sec sm" onclick="matEdit(\'' + q(m.code) + '\')">Edit</button>' : ''; };
-  var tags = function (m) { return (m.saving ? ' <span class="pill info">saving…</span>' : '') + (m.active ? '' : ' <span class="pill">inactive</span>'); };
+  var tags = function (m) { return crTag(m, r.canEdit) + (m.saving ? ' <span class="pill info">saving…</span>' : '') + (m.active ? '' : ' <span class="pill">inactive</span>'); };
   var priceTxt = function (m) { return m.price === null ? '<span class="pill warn">No price</span>' : money(m.price) + ' / ' + esc(m.purchaseUnit); };
   var costTxt = function (m) { return m.unitCost === null ? '–' : money(m.unitCost) + ' <span class="muted" style="font-weight:600">/ ' + esc(m.unit) + '</span>'; };
   // A round mark while going through prices: tap → green → yellow → white. Saved for everyone.
   var dot = function (m) { var c = m.check === 'G' ? 'g' : m.check === 'Y' ? 'y' : ''; return '<button class="mdot ' + c + '" title="' + (c === 'g' ? 'Green (tap: yellow)' : c === 'y' ? 'Yellow (tap: white)' : 'White (tap: green)') + '"' + (r.canEdit ? ' onclick="matCheck(\'' + q(m.code) + '\',this)"' : ' disabled') + '></button>'; };
   var nG = r.materials.filter(function (m) { return m.check === 'G'; }).length, nY = r.materials.filter(function (m) { return m.check === 'Y'; }).length;
   var chip = function (k, label, dotc, n) { return '<a class="' + (f === k ? 'on' : '') + '" onclick="S.data.matF=\'' + k + '\';matTable()">' + (dotc !== null ? '<span class="mdot ' + dotc + '" style="cursor:inherit"></span>' : '') + label + ' (' + n + ')</a>'; };
-  t.innerHTML = '<div class="tabs mfilter">' + chip('', 'All', null, r.materials.length) + chip('G', 'Green', 'g', nG) + chip('Y', 'Yellow', 'y', nY) + chip('W', 'White', '', r.materials.length - nG - nY) +
+  t.innerHTML = '<div class="tabs mfilter">' + chip('', 'All', null, r.materials.length) + chip('G', 'Green', 'g', nG) + chip('Y', 'Yellow', 'y', nY) + chip('W', 'White', '', r.materials.length - nG - nY) + chip('CR', '✂️ CR', null, r.materials.filter(isCR).length) +
     '<span class="muted" style="align-self:center">tap a circle to mark a material</span></div>' +
-    (f && !list.length ? '<div class="muted" style="padding:10px 0">No ' + (f === 'G' ? 'green' : f === 'Y' ? 'yellow' : 'white') + ' materials.</div>' : '') +
+    (f && !list.length ? '<div class="muted" style="padding:10px 0">No ' + (f === 'CR' ? 'CR-tagged' : f === 'G' ? 'green' : f === 'Y' ? 'yellow' : 'white') + ' materials.</div>' : '') +
     '<div class="only-desk"><table class="tbl"><tr><th>Material</th><th>Unit</th><th>Bought as</th><th class="r">Price</th><th class="r">Cost per unit</th><th>Used in</th><th></th></tr>' + list.map(function (m) {
     return '<tr class="' + (m.saving ? 'saving' : '') + '"><td style="white-space:nowrap">' + dot(m) + '<b style="white-space:normal">' + esc(m.name) + '</b>' + tags(m) + '</td><td>' + esc(m.unit) + '</td><td class="muted">' + esc((m.conversion && m.conversion.text) || '') + '</td>' +
       '<td class="r">' + priceTxt(m) + (m.priceDate ? '<div class="muted">' + d(m.priceDate) + '</div>' : '') + '</td>' +
@@ -1703,6 +1761,18 @@ function matTable() {
       '<div style="margin-top:6px">' + btns(m) + '</div></div>';
   }).join('') + '</div>';
   S.html[S.view + '|' + S.arg] = $('main').innerHTML;
+}
+/* CR tag (Cutting Room): tap to add / remove; saved for everyone. */
+function crTag(m, canEdit) {
+  var on = (m.tags || []).indexOf('CR') >= 0;
+  if (!on && !canEdit) return '';
+  return '<button class="crtag' + (on ? ' on' : '') + '" title="' + (on ? 'Cutting Room material (tap to remove CR)' : 'Tap to tag CR (Cutting Room)') + '"' + (canEdit ? ' onclick="matTag(\'' + q(m.code) + '\')"' : ' disabled') + '>CR</button>';
+}
+function matTag(code) {
+  var m = matByCode(code); if (!m) return;
+  var before = (m.tags || []).slice(), on = before.indexOf('CR') < 0;
+  m.tags = on ? before.concat(['CR']) : before.filter(function (t) { return t !== 'CR'; }); matTable();
+  api('setMaterialTag', S.token, code, 'CR', on).catch(function (e) { m.tags = before; matTable(); toast(e.message); });
 }
 function matCheck(code, btn) {
   var m = matByCode(code); if (!m) return;

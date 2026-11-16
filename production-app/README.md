@@ -31,6 +31,14 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
     at **count 1** (setting "Next Job Starts At", on the Machine Dashboard); "Start now" starts it at once, and it
     can be edited or removed. Its material is given and its rate is set when it starts.
   - Work Orders columns added: Machine, Target Date, Off Machine (when Complete job freed the machine).
+- **Cutting Room** (permission "cutting" to enter; staff with reports / machines can see it). In Materials, tap
+  **CR** next to a material that is cut in the cutting room (filter "CR"; column Tags). A cutting = an SKU and a
+  quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). It waits in **To cut**
+  until someone taps **Cutting completed** (undo is possible while it is not used; remove while not done). The
+  store is not changed by cutting (material still leaves the store with the job). Completed cutting is **used up
+  when a job of that SKU starts** (Work Orders column Cut Used). **Next jobs & cutting** (Cutting Room and the
+  Dashboard), for SKUs with a CR material: available cutting, running jobs (still to make), Next jobs and the
+  status: **OK** (green) when the available cutting covers the Next jobs, **Short N** (red) when it does not.
   - The Dashboard shows a **Machine Dashboard** block (running / waiting for count 2 / late / idle), and
     **In production** shows each karigar and work order (and machine) per SKU.
 - **Raw material, issued with the work order:** creating a lot issues its material to the karigar

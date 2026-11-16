@@ -37,6 +37,7 @@ const SHEET = {
   ALERTS: 'Alerts',
   SUPPLIERS: 'Suppliers',
   MACHINES: 'Machines',
+  CUTTINGS: 'Cuttings',
 };
 
 const HEADERS = {};
@@ -51,12 +52,15 @@ HEADERS[SHEET.RATES] = ['Karigar ID', 'Item Code', 'Rate', 'From Date', 'Set By'
 // Unit = the unit the BOM uses (sq m, inch, pcs …). The price is entered as bought (a roll, a kg, a pack) with how many
 // units one purchase gives: cost per unit = Purchase Price ÷ Units Per Purchase.
 HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase',
-  'Conversion', 'Price Date', 'Color', 'Reorder Level', 'Check'];
+  'Conversion', 'Price Date', 'Color', 'Reorder Level', 'Check', 'Tags'];
 HEADERS[SHEET.PRICES] = ['Material Code', 'Date', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase', 'Conversion',
   'Cost Per Unit', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
 HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source', 'Closed On',
-  'Machine', 'Target Date', 'Off Machine'];
+  'Machine', 'Target Date', 'Off Machine', 'Cut Used'];
+// Cutting Room: cuttings of an SKU in pieces; its CR-tagged materials (BOM × pieces) are listed. Status TODO → DONE
+// (cutting completed) or CANCELLED. Completed cutting is used up when a job of that SKU starts ('Cut Used').
+HEADERS[SHEET.CUTTINGS] = ['ID', 'Date', 'Item Code', 'Qty', 'Materials', 'Status', 'Note', 'By', 'At', 'Done By', 'Done At'];
 // Machines (M1, M2 …): a work order on a machine has its ID in 'Machine'. 'Off Machine' = when 'Complete job' (count 1)
 // freed the machine; the work order is then marked completed at its final count, even with fewer pieces.
 HEADERS[SHEET.MACHINES] = ['ID', 'Name', 'Active', 'Added By', 'At'];
@@ -109,6 +113,7 @@ const PERMS = {
   alerts: 'Receive alerts (counts differ, material short, big advances …)',
   profit: 'See selling prices and profit per item',
   machines: 'Machine Dashboard: start jobs on machines, plan next jobs',
+  cutting: 'Cutting Room: enter cuttings and mark them completed',
   machinesetup: 'Add, rename and remove machines; when the next job starts',
 };
 
@@ -134,6 +139,7 @@ const API_FUNCTIONS = {
   countQueue, startBatch, cancelBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
+  cuttingView, saveCutting, setCuttingStatus, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -427,6 +433,7 @@ function adminDashboard(token) {
     canCount: can_(u, 'count'),
     machines: can_(u, 'machines') ? machineSummary_() : null,
     lateOrders: ordersWithProgress_().filter(o => o.late).length,
+    nextBlock: nextJobsBlock_(),
   };
 }
 
@@ -1086,6 +1093,7 @@ function startOrder_(u, id) {
   forget_('orders');
   const issue = (bomMap_()[o.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * o.qty) }));
   addMoves_(u, k, issue, 'Work order ' + id, id, today);
+  takeCutting_(id);
   log_(u, 'START_ORDER', id, k.id + ' ' + k.name + ': ' + o.item + ' × ' + o.qty + (o.machine ? ' on ' + o.machine : '') + ' started at ' + (rate === null ? 'no rate' : rate));
   pushInProduction_();
 }
@@ -1223,6 +1231,126 @@ function machineSetting(token, at) {
   log_(u, 'SETTING', 'Next Job Starts At', at === 'COUNT2' ? 'Count 2' : 'Count 1');
   machineAdvance_(u);
   return machineView(token);
+}
+
+/* ------------------------------------------------------------------ */
+/* Cutting Room                                                        */
+/* ------------------------------------------------------------------ */
+
+function readCuttings_() {
+  return memo_('cuttings', () => rows_(SHEET.CUTTINGS).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]), item: String(r[2]).trim(),
+    qty: Number(r[3]) || 0, materials: parseJson_(r[4], []), status: (x => (['DONE', 'CANCELLED'].indexOf(x) >= 0 ? x : 'TODO'))(String(r[5]).trim().toUpperCase()),
+    note: String(r[6] || ''), by: String(r[7] || ''), at: String(r[8] || ''), doneBy: String(r[9] || ''), doneAt: String(r[10] || '') })).filter(c => c.id && c.item));
+}
+
+/** The CR-tagged materials of an item's BOM (per piece). */
+function crMaterials_(item) {
+  const mats = materialMap_();
+  return (bomMap_()[item] || []).filter(x => mats[x.material] && mats[x.material].tags.indexOf('CR') >= 0)
+    .map(x => ({ code: x.material, name: mats[x.material].name, unit: mats[x.material].unit, perPiece: x.qty }));
+}
+
+/** Completed cutting not used yet, per item (pieces). */
+function cutAvailable_() {
+  const out = {};
+  readCuttings_().filter(c => c.status === 'DONE').forEach(c => { out[c.item] = (out[c.item] || 0) + c.qty; });
+  readOrders_().forEach(o => { if (o.cutUsed) out[o.item] = (out[o.item] || 0) - o.cutUsed; });
+  return out;
+}
+
+/** A job (work order) starts: it takes completed cutting of its item, up to its quantity. */
+function takeCutting_(id) {
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o || o.cutUsed) return;
+  const take = Math.min(o.qty, Math.max(0, cutAvailable_()[o.item] || 0));
+  if (!take) return;
+  const sh = sheet_(SHEET.ORDERS);
+  if (String(sh.getRange(1, 16).getValues()[0][0] || '') === '') sh.getRange(1, 16).setValue('Cut Used').setFontWeight('bold').setBackground('#e8eefc');
+  sh.getRange(o.row, 16).setValue(take);
+  forget_('orders');
+}
+
+/** Per SKU: completed cutting available, running jobs (still to make) and Next jobs; OK / SHORT against the Next jobs. */
+function nextJobsBlock_() {
+  const avail = cutAvailable_(), prog = ordersWithProgress_(), names = karigarNames_(), mn = machineNames_(), by = {};
+  const row = item => (by[item] = by[item] || { item: item, available: Math.max(0, avail[item] || 0), running: 0, runningJobs: 0, next: 0, nextJobs: [] });
+  prog.filter(o => o.open).forEach(o => { const r = row(o.item); r.running += o.remaining; r.runningJobs++; });
+  prog.filter(o => o.next).forEach(o => { const r = row(o.item); r.next += o.qty; r.nextJobs.push({ id: o.id, qty: o.qty, karigar: names[o.karigarId] || o.karigarId, machine: o.machine ? mn[o.machine] || o.machine : '' }); });
+  Object.keys(avail).forEach(i => { if (avail[i] > 0) row(i); });
+  return Object.keys(by).filter(i => crMaterials_(i).length).sort().map(i => { // only SKUs cut in the cutting room
+    const r = by[i];
+    r.status = r.next ? (r.available >= r.next ? 'OK' : 'SHORT') : '';
+    r.short = r.next > r.available ? r.next - r.available : 0;
+    return r;
+  }).sort((a, b) => (b.next ? 1 : 0) - (a.next ? 1 : 0) || a.item.localeCompare(b.item));
+}
+
+function cuttingView(token) {
+  const u = authStaff_(token, 'cutting|reports|machines');
+  const items = activeItems_().map(i => Object.assign({}, i, { cr: crMaterials_(i.code) })).filter(i => i.cr.length);
+  const since = Utilities.formatDate(new Date(Date.now() - 30 * 864e5), tz_(), 'yyyy-MM-dd');
+  const list = readCuttings_().filter(c => c.status === 'TODO' || (c.status === 'DONE' && c.date >= since)).reverse()
+    .map(c => Object.assign({}, c, { byName: staffName_(c.by), doneByName: c.doneBy ? staffName_(c.doneBy) : '' }));
+  return { items: items, list: list, block: nextJobsBlock_(), canCut: can_(u, 'cutting'), today: todayStr_(),
+    crCount: readMaterials_().filter(m => m.active && m.tags.indexOf('CR') >= 0).length };
+}
+
+/** data = { item, qty (pieces), note, date }: a cutting to be done. */
+function saveCutting(token, data) {
+  const u = authStaff_(token, 'cutting');
+  data = data || {};
+  const item = String(data.item || '').trim();
+  if (!itemMap_()[item]) throw new Error('Choose the SKU.');
+  const cr = crMaterials_(item);
+  if (!cr.length) throw new Error(item + ' has no CR-tagged material in its BOM.');
+  const q = Number(data.qty);
+  if (!(q > 0) || q % 1) throw new Error('Enter the quantity (pieces).');
+  const date = data.date ? toDateStr_(data.date) : todayStr_();
+  const mats = cr.map(x => ({ code: x.code, name: x.name, unit: x.unit, qty: round3_(x.perPiece * q) }));
+  const id = withLock_(() => {
+    const id = nextId_(SHEET.CUTTINGS, 'C-');
+    sheet_(SHEET.CUTTINGS).appendRow([id, "'" + date, item, q, JSON.stringify(mats), 'TODO', String(data.note || '').slice(0, 200), u.id, nowStr_(), '', '']);
+    forget_('cuttings');
+    return id;
+  });
+  log_(u, 'CUTTING', id, item + ' × ' + q + ': ' + mats.map(m => m.name + ' ' + m.qty + ' ' + m.unit).join(', '));
+  return cuttingView(token);
+}
+
+/** 'DONE' = cutting completed, 'TODO' = undo (only if that cutting is not used yet), 'CANCELLED' = remove (not done). */
+function setCuttingStatus(token, id, status) {
+  const u = authStaff_(token, 'cutting');
+  const c = readCuttings_().filter(x => x.id === id)[0];
+  if (!c) throw new Error('Cutting not found.');
+  status = String(status || '').toUpperCase();
+  if (status === 'DONE' && c.status !== 'TODO') throw new Error('This cutting is not waiting.');
+  if (status === 'CANCELLED' && c.status !== 'TODO') throw new Error('Only a cutting that is not done can be removed.');
+  if (status === 'TODO') {
+    if (c.status !== 'DONE') throw new Error('This cutting is not completed.');
+    if ((cutAvailable_()[c.item] || 0) < c.qty) throw new Error('This cutting is already used by a job; it cannot be undone.');
+  }
+  const sh = sheet_(SHEET.CUTTINGS);
+  sh.getRange(c.row, 6).setValue(status);
+  sh.getRange(c.row, 10, 1, 2).setValues([status === 'DONE' ? [u.id, nowStr_()] : ['', '']]);
+  forget_('cuttings');
+  log_(u, 'CUTTING_' + status, id, c.item + ' × ' + c.qty);
+  return cuttingView(token);
+}
+
+/** CR (or another tag) on a material: on = true adds it, false removes it. */
+function setMaterialTag(token, code, tag, on) {
+  const u = authStaff_(token, 'masters');
+  const m = readMaterials_().filter(x => x.code === String(code || '').toUpperCase())[0];
+  if (!m) throw new Error('Material not found.');
+  tag = String(tag || '').trim().toUpperCase();
+  if (!/^[A-Z0-9]{1,8}$/.test(tag)) throw new Error('A tag is 1 to 8 letters or digits.');
+  const tags = m.tags.filter(t => t !== tag).concat(on ? [tag] : []);
+  const sh = sheet_(SHEET.MATERIALS);
+  if (String(sh.getRange(1, 14).getValues()[0][0] || '') === '') sh.getRange(1, 14).setValue('Tags').setFontWeight('bold').setBackground('#e8eefc');
+  sh.getRange(m.row, 14).setValue(tags.join(', '));
+  forget_('materials');
+  log_(u, on ? 'TAG_ADD' : 'TAG_REMOVE', m.code, m.name + ': ' + tag);
+  return { code: m.code, tags: tags };
 }
 
 /* ------------------------------------------------------------------ */
@@ -1395,6 +1523,7 @@ function createOrder_(u, k, l, note, date, opt) {
     return id;
   });
   if (special && l.futureToo) addKarigarRate_(u, k, l.item, Number(l.lotRate), today, 'From lot ' + id);
+  takeCutting_(id);
   // The lot's material (quantity × material per piece) is issued with it; a different person confirms the hand-over.
   const issue = (bomMap_()[l.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * qty) }));
   addMoves_(u, k, issue, 'Work order ' + id, id, today);
@@ -2566,7 +2695,8 @@ function readMaterials_() {
       reorder: Number(r[11]) > 0 ? Number(r[11]) : 0, unit: String(r[2] || ''), active: bool_(r[3]),
       purchaseType: String(r[4] || ''), purchaseUnit: String(r[5] || ''), price: price, perPurchase: per, conversion: parseJson_(r[8], {}),
       priceDate: toDateStr_(r[9]), unitCost: price !== null && per ? round4_(price / per) : null,
-      check: /^[GY]$/.test(String(r[12] || '').trim().toUpperCase()) ? String(r[12]).trim().toUpperCase() : '' };
+      check: /^[GY]$/.test(String(r[12] || '').trim().toUpperCase()) ? String(r[12]).trim().toUpperCase() : '',
+      tags: String(r[13] || '').split(',').map(x => x.trim().toUpperCase()).filter(String) };
   }).filter(x => x.code));
 }
 
@@ -2704,7 +2834,8 @@ function readOrders_() {
     karigarId: String(r[2]).trim().toUpperCase(), item: String(r[3]).trim(), qty: Number(r[4]) || 0,
     status: (x => (['CLOSED', 'DONE', 'NEXT', 'CANCELLED'].indexOf(x) >= 0 ? x : 'OPEN'))(String(r[5]).trim().toUpperCase()), note: String(r[6] || ''), by: String(r[7] || ''),
     rate: r[9] === '' || r[9] === null || !isFinite(Number(r[9])) ? null : Number(r[9]), rateSource: String(r[10] || '').trim().toUpperCase(), closedOn: toDateStr_(r[11]),
-    machine: String(r[12] || '').trim().toUpperCase(), target: toDateStr_(r[13]), offMachine: String(r[14] || '').trim() })).filter(o => o.id));
+    machine: String(r[12] || '').trim().toUpperCase(), target: toDateStr_(r[13]), offMachine: String(r[14] || '').trim(),
+    cutUsed: Number(r[15]) || 0 })).filter(o => o.id));
 }
 
 function readMoves_() {
@@ -2837,7 +2968,7 @@ function forget_() {
     delete MEMO[arguments[i]];
     if (arguments[i] === 'lines') delete MEMO.batches; // batches carry their lines
   }
-  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate'].forEach(k => { delete MEMO[k]; });
+  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate', 'cuttings'].forEach(k => { delete MEMO[k]; });
   Object.keys(MEMO).forEach(k => { if (k.indexOf('rows|') === 0) delete MEMO[k]; });
 }
 
