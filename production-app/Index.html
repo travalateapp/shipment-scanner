@@ -842,7 +842,7 @@ function saveWo(btn) {
   if (!lines.length) return toast('Choose an item and its quantity.');
   busy(btn, true);
   if (val('woD') && val('woD') > todayIso()) return toast('The date cannot be in the future.');
-  api('saveOrders', S.token, { karigarId: val('woK'), date: val('woD'), note: val('woN'), lines: lines })
+  api('saveOrders', S.token, { karigarId: val('woK'), date: val('woD') && val('woD') !== todayIso() ? val('woD') : '', note: val('woN'), lines: lines }) // today: the server's own today
     .then(function (r) {
       preload('orderList', r);
       var msg = r.added.map(function (a) { return a.id + ' ' + a.item + ' × ' + a.qty; }).join(', ') + ' added; material given to the karigar.';

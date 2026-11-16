@@ -1043,9 +1043,11 @@ function saveOrders(token, data) {
   // The work order's date (default today; not in the future): its rate and its material go by this date.
   const date = data.date ? toDateStr_(data.date) : todayStr_();
   if (!date) throw new Error('Enter a valid date.');
-  if (date > todayStr_()) throw new Error('The date cannot be in the future.');
+  const tomorrow = Utilities.formatDate(new Date(Date.now() + 864e5), tz_(), 'yyyy-MM-dd');
+  if (date > tomorrow) throw new Error('The date cannot be in the future.');
+  const day = date > todayStr_() ? todayStr_() : date; // a phone a little ahead (or just past midnight): today
   const storeBefore = storeStockMap_();
-  const added = lines.map(l => createOrder_(u, k, l, data.note, date));
+  const added = lines.map(l => createOrder_(u, k, l, data.note, day));
   // Store: what each lot needs against what is in the store (before these lots took it).
   const need = {};
   added.forEach(a => a.issueCodes.forEach(x => { need[x.material] = (need[x.material] || 0) + x.qty; }));
