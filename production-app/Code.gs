@@ -1074,7 +1074,8 @@ function startOrder_(u, id) {
   const k = readKarigars_().filter(x => x.id === o.karigarId)[0] || { id: o.karigarId, name: o.karigarId };
   const today = todayStr_();
   const kr = karigarRateOn_(k.id, o.item, today), sr = standardRateOn_(o.item, today);
-  const rate = kr !== null ? kr : sr, source = kr !== null ? 'KARIGAR' : sr !== null ? 'STANDARD' : '';
+  const lot = o.rateSource === 'LOT' && o.rate !== null; // special rate given when it was planned
+  const rate = lot ? o.rate : kr !== null ? kr : sr, source = lot ? 'LOT' : kr !== null ? 'KARIGAR' : sr !== null ? 'STANDARD' : '';
   const sh = sheet_(SHEET.ORDERS);
   sh.getRange(o.row, 2).setValue("'" + today);
   sh.getRange(o.row, 6).setValue('OPEN');
@@ -1092,7 +1093,8 @@ function machineView(token) {
   const st = machineState_(), on = {};
   st.forEach(m => { if (m.job) on[m.job.karigarId] = m.name; });
   return { list: st.filter(m => m.active), karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name, on: on[k.id] || '' })),
-    items: activeItems_(), nextAt: getSettings_().nextAt, canSetup: can_(u, 'machinesetup'), canCount: can_(u, 'count'), me: u.id, today: todayStr_() };
+    items: activeItems_(), nextAt: getSettings_().nextAt, canSetup: can_(u, 'machinesetup'), canCount: can_(u, 'count'), canRate: can_(u, 'masters'),
+    me: u.id, today: todayStr_() };
 }
 
 /** Changes a planned (NEXT) job: data = { karigarId, item, qty, target }. */
@@ -1107,6 +1109,11 @@ function saveNextOrder(token, id, data) {
   const q = Number(data.qty);
   if (!(q > 0) || q % 1) throw new Error('Enter the quantity.');
   const target = data.target ? toDateStr_(data.target) : '';
+  if (data.lotRate !== undefined && can_(u, 'masters')) {
+    const sp = data.lotRate !== '' && data.lotRate !== null;
+    if (sp && !(Number(data.lotRate) >= 0)) throw new Error('Enter a valid special rate.');
+    sheet_(SHEET.ORDERS).getRange(o.row, 10, 1, 2).setValues([[sp ? Number(data.lotRate) : '', sp ? 'LOT' : '']]);
+  }
   sheet_(SHEET.ORDERS).getRange(o.row, 3, 1, 3).setValues([[k.id, data.item, q]]);
   sheet_(SHEET.ORDERS).getRange(o.row, 14).setValue(target ? "'" + target : '');
   forget_('orders');
@@ -1307,6 +1314,7 @@ function saveOrders(token, data) {
   if (data.target && !target) throw new Error('Enter a valid target date.');
   const machine = data.machine ? String(data.machine).trim().toUpperCase() : '';
   if (machine) {
+    ensureMachines_(u);
     const st = machineState_().filter(m => m.id === machine)[0];
     if (!st || !st.active) throw new Error('Machine not found.');
     if (lines.length > 1) throw new Error('One item per machine job.');
@@ -1341,14 +1349,17 @@ function createOrder_(u, k, l, note, date, opt) {
   opt = opt || {};
   const qty = Number(l.qty);
   if (opt.next) {
+    const sp = l.lotRate !== '' && l.lotRate !== null && l.lotRate !== undefined; // a special rate is kept for when it starts
     const nid = withLock_(() => {
       const id = nextId_(SHEET.ORDERS, 'W-');
       sheet_(SHEET.ORDERS).appendRow([id, "'" + (date || todayStr_()), k.id, l.item, qty, 'NEXT', String(note || '').slice(0, 200), u.id, nowStr_(),
-        '', '', '', opt.machine || '', opt.target ? "'" + opt.target : '', '']);
+        sp ? Number(l.lotRate) : '', sp ? 'LOT' : '', '', opt.machine || '', opt.target ? "'" + opt.target : '', '']);
       forget_('orders');
       return id;
     });
-    log_(u, 'NEXT_ORDER', nid, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + (opt.machine ? ' on ' + opt.machine : '') + (opt.target ? ', target ' + opt.target : '') + ' (planned: starts later)');
+    if (sp && l.futureToo) addKarigarRate_(u, k, l.item, Number(l.lotRate), todayStr_(), 'From lot ' + nid);
+    log_(u, 'NEXT_ORDER', nid, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + (opt.machine ? ' on ' + opt.machine : '') + (opt.target ? ', target ' + opt.target : '') +
+      (sp ? ', special rate ' + l.lotRate + (l.futureToo ? ' (also future lots)' : '') : '') + ' (planned: starts later)');
     return { id: nid };
   }
   const special = l.lotRate !== '' && l.lotRate !== null && l.lotRate !== undefined;
