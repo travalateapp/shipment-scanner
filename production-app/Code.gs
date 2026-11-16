@@ -36,6 +36,7 @@ const SHEET = {
   TAKES: 'Stock Takes',
   ALERTS: 'Alerts',
   SUPPLIERS: 'Suppliers',
+  MACHINES: 'Machines',
 };
 
 const HEADERS = {};
@@ -52,7 +53,11 @@ HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active', 'Purchase Type', '
 HEADERS[SHEET.PRICES] = ['Material Code', 'Date', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase', 'Conversion',
   'Cost Per Unit', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
-HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source', 'Closed On'];
+HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source', 'Closed On',
+  'Machine', 'Target Date', 'Off Machine'];
+// Machines (M1, M2 …): a work order on a machine has its ID in 'Machine'. 'Off Machine' = when 'Complete job' (count 1)
+// freed the machine; the work order is then marked completed at its final count, even with fewer pieces.
+HEADERS[SHEET.MACHINES] = ['ID', 'Name', 'Active', 'Added By', 'At'];
 HEADERS[SHEET.MOVES] = ['ID', 'Date', 'Type', 'Karigar ID', 'Material Code', 'Qty', 'Note', 'Entered By', 'Entered At',
   'Status', 'Confirmed By', 'Confirmed At', 'Work Order', 'Unit Cost'];
 HEADERS[SHEET.BATCHES] = ['ID', 'Karigar ID', 'Status', 'Created At', 'Claim', 'Count 1 By', 'Count 1 At', 'Count 1', 'Photo',
@@ -85,6 +90,7 @@ const DEFAULT_SETTINGS = [
   ['Units', '', 'Extra units for materials, added by a super admin (comma-separated)'],
   ['Large Advance Alert', 10000, 'An alert is sent when one advance (or a top-up) is this amount or more'],
   ['Low Margin %', 20, 'Items whose profit margin is below this are marked'],
+  ['Next Job Starts At', 'Count 1', 'Machine Dashboard: a machine\'s next job starts at Count 1 (default) or Count 2 of the job before'],
 ];
 
 /* Permissions a super admin can give to staff. */
@@ -100,6 +106,8 @@ const PERMS = {
   store: 'Raw material store: opening stock and purchase bills',
   alerts: 'Receive alerts (counts differ, material short, big advances …)',
   profit: 'See selling prices and profit per item',
+  machines: 'Machine Dashboard: start jobs on machines, plan next jobs',
+  machinesetup: 'Add, rename and remove machines; when the next job starts',
 };
 
 /* ------------------------------------------------------------------ */
@@ -123,6 +131,7 @@ const API_FUNCTIONS = {
   adminDashboard, alertList, alertsSeen, storeView, setOpeningStock, saveBill, renameSupplier, stockTake, saveSellingPrice, saveOrders,
   countQueue, startBatch, cancelBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
+  machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -414,6 +423,8 @@ function adminDashboard(token) {
     karigars: kar.length,
     inventorySync: getSettings_().inventoryLastSync,
     canCount: can_(u, 'count'),
+    machines: can_(u, 'machines') ? machineSummary_() : null,
+    lateOrders: ordersWithProgress_().filter(o => o.late).length,
   };
 }
 
@@ -454,6 +465,16 @@ function cancelBatch(token, id) {
   if (!before1 && !(b.status === 'COUNT2' && u.role === 'SUPER')) throw new Error(b.status === 'COUNT2' ? 'Only a super admin can remove a batch after count 1.' : 'A final (counted) batch cannot be removed.');
   sheet_(SHEET.BATCHES).getRange(b.row, 3).setValue('CANCELLED');
   forget_('batches');
+  // A 'Complete job' count 1 removed: the job goes back on its machine (if the machine has not moved on).
+  const wos = (b.count1 || []).map(l => l.wo).filter(String);
+  if (wos.length) {
+    const st = machineState_(), osh = sheet_(SHEET.ORDERS);
+    readOrders_().filter(o => wos.indexOf(o.id) >= 0 && o.offMachine && o.status === 'OPEN').forEach(o => {
+      const m = st.filter(x => x.id === o.machine)[0];
+      if (m && !m.job) osh.getRange(o.row, 15).setValue('');
+    });
+    forget_('orders');
+  }
   log_(u, 'CANCEL_BATCH', id, (before1 ? 'Removed before count 1' : 'Removed after count 1 (duplicate / mistake): count 1 was ' + JSON.stringify(b.count1)) + ' (' + b.karigarId + ')');
   return countQueue(token);
 }
@@ -513,7 +534,15 @@ function saveCount(token, batchId, data) {
       sh.getRange(b.row, 6, 1, 4).setValues([[u.id, nowStr_(), JSON.stringify(lines), photoId]]);
       forget_('batches');
       log_(u, 'COUNT_1', b.id, linesText_(lines));
-      return { status: 'COUNT2' };
+      // 'Complete job' from the Machine Dashboard: the machine is free now; the job is completed at its final count.
+      const done = (data.complete || []).map(x => String(x).toUpperCase()).filter(w => lines.some(l => l.wo === w));
+      if (done.length) {
+        const osh = sheet_(SHEET.ORDERS);
+        readOrders_().filter(o => done.indexOf(o.id) >= 0 && o.machine && o.status === 'OPEN' && !o.offMachine)
+          .forEach(o => { osh.getRange(o.row, 15).setValue("'" + nowStr_()); log_(u, 'JOB_COMPLETE', o.id, 'Count 1 in ' + b.id + ': ' + o.machine + ' is free'); });
+        forget_('orders');
+      }
+      return { status: 'COUNT2', machines: done.length > 0 };
     }
     if (b.status !== 'COUNT2') throw new Error('This batch is not waiting for a count.');
     if (b.count1By === u.id) throw new Error('Count 2 must be done by a different person.');
@@ -525,11 +554,17 @@ function saveCount(token, batchId, data) {
     sh.getRange(b.row, 13).setValue("'" + today);
     forget_('batches');
     writeLines_(Object.assign({}, b, { finalDate: today }), lines);
+    // A machine job counted with 'Complete job' is completed now, even with fewer pieces than ordered.
+    const counted = lines.map(l => l.wo).filter(String), osh = sheet_(SHEET.ORDERS);
+    readOrders_().filter(o => counted.indexOf(o.id) >= 0 && o.offMachine && o.status === 'OPEN')
+      .forEach(o => { osh.getRange(o.row, 6).setValue('DONE'); osh.getRange(o.row, 12).setValue("'" + today); log_(u, 'ORDER_DONE', o.id, 'Completed at the final count of ' + b.id); });
+    forget_('orders');
     log_(u, 'COUNT_2_FINAL', b.id, linesText_(lines) + (differs.length ? ' | count 1 was different on: ' + differs.join(', ') + ' (count 1: ' + linesText_(b.count1) + ')' : ''));
     if (differs.length) alert_('COUNT_DIFFERS', b.id + ' (' + (karigarNames_()[b.karigarId] || b.karigarId) + '): count 1 ≠ final count on ' + differs.join(', ') +
       '. Count 1 by ' + staffName_(b.count1By) + ': ' + linesText_(b.count1) + ' · final by ' + u.name + ': ' + linesText_(lines), b.id);
     return { status: 'LOCKED', differs: differs, karigarId: b.karigarId, balancesBefore: balancesBefore };
   });
+  if (res.status === 'LOCKED' || res.machines) machineAdvance_(u);
   if (res.status === 'LOCKED') {
     negativeMaterialAlerts_(res.karigarId, res.balancesBefore);
     delete res.balancesBefore;
@@ -795,11 +830,13 @@ function sendInProduction_() {
 }
 
 function inProductionList_() {
-  const items = itemMap_();
-  const by = {};
-  ordersWithProgress_().filter(o => o.open && o.remaining > 0 && (items[o.item] || {}).type === 'SKU')
-    .forEach(o => { by[o.item] = (by[o.item] || 0) + o.remaining; });
-  return Object.keys(by).sort().map(k => ({ item: k, qty: by[k] }));
+  const items = itemMap_(), names = karigarNames_(), mn = machineNames_();
+  const by = {}, parts = {};
+  ordersWithProgress_().filter(o => o.open && o.remaining > 0 && (items[o.item] || {}).type === 'SKU').forEach(o => {
+    by[o.item] = (by[o.item] || 0) + o.remaining;
+    (parts[o.item] = parts[o.item] || []).push({ wo: o.id, karigar: names[o.karigarId] || o.karigarId, machine: o.machine ? mn[o.machine] || o.machine : '', qty: o.remaining, late: o.late });
+  });
+  return Object.keys(by).sort().map(k => ({ item: k, qty: by[k], parts: parts[k] }));
 }
 
 /**
@@ -957,6 +994,212 @@ function materialBalance(token) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Machines (Machine Dashboard)                                        */
+/* ------------------------------------------------------------------ */
+// A machine runs one job (work order) at a time; one karigar works on one machine. 'Complete job' = count 1 of
+// that work order: the machine is free at once and the job is marked completed at its final count (count 2),
+// even with fewer pieces. A machine's next job is a work order with status NEXT (no rate, no material, not
+// "in production"); it starts by itself when the machine is free, at count 1 (default) or count 2 (setting).
+
+function readMachines_() {
+  return memo_('machines', () => rows_(SHEET.MACHINES).map((r, i) => ({ row: i + 2, id: String(r[0]).trim().toUpperCase(),
+    name: String(r[1] || '').trim() || String(r[0]).trim(), active: String(r[2]).trim().toUpperCase() !== 'NO' })).filter(m => m.id));
+}
+
+function machineNames_() {
+  const m = {};
+  readMachines_().forEach(x => { m[x.id] = x.name; });
+  return m;
+}
+
+/** The first time: machines M1 … M20. */
+function ensureMachines_(u) {
+  if (readMachines_().length) return;
+  withLock_(() => {
+    forget_('machines');
+    if (readMachines_().length) return;
+    const rows = [];
+    for (let i = 1; i <= 20; i++) rows.push(['M' + i, 'M' + i, 'Yes', u ? u.id : '', nowStr_()]);
+    sheet_(SHEET.MACHINES).getRange(2, 1, rows.length, 5).setValues(rows);
+    forget_('machines');
+  });
+}
+
+function machineState_() {
+  return memo_('mstate', () => {
+    const prog = ordersWithProgress_(), names = karigarNames_(), waiting = {};
+    readBatches_().filter(b => b.status === 'COUNT2').forEach(b => b.count1.forEach(l => { if (l.wo) waiting[l.wo] = b; }));
+    const view = o => {
+      const w = waiting[o.id];
+      return { id: o.id, karigarId: o.karigarId, karigar: names[o.karigarId] || o.karigarId, item: o.item, qty: o.qty, received: o.received,
+        remaining: o.remaining, extra: o.extra, date: o.date, target: o.target, late: o.late, rate: o.rate, offMachine: o.offMachine,
+        batch: w ? w.id : '', count1By: w ? w.count1By : '', count1ByName: w ? staffName_(w.count1By) : '', count1At: w ? w.count1At : '' };
+    };
+    return readMachines_().map(m => {
+      const mine = prog.filter(o => o.machine === m.id);
+      const jobs = mine.filter(o => o.open && !o.offMachine), next = mine.filter(o => o.next)[0];
+      return { id: m.id, name: m.name, active: m.active, job: jobs[0] ? view(jobs[0]) : null, also: jobs.slice(1).map(o => o.id),
+        pending: mine.filter(o => o.open && o.offMachine).map(view), next: next ? view(next) : null };
+    });
+  });
+}
+
+/** The machine a karigar is working on now ('' if none). */
+function karigarMachine_(karigarId) {
+  const m = machineState_().filter(x => x.job && x.job.karigarId === karigarId)[0];
+  return m ? m.id : '';
+}
+
+function machineSummary_() {
+  const st = machineState_().filter(m => m.active);
+  return { total: st.length, running: st.filter(m => m.job).length, count2: st.filter(m => m.pending.length).length,
+    late: st.filter(m => m.job && m.job.late).length, idle: st.filter(m => !m.job && !m.pending.length).length };
+}
+
+/** Starts the next job of every free machine (count 1 or count 2 of the job before, per the setting). */
+function machineAdvance_(u) {
+  const mode = getSettings_().nextAt;
+  machineState_().filter(m => m.active && !m.job && m.next).forEach(m => {
+    if (mode === 'COUNT2' && m.pending.length) return;
+    const on = karigarMachine_(m.next.karigarId);
+    if (on && on !== m.id) return; // the karigar is still on another machine
+    startOrder_(u, m.next.id);
+  });
+}
+
+/** A planned (NEXT) work order starts: today's date and rate, its material is given to the karigar. */
+function startOrder_(u, id) {
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o || o.status !== 'NEXT') throw new Error('This job has already started or was removed.');
+  const k = readKarigars_().filter(x => x.id === o.karigarId)[0] || { id: o.karigarId, name: o.karigarId };
+  const today = todayStr_();
+  const kr = karigarRateOn_(k.id, o.item, today), sr = standardRateOn_(o.item, today);
+  const rate = kr !== null ? kr : sr, source = kr !== null ? 'KARIGAR' : sr !== null ? 'STANDARD' : '';
+  const sh = sheet_(SHEET.ORDERS);
+  sh.getRange(o.row, 2).setValue("'" + today);
+  sh.getRange(o.row, 6).setValue('OPEN');
+  sh.getRange(o.row, 10, 1, 2).setValues([[rate === null ? '' : rate, source]]);
+  forget_('orders');
+  const issue = (bomMap_()[o.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * o.qty) }));
+  addMoves_(u, k, issue, 'Work order ' + id, id, today);
+  log_(u, 'START_ORDER', id, k.id + ' ' + k.name + ': ' + o.item + ' × ' + o.qty + (o.machine ? ' on ' + o.machine : '') + ' started at ' + (rate === null ? 'no rate' : rate));
+  pushInProduction_();
+}
+
+function machineView(token) {
+  const u = authStaff_(token, 'machines');
+  ensureMachines_(u);
+  const st = machineState_(), on = {};
+  st.forEach(m => { if (m.job) on[m.job.karigarId] = m.name; });
+  return { list: st.filter(m => m.active), karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name, on: on[k.id] || '' })),
+    items: activeItems_(), nextAt: getSettings_().nextAt, canSetup: can_(u, 'machinesetup'), canCount: can_(u, 'count'), me: u.id, today: todayStr_() };
+}
+
+/** Changes a planned (NEXT) job: data = { karigarId, item, qty, target }. */
+function saveNextOrder(token, id, data) {
+  const u = authStaff_(token, 'machines|orders');
+  data = data || {};
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o || o.status !== 'NEXT') throw new Error('This job has already started or was removed.');
+  const k = readKarigars_().filter(x => x.id === String(data.karigarId || '').toUpperCase() && x.active)[0];
+  if (!k) throw new Error('Choose the karigar.');
+  if (!itemMap_()[data.item]) throw new Error('Choose the item.');
+  const q = Number(data.qty);
+  if (!(q > 0) || q % 1) throw new Error('Enter the quantity.');
+  const target = data.target ? toDateStr_(data.target) : '';
+  sheet_(SHEET.ORDERS).getRange(o.row, 3, 1, 3).setValues([[k.id, data.item, q]]);
+  sheet_(SHEET.ORDERS).getRange(o.row, 14).setValue(target ? "'" + target : '');
+  forget_('orders');
+  log_(u, 'NEXT_ORDER_EDIT', id, o.karigarId + ' ' + o.item + ' × ' + o.qty + ' → ' + k.id + ' ' + data.item + ' × ' + q + (target ? ', target ' + target : ''));
+  machineAdvance_(u);
+  return true;
+}
+
+/** Starts a planned job now (its machine must be free). */
+function startNextOrder(token, id) {
+  const u = authStaff_(token, 'machines|orders');
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o || o.status !== 'NEXT') throw new Error('This job has already started or was removed.');
+  if (o.machine) {
+    const m = machineState_().filter(x => x.id === o.machine)[0];
+    if (m && m.job) throw new Error((m.name) + ' is still running ' + m.job.id + '. Complete it first.');
+    const on = karigarMachine_(o.karigarId);
+    if (on && on !== o.machine) throw new Error((karigarNames_()[o.karigarId] || o.karigarId) + ' is working on ' + (machineNames_()[on] || on) + '. One karigar, one machine.');
+  }
+  startOrder_(u, id);
+  return true;
+}
+
+function removeNextOrder(token, id) {
+  const u = authStaff_(token, 'machines|orders');
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o || o.status !== 'NEXT') throw new Error('Only a job that has not started can be removed.');
+  sheet_(SHEET.ORDERS).getRange(o.row, 6).setValue('CANCELLED');
+  forget_('orders');
+  log_(u, 'NEXT_ORDER_REMOVED', id, o.karigarId + ' ' + o.item + ' × ' + o.qty + (o.machine ? ' on ' + o.machine : ''));
+  return true;
+}
+
+/** Target date of a work order ('' = none). */
+function setOrderTarget(token, id, target) {
+  const u = authStaff_(token, 'orders|machines');
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o) throw new Error('Work order not found.');
+  const t = target ? toDateStr_(target) : '';
+  if (target && !t) throw new Error('Enter a valid date.');
+  sheet_(SHEET.ORDERS).getRange(o.row, 14).setValue(t ? "'" + t : '');
+  forget_('orders');
+  log_(u, 'ORDER_TARGET', id, (o.target || 'none') + ' → ' + (t || 'none'));
+  return true;
+}
+
+/** Adds a machine (data.id empty) or renames one: data = { id, name }. */
+function machineSave(token, data) {
+  const u = authStaff_(token, 'machinesetup');
+  data = data || {};
+  ensureMachines_(u);
+  const name = String(data.name || '').trim().slice(0, 40);
+  const all = readMachines_();
+  if (data.id) {
+    const m = all.filter(x => x.id === String(data.id).toUpperCase())[0];
+    if (!m) throw new Error('Machine not found.');
+    if (!name) throw new Error('Enter the name.');
+    if (all.some(x => x.id !== m.id && x.active && x.name.toLowerCase() === name.toLowerCase())) throw new Error('Another machine is called ' + name + '.');
+    sheet_(SHEET.MACHINES).getRange(m.row, 2).setValue(name);
+    forget_('machines');
+    log_(u, 'MACHINE_RENAME', m.id, m.name + ' → ' + name);
+    return machineView(token);
+  }
+  const n = all.reduce((a, x) => Math.max(a, Number((/^M(\d+)$/.exec(x.id) || [])[1]) || 0), 0) + 1, id = 'M' + n;
+  const nm = name || id;
+  if (all.some(x => x.active && x.name.toLowerCase() === nm.toLowerCase())) throw new Error('Another machine is called ' + nm + '.');
+  sheet_(SHEET.MACHINES).appendRow([id, nm, 'Yes', u.id, nowStr_()]);
+  forget_('machines');
+  log_(u, 'MACHINE_ADD', id, nm);
+  return machineView(token);
+}
+
+function machineRemove(token, id) {
+  const u = authStaff_(token, 'machinesetup');
+  const m = machineState_().filter(x => x.id === String(id || '').toUpperCase())[0];
+  if (!m) throw new Error('Machine not found.');
+  if (m.job || m.pending.length || m.next) throw new Error(m.name + ' has a job. Complete or remove its jobs first.');
+  sheet_(SHEET.MACHINES).getRange(readMachines_().filter(x => x.id === m.id)[0].row, 3).setValue('No');
+  forget_('machines');
+  log_(u, 'MACHINE_REMOVE', m.id, m.name);
+  return machineView(token);
+}
+
+/** When a machine's next job starts: 'COUNT1' (default) or 'COUNT2' of the job before. */
+function machineSetting(token, at) {
+  const u = authStaff_(token, 'machinesetup');
+  setSetting_('Next Job Starts At', at === 'COUNT2' ? 'Count 2' : 'Count 1');
+  log_(u, 'SETTING', 'Next Job Starts At', at === 'COUNT2' ? 'Count 2' : 'Count 1');
+  machineAdvance_(u);
+  return machineView(token);
+}
+
+/* ------------------------------------------------------------------ */
 /* Work orders (what is "in production")                               */
 /* ------------------------------------------------------------------ */
 
@@ -968,14 +1211,18 @@ function ordersWithProgress_() {
       got[l.workOrder] = (got[l.workOrder] || 0) + l.good;
       if (String(l.finalDate) > String(last[l.workOrder] || '')) last[l.workOrder] = l.finalDate;
     });
+    const today = todayStr_();
     return readOrders_().map(o => {
       const received = got[o.id] || 0;
-      const remaining = Math.max(0, o.qty - received);
-      const open = o.status === 'OPEN' && remaining > 0, done = received >= o.qty;
+      const completed = o.status === 'DONE'; // marked completed (a machine job's final count), even with fewer pieces
+      const remaining = completed ? 0 : Math.max(0, o.qty - received);
+      const next = o.status === 'NEXT', cancelled = o.status === 'CANCELLED';
+      const open = o.status === 'OPEN' && remaining > 0, done = received >= o.qty || completed;
       // Finished on: the day of the count that completed it (done), else the day it was closed.
-      const completedOn = open ? '' : String(done ? (last[o.id] || o.closedOn || o.date) : (o.closedOn || last[o.id] || o.date)).slice(0, 10);
-      return Object.assign({}, o, { received: received, remaining: remaining, open: open,
-        done: done, extra: Math.max(0, received - o.qty), completedOn: completedOn });
+      const completedOn = open || next || cancelled ? '' : String(done ? (last[o.id] || o.closedOn || o.date) : (o.closedOn || last[o.id] || o.date)).slice(0, 10);
+      return Object.assign({}, o, { received: received, remaining: remaining, open: open, next: next, cancelled: cancelled,
+        done: done && !next && !cancelled, extra: Math.max(0, received - o.qty), completedOn: completedOn,
+        short: completed && received < o.qty ? o.qty - received : 0, late: !!(open && o.target && o.target < today) });
     });
   });
 }
@@ -1000,18 +1247,21 @@ function lotCost_(o, mats) {
 function orderList(token, show) {
   const u = authStaff_(token, 'orders|reports|issue');
   const names = karigarNames_(), items = itemMap_(), bom = bomMap_(), mats = materialMap_();
-  show = show === true || String(show).toUpperCase() === 'ALL' ? 'ALL' : String(show || '').toUpperCase() === 'DONE' ? 'DONE' : 'OPEN';
-  let rows = ordersWithProgress_().filter(o => show === 'ALL' || (show === 'DONE' ? !o.open : o.open)).reverse();
+  show = show === true ? 'ALL' : String(show || '').toUpperCase();
+  if (['ALL', 'DONE', 'NEXT'].indexOf(show) < 0) show = 'OPEN';
+  const mnames = machineNames_();
+  let rows = ordersWithProgress_().filter(o => !o.cancelled && (show === 'ALL' || (show === 'DONE' ? !o.open && !o.next : show === 'NEXT' ? o.next : o.open))).reverse();
   if (show === 'DONE') rows = rows.sort((a, b) => String(b.completedOn).localeCompare(String(a.completedOn)));
   const list = rows.map(o => Object.assign({}, o, {
     karigar: names[o.karigarId] || o.karigarId, itemName: (items[o.item] || {}).name || '', type: (items[o.item] || {}).type || '',
+    machineName: o.machine ? mnames[o.machine] || o.machine : '',
     rateNow: o.rate !== null ? o.rate : rateOn_(o.karigarId, o.item, todayStr_()), standard: standardRateOn_(o.item, todayStr_()),
     material: (bom[o.item] || []).map(x => ({ material: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '',
       qty: round3_(x.qty * o.qty) })),
     cost: lotCost_(o, mats),
   }));
   return { list: list, karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })),
-    items: activeItems_(), canEdit: can_(u, 'orders'), canRate: can_(u, 'masters'), inProduction: inProductionList_() };
+    items: activeItems_(), canEdit: can_(u, 'orders'), canRate: can_(u, 'masters'), canMachines: can_(u, 'machines'), inProduction: inProductionList_() };
 }
 
 /**
@@ -1032,8 +1282,8 @@ function saveOrder(token, data) {
  * Returns the work orders and added = [{ id, item, qty, issued, short }] (short = not enough in the store).
  */
 function saveOrders(token, data) {
-  const u = authStaff_(token, 'orders');
   data = data || {};
+  const u = authStaff_(token, data.machine ? 'machines' : 'orders');
   const k = readKarigars_().filter(x => x.id === String(data.karigarId || '').toUpperCase() && x.active)[0];
   if (!k) throw new Error('Choose the karigar.');
   const lines = (data.lines || []).filter(l => l && (l.item || l.qty));
@@ -1053,8 +1303,28 @@ function saveOrders(token, data) {
   const tomorrow = Utilities.formatDate(new Date(Date.now() + 864e5), tz_(), 'yyyy-MM-dd');
   if (date > tomorrow) throw new Error('The date cannot be in the future.');
   const day = date > todayStr_() ? todayStr_() : date; // a phone a little ahead (or just past midnight): today
+  const target = data.target ? toDateStr_(data.target) : '';
+  if (data.target && !target) throw new Error('Enter a valid target date.');
+  const machine = data.machine ? String(data.machine).trim().toUpperCase() : '';
+  if (machine) {
+    const st = machineState_().filter(m => m.id === machine)[0];
+    if (!st || !st.active) throw new Error('Machine not found.');
+    if (lines.length > 1) throw new Error('One item per machine job.');
+    if (data.next) {
+      if (st.next) throw new Error(st.name + ' already has a next job (' + st.next.id + '). Change that one.');
+    } else {
+      if (st.job) throw new Error(st.name + ' is already running ' + st.job.id + '.');
+      const on = karigarMachine_(k.id);
+      if (on && on !== machine) throw new Error(k.name + ' is already working on ' + (machineNames_()[on] || on) + '. One karigar, one machine.');
+    }
+  }
+  if (data.next) { // a planned job: no rate, no material and not "in production" until it starts
+    const id = createOrder_(u, k, lines[0], data.note, day, { machine: machine, target: target, next: true }).id;
+    machineAdvance_(u);
+    return machine ? machineView(token) : orderList(token, 'NEXT');
+  }
   const storeBefore = storeStockMap_();
-  const added = lines.map(l => createOrder_(u, k, l, data.note, day));
+  const added = lines.map(l => createOrder_(u, k, l, data.note, day, { machine: machine, target: target }));
   // Store: what each lot needs against what is in the store (before these lots took it).
   const need = {};
   added.forEach(a => a.issueCodes.forEach(x => { need[x.material] = (need[x.material] || 0) + x.qty; }));
@@ -1063,11 +1333,24 @@ function saveOrders(token, data) {
     .map(c => ({ material: (mats[c] || {}).name || c, unit: (mats[c] || {}).unit || '', need: round3_(need[c]), inStore: round3_(storeBefore[c].inStore) }));
   lowStockAlerts_(storeBefore);
   pushInProduction_();
+  if (machine) return Object.assign(machineView(token), { added: added.map(a => ({ id: a.id, item: a.item, qty: a.qty, issued: a.issued })), short: short });
   return Object.assign(orderList(token), { added: added.map(a => ({ id: a.id, item: a.item, qty: a.qty, issued: a.issued })), short: short });
 }
 
-function createOrder_(u, k, l, note, date) {
+function createOrder_(u, k, l, note, date, opt) {
+  opt = opt || {};
   const qty = Number(l.qty);
+  if (opt.next) {
+    const nid = withLock_(() => {
+      const id = nextId_(SHEET.ORDERS, 'W-');
+      sheet_(SHEET.ORDERS).appendRow([id, "'" + (date || todayStr_()), k.id, l.item, qty, 'NEXT', String(note || '').slice(0, 200), u.id, nowStr_(),
+        '', '', '', opt.machine || '', opt.target ? "'" + opt.target : '', '']);
+      forget_('orders');
+      return id;
+    });
+    log_(u, 'NEXT_ORDER', nid, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + (opt.machine ? ' on ' + opt.machine : '') + (opt.target ? ', target ' + opt.target : '') + ' (planned: starts later)');
+    return { id: nid };
+  }
   const special = l.lotRate !== '' && l.lotRate !== null && l.lotRate !== undefined;
   const today = date || todayStr_();
   const kr = karigarRateOn_(k.id, l.item, today), sr = standardRateOn_(l.item, today);
@@ -1076,7 +1359,7 @@ function createOrder_(u, k, l, note, date) {
   const id = withLock_(() => {
     const id = nextId_(SHEET.ORDERS, 'W-');
     sheet_(SHEET.ORDERS).appendRow([id, "'" + today, k.id, l.item, qty, 'OPEN', String(note || '').slice(0, 200), u.id, nowStr_(),
-      rate === null ? '' : rate, source]);
+      rate === null ? '' : rate, source, '', opt.machine || '', opt.target ? "'" + opt.target : '', '']);
     forget_('orders');
     return id;
   });
@@ -1084,7 +1367,7 @@ function createOrder_(u, k, l, note, date) {
   // The lot's material (quantity × material per piece) is issued with it; a different person confirms the hand-over.
   const issue = (bomMap_()[l.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * qty) }));
   addMoves_(u, k, issue, 'Work order ' + id, id, today);
-  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + (today !== todayStr_() ? ' (dated ' + today + ')' : '') + ' at ' + (rate === null ? 'no rate' : rate) +
+  log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + (opt.machine ? ' on ' + opt.machine : '') + (opt.target ? ', target ' + opt.target : '') + (today !== todayStr_() ? ' (dated ' + today + ')' : '') + ' at ' + (rate === null ? 'no rate' : rate) +
     (source ? ' (' + source.toLowerCase() + ')' : '') + (special && l.futureToo ? ', also for future lots' : ''));
   const mats = materialMap_();
   return { id: id, item: l.item, qty: qty, issueCodes: issue,
@@ -1151,10 +1434,17 @@ function setOrderStatus(token, id, status) {
   if (!o) throw new Error('Work order not found.');
   const sh = sheet_(SHEET.ORDERS);
   if (String(sh.getRange(1, 12).getValues()[0][0] || '') === '') sh.getRange(1, 12).setValue('Closed On').setFontWeight('bold').setBackground('#e8eefc');
+  if (o.status === 'NEXT' || o.status === 'CANCELLED') throw new Error(id + ' has not started yet.');
   sh.getRange(o.row, 6).setValue(status);
   sh.getRange(o.row, 12).setValue(status === 'CLOSED' ? todayStr_() : '');
+  // Reopened on a machine that is running another job: it stays a work order without the machine.
+  if (status === 'OPEN' && o.machine) {
+    const st = machineState_().filter(m => m.id === o.machine)[0];
+    if (st && st.job && st.job.id !== id) sh.getRange(o.row, 13).setValue('');
+  }
   forget_('orders');
   log_(u, 'ORDER_' + status, id, o.status + ' → ' + status);
+  machineAdvance_(u);
   pushInProduction_();
   return orderList(token);
 }
@@ -2381,8 +2671,9 @@ function orderMap_() {
 function readOrders_() {
   return memo_('orders', () => rows_(SHEET.ORDERS).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]),
     karigarId: String(r[2]).trim().toUpperCase(), item: String(r[3]).trim(), qty: Number(r[4]) || 0,
-    status: String(r[5]).trim().toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN', note: String(r[6] || ''), by: String(r[7] || ''),
-    rate: r[9] === '' || r[9] === null || !isFinite(Number(r[9])) ? null : Number(r[9]), rateSource: String(r[10] || '').trim().toUpperCase(), closedOn: toDateStr_(r[11]) })).filter(o => o.id));
+    status: (x => (['CLOSED', 'DONE', 'NEXT', 'CANCELLED'].indexOf(x) >= 0 ? x : 'OPEN'))(String(r[5]).trim().toUpperCase()), note: String(r[6] || ''), by: String(r[7] || ''),
+    rate: r[9] === '' || r[9] === null || !isFinite(Number(r[9])) ? null : Number(r[9]), rateSource: String(r[10] || '').trim().toUpperCase(), closedOn: toDateStr_(r[11]),
+    machine: String(r[12] || '').trim().toUpperCase(), target: toDateStr_(r[13]), offMachine: String(r[14] || '').trim() })).filter(o => o.id));
 }
 
 function readMoves_() {
@@ -2489,6 +2780,7 @@ function getSettings_() {
       extraUnits: String(m['Units'] || '').split(',').map(x => x.trim()).filter(String),
       largeAdvance: Number(m['Large Advance Alert']) > 0 ? Number(m['Large Advance Alert']) : 10000,
       lowMargin: m['Low Margin %'] === '' || m['Low Margin %'] === undefined ? 20 : Number(m['Low Margin %']) || 0,
+      nextAt: /2/.test(String(m['Next Job Starts At'] || '')) ? 'COUNT2' : 'COUNT1',
     };
   });
 }
@@ -2514,7 +2806,7 @@ function forget_() {
     delete MEMO[arguments[i]];
     if (arguments[i] === 'lines') delete MEMO.batches; // batches carry their lines
   }
-  ['itemmap', 'orderprog', 'balances', 'ordermap'].forEach(k => { delete MEMO[k]; });
+  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate'].forEach(k => { delete MEMO[k]; });
   Object.keys(MEMO).forEach(k => { if (k.indexOf('rows|') === 0) delete MEMO[k]; });
 }
 
