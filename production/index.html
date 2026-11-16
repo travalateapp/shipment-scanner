@@ -808,26 +808,32 @@ function saveCorrection(btn) {
 }
 
 /* ---------- work orders ---------- */
-VIEWS.orders = function (all) {
-  (all ? api('orderList', S.token, true) : load('orderList', S.token)).then(function (r) {
+// Filter: '' = Current (open, the default), 'all' (or 1 from older links), 'done' = Last completed, 'next' = coming later.
+VIEWS.orders = function (f) {
+  f = f === 1 || f === '1' ? 'all' : (f === 'all' || f === 'done' || f === 'next' ? f : '');
+  (f === 'all' || f === 'done' ? api('orderList', S.token, f.toUpperCase()) : load('orderList', S.token)).then(function (r) {
     S.data.ol = r;
+    if (f === 'next') r = Object.assign({}, r, { list: [] });
+    var tab = function (k, label) { return '<a class="' + (f === k ? 'on' : '') + '" onclick="go(\'orders\'' + (k ? ',\'' + k + '\'' : '') + ')">' + label + '</a>'; };
+    var filters = '<div class="tabs" style="margin:0 0 10px">' + tab('all', 'All') + tab('', 'Current') + tab('done', 'Last completed') + tab('next', 'Next') + '</div>';
+    var empty = { '': 'No running work orders.', all: 'No work orders.', done: 'No completed work orders yet.', next: 'Next: coming soon. This filter is ready; what it shows will be added later.' }[f];
     render('<h1 class="page">🧵 Work orders (lots) <small>what each karigar is making, and at what rate</small></h1>' +
-      '<div class="tabs"><a class="' + (all ? '' : 'on') + '" onclick="go(\'orders\')">Open</a><a class="' + (all ? 'on' : '') + '" onclick="go(\'orders\',1)">All</a></div>' +
       (r.canEdit ? '<div class="card"><h2>New work order</h2><div class="row"><select id="woK"><option value="">Karigar…</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' +
         '<label class="fix muted" style="font-size:13px">Date</label><input id="woD" type="date" class="fix" style="width:auto" value="' + todayIso() + '" max="' + todayIso() + '"></div>' +
         '<div class="lines" style="margin-top:8px"><div class="ln wo hdr"><div>Item</div><div>Qty</div>' + (r.canRate ? '<div>Special rate</div>' : '') + '<div></div></div><div id="woL"></div></div>' +
         '<button class="btn sec sm" onclick="woLine()">+ Add another item</button><input id="woN" style="margin-top:8px" placeholder="Note (optional)">' +
         '<div class="muted" style="margin-top:6px">Each item becomes its own lot with its own rate: the karigar\'s own rate if one is set, otherwise the standard rate, or the special rate you type (only for that lot, unless you tick "future lots"). The material of each lot is given to the karigar automatically when the work order is added (no confirmation needed).</div><button class="btn block" onclick="saveWo(this)">Add work order</button></div>' : '') +
-      '<div class="card scroll"><table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
+      '<div class="card scroll">' + filters + '<table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
         var btns = (o.open && r.canRate ? '<button class="btn sm" onclick="lotRate(\'' + o.id + '\')">Rate</button> ' : '') +
-          (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : ''));
+          (o.open ? (r.canEdit ? '<button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'CLOSED\',this)">Close</button>' : '<span class="pill info">Open</span>') : (o.done ? '<span class="pill ok">Done</span>' : '<span class="pill">Closed</span>' + (r.canEdit ? ' <button class="btn sec sm" onclick="woStatus(\'' + o.id + '\',\'OPEN\',this)">Reopen</button>' : '')) +
+            (o.completedOn ? '<div class="muted" style="font-size:12.5px;margin-top:4px">' + (o.done ? 'Completed ' : 'Closed ') + d(o.completedOn) + '</div>' : ''));
         return '<tr><td><b>' + o.id + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.karigar) + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
           '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td>' +
           '<td class="r"><b>' + (o.cost.perPiece === null ? '–' : money(o.cost.perPiece)) + '</b><div class="muted">material ' + money(o.cost.materialPerPiece) + '</div>' + (o.cost.missing.length ? '<span class="pill warn">no price</span>' : '') + '</td>' +
           '<td class="r">' + (o.cost.total === null ? '–' : money(o.cost.total)) + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
-      }).join('') || '<tr><td colspan="11" class="muted">No work orders.</td></tr>') + '</table></div>');
+      }).join('') || '<tr><td colspan="11" class="muted">' + empty + '</td></tr>') + '</table></div>');
     if (r.canEdit) woLine();
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };

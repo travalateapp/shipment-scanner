@@ -4,6 +4,9 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 
 - **Work orders:** what each karigar is making (for example 300 × TR-1323-Black). What is not received yet is
   "in production" and shows small and grey in the Inventory Snapshot.
+  Filters above the list: **All**, **Current** (the default: work orders still running), **Last completed**
+  (finished or closed ones, newest first, with the day: "Completed" = the count that finished it, "Closed" = the
+  day it was closed by hand, kept in the new column Closed On) and **Next** (coming later; the filter is there).
 - **Raw material, issued with the work order:** creating a lot issues its material to the karigar
   automatically (quantity × material per piece, from the item's BOM). It counts as **given at once** (no
   confirmation). Extra material outside a lot can still be issued in **Material issue**, where a **different**

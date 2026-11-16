@@ -52,7 +52,7 @@ HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active', 'Purchase Type', '
 HEADERS[SHEET.PRICES] = ['Material Code', 'Date', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase', 'Conversion',
   'Cost Per Unit', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
-HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source'];
+HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status', 'Note', 'By', 'At', 'Rate', 'Rate Source', 'Closed On'];
 HEADERS[SHEET.MOVES] = ['ID', 'Date', 'Type', 'Karigar ID', 'Material Code', 'Qty', 'Note', 'Entered By', 'Entered At',
   'Status', 'Confirmed By', 'Confirmed At', 'Work Order', 'Unit Cost'];
 HEADERS[SHEET.BATCHES] = ['ID', 'Karigar ID', 'Status', 'Created At', 'Claim', 'Count 1 By', 'Count 1 At', 'Count 1', 'Photo',
@@ -962,13 +962,20 @@ function materialBalance(token) {
 
 function ordersWithProgress_() {
   return memo_('orderprog', () => {
-    const got = {};
-    readLines_().forEach(l => { if (l.workOrder) got[l.workOrder] = (got[l.workOrder] || 0) + l.good; });
+    const got = {}, last = {};
+    readLines_().forEach(l => {
+      if (!l.workOrder) return;
+      got[l.workOrder] = (got[l.workOrder] || 0) + l.good;
+      if (String(l.finalDate) > String(last[l.workOrder] || '')) last[l.workOrder] = l.finalDate;
+    });
     return readOrders_().map(o => {
       const received = got[o.id] || 0;
       const remaining = Math.max(0, o.qty - received);
-      return Object.assign({}, o, { received: received, remaining: remaining, open: o.status === 'OPEN' && remaining > 0,
-        done: received >= o.qty, extra: Math.max(0, received - o.qty) });
+      const open = o.status === 'OPEN' && remaining > 0, done = received >= o.qty;
+      // Finished on: the day of the count that completed it (done), else the day it was closed.
+      const completedOn = open ? '' : String(done ? (last[o.id] || o.closedOn || o.date) : (o.closedOn || last[o.id] || o.date)).slice(0, 10);
+      return Object.assign({}, o, { received: received, remaining: remaining, open: open,
+        done: done, extra: Math.max(0, received - o.qty), completedOn: completedOn });
     });
   });
 }
@@ -989,10 +996,14 @@ function lotCost_(o, mats) {
     materialPerPiece: o.qty ? round2_(material / o.qty) : 0, total: rate === null ? null : round2_(material + rate * o.qty), missing: missing };
 }
 
-function orderList(token, all) {
+/** show: 'ALL' (or true, as before) = every work order; 'DONE' = finished ones, newest finished first; else the open ones. */
+function orderList(token, show) {
   const u = authStaff_(token, 'orders|reports|issue');
   const names = karigarNames_(), items = itemMap_(), bom = bomMap_(), mats = materialMap_();
-  const list = ordersWithProgress_().filter(o => all || o.open).reverse().map(o => Object.assign({}, o, {
+  show = show === true || String(show).toUpperCase() === 'ALL' ? 'ALL' : String(show || '').toUpperCase() === 'DONE' ? 'DONE' : 'OPEN';
+  let rows = ordersWithProgress_().filter(o => show === 'ALL' || (show === 'DONE' ? !o.open : o.open)).reverse();
+  if (show === 'DONE') rows = rows.sort((a, b) => String(b.completedOn).localeCompare(String(a.completedOn)));
+  const list = rows.map(o => Object.assign({}, o, {
     karigar: names[o.karigarId] || o.karigarId, itemName: (items[o.item] || {}).name || '', type: (items[o.item] || {}).type || '',
     rateNow: o.rate !== null ? o.rate : rateOn_(o.karigarId, o.item, todayStr_()), standard: standardRateOn_(o.item, todayStr_()),
     material: (bom[o.item] || []).map(x => ({ material: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '',
@@ -1138,7 +1149,10 @@ function setOrderStatus(token, id, status) {
   status = status === 'OPEN' ? 'OPEN' : 'CLOSED';
   const o = readOrders_().filter(x => x.id === id)[0];
   if (!o) throw new Error('Work order not found.');
-  sheet_(SHEET.ORDERS).getRange(o.row, 6).setValue(status);
+  const sh = sheet_(SHEET.ORDERS);
+  if (String(sh.getRange(1, 12).getValues()[0][0] || '') === '') sh.getRange(1, 12).setValue('Closed On').setFontWeight('bold').setBackground('#e8eefc');
+  sh.getRange(o.row, 6).setValue(status);
+  sh.getRange(o.row, 12).setValue(status === 'CLOSED' ? todayStr_() : '');
   forget_('orders');
   log_(u, 'ORDER_' + status, id, o.status + ' → ' + status);
   pushInProduction_();
@@ -2368,7 +2382,7 @@ function readOrders_() {
   return memo_('orders', () => rows_(SHEET.ORDERS).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]),
     karigarId: String(r[2]).trim().toUpperCase(), item: String(r[3]).trim(), qty: Number(r[4]) || 0,
     status: String(r[5]).trim().toUpperCase() === 'CLOSED' ? 'CLOSED' : 'OPEN', note: String(r[6] || ''), by: String(r[7] || ''),
-    rate: r[9] === '' || r[9] === null || !isFinite(Number(r[9])) ? null : Number(r[9]), rateSource: String(r[10] || '').trim().toUpperCase() })).filter(o => o.id));
+    rate: r[9] === '' || r[9] === null || !isFinite(Number(r[9])) ? null : Number(r[9]), rateSource: String(r[10] || '').trim().toUpperCase(), closedOn: toDateStr_(r[11]) })).filter(o => o.id));
 }
 
 function readMoves_() {
