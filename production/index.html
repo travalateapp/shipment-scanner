@@ -1573,13 +1573,14 @@ function matPrice(code) {
   // A material used in grams / kg: bought by weight, price per kg (worked out per g by itself).
   var wg = unitGrams(m.unit);
   var t = m.purchaseType || (/^sq/i.test(m.unit) ? 'ROLL' : m.unit === 'pcs' ? 'PACK' : wg ? 'WEIGHT' : 'UNIT');
-  var inM = /^m$/i.test(String(m.unit).trim()), inSq = /^sq/i.test(m.unit);
+  var inM = /^m$/i.test(String(m.unit).trim()), inSq = /^sq/i.test(m.unit), lenF = perMeterOf(m.unit);
   var radio = function (v, label) { return '<div class="chk"><input type="radio" name="mpT" value="' + v + '"' + (t === v ? ' checked' : '') + ' onchange="mpShow()"> ' + label + '</div>'; };
   modal('Price · ' + m.name, '<div class="kv"><div>Unit per piece</div><div><b>' + esc(m.unit) + '</b></div><div>Cost now</div><div>' + (m.unitCost === null ? '–' : money(m.unitCost) + ' / ' + esc(m.unit)) + '</div></div>' +
     (inSq && S.data.ml2 && S.data.ml2.canEdit !== false ? '<div class="msg info" style="margin-top:8px">Bought by the running meter (rate per m on the bill)? <a class="lnk" onclick="metersForm(\'' + q(code) + '\')">Change to meters</a>: the BOM, stock and issues change to m.</div>' : '') +
-    '<label class="f">How is it bought?</label>' + radio('ROLL', 'Roll (length × width, priced per roll)') + (inM ? radio('METER', '<b>Roll, priced per meter</b> (rate per running meter, like the bill)') + radio('SQM', '<b>Per sq m</b> (rate per sq m; worked out per m from the width)') : '') + radio('WEIGHT', wg ? 'Per kg (worked out per ' + esc(m.unit) + ' by itself)' : 'By weight (priced per kg)') + radio('PACK', 'By count (per piece or per pack)') + radio('UNIT', 'Per ' + esc(m.unit)) +
+    '<label class="f">How is it bought?</label>' + radio('ROLL', 'Roll (length × width, priced per roll)') + (inM ? radio('METER', '<b>Roll, priced per meter</b> (rate per running meter, like the bill)') + radio('SQM', '<b>Per sq m</b> (rate per sq m; worked out per m from the width)') : '') + (lenF ? radio('LEN', '<b>Per m</b> (worked out per ' + esc(m.unit) + ' by itself)') : '') + radio('WEIGHT', wg ? 'Per kg (worked out per ' + esc(m.unit) + ' by itself)' : 'By weight (priced per kg)') + radio('PACK', 'By count (per piece or per pack)') + radio('UNIT', 'Per ' + esc(m.unit)) +
     '<div id="mpROLL" class="mp"><div class="row"><div><label class="f">Roll length (m)</label><input id="mpL" type="number" step="any" value="' + (c.length || '') + '" oninput="mpCalc()"></div><div><label class="f">Width (m)</label><input id="mpW" type="number" step="any" value="' + (c.width || '') + '" oninput="mpCalc()"></div></div></div>' +
     '<div id="mpMETER" class="mp"><div class="row"><div><label class="f">Usual roll length (m)</label><input id="mpML" type="number" step="any" value="' + (c.length || '') + '" oninput="mpCalc()"></div><div><label class="f">Width (m) · for information</label><input id="mpMW" type="number" step="any" value="' + (c.width || '') + '" oninput="mpCalc()"></div></div></div>' +
+    '<div id="mpLEN" class="mp"><div class="muted" style="margin-top:6px">1 m = ' + num(lenF) + ' ' + esc(m.unit) + ': enter the price per m below.</div></div>' +
     '<div id="mpSQM" class="mp"><label class="f">Width of the fabric (m)</label><input id="mpSW" type="number" step="any" value="' + (c.width || '') + '" oninput="mpCalc()"></div>' +
     '<div id="mpWEIGHT" class="mp">' + (wg ? '<input id="mpG" type="hidden" value="' + wg + '"><div class="muted" style="margin-top:6px">1 kg = ' + (wg === 1 ? '1000 g' : '1 kg') + ': enter the price per kg below.</div>' :
       '<label class="f">Weight of 1 ' + esc(m.unit) + ' in grams</label><input id="mpG" type="number" step="any" value="' + (c.grams || '') + '" oninput="mpCalc()">') + '</div>' +
@@ -1608,6 +1609,8 @@ function matPrice(code) {
   };
 }
 /* Grams in one unit when the unit itself is a weight (g → 1, kg → 1000), else 0. */
+/* How many of this length unit make 1 m (inch 39.3701, cm 100, mm 1000, ft 3.28084), else 0. */
+function perMeterOf(u) { u = String(u || '').trim().toLowerCase(); return /^(inch|inches|in|")$/.test(u) ? 39.3701 : u === 'cm' ? 100 : u === 'mm' ? 1000 : /^(ft|feet|foot)$/.test(u) ? 3.28084 : 0; }
 function unitGrams(u) { u = String(u || '').trim().toLowerCase(); return /^(g|gm|gms|gram|grams)$/.test(u) ? 1 : /^(kg|kgs|kilo|kilogram|kilograms)$/.test(u) ? 1000 : 0; }
 /* One time: a fabric bought by the running meter changes from sq m to m (preview first, then change). */
 function metersForm(code, width) {
@@ -1637,14 +1640,15 @@ function metersApply(code, btn) {
 }
 function mpType() { return document.querySelector('input[name=mpT]:checked').value; }
 function mpShow() {
-  var t = mpType(); ['ROLL', 'METER', 'SQM', 'WEIGHT', 'PACK'].forEach(function (x) { $('mp' + x).style.display = x === t ? 'block' : 'none'; });
-  $('mpPL').textContent = t === 'ROLL' ? 'Price of one roll' : t === 'METER' ? 'Rate per meter' : t === 'SQM' ? 'Rate per sq m' : t === 'WEIGHT' ? 'Price per kg' : t === 'PACK' ? 'Price of one pack (or one piece)' : 'Price per ' + S.data.mp.unit;
+  var t = mpType(); ['ROLL', 'METER', 'SQM', 'LEN', 'WEIGHT', 'PACK'].forEach(function (x) { $('mp' + x).style.display = x === t ? 'block' : 'none'; });
+  $('mpPL').textContent = t === 'ROLL' ? 'Price of one roll' : t === 'METER' ? 'Rate per meter' : t === 'SQM' ? 'Rate per sq m' : t === 'LEN' ? 'Price per m' : t === 'WEIGHT' ? 'Price per kg' : t === 'PACK' ? 'Price of one pack (or one piece)' : 'Price per ' + S.data.mp.unit;
   mpCalc();
 }
 function mpCalc() {
   var t = mpType(), m = S.data.mp, p = Number(val('mpP')), per = 0, how = '', unitName = m.unit;
   if (t === 'ROLL') { per = Number(val('mpL')) * Number(val('mpW')); how = 'Roll ' + val('mpL') + ' m × ' + val('mpW') + ' m = ' + num(per) + ' sq m'; unitName = 'roll'; }
   else if (t === 'METER') { var len = Number(val('mpML')); per = 1; how = len > 0 ? '1 roll = ' + num(len) + ' m' + (p > 0 ? ' · one roll = ' + money(Math.round(len * p * 100) / 100) : '') : 'Enter the usual roll length'; unitName = 'm'; if (!(len > 0)) per = 0; }
+  else if (t === 'LEN') { per = perMeterOf(m.unit); how = '1 m = ' + num(per) + ' ' + m.unit; unitName = 'm'; }
   else if (t === 'SQM') { var sw = Number(val('mpSW')); per = sw > 0 ? 1 / sw : 0; how = sw > 0 ? '1 m × ' + num(sw) + ' m wide = ' + num(sw) + ' sq m' : 'Enter the width'; unitName = 'sq m'; }
   else if (t === 'WEIGHT') { var g = Number(val('mpG')); per = g > 0 ? 1000 / g : 0; how = unitGrams(m.unit) ? '1 kg = ' + num(per) + ' ' + m.unit : '1 ' + m.unit + ' = ' + val('mpG') + ' g, so 1 kg = ' + num(per) + ' ' + m.unit; unitName = 'kg'; }
   else if (t === 'PACK') { per = Number(val('mpN')); how = per === 1 ? 'Per ' + m.unit : 'Pack of ' + num(per) + ' ' + m.unit; unitName = per === 1 ? m.unit : 'pack'; }
@@ -1834,14 +1838,16 @@ function osPU(x) { return x.purchaseType === 'METER' ? 'roll' : x.purchaseUnit; 
 function openingForm(code) {
   var x = S.data.st.list.filter(function (y) { return y.code === code; })[0];
   S.data.osX = x;
-  var sized = x.purchaseType && x.purchaseType !== 'UNIT' && x.purchaseType !== 'SQM' && x.perPurchase;
+  var sized = x.purchaseType && x.purchaseType !== 'UNIT' && x.purchaseType !== 'SQM' && x.purchaseType !== 'LEN' && x.perPurchase;
   modal('Opening stock · ' + x.name, '<div class="muted">What is in the store <b>today</b>, in ' + esc(x.unit) + '. Purchase bills entered from now on are added to it.</div>' +
     (sized ? '<label class="f">Count by ' + esc(osPU(x)) + ' (add a line for each size)</label><div id="osL"></div><button class="btn sec sm" onclick="osLine()">+ ' + esc(osPU(x)) + 's of another size</button>' : '') +
+    // a material in inch / cm / mm / ft can be counted in m
+    (perMeterOf(x.unit) ? '<label class="f">Or count it in m (worked out in ' + esc(x.unit) + ')</label><div class="szrow" style="font-size:14px"><input id="osM" type="number" step="any" inputmode="decimal" placeholder="m" style="width:110px" oninput="var v=Number(this.value)*' + perMeterOf(x.unit) + ';document.getElementById(\'osMo\').textContent=v?num(Math.round(v*1000)/1000):\'–\';if(v)document.getElementById(\'osQ\').value=Math.round(v*1000)/1000"> m = <b id="osMo">–</b> ' + esc(x.unit) + '</div>' : '') +
     // a material in m can also be counted in sq m: sq m ÷ width = m
     (/^m$/i.test(String(x.unit).trim()) ? '<label class="f">Or count it in sq m (worked out in m from the width)</label><div class="szrow" style="font-size:14px"><input id="osSq" type="number" step="any" inputmode="decimal" placeholder="sq m" style="width:110px" oninput="osSqm()"> sq m ÷ width <input id="osSw" type="number" step="any" inputmode="decimal" value="' + (x.rollW || '') + '" style="width:80px" oninput="osSqm()"> m = <b id="osSm">–</b> m</div>' : '') +
     '<label class="f">Stock in ' + esc(x.unit) + (sized ? ' (worked out from the lines above, or type it)' : '') + '</label><input id="osQ" type="number" step="any" inputmode="decimal" value="' + (x.tracked ? x.opening : '') + '"><label class="f">Note</label><input id="osN" placeholder="e.g. counted on 6 Nov"><button class="btn block" id="osB">Save</button>');
   if (sized) osLine();
-  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), [val('osN'), osText(), $('osSq') && Number(val('osSq')) > 0 && Number(val('osSw')) > 0 ? val('osSq') + ' sq m ÷ width ' + val('osSw') + ' m' : ''].filter(String).join(' · ')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
+  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), [val('osN'), osText(), $('osSq') && Number(val('osSq')) > 0 && Number(val('osSw')) > 0 ? val('osSq') + ' sq m ÷ width ' + val('osSw') + ' m' : '', $('osM') && Number(val('osM')) > 0 ? val('osM') + ' m' : ''].filter(String).join(' · ')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
 }
 function storeBills(r) {
   return (r.canEdit ? '<div class="card"><button class="btn" onclick="billForm()">+ New purchase bill</button></div>' : '') +
@@ -1967,7 +1973,7 @@ function billUnit(sel, fillPrice) {
   var pu = m.purchaseType && m.purchaseType !== 'UNIT' ? m.purchaseUnit : m.unit;
   ln.dataset.pu = pu; ln.dataset.unit = m.unit; ln.dataset.per = m.purchaseType && m.purchaseType !== 'UNIT' ? (m.perPurchase || 1) : 1;
   qty.placeholder = pu + 's'; rate.placeholder = '₹ per ' + pu;
-  ln.querySelector('.bu').dataset.base = 'Qty in ' + pu + 's · rate = ₹ for 1 ' + pu + (m.price !== null ? ' (last bought ' + money(m.price) + ' / ' + pu + ')' : ' (not bought before)');
+  ln.querySelector('.bu').dataset.base = 'Qty in ' + pu + (/sq m|kg|^m$|^g$/.test(pu) ? '' : 's') + ' · rate = ₹ for 1 ' + pu + (m.price !== null ? ' (last bought ' + money(m.price) + ' / ' + pu + ')' : ' (not bought before)');
   // This bill's own size of one roll / pack / kg: the usual one is filled in, change it when these rolls are different.
   var saved = fillPrice === false && ln.dataset.size ? JSON.parse(ln.dataset.size) : null, box = ln.querySelector('.bsz');
   ln.dataset.mode = m.purchaseType || '';
@@ -1985,7 +1991,7 @@ function billUnit(sel, fillPrice) {
     var L = saved && saved.length ? saved.length : m.rollL, W = saved && saved.width ? saved.width : m.rollW;
     box.innerHTML = '<div class="szrow">Roll size in this bill: <input class="bL" type="number" step="any" inputmode="decimal" value="' + (L || '') + '" oninput="billSum()"> m × <input class="bW" type="number" step="any" inputmode="decimal" value="' + (W || '') + '" oninput="billSum()"> m' +
       ' <span class="muted">(usual ' + (m.rollL ? num(m.rollL) + ' × ' + num(m.rollW) + ' m = ' : '') + num(m.perPurchase) + ' ' + esc(m.unit) + ')</span></div>';
-  } else if (m.purchaseType && m.purchaseType !== 'UNIT' && !(m.purchaseType === 'WEIGHT' && unitGrams(m.unit))) { // 1 kg is always 1000 g
+  } else if (m.purchaseType && m.purchaseType !== 'UNIT' && !(m.purchaseType === 'WEIGHT' && unitGrams(m.unit)) && m.purchaseType !== 'LEN') { // 1 kg is always 1000 g, 1 m always 39.37 inch
     var P = saved && saved.per ? saved.per : m.perPurchase;
     box.innerHTML = '<div class="szrow">1 ' + esc(pu) + ' in this bill = <input class="bP" type="number" step="any" inputmode="decimal" value="' + (P || '') + '" oninput="billSum()"> ' + esc(m.unit) +
       ' <span class="muted">(usual ' + num(m.perPurchase) + ')</span></div>';
@@ -2013,7 +2019,7 @@ function billSum() {
       return;
     }
     items += q * r;
-    if (bu && bu.dataset.base) bu.innerHTML = esc(bu.dataset.base) + (q && r ? ' · <b>' + num(q) + ' ' + esc(ln.dataset.pu) + (q === 1 || /sq m|kg/.test(ln.dataset.pu) ? '' : 's') + ' × ' + money(r) + ' = ' + money(Math.round(q * r * 100) / 100) + '</b>' : '') +
+    if (bu && bu.dataset.base) bu.innerHTML = esc(bu.dataset.base) + (q && r ? ' · <b>' + num(q) + ' ' + esc(ln.dataset.pu) + (q === 1 || /sq m|kg|^m$/.test(ln.dataset.pu) ? '' : 's') + ' × ' + money(r) + ' = ' + money(Math.round(q * r * 100) / 100) + '</b>' : '') +
       (q && per ? ' · ' + num(Math.round(q * per * 1000) / 1000) + ' ' + esc(ln.dataset.unit || '') + ' into the store' : '');
   });
   var c = Number(val('bfC')) || 0, o = $('bfT');
