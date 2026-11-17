@@ -5,7 +5,7 @@
 | 1 | Travalate Inventory App | `inventory-app/` | Yes, once set up (`deploy-inventory.yml`) |
 | 2 | Travalate Shipment Manager App | `shipment-app/` (+ Box Scanner page `index.html` at the top) | Yes, once set up (`deploy-shipment.yml`); Box Scanner: GitHub Pages |
 | 3 | Travalate Attendance App | `attendance-app/` (+ hosted copy `attendance/`) | Yes (`deploy-apps-script.yml`) |
-| 4 | Travalate Daily Task Sheet | Yes, once set up (`deploy-daily-task.yml`) |
+| 4 | Travalate Daily Task Sheet | `daily-task-app/` | Yes, once set up (`deploy-daily-task.yml`) |
 | 5 | PO Web App with Vendor Autofill | `po-app/` | Yes, once set up (`deploy-po.yml`) |
 | 6 | Machine Production App (Karigar Production) | `production-app/` (+ hosted copy `production/`) | Yes (`deploy-production-apps-script.yml`) |
 
