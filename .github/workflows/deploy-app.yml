@@ -107,6 +107,8 @@ jobs:
               filled += n;
             }
             const old = fs.readFileSync(path.join(gas, target), 'utf8');
+            fs.mkdirSync('orig', { recursive: true });
+            fs.writeFileSync(path.join('orig', target), old);
             console.log(`${f} → ${target}: ${old === text ? 'no change' : 'updated'}`);
             fs.writeFileSync(path.join(gas, target), text);
           }
@@ -124,6 +126,21 @@ jobs:
           }
           console.log('Web-app settings (kept as they are):', JSON.stringify(m.webapp));
           JS
+
+      - name: Show which lines change (line numbers only, no code, so nothing private reaches the log)
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          for f in orig/*; do
+            n=$(basename "$f")
+            if cmp -s "$f" "gas/$n"; then continue; fi
+            hunks=$(diff --strip-trailing-cr -Z -B "$f" "gas/$n" | grep -E '^[0-9]' || true)
+            if [ -z "$hunks" ]; then
+              echo "$n: only spaces / line endings / blank lines differ"
+            else
+              echo "$n: $(echo "$hunks" | wc -l) place(s) differ (Apps Script line → GitHub line):"
+              echo "$hunks" | head -40 | sed 's/^/   /'
+            fi
+          done
 
       - name: Upload and update the deployment (same app link)
         if: steps.setup.outputs.ready == 'true' && env.DRY_RUN != 'true'
