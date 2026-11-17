@@ -13,10 +13,10 @@ with all the code already here, so there is no need to re-upload `Code.gs` / `.h
 | `production-app/` | Machine Production App (Karigar Production) | `Code.gs` + `Index.html` (+ `inventory-app-addon.gs`); auto-deploy: `.github/workflows/deploy-production-apps-script.yml` |
 | `production/` | Hosted copy of `production-app/Index.html` (GitHub Pages) | Keep identical to `production-app/Index.html` |
 | `android/` | Android wrapper app (APK built by `.github/workflows/android-apk.yml`) | |
-| `inventory-app/` | Travalate Inventory App | not added yet |
-| `shipment-app/` | Travalate Shipment Manager (Apps Script side) | not added yet |
-| `daily-task-app/` | Travalate Daily Task Sheet | not added yet |
-| `po-app/` | PO Web App with Vendor Autofill | not added yet |
+| `inventory-app/` | Travalate Inventory App | `Code.gs`, `Snapshot.gs`, `InventoryForm.html` |
+| `shipment-app/` | Travalate Shipment Manager (Apps Script side) | `Code.gs` + `Index.html` |
+| `daily-task-app/` | Travalate Daily Task Sheet | `Code.gs` + `Index.html` |
+| `po-app/` | PO Web App with Vendor Autofill | `Code.gs` + `Index.html` |
 | `_new-app-template/` | How to add another app | |
 
 The full list with links is in `APPS.md`. Keep it up to date when an app is added.
@@ -29,3 +29,5 @@ The full list with links is in `APPS.md`. Keep it up to date when an app is adde
   deployed.
 - When changing an app, edit only that app's folder (and its hosted copy, if it has one).
 - Never commit passwords, API keys or `.clasprc.json`; deploy sign-ins live in GitHub repository secrets.
+- Secrets are written as `XXXX` in the repo (e.g. the Inventory/Shipment `SHARED_SECRET`); the real values live
+  only in Apps Script (or Script Properties). Never put a real value back into a file here.
