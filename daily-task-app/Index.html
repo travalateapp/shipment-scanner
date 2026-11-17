@@ -1,0 +1,1782 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<base target="_top">
+<title>Daily Task Sheet Tracker — Travalate</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:#f7f8fa;color:#1a1a2e;height:100vh;overflow:hidden}
+button,input,select{font-family:inherit}
+
+/* ── Auth screens ── */
+.center-screen{height:100vh;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,#0f3460 0%,#16213e 60%,#1a1a2e 100%)}
+.auth-card{background:#fff;border-radius:14px;padding:32px 30px;width:360px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.auth-card .logo-row{display:flex;align-items:center;gap:9px;margin-bottom:18px}
+.auth-card .logo-row .logo{width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,#0f3460,#3b82f6);display:flex;align-items:center;justify-content:center;color:#FFE600;font-size:14px}
+.auth-card .logo-row span{font-weight:700;font-size:16px}
+.auth-card h1{font-size:19px;margin-bottom:4px}
+.auth-card .sub{color:#6b7080;font-size:13px;margin-bottom:20px}
+.field{margin-bottom:14px}
+.field label{display:block;font-size:12.5px;font-weight:600;color:#43465a;margin-bottom:5px}
+.field input,.field select{width:100%;padding:9px 11px;border:1px solid #dfe2e8;border-radius:8px;font-size:13.5px;outline:none}
+.field input:focus,.field select:focus{border-color:#3b82f6;box-shadow:0 0 0 3px #dbeafe}
+.auth-error{background:#fee2e2;color:#b91c1c;font-size:12.5px;font-weight:600;padding:9px 11px;border-radius:8px;margin-bottom:14px;display:none}
+.auth-error.show{display:block}
+.btn-full{width:100%;padding:11px;border:none;border-radius:9px;font-size:14px;font-weight:700;cursor:pointer;background:#0f3460;color:#fff}
+.btn-full:hover{background:#0c2a4e}
+.btn-full:disabled{opacity:.6;cursor:default}
+.spinner{display:inline-block;width:13px;height:13px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;border-radius:50%;animation:spin .7s linear infinite;vertical-align:-2px}
+.spinner.dark{border-color:rgba(15,20,30,.2);border-top-color:#0f3460}
+@keyframes spin{to{transform:rotate(360deg)}}
+button:disabled .spinner{opacity:.9}
+.busy-disabled{opacity:.55;pointer-events:none}
+.auth-switch{text-align:center;font-size:12.5px;color:#6b7080;margin-top:16px}
+.auth-switch a{color:#3b82f6;font-weight:600;cursor:pointer;text-decoration:none}
+
+/* ── App shell ── */
+.app{display:none;height:100vh}
+.app.show{display:flex}
+.sidebar{width:230px;flex:none;background:#fbfbfc;border-right:1px solid #eceef2;display:flex;flex-direction:column;padding:10px 8px;overflow-y:auto}
+.ws-switch{display:flex;align-items:center;gap:8px;padding:8px 6px;border-radius:8px;font-weight:700;font-size:14px}
+.ws-switch .logo{width:22px;height:22px;border-radius:6px;background:linear-gradient(135deg,#0f3460,#3b82f6);display:flex;align-items:center;justify-content:center;color:#FFE600;font-size:13px}
+.nav{margin-top:6px;display:flex;flex-direction:column;gap:1px}
+.nav-item{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;font-size:13.5px;color:#43465a;cursor:pointer;position:relative;border:none;background:none;width:100%;text-align:left}
+.nav-item:hover{background:#f0f1f5}
+.nav-item .ic{width:16px;text-align:center;font-size:14px}
+.nav-item .badge{margin-left:auto;background:#ef4444;color:#fff;font-size:10.5px;font-weight:700;border-radius:9px;padding:1px 6px}
+.sp-title{margin-top:16px;padding:4px 8px;font-size:11px;font-weight:700;letter-spacing:.04em;color:#9aa0ae;text-transform:uppercase}
+.space-item{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:7px;font-size:13.5px;color:#43465a;cursor:pointer;border:none;background:none;width:100%;text-align:left}
+.space-item:hover{background:#f0f1f5}
+.space-item.active{background:#eee9fb;color:#5b21b6;font-weight:600}
+.space-item .sq{width:19px;height:19px;border-radius:5px;color:#fff;font-size:10.5px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
+.add-space{margin-top:2px;color:#9aa0ae;font-size:13px;padding:7px 8px;cursor:pointer;border:none;background:none;width:100%;text-align:left}
+.add-space:hover{color:#43465a}
+.sidebar-foot{margin-top:auto;border-top:1px solid #eceef2;padding-top:8px;display:flex;flex-direction:column;gap:2px}
+.me-row{display:flex;align-items:center;gap:8px;padding:6px 8px;font-size:12.5px}
+.me-row .avatar-badge{width:26px;height:26px;font-size:11px}
+.me-row .who{overflow:hidden}
+.me-row .who .nm{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.me-row .who .rl{color:#9aa0ae;font-size:11px;text-transform:capitalize}
+
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid #eceef2;background:#fff}
+.tabs{display:flex;align-items:center;gap:4px}
+.tab{padding:6px 12px;border-radius:7px;font-size:13.5px;font-weight:600;color:#6b7080;cursor:pointer;display:flex;align-items:center;gap:6px;border:none;background:none}
+.tab.active{background:#f0f1f5;color:#1a1a2e}
+.topbar .spacer{flex:1}
+.icon-btn{background:none;border:none;color:#6b7080;font-size:13.5px;cursor:pointer;padding:6px 8px;border-radius:7px;display:flex;align-items:center;gap:6px}
+.icon-btn:hover{background:#f0f1f5}
+.icon-btn.active{background:#dbeafe;color:#1d4ed8}
+.avatar-badge{width:26px;height:26px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:11px;cursor:pointer}
+
+.daybar{display:flex;align-items:center;gap:10px;padding:10px 20px;border-bottom:1px solid #eceef2;background:#fff;flex-wrap:wrap}
+.day-nav{display:flex;align-items:center;gap:2px}
+.day-nav button{background:#f7f8fa;border:1px solid #eceef2;color:#43465a;width:26px;height:26px;border-radius:6px;cursor:pointer;font-size:13px}
+.day-nav button:hover{background:#eef0f4}
+.day-label{font-weight:700;font-size:14.5px;min-width:190px}
+.day-label .rel{font-weight:500;color:#9aa0ae;font-size:12.5px;margin-left:6px}
+.btn-chip{background:#f0f1f5;border:none;color:#43465a;font-size:12.5px;font-weight:600;padding:6px 10px;border-radius:7px;cursor:pointer}
+.btn-chip:hover{background:#e5e7ec}
+.btn-chip:disabled{opacity:.5;cursor:default}
+.btn-chip.primary{background:#0f3460;color:#fff}
+.btn-chip.primary:hover{background:#0c2a4e}
+.daybar .spacer{flex:1}
+.search-box{display:flex;align-items:center;gap:6px;background:#f7f8fa;border:1px solid #eceef2;border-radius:7px;padding:5px 9px}
+.search-box input{border:none;background:none;outline:none;font-size:13px;width:150px}
+.sync-status{font-size:12px;color:#9aa0ae;min-width:0;white-space:nowrap}
+.sync-status.saving{color:#3b82f6}
+.sync-status.err{color:#ef4444;font-weight:600}
+
+.toolbar{display:flex;align-items:center;gap:4px;padding:8px 20px;border-bottom:1px solid #eceef2;background:#fff;flex-wrap:wrap;position:relative}
+.toolbar .divider{width:1px;height:16px;background:#eceef2;margin:0 4px}
+select.filter-select{border:none;background:none;font-size:12.5px;color:#6b7080;font-weight:600;cursor:pointer}
+
+.content{flex:1;overflow:auto;background:#fff;position:relative}
+.loading-overlay{position:absolute;inset:0;background:rgba(255,255,255,.6);display:none;align-items:center;justify-content:center;font-size:13px;color:#6b7080;z-index:5}
+.loading-overlay.show{display:flex}
+
+/* Table */
+table.sheet{width:100%;border-collapse:collapse;font-size:13.5px}
+table.sheet thead th{position:sticky;top:0;background:#fbfbfc;z-index:2;text-align:left;font-size:11.5px;color:#8a8f9c;font-weight:700;text-transform:uppercase;letter-spacing:.03em;padding:8px 10px;border-bottom:1px solid #eceef2;white-space:nowrap}
+table.sheet th.num{width:34px}
+table.sheet th.task-col{min-width:230px}
+table.sheet th.pri-col{width:110px}
+table.sheet th.assignee-col{width:110px}
+table.sheet th.deadline-col{width:130px}
+table.sheet th.created-col{width:110px}
+table.sheet th.sub-col{width:170px}
+table.sheet th.del-col{width:34px}
+table.sheet.hide-subtasks .sub-col,table.sheet.hide-subtasks .sub-cell{display:none}
+table.sheet.hide-deadline .deadline-col,table.sheet.hide-deadline .deadline-cell{display:none}
+
+.group-row td{padding:0;border:none}
+.group-header{display:flex;align-items:center;gap:8px;padding:9px 10px;background:#f7f8fa;font-weight:700;font-size:12.5px;cursor:pointer;user-select:none;border-bottom:1px solid #eceef2;border-top:1px solid #eceef2}
+.group-header .chev{transition:transform .12s;font-size:10px;color:#9aa0ae;width:10px}
+.group-header.collapsed .chev{transform:rotate(-90deg)}
+.group-header .dot{width:8px;height:8px;border-radius:50%}
+.group-header .cnt{color:#9aa0ae;font-weight:600}
+.group-header .add-in-group{margin-left:auto;color:#9aa0ae;font-weight:600;font-size:12px;cursor:pointer;padding:2px 8px;border-radius:6px}
+.group-header .add-in-group:hover{background:#eceef2;color:#43465a}
+
+tr.task-row{border-bottom:1px solid #f2f3f6}
+tr.task-row:hover{background:#fafbfd}
+tr.task-row.done .task-name{color:#9aa0ae;text-decoration:line-through}
+tr.task-row td{padding:7px 10px;vertical-align:middle}
+.numcell{width:34px;color:#c2c5cd;font-size:12px;position:relative}
+tr.task-row:hover .numcell .rownum{display:none}
+.numcell .rownum{display:block}
+.trash-btn{display:none;background:none;border:none;cursor:pointer;color:#c2c5cd;font-size:13px}
+tr.task-row:hover .trash-btn{display:block}
+.trash-btn:hover{color:#ef4444}
+
+.task-cell{display:flex;align-items:center;gap:9px}
+.chk{width:16px;height:16px;border-radius:5px;border:1.6px solid #cbd0da;flex:none;cursor:pointer;display:flex;align-items:center;justify-content:center;font-size:11px;color:#fff}
+.chk.checked{background:#16a34a;border-color:#16a34a}
+.task-name{outline:none;flex:1;min-width:0;padding:2px 4px;border-radius:5px;cursor:text}
+.task-name:focus{background:#f0f4ff;box-shadow:0 0 0 2px #c7d7ff}
+.dept-pill{font-size:10.5px;font-weight:700;color:#6d28d9;background:#ede9fe;border-radius:5px;padding:1px 6px;flex:none}
+.quick-status{display:none;gap:6px;flex:none;margin-left:auto}
+tr.task-row:hover .quick-status{display:flex}
+.qs-btn{border:none;border-radius:6px;padding:4px 9px;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap}
+.qs-btn.qs-progress{background:#dbeafe;color:#1d4ed8}
+.qs-btn.qs-progress:hover{background:#bfdbfe}
+.qs-btn.qs-complete{background:#dcfce7;color:#15803d}
+.qs-btn.qs-complete:hover{background:#bbf7d0}
+.qs-btn:disabled{opacity:.35;cursor:default}
+
+.pri-pill{display:inline-flex;align-items:center;gap:5px;font-size:12.5px;font-weight:600;cursor:pointer;padding:3px 7px;border-radius:6px}
+.pri-pill:hover{background:#f0f1f5}
+.pri-pill .flag{font-size:11px}
+.pri-none{color:#c2c5cd}
+
+
+.assignee-cell{cursor:pointer;display:flex;align-items:center;gap:6px;font-size:12.5px;color:#43465a}
+.assignee-cell .placeholder{color:#c2c5cd}
+
+.deadline-chip{cursor:pointer;font-size:12px;color:#43465a;display:inline-flex;align-items:center;gap:5px}
+.deadline-chip.set{background:#eef2ff;color:#4338ca;padding:3px 8px;border-radius:12px;font-weight:600}
+.deadline-chip.overdue{background:#fee2e2;color:#b91c1c}
+.deadline-chip.readonly{cursor:default}
+.deadline-chip .placeholder{color:#c2c5cd}
+.created-cell{color:#6b7080;font-size:12.5px}
+
+.sub-cell{cursor:pointer}
+.sub-preview{display:flex;align-items:center;gap:6px;color:#43465a;font-size:12.5px}
+.sub-preview .bullet{color:#ef4444;font-size:9px}
+.sub-count{color:#9aa0ae;font-size:12px}
+.sub-none{color:#c2c5cd}
+
+.subtask-panel td{padding:0 10px 10px 44px;background:#fafbfd;border-bottom:1px solid #f2f3f6}
+.subtask-list{display:flex;flex-direction:column;gap:5px;padding:6px 0}
+.subtask-item{display:flex;align-items:center;gap:8px;font-size:12.5px}
+.subtask-item .chk{width:14px;height:14px}
+.subtask-item.done span{color:#9aa0ae;text-decoration:line-through}
+.subtask-item .stx{flex:1;outline:none}
+.subtask-item .rm{opacity:0;cursor:pointer;color:#c2c5cd;font-size:11px}
+.subtask-item:hover .rm{opacity:1}
+.subtask-item .rm:hover{color:#ef4444}
+.add-subtask{display:flex;align-items:center;gap:6px;margin-top:2px}
+.add-subtask input{border:1px solid #e5e7ec;border-radius:6px;font-size:12.5px;padding:4px 7px;outline:none;flex:1;max-width:220px}
+
+.empty-day{padding:50px 10px;text-align:center;color:#9aa0ae;font-size:13.5px}
+
+.pop-menu{position:fixed;background:#fff;border:1px solid #e5e7ec;border-radius:9px;box-shadow:0 8px 24px rgba(0,0,0,.14);padding:6px;z-index:60;min-width:150px;max-height:320px;overflow:auto}
+.pop-menu .opt{padding:7px 9px;border-radius:6px;font-size:12.5px;font-weight:600;cursor:pointer;display:flex;align-items:center;gap:7px}
+.pop-menu .opt:hover{background:#f0f1f5}
+.pop-menu .opt.danger{color:#ef4444}
+.pop-menu .cb-row{display:flex;align-items:center;gap:7px;padding:6px 8px;font-size:12.5px;font-weight:600}
+.pop-menu .deadline-form{padding:6px 8px;display:flex;flex-direction:column;gap:8px;min-width:190px}
+.pop-menu .deadline-form label{font-size:11px;font-weight:700;color:#6b7080}
+.pop-menu .deadline-form input{padding:6px 8px;border:1px solid #dfe2e8;border-radius:6px;font-size:12.5px}
+.pop-menu .deadline-form .row-actions{display:flex;gap:6px;margin-top:2px}
+.pop-menu .deadline-form button{flex:1;padding:6px;border:none;border-radius:6px;font-size:12px;font-weight:700;cursor:pointer}
+.pop-menu .deadline-form .save-btn{background:#0f3460;color:#fff}
+.pop-menu .deadline-form .clear-btn{background:#f0f1f5;color:#43465a}
+
+/* Board */
+.board-wrap{display:flex;gap:14px;padding:16px 20px;height:100%;align-items:flex-start}
+.board-col{background:#f7f8fa;border-radius:10px;flex:1;min-width:240px;max-height:100%;display:flex;flex-direction:column}
+.board-col-header{display:flex;align-items:center;gap:7px;padding:11px 12px;font-weight:700;font-size:13px;border-bottom:1px solid #eceef2}
+.board-col-header .dot{width:8px;height:8px;border-radius:50%}
+.board-col-header .cnt{color:#9aa0ae;font-weight:600}
+.board-cards{padding:10px;display:flex;flex-direction:column;gap:8px;overflow-y:auto}
+.board-card{background:#fff;border-radius:9px;padding:10px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+.board-card-top{display:flex;align-items:flex-start;gap:8px}
+.board-card-name{flex:1;font-size:13px;font-weight:600;outline:none;border-radius:5px;padding:1px 3px}
+.board-card-name:focus{background:#f0f4ff}
+.board-card.done .board-card-name{color:#9aa0ae;text-decoration:line-through}
+.board-card-meta{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:8px}
+.board-card-foot{display:flex;align-items:center;justify-content:space-between;margin-top:8px}
+.move-btn{background:#f0f1f5;border:none;border-radius:6px;width:22px;height:22px;font-size:12px;cursor:pointer;color:#43465a}
+.move-btn:hover{background:#e5e7ec}
+.move-btn:disabled{opacity:.3;cursor:default}
+.board-add{padding:6px 10px;color:#9aa0ae;font-size:12.5px;font-weight:600;cursor:pointer;border-radius:7px}
+.board-add:hover{background:#eceef2;color:#43465a}
+
+/* Calendar */
+.cal-wrap{padding:16px 20px}
+.cal-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.cal-header h2{font-size:16px}
+.cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px}
+.cal-dow{text-align:center;font-size:11px;font-weight:700;color:#9aa0ae;text-transform:uppercase;padding-bottom:4px}
+.cal-cell{border:1px solid #eceef2;border-radius:9px;min-height:86px;padding:7px;cursor:pointer;display:flex;flex-direction:column;gap:4px;overflow:hidden}
+.cal-cell:hover{background:#fafbfd;border-color:#cbd5e1}
+.cal-cell.other-month{opacity:.35}
+.cal-cell.today{border-color:#3b82f6;border-width:2px}
+.cal-daynum{font-size:12.5px;font-weight:700}
+.cal-tasklist{display:flex;flex-direction:column;gap:2px;min-width:0}
+.cal-task-line{display:flex;align-items:center;gap:4px;font-size:10.5px;color:#43465a;white-space:nowrap;overflow:hidden}
+.cal-task-line .dot{width:6px;height:6px;border-radius:50%;flex:none}
+.cal-task-line .txt{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-task-more{font-size:10px;color:#9aa0ae;font-weight:600}
+.cal-tooltip{position:fixed;z-index:80;background:#fff;border:1px solid #e5e7ec;border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.18);padding:10px 12px;max-width:270px;pointer-events:none}
+.cal-tooltip-title{font-size:11.5px;font-weight:700;color:#43465a;margin-bottom:6px;padding-bottom:6px;border-bottom:1px solid #f2f3f6}
+.cal-tooltip-row{display:flex;align-items:center;gap:7px;font-size:12px;color:#1a1a2e;padding:3px 0}
+.cal-tooltip-row .dot{width:7px;height:7px;border-radius:50%;flex:none}
+.cal-tooltip-row .txt{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cal-tooltip-status{color:#9aa0ae;font-size:10.5px;font-weight:600;white-space:nowrap;flex:none}
+
+/* Dashboard */
+.dash-wrap{padding:20px}
+.dash-tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:12px;margin-bottom:22px}
+.dash-tile{background:#f7f8fa;border-radius:12px;padding:16px}
+.dash-tile .num{font-size:26px;font-weight:800}
+.dash-tile .label{font-size:12px;color:#6b7080;font-weight:600;margin-top:2px}
+.dash-tile.todo .num{color:#475569}
+.dash-tile.progress .num{color:#1d4ed8}
+.dash-tile.complete .num{color:#15803d}
+.dash-tile.overdue .num{color:#b91c1c}
+.dash-tile.mine .num{color:#7c3aed}
+.dash-section-title{font-size:13px;font-weight:700;color:#43465a;margin-bottom:10px}
+.dash-dept-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid #f2f3f6}
+.dash-dept-row .name{width:150px;font-weight:600;font-size:13px;flex:none}
+.dash-bar{flex:1;height:10px;border-radius:6px;background:#f1f5f9;overflow:hidden;display:flex}
+.dash-bar span{height:100%}
+.dash-dept-row .counts{font-size:11.5px;color:#6b7080;white-space:nowrap}
+
+/* Modal / Slideover */
+.overlay{position:fixed;inset:0;background:rgba(15,20,30,.4);display:none;align-items:center;justify-content:center;z-index:100}
+.overlay.show{display:flex}
+.modal{background:#fff;border-radius:14px;width:600px;max-width:92vw;max-height:85vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.modal-header{display:flex;align-items:center;padding:16px 20px;border-bottom:1px solid #eceef2}
+.modal-header h2{font-size:15px;flex:1}
+.modal-close{background:none;border:none;font-size:18px;cursor:pointer;color:#9aa0ae}
+.modal-tabs{display:flex;gap:4px;padding:10px 20px 0}
+.modal-tab{padding:7px 12px;border-radius:7px 7px 0 0;font-size:13px;font-weight:600;color:#6b7080;cursor:pointer;border:none;background:none}
+.modal-tab.active{background:#f0f1f5;color:#1a1a2e}
+.modal-body{padding:16px 20px;overflow-y:auto;flex:1}
+.admin-row{display:flex;align-items:center;gap:10px;padding:9px 0;border-bottom:1px solid #f2f3f6;font-size:13px}
+.admin-row .nm{font-weight:700;flex:1}
+.admin-row .em{color:#9aa0ae;font-size:12px}
+.admin-row select,.admin-row input[type=text]{padding:5px 7px;border:1px solid #dfe2e8;border-radius:6px;font-size:12px}
+.dept-checks{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.dept-check{display:flex;align-items:center;gap:4px;background:#f7f8fa;border-radius:6px;padding:3px 7px;font-size:11.5px}
+.mini-btn{background:#f0f1f5;border:none;border-radius:6px;padding:5px 9px;font-size:11.5px;font-weight:700;cursor:pointer;color:#43465a}
+.mini-btn:hover{background:#e5e7ec}
+.mini-btn.primary{background:#0f3460;color:#fff}
+.mini-btn.danger{background:#fee2e2;color:#b91c1c}
+.admin-form{display:flex;flex-direction:column;gap:8px;background:#f7f8fa;border-radius:10px;padding:12px;margin-top:14px}
+.admin-form .grid2{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.admin-form input,.admin-form select{padding:7px 9px;border:1px solid #dfe2e8;border-radius:7px;font-size:12.5px}
+
+.slideover{position:fixed;top:0;right:-380px;width:380px;height:100vh;background:#fff;box-shadow:-8px 0 30px rgba(0,0,0,.15);transition:right .18s ease;z-index:110;display:flex;flex-direction:column}
+.slideover.show{right:0}
+.slideover-header{display:flex;align-items:center;padding:16px 18px;border-bottom:1px solid #eceef2}
+.slideover-header h2{font-size:15px;flex:1}
+.slideover-tabs{display:flex;gap:4px;padding:10px 18px 0}
+.slideover-body{flex:1;overflow-y:auto;padding:14px 18px}
+.msg-item{padding:10px 0;border-bottom:1px solid #f2f3f6}
+.msg-item.unread{background:#f8faff;margin:0 -18px;padding:10px 18px}
+.msg-item .top{display:flex;justify-content:space-between;font-size:12px;color:#6b7080;margin-bottom:4px}
+.msg-item .from{font-weight:700;color:#1a1a2e}
+.msg-item .task-tag{display:inline-block;margin-top:5px;font-size:11px;font-weight:600;color:#6d28d9;background:#ede9fe;border-radius:5px;padding:2px 6px}
+.msg-item .text{font-size:13px}
+.compose-box{border-top:1px solid #eceef2;padding:14px 18px;display:flex;flex-direction:column;gap:8px}
+.compose-box select,.compose-box textarea{padding:7px 9px;border:1px solid #dfe2e8;border-radius:7px;font-size:12.5px;font-family:inherit}
+.compose-box textarea{resize:vertical;min-height:56px}
+.empty-inbox{text-align:center;color:#9aa0ae;font-size:13px;padding:30px 10px}
+</style>
+</head>
+<body>
+
+<!-- ══ Initial "which screen do we show" loading state — avoids flashing the wrong screen while boot() figures out whether accounts exist / a session is valid ══ -->
+<div class="center-screen" id="authLoading">
+  <div style="color:#fff;font-size:13px;opacity:.85;display:flex;align-items:center;gap:9px"><span class="spinner"></span> Loading…</div>
+</div>
+
+<!-- ══ Bootstrap (first-run) screen ══ -->
+<div class="center-screen" id="bootstrapScreen" style="display:none">
+  <div class="auth-card">
+    <div class="logo-row"><div class="logo">✳</div><span>Travalate</span></div>
+    <h1>Set up your workspace</h1>
+    <div class="sub">No accounts exist yet — create the first admin account to get started.</div>
+    <div class="auth-error" id="bootstrapError"></div>
+    <div class="field"><label>Your name</label><input id="bootName" placeholder="Alex Kim"></div>
+    <div class="field"><label>Email</label><input id="bootEmail" type="email" placeholder="alex@company.com"></div>
+    <div class="field"><label>Password</label><input id="bootPassword" type="password" placeholder="At least 6 characters"></div>
+    <button class="btn-full" id="bootSubmit">Create admin account</button>
+  </div>
+</div>
+
+<!-- ══ Login screen ══ -->
+<div class="center-screen" id="loginScreen" style="display:none">
+  <div class="auth-card">
+    <div class="logo-row"><div class="logo">✳</div><span>Travalate</span></div>
+    <h1>Daily Task Sheet Tracker</h1>
+    <div class="sub">Sign in to continue</div>
+    <div class="auth-error" id="loginError"></div>
+    <div class="field"><label>Email</label><input id="loginEmail" type="email" placeholder="you@company.com"></div>
+    <div class="field"><label>Password</label><input id="loginPassword" type="password" placeholder="Your password"></div>
+    <button class="btn-full" id="loginSubmit">Log in</button>
+    <div class="auth-switch">You'll stay logged in on this device until you log out.</div>
+  </div>
+</div>
+
+<!-- ══ Desktop-only block screen — shown instead of the app when a DesktopOnly employee signs in from a phone/tablet ══ -->
+<div class="center-screen" id="desktopBlockScreen" style="display:none">
+  <div class="auth-card">
+    <div class="logo-row"><div class="logo">✳</div><span>Travalate</span></div>
+    <h1>Desktop only</h1>
+    <div class="sub">Your account is set to desktop access only. Please open this app on a computer — it won't work here on a phone or tablet.</div>
+    <button class="btn-full" id="desktopBlockLogout">Log out</button>
+  </div>
+</div>
+
+<!-- ══ App shell ══ -->
+<div class="app" id="app">
+  <div class="sidebar">
+    <div class="ws-switch"><div class="logo">✳</div> Travalate</div>
+    <div class="nav">
+      <button class="nav-item" id="navHome"><span class="ic">🏠</span> Home</button>
+      <button class="nav-item" id="navInbox"><span class="ic">📥</span> Inbox <span class="badge" id="inboxBadge" style="display:none">0</span></button>
+      <button class="nav-item" id="navAdmin" style="display:none"><span class="ic">⚙</span> Admin</button>
+    </div>
+    <div class="sp-title">Departments</div>
+    <div id="deptList"></div>
+    <button class="add-space" id="addDeptBtn" style="display:none">+ Add Department</button>
+
+    <div class="sidebar-foot">
+      <div class="me-row">
+        <div class="avatar-badge" id="meAvatar"></div>
+        <div class="who"><div class="nm" id="meName"></div><div class="rl" id="meRole"></div></div>
+      </div>
+      <button class="nav-item" id="logoutBtn"><span class="ic">↩</span> Log out</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <div class="tabs" id="viewTabs">
+        <button class="tab" data-view="calendar">📅 Calendar</button>
+        <button class="tab" data-view="table">📋 Tasks</button>
+        <button class="tab" data-view="board">▦ Board</button>
+        <button class="tab" data-view="dashboard">📊 Dashboard</button>
+      </div>
+      <div class="spacer"></div>
+      <div class="search-box">🔍<input id="searchInput" placeholder="Search tasks…"></div>
+      <div class="sync-status" id="syncStatus"></div>
+      <div class="avatar-badge" id="topAvatar"></div>
+    </div>
+
+    <div class="daybar" id="daybar">
+      <div class="day-nav">
+        <button id="prevDay" title="Previous day">‹</button>
+        <button id="nextDay" title="Next day">›</button>
+      </div>
+      <div class="day-label" id="dayLabel"></div>
+      <button class="btn-chip" id="todayBtn">Today</button>
+      <input type="date" id="datePicker" class="btn-chip" style="cursor:pointer">
+      <button class="btn-chip" id="carryOverBtn">↻ Carry over open tasks</button>
+      <div class="spacer"></div>
+      <button class="btn-chip primary" id="addTaskTop">+ Add Task</button>
+    </div>
+
+    <div class="toolbar" id="toolbar">
+      <button class="icon-btn" id="groupByBtn">⊞ Group by: Status</button>
+      <button class="icon-btn" id="collapseAllSub">▤ Subtasks: Collapse all</button>
+      <div class="divider"></div>
+      <select class="filter-select" id="priFilter">
+        <option value="">▽ Filter: Priority</option>
+        <option value="urgent">Urgent only</option>
+        <option value="high">High only</option>
+        <option value="normal">Normal only</option>
+        <option value="low">Low only</option>
+      </select>
+      <div class="divider"></div>
+      <button class="icon-btn" id="meModeBtn">👤 Me mode</button>
+      <select class="filter-select" id="assigneeFilter"><option value="">🧑‍🤝‍🧑 Assignees</option></select>
+      <label class="icon-btn"><input type="checkbox" id="showClosed" checked style="margin-right:4px">Show closed</label>
+      <button class="icon-btn" id="hideColsBtn">Hide / Customize</button>
+    </div>
+
+    <div class="content" id="content">
+      <div class="loading-overlay" id="loadingOverlay">Loading…</div>
+      <div id="tableView">
+        <table class="sheet" id="sheetTable">
+          <thead>
+            <tr>
+              <th class="num">#</th>
+              <th class="task-col">Task</th>
+              <th class="pri-col">⚑ Priority</th>
+              <th class="assignee-col">Assignee</th>
+              <th class="deadline-col">Deadline</th>
+              <th class="created-col">Created</th>
+              <th class="sub-col">☑ Subtasks</th>
+              <th class="del-col"></th>
+            </tr>
+          </thead>
+          <tbody id="sheetBody"></tbody>
+        </table>
+      </div>
+      <div id="boardView" style="display:none"></div>
+      <div id="calendarView" style="display:none"></div>
+      <div id="dashboardView" style="display:none"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══ Inbox slide-over ══ -->
+<div class="overlay" id="inboxOverlay"></div>
+<div class="slideover" id="inboxSlideover">
+  <div class="slideover-header"><h2>Inbox</h2><button class="modal-close" id="closeInbox">✕</button></div>
+  <div class="slideover-tabs">
+    <button class="modal-tab active" data-inbox-tab="received">Received</button>
+    <button class="modal-tab" data-inbox-tab="sent">Sent</button>
+  </div>
+  <div class="slideover-body" id="inboxBody"></div>
+  <div class="compose-box">
+    <select id="composeTo"><option value="">Tag someone…</option></select>
+    <select id="composeTask"><option value="">(optional) link a task from today</option></select>
+    <textarea id="composeText" placeholder="Write a message…"></textarea>
+    <button class="btn-full" id="composeSend">Send</button>
+  </div>
+</div>
+
+<!-- ══ Admin modal ══ -->
+<div class="overlay" id="adminOverlay">
+  <div class="modal">
+    <div class="modal-header"><h2>Admin settings</h2><button class="modal-close" id="closeAdmin">✕</button></div>
+    <div class="modal-tabs">
+      <button class="modal-tab active" data-admin-tab="departments">Departments</button>
+      <button class="modal-tab" data-admin-tab="employees">Employees</button>
+      <button class="modal-tab" data-admin-tab="monitoring">Monitoring</button>
+    </div>
+    <div class="modal-body" id="adminBody"></div>
+  </div>
+</div>
+
+<script>
+/* ══════════════════════════════════════════════
+   DAILY TASK SHEET TRACKER — front end
+   ------------------------------------------------------------
+   Runs inside the Apps Script HtmlService sandbox, talking to
+   Code.gs/Auth.gs/Directory.gs/Tasks.gs/Dashboard.gs/Messages.gs
+   via google.script.run. A session token issued by Auth.gs is
+   kept in localStorage so a login survives reloads/restarts —
+   the server re-validates that token on every privileged call,
+   this page never assumes its own claims about who's logged in.
+══════════════════════════════════════════════ */
+
+const TOKEN_KEY = 'dtt_session_token';
+const STATUSES = ['todo', 'progress', 'complete'];
+const STATUS_META = {
+  todo:     { label: 'Pending',     dot: '#94a3b8' },
+  progress: { label: 'In Progress', dot: '#3b82f6' },
+  complete: { label: 'Completed',   dot: '#16a34a' },
+};
+const PRIORITIES = {
+  urgent: { label: 'Urgent', color: '#ef4444' },
+  high:   { label: 'High',   color: '#eab308' },
+  normal: { label: 'Normal', color: '#3b82f6' },
+  low:    { label: 'Low',    color: '#94a3b8' },
+};
+const AVATAR_PALETTE = ['#3b82f6', '#ef4444', '#eab308', '#0ea5e9', '#8b5cf6', '#f97316', '#16a34a', '#db2777'];
+
+// ── State ──
+let token = null;
+let me = null;
+let departments = [];       // [{id,name}] scoped to current user
+let taggable = [];          // employees selectable as assignee / message recipient
+let taggableById = {};
+let currentView = 'table';
+let currentDepartmentId = null; // null = "All Departments"
+let currentDate = todayStr();
+let tasks = [];
+let groupingMode = 'status'; // 'status' | 'none'
+let collapsedGroups = new Set();
+let expandedSubtasks = new Set();
+let searchQuery = '';
+let priFilter = '';
+let assigneeFilter = '';
+let meModeOn = false;
+let showClosed = true;
+let hiddenCols = new Set(JSON.parse(localStorage.getItem('dtt_hidden_cols') || '[]'));
+let calendarMonth = firstOfMonth(new Date());
+let requestToken = 0;
+let inboxTab = 'received';
+let taskCreateInFlight = false; // hard guard against double-submitting "+ Add Task" while a request is still in flight
+let inboxCache = { received: [], sent: [] };
+
+function todayStr() {
+  const d = new Date();
+  return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+}
+function uid() { return 'tmp' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function firstOfMonth(d) { return new Date(d.getFullYear(), d.getMonth(), 1); }
+function ymStr(d) { return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0'); }
+function avatarColor(id) {
+  let h = 0;
+  const s = String(id || '');
+  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+}
+function initials(name) {
+  if (!name) return '?';
+  const parts = name.trim().split(/\s+/);
+  return ((parts[0]||'')[0] + (parts[1]||'')[0]).toUpperCase();
+}
+function shiftDate(dateStr, days) {
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  dt.setDate(dt.getDate() + days);
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+}
+function formatDayLabel(dateStr) {
+  const [y,m,d] = dateStr.split('-').map(Number);
+  const dt = new Date(y, m-1, d);
+  const label = dt.toLocaleDateString(undefined, { weekday: 'long', month: 'short', day: 'numeric', year: 'numeric' });
+  const t = todayStr();
+  let rel = '';
+  if (dateStr === t) rel = 'Today';
+  else if (dateStr === shiftDate(t, -1)) rel = 'Yesterday';
+  else if (dateStr === shiftDate(t, 1)) rel = 'Tomorrow';
+  return { label, rel };
+}
+function formatShortDate(dateStr) {
+  if (!dateStr) return '';
+  const [y,m,d] = dateStr.split('-').map(Number);
+  return new Date(y, m-1, d).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ══ In-app dialogs & toasts ══
+   Apps Script serves this page inside a sandboxed googleusercontent.com
+   iframe, so native confirm()/alert()/prompt() render as a jarring
+   "An embedded page at ... says" browser chrome instead of looking like
+   part of the app. These replace every one of those with UI styled like
+   the rest of the page. */
+function showDialog(opts) {
+  return new Promise(resolve => {
+    const overlay = document.createElement('div');
+    overlay.className = 'overlay show';
+    overlay.innerHTML = `
+      <div class="modal" style="width:380px;max-width:92vw">
+        <div class="modal-header"><h2>${escapeHtml(opts.title || '')}</h2></div>
+        <div class="modal-body">
+          <div style="font-size:13.5px;color:#43465a;line-height:1.5">${escapeHtml(opts.message || '')}</div>
+          ${opts.showInput ? `<input type="${opts.inputType || 'text'}" id="dialogInput" placeholder="${escapeHtml(opts.inputPlaceholder || '')}" style="width:100%;margin-top:12px;padding:9px 11px;border:1px solid #dfe2e8;border-radius:8px;font-size:13.5px;outline:none">` : ''}
+        </div>
+        <div style="display:flex;gap:8px;padding:14px 20px;border-top:1px solid #eceef2">
+          ${opts.hideCancel ? '' : `<button class="mini-btn" id="dialogCancel" style="flex:1;padding:9px;font-size:13px">${escapeHtml(opts.cancelLabel || 'Cancel')}</button>`}
+          <button class="mini-btn ${opts.danger ? 'danger' : 'primary'}" id="dialogOk" style="flex:1;padding:9px;font-size:13px">${escapeHtml(opts.confirmLabel || 'OK')}</button>
+        </div>
+      </div>`;
+    document.body.appendChild(overlay);
+    const input = overlay.querySelector('#dialogInput');
+    const finish = val => { overlay.remove(); resolve(val); };
+    if (input) {
+      input.focus();
+      input.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) finish(input.value); });
+    }
+    const cancelBtn = overlay.querySelector('#dialogCancel');
+    if (cancelBtn) cancelBtn.addEventListener('click', () => finish(opts.showInput ? null : false));
+    overlay.querySelector('#dialogOk').addEventListener('click', () => finish(opts.showInput ? input.value : true));
+    if (!opts.hideCancel) overlay.addEventListener('click', e => { if (e.target === overlay) finish(opts.showInput ? null : false); });
+  });
+}
+function showToast(message, type) {
+  let container = document.getElementById('toastContainer');
+  if (!container) {
+    container = document.createElement('div');
+    container.id = 'toastContainer';
+    container.style.cssText = 'position:fixed;top:16px;right:16px;z-index:200;display:flex;flex-direction:column;gap:8px;max-width:320px';
+    document.body.appendChild(container);
+  }
+  const colors = { error: '#ef4444', success: '#16a34a', info: '#1a1a2e' };
+  const toast = document.createElement('div');
+  toast.style.cssText = `padding:11px 14px;border-radius:9px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,.18);color:#fff;background:${colors[type] || colors.info};opacity:0;transition:opacity .2s`;
+  toast.textContent = message;
+  container.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 250); }, 3400);
+}
+
+/* ══ Auth ══ */
+function boot() {
+  google.script.run.withSuccessHandler(needs => {
+    if (needs) { showBootstrap(); return; }
+    const saved = localStorage.getItem(TOKEN_KEY);
+    if (!saved) { showLogin(); return; }
+    google.script.run
+      .withSuccessHandler(res => { if (res) enterApp(saved, res.employee); else { localStorage.removeItem(TOKEN_KEY); showLogin(); } })
+      .withFailureHandler(() => showLogin())
+      .validateSession(saved);
+  }).withFailureHandler(err => showLogin()).needsBootstrap();
+}
+function showBootstrap() {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('bootstrapScreen').style.display = 'flex';
+  document.getElementById('loginScreen').style.display = 'none';
+}
+function showLogin() {
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('bootstrapScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+}
+
+function setAuthError(id, msg) {
+  const el = document.getElementById(id);
+  if (msg) { el.textContent = msg; el.classList.add('show'); } else { el.classList.remove('show'); }
+}
+
+document.getElementById('bootSubmit').addEventListener('click', () => {
+  const name = document.getElementById('bootName').value.trim();
+  const email = document.getElementById('bootEmail').value.trim();
+  const password = document.getElementById('bootPassword').value;
+  setAuthError('bootstrapError', '');
+  const btn = document.getElementById('bootSubmit');
+  btn.disabled = true; btn.textContent = 'Creating…';
+  google.script.run
+    .withSuccessHandler(res => { enterApp(res.token, res.employee); })
+    .withFailureHandler(err => { btn.disabled = false; btn.textContent = 'Create admin account'; setAuthError('bootstrapError', err.message || String(err)); })
+    .bootstrapFirstAdmin(name, email, password);
+});
+document.getElementById('loginSubmit').addEventListener('click', submitLogin);
+['loginEmail','loginPassword'].forEach(id => document.getElementById(id).addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) submitLogin(); }));
+function submitLogin() {
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  setAuthError('loginError', '');
+  const btn = document.getElementById('loginSubmit');
+  btn.disabled = true; btn.textContent = 'Signing in…';
+  google.script.run
+    .withSuccessHandler(res => { enterApp(res.token, res.employee); })
+    .withFailureHandler(err => { btn.disabled = false; btn.textContent = 'Log in'; setAuthError('loginError', err.message || String(err)); })
+    .login(email, password);
+}
+
+/** Client-side-only signal (Apps Script's doGet has no reliable server-side User-Agent/device
+ *  info to check instead) — a soft UX restriction, not a hard security boundary. Someone
+ *  determined to spoof a desktop user-agent on their phone could still get in; this is meant
+ *  to stop ordinary phone use, not to be unbypassable. */
+function isMobileUA_() {
+  return /Android|iPhone|iPad|iPod|IEMobile|Windows Phone|Mobile/i.test(navigator.userAgent);
+}
+
+function enterApp(t, employee) {
+  token = t; me = employee;
+  localStorage.setItem(TOKEN_KEY, token);
+  document.getElementById('authLoading').style.display = 'none';
+  document.getElementById('bootstrapScreen').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'none';
+
+  // Admins always get both desktop + mobile. A DesktopOnly employee on a phone/tablet is
+  // stopped here, before any app UI is built — the session token stays saved, so logging in
+  // again from an actual computer picks it right back up without a second password entry.
+  if (employee.role !== 'admin' && employee.desktopOnly && isMobileUA_()) {
+    document.getElementById('desktopBlockScreen').style.display = 'flex';
+    return;
+  }
+  document.getElementById('desktopBlockScreen').style.display = 'none';
+  document.getElementById('app').classList.add('show');
+
+  const av = avatarColor(me.id);
+  [document.getElementById('meAvatar'), document.getElementById('topAvatar')].forEach(el => {
+    el.style.background = av; el.textContent = initials(me.name);
+    el.title = me.name + ' (' + me.email + ')';
+  });
+  document.getElementById('meName').textContent = me.name;
+  document.getElementById('meRole').textContent = me.role;
+  document.getElementById('navAdmin').style.display = me.role === 'admin' ? 'flex' : 'none';
+  document.getElementById('addDeptBtn').style.display = me.role === 'admin' ? 'block' : 'none';
+
+  refreshDirectory(() => switchView('table'));
+  refreshUnreadBadge();
+}
+
+/** Resets all client-side state and swaps back to the login screen — no full page reload,
+ *  which is what used to cause a blank flash (Apps Script's iframe re-init is slow/visible). */
+function returnToLogin() {
+  // Full reset of every session-scoped variable and control — this DOM and JS state is being
+  // reused for whoever logs in next (no page reload), so nothing from this session may leak
+  // into the next one: filters, the Inbox's Sent/Received tab, in-flight guards, etc.
+  token = null; me = null; departments = []; taggable = []; taggableById = {};
+  tasks = []; inboxCache = { received: [], sent: [] };
+  currentView = 'table'; currentDepartmentId = null; currentDate = todayStr();
+  groupingMode = 'status'; collapsedGroups = new Set(); expandedSubtasks = new Set();
+  searchQuery = ''; priFilter = ''; assigneeFilter = ''; meModeOn = false; showClosed = true;
+  calendarMonth = firstOfMonth(new Date()); requestToken = 0; taskCreateInFlight = false;
+  inboxTab = 'received'; adminTab = 'departments';
+
+  document.getElementById('app').classList.remove('show');
+  document.getElementById('desktopBlockScreen').style.display = 'none';
+  document.getElementById('loginEmail').value = '';
+  document.getElementById('loginPassword').value = '';
+  setAuthError('loginError', '');
+  // The login screen's DOM is being reused (no page reload) — undo whatever
+  // in-flight/disabled state a previous login attempt may have left behind.
+  const loginBtn = document.getElementById('loginSubmit');
+  loginBtn.disabled = false;
+  loginBtn.textContent = 'Log in';
+
+  // Reset filter/toolbar controls back to their defaults for the next login.
+  document.getElementById('searchInput').value = '';
+  document.getElementById('priFilter').value = '';
+  document.getElementById('assigneeFilter').value = '';
+  document.getElementById('meModeBtn').classList.remove('active');
+  document.getElementById('showClosed').checked = true;
+  document.getElementById('groupByBtn').textContent = '⊞ Group by: Status';
+  closePopMenu();
+
+  // Reset the Inbox panel (tab selection, compose form) so it doesn't reopen mid-compose
+  // or on the wrong tab for the next person.
+  document.getElementById('inboxOverlay').classList.remove('show');
+  document.getElementById('inboxSlideover').classList.remove('show');
+  document.querySelectorAll('[data-inbox-tab]').forEach(b => b.classList.toggle('active', b.getAttribute('data-inbox-tab') === 'received'));
+  document.getElementById('composeTo').value = '';
+  document.getElementById('composeTask').value = '';
+  document.getElementById('composeText').value = '';
+
+  // Close the admin panel if it was left open.
+  document.getElementById('adminOverlay').classList.remove('show');
+
+  showLogin();
+}
+
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  const ok = await showDialog({ title: 'Log out?', message: "You'll need to sign in again to continue.", confirmLabel: 'Log out', danger: true });
+  if (!ok) return;
+  const t = token;
+  localStorage.removeItem(TOKEN_KEY);
+  returnToLogin();
+  google.script.run.logout(t); // best-effort; UI has already moved on
+});
+document.getElementById('desktopBlockLogout').addEventListener('click', () => {
+  const t = token;
+  localStorage.removeItem(TOKEN_KEY);
+  returnToLogin();
+  google.script.run.logout(t);
+});
+
+/* ══ Directory (departments + taggable employees) ══ */
+function refreshDirectory(then) {
+  google.script.run.withSuccessHandler(depts => {
+    departments = depts;
+    renderSidebarDepartments();
+    google.script.run.withSuccessHandler(emps => {
+      taggable = emps.filter(e => e.id !== me.id);
+      taggableById = {}; emps.forEach(e => taggableById[e.id] = e);
+      renderAssigneeFilterOptions();
+      renderComposeToOptions();
+      if (then) then();
+    }).withFailureHandler(handleServerError).listTaggableEmployees(token);
+  }).withFailureHandler(handleServerError).listDepartments(token);
+}
+
+function renderSidebarDepartments() {
+  const wrap = document.getElementById('deptList');
+  let html = `<button class="space-item ${currentDepartmentId === null ? 'active' : ''}" data-dept="__all__">
+      <div class="sq" style="background:#334155">∀</div> All Departments</button>`;
+  html += departments.map(d => `
+    <button class="space-item ${currentDepartmentId === d.id ? 'active' : ''}" data-dept="${d.id}">
+      <div class="sq" style="background:${avatarColor(d.id)}">${escapeHtml(d.name[0] || '?')}</div> ${escapeHtml(d.name)}
+    </button>`).join('');
+  wrap.innerHTML = html;
+  wrap.querySelectorAll('[data-dept]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      currentDepartmentId = btn.getAttribute('data-dept') === '__all__' ? null : btn.getAttribute('data-dept');
+      renderSidebarDepartments();
+      reloadCurrentView();
+    });
+  });
+}
+
+function renderAssigneeFilterOptions() {
+  const sel = document.getElementById('assigneeFilter');
+  const prev = sel.value;
+  sel.innerHTML = '<option value="">🧑‍🤝‍🧑 Assignees</option>' +
+    [me].concat(taggable).map(e => `<option value="${e.id}">${e.id===me.id?'Me':escapeHtml(e.name)}</option>`).join('');
+  sel.value = prev;
+}
+function renderComposeToOptions() {
+  const sel = document.getElementById('composeTo');
+  sel.innerHTML = '<option value="">Tag someone…</option>' +
+    taggable.map(e => `<option value="${e.id}">${escapeHtml(e.name)} (${escapeHtml(e.email)})</option>`).join('');
+}
+
+document.getElementById('navHome').addEventListener('click', () => {
+  currentDepartmentId = null; currentDate = todayStr(); searchQuery = ''; priFilter = ''; assigneeFilter = ''; meModeOn = false;
+  document.getElementById('searchInput').value = ''; document.getElementById('priFilter').value = ''; document.getElementById('assigneeFilter').value = '';
+  document.getElementById('meModeBtn').classList.remove('active');
+  renderSidebarDepartments();
+  switchView('table');
+});
+document.getElementById('addDeptBtn').addEventListener('click', () => openAdmin('departments'));
+
+/* ══ Sync helpers ══ */
+/** Disables `btn` and swaps in a spinner + busyText for the duration of one action, guarding
+ *  against double-clicks and giving a visible "the system is working" cue. Returns a `done()`
+ *  function the caller must invoke exactly once (in both success and failure paths) to restore
+ *  the button — it does NOT call your success/failure handlers for you. */
+function startButtonBusy(btn, busyText) {
+  const prevHtml = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `<span class="spinner dark"></span> ${busyText}`;
+  return () => { btn.disabled = false; btn.innerHTML = prevHtml; };
+}
+function setSyncStatus(text, cls) {
+  const el = document.getElementById('syncStatus');
+  el.textContent = text || '';
+  el.className = 'sync-status' + (cls ? ' ' + cls : '');
+  if (text === 'Saved') setTimeout(() => { if (el.textContent === 'Saved') el.textContent = ''; }, 1500);
+}
+async function handleServerError(err) {
+  console.error(err);
+  const msg = err && err.message ? err.message : String(err);
+  setSyncStatus('⚠ Failed', 'err');
+  if (/session has expired|not logged in|no longer active/i.test(msg)) {
+    localStorage.removeItem(TOKEN_KEY);
+    await showDialog({ title: 'Session ended', message: msg + ' Please log in again.', confirmLabel: 'OK', hideCancel: true });
+    returnToLogin();
+    return;
+  }
+  showToast(msg, 'error');
+}
+
+/* ══ View switching ══ */
+document.getElementById('viewTabs').addEventListener('click', e => {
+  const btn = e.target.closest('.tab');
+  if (btn) switchView(btn.getAttribute('data-view'));
+});
+function switchView(view) {
+  hideCalTooltip(); // guard against an orphaned tooltip if a click navigates away before mouseleave fires
+  currentView = view;
+  document.querySelectorAll('#viewTabs .tab').forEach(b => b.classList.toggle('active', b.getAttribute('data-view') === view));
+  document.getElementById('tableView').style.display = view === 'table' ? 'block' : 'none';
+  document.getElementById('boardView').style.display = view === 'board' ? 'block' : 'none';
+  document.getElementById('calendarView').style.display = view === 'calendar' ? 'block' : 'none';
+  document.getElementById('dashboardView').style.display = view === 'dashboard' ? 'block' : 'none';
+  document.getElementById('daybar').style.display = view === 'calendar' ? 'none' : 'flex';
+  document.getElementById('toolbar').style.display = (view === 'table' || view === 'board') ? 'flex' : 'none';
+  reloadCurrentView();
+}
+function reloadCurrentView() {
+  if (currentView === 'table' || currentView === 'board') loadTasksForDate(currentDate);
+  else if (currentView === 'calendar') loadCalendarMonth();
+  else if (currentView === 'dashboard') loadDashboard();
+}
+
+function loadTasksForDate(dateStr) {
+  const myToken = ++requestToken;
+  document.getElementById('loadingOverlay').classList.add('show');
+  google.script.run
+    .withSuccessHandler(list => {
+      if (myToken !== requestToken) return;
+      document.getElementById('loadingOverlay').classList.remove('show');
+      tasks = list || [];
+      renderCurrent();
+    })
+    .withFailureHandler(err => { if (myToken !== requestToken) return; document.getElementById('loadingOverlay').classList.remove('show'); handleServerError(err); })
+    .getTasksForDate(token, dateStr, currentDepartmentId);
+}
+function renderCurrent() {
+  const { label, rel } = formatDayLabel(currentDate);
+  document.getElementById('dayLabel').innerHTML = label + (rel ? `<span class="rel">${rel}</span>` : '');
+  document.getElementById('datePicker').value = currentDate;
+  const openCount = tasks.filter(t => t.status !== 'complete').length;
+  // Home nav badge repurposed to show open task count in current context — quick at-a-glance signal.
+  if (currentView === 'table') renderTable();
+  else if (currentView === 'board') renderBoard();
+}
+
+function persistTask(task) {
+  setSyncStatus('Saving…', 'saving');
+  google.script.run
+    .withSuccessHandler(saved => {
+      setSyncStatus('Saved');
+      const idx = tasks.findIndex(t => t.id === saved.id);
+      if (idx !== -1) tasks[idx] = saved;
+      renderCurrent();
+    })
+    .withFailureHandler(err => { handleServerError(err); loadTasksForDate(currentDate); })
+    .saveTask(token, task);
+}
+function findTask(id) { return tasks.find(t => t.id === id); }
+
+function filteredGroupTasks(status) {
+  let list = tasks.filter(t => t.status === status);
+  const q = searchQuery.trim().toLowerCase();
+  if (q) list = list.filter(t => t.name.toLowerCase().includes(q));
+  if (priFilter) list = list.filter(t => t.priority === priFilter);
+  if (assigneeFilter) list = list.filter(t => t.assignedTo === assigneeFilter);
+  return list;
+}
+
+/* ══ Table view ══ */
+function renderTable() {
+  const table = document.getElementById('sheetTable');
+  table.className = 'sheet ' + [...hiddenCols].map(c => 'hide-' + c).join(' ');
+  const body = document.getElementById('sheetBody');
+
+  if (tasks.length === 0) {
+    body.innerHTML = `<tr><td colspan="8"><div class="empty-day">No tasks on this day yet. Click <strong>+ Add Task</strong> above, or carry over open tasks from a previous day.</div></td></tr>`;
+    return;
+  }
+
+  let html = '';
+  let rowNum = 0;
+  const order = groupingMode === 'status' ? STATUSES : ['__all__'];
+  order.forEach(status => {
+    if (status === 'complete' && !showClosed) return;
+    const groupTasks = groupingMode === 'status' ? filteredGroupTasks(status) : tasks.filter(t => showClosed || t.status !== 'complete').filter(t => {
+      const q = searchQuery.trim().toLowerCase();
+      if (q && !t.name.toLowerCase().includes(q)) return false;
+      if (priFilter && t.priority !== priFilter) return false;
+      if (assigneeFilter && t.assignedTo !== assigneeFilter) return false;
+      return true;
+    });
+    if (groupingMode === 'status') {
+      const meta = STATUS_META[status];
+      const collapsed = collapsedGroups.has(status);
+      html += `
+        <tr class="group-row"><td colspan="8">
+          <div class="group-header ${collapsed ? 'collapsed' : ''}" data-group="${status}">
+            <span class="chev">▾</span><span class="dot" style="background:${meta.dot}"></span>
+            ${meta.label} <span class="cnt">${groupTasks.length}</span>
+            <span class="add-in-group" data-add-group="${status}">+ Add task</span>
+          </div>
+        </td></tr>`;
+      if (collapsed) return;
+    }
+    groupTasks.forEach(t => {
+      rowNum++;
+      html += renderTaskRow(t, rowNum);
+      if (expandedSubtasks.has(t.id)) html += renderSubtaskPanel(t);
+    });
+  });
+
+  if (!html) html = `<tr><td colspan="8"><div class="empty-day">No tasks match your search/filter.</div></td></tr>`;
+  body.innerHTML = html;
+  attachRowHandlers();
+}
+
+function assigneeLabel(task) {
+  if (!task.assignedTo) return `<span class="placeholder">+ Assign</span>`;
+  const person = task.assignedTo === me.id ? me : taggableById[task.assignedTo];
+  const name = person ? person.name : 'Unknown';
+  return `<div class="avatar-badge" style="width:18px;height:18px;font-size:9px;background:${avatarColor(task.assignedTo)}">${initials(name)}</div> ${escapeHtml(name)}`;
+}
+function deadlineLabel(task) {
+  if (!task.deadline) return `<span class="placeholder">+ Set deadline</span>`;
+  const overdue = task.deadline < todayStr() && task.status !== 'complete';
+  return `<span class="${overdue ? 'overdue' : ''}">${formatShortDate(task.deadline)}</span>`;
+}
+
+/** Mirrors the server's "creator or admin" rule (Backend.gs saveTask) that gates renaming a
+ *  task and setting its deadline — the server enforces this independently either way. */
+function isCreatorOrAdmin(task) {
+  return me.role === 'admin' || task.createdBy === me.id;
+}
+
+/** Mirrors the server's delete rule so an employee never even sees a delete button they'd be
+ *  rejected for — the server (Backend.gs deleteTask) is what actually enforces this.
+ *    - admin-created task    → only that SAME admin may delete it.
+ *    - employee-created task → that employee OR any admin may delete it. */
+function canDeleteTask(task) {
+  const creator = task.createdBy === me.id ? me : taggableById[task.createdBy];
+  const creatorIsAdmin = !!(creator && creator.role === 'admin');
+  const isCreator = task.createdBy === me.id;
+  return creatorIsAdmin ? isCreator : (isCreator || me.role === 'admin');
+}
+
+function renderTaskRow(task, rowNum) {
+  const done = task.status === 'complete';
+  const pri = task.priority ? PRIORITIES[task.priority] : null;
+  const priHtml = pri ? `<span class="flag" style="color:${pri.color}">⚑</span> ${pri.label}` : `<span class="pri-none">–</span>`;
+  const canEditCreatorOnly = isCreatorOrAdmin(task);
+  const deptPill = currentDepartmentId === null ? `<span class="dept-pill">${escapeHtml((departments.find(d => d.id === task.departmentId) || {}).name || '')}</span>` : '';
+
+  const subs = task.subtasks || [];
+  const subDone = subs.filter(s => s.done).length;
+  const subHtml = subs.length
+    ? `<span class="bullet">●</span> ${escapeHtml(subs[0].text)}${subs.length > 1 ? ` <span class="sub-count">+${subs.length - 1} more</span>` : ''} <span class="sub-count">(${subDone}/${subs.length})</span>`
+    : `<span class="sub-none">+ Add subtasks</span>`;
+
+  const quickStatusHtml = `<div class="quick-status">
+      <button class="qs-btn qs-progress" data-quickstatus="${task.id}" data-status="progress" ${task.status === 'progress' ? 'disabled' : ''}>In Progress</button>
+      <button class="qs-btn qs-complete" data-quickstatus="${task.id}" data-status="complete" ${task.status === 'complete' ? 'disabled' : ''}>Completed</button>
+    </div>`;
+
+  return `
+  <tr class="task-row ${done ? 'done' : ''}" data-task="${task.id}">
+    <td class="numcell"><span class="rownum">${rowNum}</span>${canDeleteTask(task) ? `<button class="trash-btn" data-del="${task.id}" title="Delete task">🗑</button>` : ''}</td>
+    <td>
+      <div class="task-cell">
+        ${deptPill}
+        <div class="task-name" contenteditable="${canEditCreatorOnly}" style="${canEditCreatorOnly ? '' : 'cursor:default'}" data-edit-name="${task.id}">${escapeHtml(task.name)}</div>
+        ${quickStatusHtml}
+      </div>
+    </td>
+    <td><span class="pri-pill" data-pri="${task.id}">${priHtml}</span></td>
+    <td><div class="assignee-cell" data-assignee="${task.id}">${assigneeLabel(task)}</div></td>
+    <td class="deadline-cell"><div class="deadline-chip set ${canEditCreatorOnly ? '' : 'readonly'}" data-deadline="${task.id}">${deadlineLabel(task)}</div></td>
+    <td class="created-cell">${formatShortDate(task.createdAt)}</td>
+    <td class="sub-cell" data-toggle-sub="${task.id}"><div class="sub-preview">${subHtml}</div></td>
+    <td></td>
+  </tr>`;
+}
+
+function renderSubtaskPanel(task) {
+  const subs = task.subtasks || [];
+  const items = subs.map(s => `
+    <div class="subtask-item ${s.done ? 'done' : ''}">
+      <div class="chk ${s.done ? 'checked' : ''}" data-sub-toggle="${task.id}" data-sub-id="${s.id}">${s.done ? '✓' : ''}</div>
+      <span class="stx" contenteditable="true" data-sub-edit="${task.id}" data-sub-id="${s.id}">${escapeHtml(s.text)}</span>
+      <span class="rm" data-sub-del="${task.id}" data-sub-id="${s.id}">✕</span>
+    </div>`).join('');
+  return `<tr class="subtask-panel"><td colspan="8">
+    <div class="subtask-list">${items}</div>
+    <div class="add-subtask"><input placeholder="+ New subtask, press Enter" data-new-sub="${task.id}"></div>
+  </td></tr>`;
+}
+
+/* ── Task mutations ── */
+function addTask(status) {
+  if (taskCreateInFlight) return; // ignore rapid repeat clicks entirely — this is what used to create 3-4 tasks at once
+  if (currentDepartmentId) { doAddTask(currentDepartmentId, status); return; }
+  if (departments.length === 1) { doAddTask(departments[0].id, status); return; }
+  if (departments.length === 0) { showToast('You are not tagged into any department yet — ask an admin to add you to one.', 'error'); return; }
+  openDeptPickerMenu(document.getElementById('addTaskTop'), deptId => doAddTask(deptId, status));
+}
+function doAddTask(departmentId, status) {
+  if (taskCreateInFlight) return;
+  taskCreateInFlight = true;
+  const btn = document.getElementById('addTaskTop');
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Adding…';
+  setSyncStatus('Adding task…', 'saving');
+
+  const finishBusy = () => {
+    taskCreateInFlight = false;
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  };
+
+  google.script.run
+    .withSuccessHandler(task => {
+      finishBusy();
+      setSyncStatus('Saved');
+      if (currentDepartmentId === null) currentDepartmentId = departmentId; // so the new task is visible
+      tasks.push(task);
+      renderCurrent();
+      requestAnimationFrame(() => {
+        const el = document.querySelector(`[data-edit-name="${task.id}"]`);
+        if (el) { el.focus(); document.execCommand('selectAll', false, null); }
+      });
+    })
+    .withFailureHandler(err => { finishBusy(); handleServerError(err); })
+    .createTask(token, currentDate, departmentId, status || 'todo');
+}
+function openDeptPickerMenu(anchorEl, onPick) {
+  closePopMenu();
+  const menu = document.createElement('div');
+  menu.className = 'pop-menu'; menu.id = 'activePopMenu';
+  menu.innerHTML = `<div style="padding:4px 8px;font-size:11px;font-weight:700;color:#9aa0ae">Add to which department?</div>` +
+    departments.map(d => `<div class="opt" data-pick-dept="${d.id}">${escapeHtml(d.name)}</div>`).join('');
+  document.body.appendChild(menu);
+  positionMenu(menu, anchorEl);
+  menu.querySelectorAll('[data-pick-dept]').forEach(opt => opt.addEventListener('click', () => { onPick(opt.getAttribute('data-pick-dept')); closePopMenu(); }));
+}
+
+async function deleteTaskLocal(id) {
+  const ok = await showDialog({ title: 'Delete task?', message: 'This cannot be undone.', confirmLabel: 'Delete', danger: true });
+  if (!ok) return;
+  tasks = tasks.filter(t => t.id !== id);
+  renderCurrent();
+  google.script.run.withFailureHandler(err => { handleServerError(err); loadTasksForDate(currentDate); }).deleteTask(token, id);
+}
+function setTaskStatus(id, status) {
+  const task = findTask(id); if (!task || task.status === status) return;
+  task.status = status;
+  renderCurrent(); persistTask(task);
+}
+function moveStatus(id, dir) {
+  const task = findTask(id); if (!task) return;
+  const idx = STATUSES.indexOf(task.status);
+  const next = idx + dir;
+  if (next < 0 || next >= STATUSES.length) return;
+  task.status = STATUSES[next];
+  renderCurrent(); persistTask(task);
+}
+
+function carryOverOpenTasks() {
+  const deptId = currentDepartmentId || (departments.length === 1 ? departments[0].id : null);
+  if (!deptId) { showToast('Pick a specific department first (not "All Departments") to carry tasks into.', 'error'); return; }
+  const btn = document.getElementById('carryOverBtn');
+  if (btn.disabled) return;
+  const prevLabel = btn.textContent;
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner dark"></span> Carrying over…';
+  setSyncStatus('Carrying over tasks…', 'saving');
+  const finishBusy = () => { btn.disabled = false; btn.textContent = prevLabel; };
+  google.script.run
+    .withSuccessHandler(res => {
+      finishBusy();
+      if (res.added > 0) { setSyncStatus('Saved'); loadTasksForDate(currentDate); }
+      else { setSyncStatus(''); showToast(res.message || 'No open tasks to carry over.', 'info'); }
+    })
+    .withFailureHandler(err => { finishBusy(); handleServerError(err); })
+    .carryOverOpenTasks(token, currentDate, deptId);
+}
+
+/* ── Popover positioning ── */
+function positionMenu(menu, anchorEl) {
+  const r = anchorEl.getBoundingClientRect();
+  let top = r.bottom + 4, left = r.left;
+  document.body.appendChild(menu); // ensure in DOM before measuring
+  const mw = menu.offsetWidth || 200;
+  if (left + mw > window.innerWidth - 8) left = window.innerWidth - mw - 8;
+  menu.style.top = top + 'px'; menu.style.left = left + 'px';
+}
+function closePopMenu() { const m = document.getElementById('activePopMenu'); if (m) m.remove(); }
+document.addEventListener('click', e => {
+  if (!e.target.closest('.pop-menu') && !e.target.closest('[data-pri]') && !e.target.closest('[data-assignee]') && !e.target.closest('[data-deadline]') && !e.target.closest('#hideColsBtn') && !e.target.closest('#groupByBtn') && !e.target.closest('#addTaskTop')) {
+    closePopMenu();
+  }
+});
+
+function openPriorityMenu(anchorEl, taskId) {
+  closePopMenu();
+  const menu = document.createElement('div'); menu.className = 'pop-menu'; menu.id = 'activePopMenu';
+  menu.innerHTML = Object.keys(PRIORITIES).map(k => {
+    const p = PRIORITIES[k];
+    return `<div class="opt" data-set-pri="${k}"><span style="color:${p.color}">⚑</span> ${p.label}</div>`;
+  }).join('') + `<div class="opt" data-set-pri="">– Clear</div>`;
+  positionMenu(menu, anchorEl);
+  menu.querySelectorAll('[data-set-pri]').forEach(opt => opt.addEventListener('click', e => {
+    e.stopPropagation();
+    const task = findTask(taskId);
+    if (task) { task.priority = opt.getAttribute('data-set-pri') || null; renderCurrent(); persistTask(task); }
+    closePopMenu();
+  }));
+}
+function openAssigneeMenu(anchorEl, taskId) {
+  closePopMenu();
+  const menu = document.createElement('div'); menu.className = 'pop-menu'; menu.id = 'activePopMenu';
+  const people = [me].concat(taggable);
+  menu.innerHTML = people.map(p => `<div class="opt" data-set-assignee="${p.id}"><div class="avatar-badge" style="width:18px;height:18px;font-size:9px;background:${avatarColor(p.id)}">${initials(p.name)}</div> ${escapeHtml(p.id===me.id?'Me':p.name)}</div>`).join('')
+    + `<div class="opt" data-set-assignee="">✕ Unassign</div>`;
+  positionMenu(menu, anchorEl);
+  menu.querySelectorAll('[data-set-assignee]').forEach(opt => opt.addEventListener('click', e => {
+    e.stopPropagation();
+    const task = findTask(taskId);
+    if (task) { task.assignedTo = opt.getAttribute('data-set-assignee') || null; renderCurrent(); persistTask(task); }
+    closePopMenu();
+  }));
+}
+function openDeadlineMenu(anchorEl, taskId) {
+  const task = findTask(taskId); if (!task) return;
+  const canEdit = me.role === 'admin' || task.createdBy === me.id;
+  closePopMenu();
+  const menu = document.createElement('div'); menu.className = 'pop-menu'; menu.id = 'activePopMenu';
+  if (!canEdit) {
+    menu.innerHTML = `<div style="padding:8px;font-size:12px;color:#6b7080;max-width:180px">Only the task creator or an admin can set the deadline.</div>`;
+    positionMenu(menu, anchorEl);
+    return;
+  }
+  menu.innerHTML = `<div class="deadline-form">
+    <label>Deadline</label><input type="date" id="tlDue" value="${task.deadline || ''}">
+    <div class="row-actions"><button class="clear-btn" id="tlClear">Clear</button><button class="save-btn" id="tlSave">Save</button></div>
+  </div>`;
+  positionMenu(menu, anchorEl);
+  document.getElementById('tlSave').addEventListener('click', () => {
+    task.deadline = document.getElementById('tlDue').value || null;
+    renderCurrent(); persistTask(task); closePopMenu();
+  });
+  document.getElementById('tlClear').addEventListener('click', () => {
+    task.deadline = null;
+    renderCurrent(); persistTask(task); closePopMenu();
+  });
+}
+
+/* ── Row event delegation ── */
+function attachRowHandlers() {
+  const body = document.getElementById('sheetBody');
+  body.querySelectorAll('.group-header').forEach(h => h.addEventListener('click', e => {
+    if (e.target.closest('[data-add-group]')) return;
+    const key = h.getAttribute('data-group');
+    if (collapsedGroups.has(key)) collapsedGroups.delete(key); else collapsedGroups.add(key);
+    renderTable();
+  }));
+  body.querySelectorAll('[data-add-group]').forEach(el => el.addEventListener('click', e => { e.stopPropagation(); addTask(el.getAttribute('data-add-group')); }));
+  body.querySelectorAll('[data-quickstatus]').forEach(el => el.addEventListener('click', () => setTaskStatus(el.getAttribute('data-quickstatus'), el.getAttribute('data-status'))));
+  body.querySelectorAll('[data-del]').forEach(el => el.addEventListener('click', () => deleteTaskLocal(el.getAttribute('data-del'))));
+  body.querySelectorAll('[data-edit-name]').forEach(el => {
+    el.addEventListener('blur', () => {
+      const id = el.getAttribute('data-edit-name'); const task = findTask(id);
+      const val = el.textContent.trim() || 'Untitled task';
+      if (task && task.name !== val) { task.name = val; persistTask(task); }
+      // Only re-render if the on-screen text actually needs fixing up (trimmed/empty-fallback) —
+      // re-rendering on every blur (even a no-op one) tears down the row mid-click whenever this
+      // field loses focus because the user clicked something ELSE in the same row right after —
+      // e.g. a newly-created task is auto-focused with its name selected, and clicking a
+      // quick-status button immediately would otherwise blur-rerender out from under that click.
+      else if (el.textContent !== val) { renderCurrent(); }
+    });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); el.blur(); } });
+  });
+  body.querySelectorAll('[data-pri]').forEach(el => el.addEventListener('click', () => openPriorityMenu(el, el.getAttribute('data-pri'))));
+  body.querySelectorAll('[data-assignee]').forEach(el => el.addEventListener('click', () => openAssigneeMenu(el, el.getAttribute('data-assignee'))));
+  body.querySelectorAll('[data-deadline]').forEach(el => el.addEventListener('click', () => openDeadlineMenu(el, el.getAttribute('data-deadline'))));
+  body.querySelectorAll('[data-toggle-sub]').forEach(el => el.addEventListener('click', () => {
+    const id = el.getAttribute('data-toggle-sub');
+    if (expandedSubtasks.has(id)) expandedSubtasks.delete(id); else expandedSubtasks.add(id);
+    renderTable();
+  }));
+  body.querySelectorAll('[data-sub-toggle]').forEach(el => el.addEventListener('click', () => {
+    const task = findTask(el.getAttribute('data-sub-toggle'));
+    const sub = task && task.subtasks.find(s => s.id === el.getAttribute('data-sub-id'));
+    if (sub) { sub.done = !sub.done; renderCurrent(); persistTask(task); }
+  }));
+  body.querySelectorAll('[data-sub-edit]').forEach(el => {
+    el.addEventListener('blur', () => {
+      const task = findTask(el.getAttribute('data-sub-edit'));
+      const sub = task && task.subtasks.find(s => s.id === el.getAttribute('data-sub-id'));
+      const val = el.textContent.trim();
+      if (sub && val && sub.text !== val) { sub.text = val; persistTask(task); }
+      else if (sub && el.textContent !== sub.text) { renderTable(); } // only fix up stray whitespace, not every blur
+    });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); el.blur(); } });
+  });
+  body.querySelectorAll('[data-sub-del]').forEach(el => el.addEventListener('click', () => {
+    const task = findTask(el.getAttribute('data-sub-del'));
+    if (task) { task.subtasks = task.subtasks.filter(s => s.id !== el.getAttribute('data-sub-id')); renderCurrent(); persistTask(task); }
+  }));
+  body.querySelectorAll('[data-new-sub]').forEach(el => el.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.isComposing && el.value.trim()) {
+      const task = findTask(el.getAttribute('data-new-sub'));
+      if (task) { task.subtasks = task.subtasks || []; task.subtasks.push({ id: uid(), text: el.value.trim(), done: false }); renderCurrent(); persistTask(task); }
+    }
+  }));
+}
+/* ══ Board view ══ */
+function renderBoard() {
+  const wrap = document.getElementById('boardView');
+  let html = '<div class="board-wrap">';
+  STATUSES.forEach((status, colIdx) => {
+    if (status === 'complete' && !showClosed) return;
+    const meta = STATUS_META[status];
+    const colTasks = filteredGroupTasks(status);
+    html += `<div class="board-col">
+      <div class="board-col-header"><span class="dot" style="background:${meta.dot}"></span>${meta.label} <span class="cnt">${colTasks.length}</span></div>
+      <div class="board-cards">`;
+    colTasks.forEach(t => {
+      const pri = t.priority ? PRIORITIES[t.priority] : null;
+      const canEditThisName = isCreatorOrAdmin(t);
+      html += `<div class="board-card ${t.status === 'complete' ? 'done' : ''}" data-task="${t.id}">
+        <div class="board-card-top">
+          <div class="board-card-name" contenteditable="${canEditThisName}" style="${canEditThisName ? '' : 'cursor:default'}" data-edit-name="${t.id}">${escapeHtml(t.name)}</div>
+        </div>
+        <div class="board-card-meta">
+          ${pri ? `<span class="pri-pill" data-pri="${t.id}" style="padding:2px 6px"><span class="flag" style="color:${pri.color}">⚑</span> ${pri.label}</span>` : `<span class="pri-pill" data-pri="${t.id}" style="padding:2px 6px"><span class="pri-none">+ Priority</span></span>`}
+          <div class="assignee-cell" data-assignee="${t.id}" style="font-size:11.5px">${assigneeLabel(t)}</div>
+        </div>
+        <div class="board-card-foot">
+          <button class="move-btn" data-move="${t.id}" data-dir="-1" ${colIdx === 0 ? 'disabled' : ''}>‹</button>
+          ${canDeleteTask(t) ? `<button class="trash-btn" style="display:block" data-del="${t.id}">🗑</button>` : '<span></span>'}
+          <button class="move-btn" data-move="${t.id}" data-dir="1" ${colIdx === STATUSES.length - 1 ? 'disabled' : ''}>›</button>
+        </div>
+      </div>`;
+    });
+    html += `</div><div class="board-add" data-add-group="${status}">+ Add task</div></div>`;
+  });
+  html += '</div>';
+  wrap.innerHTML = html;
+
+  wrap.querySelectorAll('[data-del]').forEach(el => el.addEventListener('click', () => deleteTaskLocal(el.getAttribute('data-del'))));
+  wrap.querySelectorAll('[data-move]').forEach(el => el.addEventListener('click', () => moveStatus(el.getAttribute('data-move'), Number(el.getAttribute('data-dir')))));
+  wrap.querySelectorAll('[data-pri]').forEach(el => el.addEventListener('click', () => openPriorityMenu(el, el.getAttribute('data-pri'))));
+  wrap.querySelectorAll('[data-assignee]').forEach(el => el.addEventListener('click', () => openAssigneeMenu(el, el.getAttribute('data-assignee'))));
+  wrap.querySelectorAll('[data-add-group]').forEach(el => el.addEventListener('click', () => addTask(el.getAttribute('data-add-group'))));
+  wrap.querySelectorAll('[data-edit-name]').forEach(el => {
+    el.addEventListener('blur', () => {
+      const id = el.getAttribute('data-edit-name'); const task = findTask(id);
+      const val = el.textContent.trim() || 'Untitled task';
+      if (task && task.name !== val) { task.name = val; persistTask(task); }
+      else if (el.textContent !== val) { renderCurrent(); }
+    });
+    el.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) { e.preventDefault(); el.blur(); } });
+  });
+}
+
+/* ══ Calendar view ══ */
+function loadCalendarMonth() {
+  document.getElementById('loadingOverlay').classList.add('show');
+  google.script.run
+    .withSuccessHandler(counts => { document.getElementById('loadingOverlay').classList.remove('show'); renderCalendar(counts); })
+    .withFailureHandler(err => { document.getElementById('loadingOverlay').classList.remove('show'); handleServerError(err); })
+    .getTaskCountsForMonth(token, ymStr(calendarMonth), currentDepartmentId);
+}
+const CAL_MAX_LINES = 3; // task names shown directly on a day cell before "+N more"
+
+function renderCalendar(counts) {
+  const wrap = document.getElementById('calendarView');
+  const y = calendarMonth.getFullYear(), m = calendarMonth.getMonth();
+  const firstDow = new Date(y, m, 1).getDay();
+  const daysInMonth = new Date(y, m + 1, 0).getDate();
+  const monthLabel = calendarMonth.toLocaleDateString(undefined, { month: 'long', year: 'numeric' });
+  const t = todayStr();
+
+  let html = `<div class="cal-wrap"><div class="cal-header">
+    <button class="btn-chip" id="calPrev">‹</button><button class="btn-chip" id="calNext">›</button>
+    <h2>${monthLabel}</h2><button class="btn-chip" id="calToday">This Month</button>
+  </div><div class="cal-grid">`;
+  ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].forEach(d => html += `<div class="cal-dow">${d}</div>`);
+  for (let i = 0; i < firstDow; i++) html += `<div class="cal-cell other-month"></div>`;
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = y + '-' + String(m+1).padStart(2,'0') + '-' + String(day).padStart(2,'0');
+    const dayTasks = (counts[dateStr] && counts[dateStr].tasks) || [];
+    const shown = dayTasks.slice(0, CAL_MAX_LINES);
+    const extra = dayTasks.length - shown.length;
+    const taskLines = shown.map(dt => `<div class="cal-task-line"><span class="dot" style="background:${STATUS_META[dt.status].dot}"></span><span class="txt">${escapeHtml(dt.name)}</span></div>`).join('')
+      + (extra > 0 ? `<div class="cal-task-more">+${extra} more</div>` : '');
+    html += `<div class="cal-cell ${dateStr === t ? 'today' : ''}" data-cal-date="${dateStr}">
+      <div class="cal-daynum">${day}</div>
+      <div class="cal-tasklist">${taskLines}</div>
+    </div>`;
+  }
+  html += '</div></div>';
+  wrap.innerHTML = html;
+
+  document.getElementById('calPrev').addEventListener('click', () => { calendarMonth = new Date(y, m - 1, 1); loadCalendarMonth(); });
+  document.getElementById('calNext').addEventListener('click', () => { calendarMonth = new Date(y, m + 1, 1); loadCalendarMonth(); });
+  document.getElementById('calToday').addEventListener('click', () => { calendarMonth = firstOfMonth(new Date()); loadCalendarMonth(); });
+  wrap.querySelectorAll('[data-cal-date]').forEach(cell => {
+    const dateStr = cell.getAttribute('data-cal-date');
+    cell.addEventListener('click', () => { currentDate = dateStr; switchView('table'); });
+    cell.addEventListener('mouseenter', () => showCalTooltip(cell, dateStr, (counts[dateStr] && counts[dateStr].tasks) || []));
+    cell.addEventListener('mouseleave', hideCalTooltip);
+  });
+}
+
+function showCalTooltip(cellEl, dateStr, dayTasks) {
+  hideCalTooltip();
+  if (!dayTasks.length) return;
+  const tip = document.createElement('div');
+  tip.className = 'cal-tooltip';
+  tip.id = 'activeCalTooltip';
+  tip.innerHTML = `<div class="cal-tooltip-title">${escapeHtml(formatDayLabel(dateStr).label)}</div>` +
+    dayTasks.map(dt => `<div class="cal-tooltip-row"><span class="dot" style="background:${STATUS_META[dt.status].dot}"></span><span class="txt">${escapeHtml(dt.name)}</span><span class="cal-tooltip-status">${STATUS_META[dt.status].label}</span></div>`).join('');
+  document.body.appendChild(tip);
+  const r = cellEl.getBoundingClientRect();
+  let left = r.left, top = r.bottom + 6;
+  const tw = tip.offsetWidth || 220, th = tip.offsetHeight || 80;
+  if (left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+  if (top + th > window.innerHeight - 8) top = r.top - th - 6; // flip above if no room below
+  tip.style.left = left + 'px';
+  tip.style.top = top + 'px';
+}
+function hideCalTooltip() {
+  const t = document.getElementById('activeCalTooltip');
+  if (t) t.remove();
+}
+
+/* ══ Dashboard view ══ */
+function loadDashboard() {
+  document.getElementById('loadingOverlay').classList.add('show');
+  google.script.run
+    .withSuccessHandler(summary => { document.getElementById('loadingOverlay').classList.remove('show'); renderDashboard(summary); })
+    .withFailureHandler(err => { document.getElementById('loadingOverlay').classList.remove('show'); handleServerError(err); })
+    .getDashboardSummary(token, currentDate);
+}
+function renderDashboard(summary) {
+  const wrap = document.getElementById('dashboardView');
+  const t = summary.totals;
+  let html = `<div class="dash-wrap">
+    <div class="dash-tiles">
+      <div class="dash-tile todo"><div class="num">${t.todo}</div><div class="label">Pending</div></div>
+      <div class="dash-tile progress"><div class="num">${t.progress}</div><div class="label">Working</div></div>
+      <div class="dash-tile complete"><div class="num">${t.complete}</div><div class="label">Completed</div></div>
+      <div class="dash-tile overdue"><div class="num">${t.overdue}</div><div class="label">Overdue</div></div>
+      <div class="dash-tile mine"><div class="num">${t.assignedToMe}</div><div class="label">Assigned to me</div></div>
+    </div>
+    <div class="dash-section-title">${summary.scope === 'admin' ? 'Every department' : 'Your departments'} — ${formatDayLabel(currentDate).label}</div>`;
+  if (!summary.departments.length) {
+    html += `<div class="empty-day">No department data yet.</div>`;
+  } else {
+    summary.departments.forEach(d => {
+      const total = d.counts.todo + d.counts.progress + d.counts.complete;
+      const pct = k => total ? (d.counts[k] / total * 100) : 0;
+      html += `<div class="dash-dept-row">
+        <div class="name">${escapeHtml(d.name)}</div>
+        <div class="dash-bar">
+          <span style="width:${pct('todo')}%;background:#94a3b8"></span>
+          <span style="width:${pct('progress')}%;background:#3b82f6"></span>
+          <span style="width:${pct('complete')}%;background:#16a34a"></span>
+        </div>
+        <div class="counts">${d.counts.todo} pending · ${d.counts.progress} working · ${d.counts.complete} done${d.counts.overdue ? ' · <b style="color:#b91c1c">' + d.counts.overdue + ' overdue</b>' : ''}</div>
+      </div>`;
+    });
+  }
+  html += '</div>';
+  wrap.innerHTML = html;
+}
+
+/* ══ Toolbar wiring ══ */
+document.getElementById('prevDay').addEventListener('click', () => { currentDate = shiftDate(currentDate, -1); loadTasksForDate(currentDate); });
+document.getElementById('nextDay').addEventListener('click', () => { currentDate = shiftDate(currentDate, 1); loadTasksForDate(currentDate); });
+document.getElementById('todayBtn').addEventListener('click', () => { currentDate = todayStr(); loadTasksForDate(currentDate); });
+document.getElementById('datePicker').addEventListener('change', e => { if (e.target.value) { currentDate = e.target.value; loadTasksForDate(currentDate); } });
+document.getElementById('carryOverBtn').addEventListener('click', carryOverOpenTasks);
+document.getElementById('addTaskTop').addEventListener('click', () => addTask('todo'));
+document.getElementById('searchInput').addEventListener('input', e => { searchQuery = e.target.value; renderCurrent(); });
+document.getElementById('priFilter').addEventListener('change', e => { priFilter = e.target.value; renderCurrent(); });
+document.getElementById('assigneeFilter').addEventListener('change', e => { assigneeFilter = e.target.value; meModeOn = assigneeFilter === me.id; document.getElementById('meModeBtn').classList.toggle('active', meModeOn); renderCurrent(); });
+document.getElementById('meModeBtn').addEventListener('click', () => {
+  meModeOn = !meModeOn;
+  assigneeFilter = meModeOn ? me.id : '';
+  document.getElementById('assigneeFilter').value = assigneeFilter;
+  document.getElementById('meModeBtn').classList.toggle('active', meModeOn);
+  renderCurrent();
+});
+document.getElementById('showClosed').addEventListener('change', e => { showClosed = e.target.checked; renderCurrent(); });
+document.getElementById('collapseAllSub').addEventListener('click', () => { expandedSubtasks.clear(); renderTable(); });
+document.getElementById('groupByBtn').addEventListener('click', () => {
+  groupingMode = groupingMode === 'status' ? 'none' : 'status';
+  document.getElementById('groupByBtn').textContent = groupingMode === 'status' ? '⊞ Group by: Status' : '⊞ Group by: None';
+  renderCurrent();
+});
+document.getElementById('hideColsBtn').addEventListener('click', () => {
+  closePopMenu();
+  const menu = document.createElement('div'); menu.className = 'pop-menu'; menu.id = 'activePopMenu';
+  const cols = [['deadline','Deadline'],['subtasks','Subtasks']];
+  menu.innerHTML = cols.map(([key,label]) => `<label class="cb-row"><input type="checkbox" data-col="${key}" ${hiddenCols.has(key) ? '' : 'checked'}> Show ${label}</label>`).join('');
+  positionMenu(menu, document.getElementById('hideColsBtn'));
+  menu.querySelectorAll('[data-col]').forEach(cb => cb.addEventListener('change', () => {
+    const key = cb.getAttribute('data-col');
+    if (cb.checked) hiddenCols.delete(key); else hiddenCols.add(key);
+    localStorage.setItem('dtt_hidden_cols', JSON.stringify([...hiddenCols]));
+    renderTable();
+  }));
+});
+
+/* ══ Inbox ══ */
+document.getElementById('navInbox').addEventListener('click', openInbox);
+document.getElementById('closeInbox').addEventListener('click', closeInbox);
+document.getElementById('inboxOverlay').addEventListener('click', closeInbox);
+function openInbox() {
+  document.getElementById('inboxOverlay').classList.add('show');
+  document.getElementById('inboxSlideover').classList.add('show');
+  loadInbox();
+  populateComposeTaskOptions();
+}
+function closeInbox() {
+  document.getElementById('inboxOverlay').classList.remove('show');
+  document.getElementById('inboxSlideover').classList.remove('show');
+}
+document.querySelectorAll('[data-inbox-tab]').forEach(btn => btn.addEventListener('click', () => {
+  inboxTab = btn.getAttribute('data-inbox-tab');
+  document.querySelectorAll('[data-inbox-tab]').forEach(b => b.classList.toggle('active', b === btn));
+  renderInboxBody();
+}));
+function loadInbox() {
+  google.script.run.withSuccessHandler(list => { inboxCache.received = list; if (inboxTab === 'received') renderInboxBody(); refreshUnreadBadge(); }).withFailureHandler(handleServerError).listInbox(token);
+  google.script.run.withSuccessHandler(list => { inboxCache.sent = list; if (inboxTab === 'sent') renderInboxBody(); }).withFailureHandler(handleServerError).listSent(token);
+}
+function renderInboxBody() {
+  const body = document.getElementById('inboxBody');
+  const list = inboxCache[inboxTab] || [];
+  if (!list.length) { body.innerHTML = `<div class="empty-inbox">${inboxTab === 'received' ? 'Nothing in your inbox yet.' : "You haven't sent any messages yet."}</div>`; return; }
+  body.innerHTML = list.map(m => `
+    <div class="msg-item ${!m.read && inboxTab === 'received' ? 'unread' : ''}" data-msg="${m.id}">
+      <div class="top"><span class="from">${inboxTab === 'received' ? escapeHtml(m.fromName) : 'To: ' + escapeHtml(m.toName)}</span><span>${new Date(m.createdAt).toLocaleString(undefined,{month:'short',day:'numeric',hour:'numeric',minute:'2-digit'})}</span></div>
+      <div class="text">${escapeHtml(m.text)}</div>
+      ${m.taskName ? `<span class="task-tag">🔗 ${escapeHtml(m.taskName)}</span>` : ''}
+    </div>`).join('');
+  if (inboxTab === 'received') {
+    body.querySelectorAll('[data-msg]').forEach(el => el.addEventListener('click', () => {
+      const id = el.getAttribute('data-msg');
+      const msg = inboxCache.received.find(m => m.id === id);
+      if (msg && !msg.read) {
+        google.script.run.withSuccessHandler(() => { msg.read = true; renderInboxBody(); refreshUnreadBadge(); }).withFailureHandler(handleServerError).markMessageRead(token, id);
+      }
+    }));
+  }
+}
+function populateComposeTaskOptions() {
+  const sel = document.getElementById('composeTask');
+  sel.innerHTML = '<option value="">(optional) link a task from today</option>' + tasks.map(t => `<option value="${t.id}">${escapeHtml(t.name)}</option>`).join('');
+}
+document.getElementById('composeSend').addEventListener('click', () => {
+  const toId = document.getElementById('composeTo').value;
+  const taskId = document.getElementById('composeTask').value;
+  const text = document.getElementById('composeText').value.trim();
+  if (!toId) { showToast('Pick someone to tag.', 'error'); return; }
+  if (!text) { showToast('Write a message first.', 'error'); return; }
+  const btn = document.getElementById('composeSend');
+  btn.disabled = true;
+  google.script.run
+    .withSuccessHandler(() => {
+      btn.disabled = false;
+      document.getElementById('composeText').value = '';
+      document.getElementById('composeTo').value = '';
+      document.getElementById('composeTask').value = '';
+      if (toId === me.id) loadInbox(); // tagging yourself, edge case — otherwise sender doesn't see it in received
+      inboxTab = 'sent';
+      document.querySelectorAll('[data-inbox-tab]').forEach(b => b.classList.toggle('active', b.getAttribute('data-inbox-tab') === 'sent'));
+      loadInbox();
+    })
+    .withFailureHandler(err => { btn.disabled = false; handleServerError(err); })
+    .sendMessage(token, toId, text, taskId || null);
+});
+function refreshUnreadBadge() {
+  google.script.run.withSuccessHandler(n => {
+    const badge = document.getElementById('inboxBadge');
+    badge.textContent = n; badge.style.display = n > 0 ? 'inline-block' : 'none';
+  }).withFailureHandler(() => {}).getUnreadCount(token);
+}
+
+/* ══ Admin panel ══ */
+let adminTab = 'departments';
+document.getElementById('navAdmin').addEventListener('click', () => openAdmin('departments'));
+document.getElementById('closeAdmin').addEventListener('click', () => document.getElementById('adminOverlay').classList.remove('show'));
+document.getElementById('adminOverlay').addEventListener('click', e => { if (e.target.id === 'adminOverlay') document.getElementById('adminOverlay').classList.remove('show'); });
+document.querySelectorAll('[data-admin-tab]').forEach(btn => btn.addEventListener('click', () => { adminTab = btn.getAttribute('data-admin-tab'); document.querySelectorAll('[data-admin-tab]').forEach(b => b.classList.toggle('active', b === btn)); renderAdminBody(); }));
+function openAdmin(tab) {
+  adminTab = tab;
+  document.querySelectorAll('[data-admin-tab]').forEach(b => b.classList.toggle('active', b.getAttribute('data-admin-tab') === tab));
+  document.getElementById('adminOverlay').classList.add('show');
+  renderAdminBody();
+}
+function renderAdminBody() {
+  if (adminTab === 'departments') renderAdminDepartments();
+  else if (adminTab === 'monitoring') renderAdminMonitoring();
+  else renderAdminEmployees();
+}
+
+function renderAdminDepartments() {
+  const body = document.getElementById('adminBody');
+  body.innerHTML = `<div id="adminDeptList"></div>
+    <div class="admin-form">
+      <div style="font-weight:700;font-size:12.5px">New department</div>
+      <input id="newDeptName" placeholder="e.g. Customer Support">
+      <button class="mini-btn primary" id="createDeptBtn" style="align-self:flex-start">+ Create department</button>
+    </div>`;
+  google.script.run.withSuccessHandler(list => {
+    document.getElementById('adminDeptList').innerHTML = list.map(d => `
+      <div class="admin-row">
+        <input type="text" value="${escapeHtml(d.name)}" data-rename-dept="${d.id}" style="flex:1">
+        <button class="mini-btn" data-save-rename="${d.id}">Save</button>
+      </div>`).join('') || '<div class="empty-day">No departments yet.</div>';
+    document.querySelectorAll('[data-save-rename]').forEach(btn => btn.addEventListener('click', () => {
+      const id = btn.getAttribute('data-save-rename');
+      const input = document.querySelector(`[data-rename-dept="${id}"]`);
+      const done = startButtonBusy(btn, 'Saving…');
+      google.script.run
+        .withSuccessHandler(() => { done(); refreshDirectory(() => {}); renderAdminDepartments(); })
+        .withFailureHandler(err => { done(); handleServerError(err); })
+        .renameDepartment(token, id, input.value);
+    }));
+  }).withFailureHandler(handleServerError).listAllDepartmentsForAdmin(token);
+  document.getElementById('createDeptBtn').addEventListener('click', () => {
+    const btn = document.getElementById('createDeptBtn');
+    if (btn.disabled) return;
+    const name = document.getElementById('newDeptName').value.trim();
+    if (!name) { showToast('Enter a department name first.', 'error'); return; }
+    const done = startButtonBusy(btn, 'Creating…');
+    google.script.run
+      .withSuccessHandler(() => { done(); document.getElementById('newDeptName').value = ''; refreshDirectory(() => {}); renderAdminDepartments(); })
+      .withFailureHandler(err => { done(); handleServerError(err); })
+      .createDepartment(token, name);
+  });
+}
+
+function renderAdminEmployees() {
+  const body = document.getElementById('adminBody');
+  body.innerHTML = `<div id="adminEmpList"></div>
+    <div class="admin-form">
+      <div style="font-weight:700;font-size:12.5px">Add employee</div>
+      <div class="grid2"><input id="newEmpName" placeholder="Full name"><input id="newEmpEmail" type="email" placeholder="Email"></div>
+      <div class="grid2">
+        <input id="newEmpPassword" type="password" placeholder="Temporary password (6+ chars)">
+        <select id="newEmpRole"><option value="employee">Employee</option><option value="admin">Admin</option></select>
+      </div>
+      <div id="newEmpDepts" class="dept-checks"></div>
+      <button class="mini-btn primary" id="createEmpBtn" style="align-self:flex-start">+ Add employee</button>
+    </div>`;
+  google.script.run.withSuccessHandler(depts => {
+    document.getElementById('newEmpDepts').innerHTML = depts.map(d => `<label class="dept-check"><input type="checkbox" value="${d.id}"> ${escapeHtml(d.name)}</label>`).join('') || '<span style="color:#9aa0ae;font-size:12px">Create a department first.</span>';
+  }).withFailureHandler(handleServerError).listAllDepartmentsForAdmin(token);
+
+  google.script.run.withSuccessHandler(emps => {
+    google.script.run.withSuccessHandler(depts => {
+      const deptName = id => (depts.find(d => d.id === id) || {}).name || '?';
+      document.getElementById('adminEmpList').innerHTML = emps.map(e => `
+        <div class="admin-row" style="flex-wrap:wrap">
+          <div style="flex:1;min-width:160px">
+            <div class="nm">${escapeHtml(e.name)} ${e.id === me.id ? '(you)' : ''}</div>
+            <div class="em">${escapeHtml(e.email)}</div>
+          </div>
+          <select data-role="${e.id}"><option value="employee" ${e.role==='employee'?'selected':''}>Employee</option><option value="admin" ${e.role==='admin'?'selected':''}>Admin</option></select>
+          <button class="mini-btn ${e.active ? 'danger' : ''}" data-toggle-active="${e.id}">${e.active ? 'Deactivate' : 'Reactivate'}</button>
+          <button class="mini-btn" data-reset-pw="${e.id}">Reset password</button>
+          <div class="dept-checks" style="width:100%">${depts.map(d => `<label class="dept-check"><input type="checkbox" data-emp-dept="${e.id}" value="${d.id}" ${e.departments.includes(d.id)?'checked':''}> ${escapeHtml(d.name)}</label>`).join('')}</div>
+          ${e.role === 'admin' ? `<div style="width:100%;font-size:11.5px;color:#9aa0ae">Admin — always full desktop + mobile access, never monitored.</div>` : `
+          <div class="dept-checks" style="width:100%">
+            <label class="dept-check"><input type="checkbox" data-desktop-only="${e.id}" ${e.desktopOnly?'checked':''}> Desktop only (blocked on phone)</label>
+            <label class="dept-check"><input type="checkbox" data-monitored="${e.id}" ${e.monitored?'checked':''}> Screen monitoring (desktop agent)</label>
+          </div>`}
+        </div>`).join('');
+
+      document.querySelectorAll('[data-role]').forEach(sel => sel.addEventListener('change', () => {
+        google.script.run.withSuccessHandler(() => {}).withFailureHandler(err => { handleServerError(err); renderAdminEmployees(); }).updateEmployee(token, sel.getAttribute('data-role'), { role: sel.value });
+      }));
+      document.querySelectorAll('[data-toggle-active]').forEach(btn => btn.addEventListener('click', () => {
+        const id = btn.getAttribute('data-toggle-active');
+        const emp = emps.find(x => x.id === id);
+        google.script.run.withSuccessHandler(() => renderAdminEmployees()).withFailureHandler(handleServerError).updateEmployee(token, id, { active: !emp.active });
+      }));
+      document.querySelectorAll('[data-reset-pw]').forEach(btn => btn.addEventListener('click', async () => {
+        const pw = await showDialog({ title: 'Reset password', message: 'Enter a new temporary password for this employee.', showInput: true, inputType: 'text', inputPlaceholder: '6+ characters', confirmLabel: 'Reset password' });
+        if (!pw) return;
+        google.script.run.withSuccessHandler(() => showToast('Password reset.', 'success')).withFailureHandler(handleServerError).setEmployeePassword(token, btn.getAttribute('data-reset-pw'), pw);
+      }));
+      document.querySelectorAll('[data-emp-dept]').forEach(cb => cb.addEventListener('change', () => {
+        const empId = cb.getAttribute('data-emp-dept');
+        const checked = Array.from(document.querySelectorAll(`[data-emp-dept="${empId}"]:checked`)).map(x => x.value);
+        google.script.run.withSuccessHandler(() => { if (empId === me.id) refreshDirectory(() => {}); }).withFailureHandler(err => { handleServerError(err); renderAdminEmployees(); }).updateEmployee(token, empId, { departments: checked });
+      }));
+      document.querySelectorAll('[data-desktop-only]').forEach(cb => cb.addEventListener('change', () => {
+        const id = cb.getAttribute('data-desktop-only');
+        google.script.run.withSuccessHandler(() => {}).withFailureHandler(err => { handleServerError(err); renderAdminEmployees(); }).updateEmployee(token, id, { desktopOnly: cb.checked });
+      }));
+      document.querySelectorAll('[data-monitored]').forEach(cb => cb.addEventListener('change', () => {
+        const id = cb.getAttribute('data-monitored');
+        google.script.run.withSuccessHandler(() => {}).withFailureHandler(err => { handleServerError(err); renderAdminEmployees(); }).updateEmployee(token, id, { monitored: cb.checked });
+      }));
+    }).withFailureHandler(handleServerError).listAllDepartmentsForAdmin(token);
+  }).withFailureHandler(handleServerError).listEmployees(token);
+
+  document.getElementById('createEmpBtn').addEventListener('click', () => {
+    const btn = document.getElementById('createEmpBtn');
+    if (btn.disabled) return;
+    const name = document.getElementById('newEmpName').value.trim();
+    const email = document.getElementById('newEmpEmail').value.trim();
+    const password = document.getElementById('newEmpPassword').value;
+    const role = document.getElementById('newEmpRole').value;
+    const depts = Array.from(document.querySelectorAll('#newEmpDepts input:checked')).map(x => x.value);
+    if (!name || !email) { showToast('Name and email are required.', 'error'); return; }
+    if (password.length < 6) { showToast('Password must be at least 6 characters.', 'error'); return; }
+    const done = startButtonBusy(btn, 'Adding…');
+    google.script.run
+      .withSuccessHandler(() => {
+        done();
+        document.getElementById('newEmpName').value = '';
+        document.getElementById('newEmpEmail').value = '';
+        document.getElementById('newEmpPassword').value = '';
+        refreshDirectory(() => {});
+        renderAdminEmployees();
+      })
+      .withFailureHandler(err => { done(); handleServerError(err); })
+      .addEmployee(token, { name, email, password, role, departments: depts });
+  });
+}
+
+const WEEKDAY_LABELS = [null, 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+function renderAdminMonitoring() {
+  const body = document.getElementById('adminBody');
+  body.innerHTML = `
+    <div style="font-size:12px;color:#6b7080;background:#f7f8fa;border-radius:8px;padding:9px 11px;margin-bottom:14px">
+      Screen monitoring is done by a separate small desktop program installed on an employee's PC (not this web page) — see the Monitoring setup guide you were given. It shows a visible tray icon whenever it's capturing, and it only runs during the hours below.
+    </div>
+    <div style="font-weight:700;font-size:12.5px;margin-bottom:8px">Working hours</div>
+    <div class="admin-form">
+      <div class="grid2">
+        <div><label style="font-size:11px;font-weight:700;color:#6b7080;display:block;margin-bottom:3px">Start time</label><input type="time" id="whStart"></div>
+        <div><label style="font-size:11px;font-weight:700;color:#6b7080;display:block;margin-bottom:3px">End time</label><input type="time" id="whEnd"></div>
+      </div>
+      <div style="font-size:11px;font-weight:700;color:#6b7080;margin-top:4px">Working days</div>
+      <div class="dept-checks" id="whDays">${[1,2,3,4,5,6,7].map(d => `<label class="dept-check"><input type="checkbox" data-wh-day="${d}"> ${WEEKDAY_LABELS[d]}</label>`).join('')}</div>
+      <button class="mini-btn primary" id="saveWorkingHoursBtn" style="align-self:flex-start">Save working hours</button>
+    </div>
+
+    <div style="font-weight:700;font-size:12.5px;margin:18px 0 8px">Holidays (no monitoring on these dates)</div>
+    <div id="holidayList"></div>
+    <div class="admin-form">
+      <input type="date" id="newHolidayDate">
+      <button class="mini-btn primary" id="addHolidayBtn" style="align-self:flex-start">+ Add holiday</button>
+    </div>
+
+    <div style="margin-top:18px">
+      <button class="mini-btn" id="openScreenshotsBtn">Open screenshots folder in Drive ↗</button>
+    </div>`;
+
+  google.script.run.withSuccessHandler(wh => {
+    document.getElementById('whStart').value = wh.start;
+    document.getElementById('whEnd').value = wh.end;
+    document.querySelectorAll('[data-wh-day]').forEach(cb => { cb.checked = wh.days.indexOf(Number(cb.getAttribute('data-wh-day'))) !== -1; });
+  }).withFailureHandler(handleServerError).getWorkingHours(token);
+
+  function renderHolidays(list) {
+    document.getElementById('holidayList').innerHTML = list.map(d => `
+      <div class="admin-row">
+        <div style="flex:1">${escapeHtml(d)}</div>
+        <button class="mini-btn danger" data-rm-holiday="${d}">Remove</button>
+      </div>`).join('') || '<div class="empty-day">No holidays added.</div>';
+    document.querySelectorAll('[data-rm-holiday]').forEach(btn => btn.addEventListener('click', () => {
+      const done = startButtonBusy(btn, 'Removing…');
+      google.script.run.withSuccessHandler(list2 => { done(); renderHolidays(list2); }).withFailureHandler(err => { done(); handleServerError(err); }).removeHoliday(token, btn.getAttribute('data-rm-holiday'));
+    }));
+  }
+  google.script.run.withSuccessHandler(renderHolidays).withFailureHandler(handleServerError).listHolidays(token);
+
+  document.getElementById('saveWorkingHoursBtn').addEventListener('click', () => {
+    const btn = document.getElementById('saveWorkingHoursBtn');
+    if (btn.disabled) return;
+    const start = document.getElementById('whStart').value;
+    const end = document.getElementById('whEnd').value;
+    const days = Array.from(document.querySelectorAll('[data-wh-day]:checked')).map(cb => Number(cb.getAttribute('data-wh-day')));
+    if (!start || !end) { showToast('Set both a start and end time.', 'error'); return; }
+    const done = startButtonBusy(btn, 'Saving…');
+    google.script.run
+      .withSuccessHandler(() => { done(); showToast('Working hours saved.', 'success'); })
+      .withFailureHandler(err => { done(); handleServerError(err); })
+      .setWorkingHours(token, { start, end, days });
+  });
+
+  document.getElementById('addHolidayBtn').addEventListener('click', () => {
+    const btn = document.getElementById('addHolidayBtn');
+    if (btn.disabled) return;
+    const dateStr = document.getElementById('newHolidayDate').value;
+    if (!dateStr) { showToast('Pick a date first.', 'error'); return; }
+    const done = startButtonBusy(btn, 'Adding…');
+    google.script.run
+      .withSuccessHandler(list => { done(); document.getElementById('newHolidayDate').value = ''; renderHolidays(list); })
+      .withFailureHandler(err => { done(); handleServerError(err); })
+      .addHoliday(token, dateStr);
+  });
+
+  document.getElementById('openScreenshotsBtn').addEventListener('click', () => {
+    google.script.run.withSuccessHandler(url => window.open(url, '_blank')).withFailureHandler(handleServerError).getScreenshotsFolderUrl(token);
+  });
+}
+
+boot();
+</script>
+</body>
+</html>
