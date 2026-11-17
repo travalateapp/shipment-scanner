@@ -7,7 +7,7 @@ App (`productionIn`, `setInProduction`, see `production-app/inventory-app-addon.
 | File in Apps Script | File here |
 |---|---|
 | `Code.gs` | `Code.gs` |
-| `Snapshot.gs` | `Snapshot.gs` (daily Stock_Snapshot_Log for Looker Studio; run by a daily trigger on `dailyStockSnapshot`) |
+| `StockSnapshot.gs` | `StockSnapshot.gs` (daily Stock_Snapshot_Log for Looker Studio; run by a daily trigger on `dailyStockSnapshot`) |
 | HTML file `InventoryForm` | `InventoryForm.html` |
 
 ## Secrets kept out of GitHub
