@@ -13,4 +13,5 @@ App (`productionIn`, `setInProduction`, see `production-app/inventory-app-addon.
 ## Secrets kept out of GitHub
 The shared secret between the Inventory App and the Shipment Manager (`SHARED_SECRET` / `INVENTORY_SHARED_SECRET`)
 is written as `XXXX` here. The real value stays only in the Apps Script editor. When copying a file from here into
-Apps Script, keep the real value that is already there.
+Apps Script, keep the real value that is already there. The automatic deploy fills it in from the GitHub secret
+`TRAVALATE_SHARED_SECRET` (see `_new-app-template/AUTO-DEPLOY.md`).

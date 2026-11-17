@@ -1,0 +1,144 @@
+# Shared deploy steps for the Apps Script apps in inventory-app/, shipment-app/, daily-task-app/ and po-app/.
+# Called by deploy-inventory.yml, deploy-shipment.yml, deploy-daily-task.yml and deploy-po.yml.
+#
+# What it does: downloads the app's current Apps Script project, puts in every .gs and .html file from the app's
+# folder (matched by file name; an unknown file name stops the deploy so nothing is duplicated), fills in the
+# shared secret where the repo has "XXXX", uploads, and updates the existing web-app deployment to a new version
+# (same /exec link). Files that are only in Apps Script are left as they are.
+name: Deploy an Apps Script app (shared steps)
+
+on:
+  workflow_call:
+    inputs:
+      folder:
+        description: 'App folder in this repo, e.g. po-app'
+        type: string
+        required: true
+      fill_shared_secret:
+        description: 'Replace "XXXX" in the .gs files with the TRAVALATE_SHARED_SECRET secret'
+        type: boolean
+        default: false
+      dry_run:
+        type: boolean
+        default: false
+    secrets:
+      CLASPRC_JSON:
+        required: false
+      SCRIPT_ID:
+        required: false
+      DEPLOYMENT_ID:
+        required: false
+      SHARED_SECRET:
+        required: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FOLDER: ${{ inputs.folder }}
+      FILL_SECRET: ${{ inputs.fill_shared_secret }}
+      DRY_RUN: ${{ inputs.dry_run }}
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
+      DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
+      SHARED_SECRET: ${{ secrets.SHARED_SECRET }}
+    steps:
+      - name: Check the setup
+        id: setup
+        run: |
+          missing=""
+          [ -z "$CLASPRC_JSON" ] && missing="$missing CLASPRC_JSON"
+          [ -z "$SCRIPT_ID" ] && missing="$missing script-ID"
+          [ -z "$DEPLOYMENT_ID" ] && missing="$missing deployment-ID"
+          if [ -n "$missing" ]; then
+            echo "::notice::Automatic deploy of $FOLDER is not set up yet (missing secrets:$missing). Skipped."
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [ "$FILL_SECRET" = "true" ] && [ -z "$SHARED_SECRET" ]; then
+            echo "::error::$FOLDER needs the TRAVALATE_SHARED_SECRET secret (the real value of SHARED_SECRET). Without it the app would be deployed with XXXX and Inventory/Shipment sync would stop."
+            exit 1
+          fi
+          echo "ready=true" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/checkout@v4
+        if: steps.setup.outputs.ready == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.setup.outputs.ready == 'true'
+        with:
+          node-version: 20
+
+      - name: Sign in (clasp)
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          npm install -g @google/clasp@3.4.1 --no-audit --no-fund
+          umask 077
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+          clasp show-authorized-user
+
+      - name: Download the current Apps Script project
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          mkdir gas && cd gas
+          clasp clone "$SCRIPT_ID" --rootDir .
+          echo "Files in the Apps Script project:"; ls -la
+
+      - name: Put in the files from GitHub
+        if: steps.setup.outputs.ready == 'true'
+        run: |
+          node - <<'JS'
+          const fs = require('fs'), path = require('path');
+          const src = process.env.FOLDER, gas = 'gas';
+          const fill = process.env.FILL_SECRET === 'true', secret = process.env.SHARED_SECRET || '';
+          const files = fs.readdirSync(src).filter(f => /\.(gs|html)$/.test(f));
+          const problems = [];
+          let filled = 0;
+          for (const f of files) {
+            const base = f.replace(/\.(gs|html)$/, '');
+            const cands = f.endsWith('.gs') ? [base + '.js', base + '.gs'] : [base + '.html'];
+            const target = cands.find(c => fs.existsSync(path.join(gas, c)));
+            if (!target) { problems.push(f); continue; }
+            let text = fs.readFileSync(path.join(src, f), 'utf8');
+            if (fill && f.endsWith('.gs')) {
+              const n = text.split('"XXXX"').length - 1;
+              text = text.split('"XXXX"').join(JSON.stringify(secret));
+              filled += n;
+            }
+            const old = fs.readFileSync(path.join(gas, target), 'utf8');
+            console.log(`${f} → ${target}: ${old === text ? 'no change' : 'updated'}`);
+            fs.writeFileSync(path.join(gas, target), text);
+          }
+          if (problems.length) {
+            console.log(`::error::These files are in ${src}/ but the Apps Script project has no file with that name: ${problems.join(', ')}. ` +
+              `Files in Apps Script: ${fs.readdirSync(gas).join(', ')}. Rename the file in GitHub (or in Apps Script) so the names match.`);
+            process.exit(1);
+          }
+          if (fill && filled === 0) { console.log('::error::Expected a "XXXX" to fill with the shared secret, found none.'); process.exit(1); }
+          if (fill) console.log(`Shared secret filled in at ${filled} place(s).`);
+          const m = JSON.parse(fs.readFileSync(path.join(gas, 'appsscript.json'), 'utf8'));
+          if (!m.webapp) {
+            console.log('::error::appsscript.json in Apps Script has no web-app settings, so the deploy could change who can open the app. Deploy it once by hand (Deploy → Manage deployments → Edit → New version) and run this again.');
+            process.exit(1);
+          }
+          console.log('Web-app settings (kept as they are):', JSON.stringify(m.webapp));
+          JS
+
+      - name: Upload and update the deployment (same app link)
+        if: steps.setup.outputs.ready == 'true' && env.DRY_RUN != 'true'
+        working-directory: gas
+        run: |
+          clasp push --force
+          msg="GitHub $(echo "$GITHUB_SHA" | cut -c1-7): $(git -C .. log -1 --format=%s | cut -c1-80)"
+          clasp redeploy "$DEPLOYMENT_ID" --description "$msg" | tee out.txt
+          { echo "### ✅ $FOLDER deployed"; cat out.txt; echo ""; echo "$msg"; } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry run summary
+        if: steps.setup.outputs.ready == 'true' && env.DRY_RUN == 'true'
+        run: |
+          echo "### Dry run OK for $FOLDER: sign-in works, the project was found and the file names match. Nothing was uploaded." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Remove the sign-in file
+        if: always()
+        run: rm -f ~/.clasprc.json

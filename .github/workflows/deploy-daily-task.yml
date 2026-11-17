@@ -1,0 +1,34 @@
+# Deploys daily-task-app/ to its Apps Script web app after every merge to main that changes it (same app link).
+# Can also be run by hand from the Actions tab ("dry run" only checks the setup).
+# Setup: see _new-app-template/AUTO-DEPLOY.md. Secrets: CLASPRC_JSON, DAILY_TASK_SCRIPT_ID, DAILY_TASK_DEPLOYMENT_ID
+name: Deploy Daily Task Sheet
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'daily-task-app/*.gs'
+      - 'daily-task-app/*.html'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only check the setup and show what would change (nothing is uploaded)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-daily-task-app
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    uses: ./.github/workflows/deploy-app.yml
+    with:
+      folder: daily-task-app
+      fill_shared_secret: false
+      dry_run: ${{ inputs.dry_run || false }}
+    secrets:
+      CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+      SCRIPT_ID: ${{ secrets.DAILY_TASK_SCRIPT_ID }}
+      DEPLOYMENT_ID: ${{ secrets.DAILY_TASK_DEPLOYMENT_ID }}
+
