@@ -7,12 +7,16 @@ with all the code already here, so there is no need to re-upload `Code.gs` / `.h
 
 | Folder | App | Notes |
 |---|---|---|
-| `index.html` (root) | Box Scanner — Travalate Shipment Manager | Static page (GitHub Pages) |
+| `index.html` (root) | Box Scanner page of the Travalate Shipment Manager | Static page (GitHub Pages) |
 | `attendance-app/` | Employee Attendance & Salary | `Code.gs` + `Index.html`; auto-deploy: `.github/workflows/deploy-apps-script.yml` |
 | `attendance/` | Hosted copy of `attendance-app/Index.html` (GitHub Pages) | Keep identical to `attendance-app/Index.html` |
-| `production-app/` | Karigar Production | `Code.gs` + `Index.html` (+ `inventory-app-addon.gs`); auto-deploy: `.github/workflows/deploy-production-apps-script.yml` |
+| `production-app/` | Machine Production App (Karigar Production) | `Code.gs` + `Index.html` (+ `inventory-app-addon.gs`); auto-deploy: `.github/workflows/deploy-production-apps-script.yml` |
 | `production/` | Hosted copy of `production-app/Index.html` (GitHub Pages) | Keep identical to `production-app/Index.html` |
 | `android/` | Android wrapper app (APK built by `.github/workflows/android-apk.yml`) | |
+| `inventory-app/` | Travalate Inventory App | not added yet |
+| `shipment-app/` | Travalate Shipment Manager (Apps Script side) | not added yet |
+| `daily-task-app/` | Travalate Daily Task Sheet | not added yet |
+| `po-app/` | PO Web App with Vendor Autofill | not added yet |
 | `_new-app-template/` | How to add another app | |
 
 The full list with links is in `APPS.md`. Keep it up to date when an app is added.
