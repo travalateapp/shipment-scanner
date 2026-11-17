@@ -17,3 +17,6 @@ Setup for the four new apps: `_new-app-template/AUTO-DEPLOY.md`. Until it is set
 Deploy → Manage deployments → Edit → New version (same link).
 
 To add another app, see `_new-app-template/README.md`.
+
+Not an Apps Script app: `walkie-worker/` is the free Cloudflare Worker that carries the Attendance app's **Walkie** tab
+(push-to-talk). Setup: `walkie-worker/README.md`.

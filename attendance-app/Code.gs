@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261071;
+const SERVER_VERSION = 20261072;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -322,6 +322,7 @@ const API_FUNCTIONS = {
   adminSetAdvanceStatus, adminSetAdvanceMonth, adminTopUpAdvance, adminLockMonth, superUnlockMonth, adminGetSelfie, adminExportPayroll,
   superListAdmins, superSavePermissions, superSetRole, superAuditLog, superSetLeaderboard, superRefreshApps,
   adminSaveFace, adminDeleteFace, proxyFaces, adminCelebrations, adminSaveCelebration, adminDeleteCelebration, adminSaveBirthdaySettings,
+  walkiePass,
 };
 
 function doPost(e) {
@@ -397,6 +398,29 @@ function superRefreshApps(token) {
 function publicInfo() {
   const s = getSettings_();
   return { company: s.company, minAppVersion: s.minAppVersion, appLink: s.appLink };
+}
+
+/**
+ * Walkie-talkie: gives the logged-in person a signed pass for the relay server (the Cloudflare Worker in
+ * walkie-worker/). Guards too. Script Properties (Project Settings → Script Properties):
+ *   WALKIE_SECRET   same secret as the Worker's WALKIE_SECRET (never put the real value in a file here)
+ *   WALKIE_URL      the Worker address, e.g. wss://travalate-walkie.<account>.workers.dev
+ *   WALKIE_CHANNELS optional, comma separated channel names (lowercase letters, digits, dash); default "all"
+ * The pass is valid for 12 hours; the page asks for a new one each time it connects.
+ */
+function walkiePass(token) {
+  const emp = auth_(token, true);
+  const props = PropertiesService.getScriptProperties();
+  const secret = props.getProperty('WALKIE_SECRET'), url = props.getProperty('WALKIE_URL');
+  if (!secret || !url) throw new Error('Walkie-talkie is not set up yet. Admin: see walkie-worker/README.md.');
+  const channels = String(props.getProperty('WALKIE_CHANNELS') || 'all').split(',')
+    .map(c => c.trim().toLowerCase()).filter(c => /^[a-z0-9-]{1,24}$/.test(c));
+  const exp = Date.now() + 12 * 3600 * 1000;
+  const b64 = s => Utilities.base64EncodeWebSafe(s, Utilities.Charset.UTF_8).replace(/=+$/, '');
+  const payload = b64(JSON.stringify({ id: emp.id, name: emp.name, role: emp.role, exp: exp }));
+  const sig = Utilities.base64EncodeWebSafe(Utilities.computeHmacSha256Signature(payload, secret)).replace(/=+$/, '');
+  return { pass: payload + '.' + sig, url: url.replace(/\/+$/, ''), channels: channels.length ? channels : ['all'], exp: exp,
+    id: emp.id, name: emp.name };
 }
 
 function onOpen() {

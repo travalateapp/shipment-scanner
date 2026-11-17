@@ -121,6 +121,19 @@ Inside the app:
 - **Keep a copy of the keystore file and its password somewhere safe** (e.g. a password manager). Without them no update can be installed over the app, and everyone would have to reinstall.
 - Apps signed with the old public key (1.10 and earlier) can't update to the new key. Those employees **uninstall the app once** and install it again from the link, then log in again.
 
+### 🎙 Walkie-talkie (team push-to-talk)
+The **Walkie** tab lets the team talk like a walkie-talkie: join, hold the big button, talk. One person talks at a time and
+everyone in the channel hears it. Guards can use it too. Employees use their normal login, so there is nothing else to
+create.
+- The voice goes through a free relay server, the Cloudflare Worker in [`walkie-worker/`](../walkie-worker/README.md).
+  Setup (about 15 minutes, once): follow that README, then add the Script Properties `WALKIE_SECRET`, `WALKIE_URL` and
+  (optional) `WALKIE_CHANNELS`. Until they are added the tab shows "Walkie-talkie is not set up yet".
+- Code: `walkiePass` in `Code.gs` gives a signed 12-hour pass; the screen is the `Walkie-talkie` block in `Index.html`
+  (and its hosted copy `attendance/index.html`).
+- iPhone: keep the app open with the screen on. Android app: needs the microphone permission added in a newer APK
+  (until then use it from Chrome).
+- Nothing is recorded or stored. The microphone is on standby after **Join** but nothing is sent unless the button is held.
+
 ### iPhone employees (no APK needed)
 The APK works only on Android. iPhone users install the same app from Safari, and it then opens full-screen with its own **Attendance** icon:
 1. Send them the GitHub Pages link with `?id=…`, the same one Android users get in the APK.

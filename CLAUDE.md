@@ -13,6 +13,7 @@ with all the code already here, so there is no need to re-upload `Code.gs` / `.h
 | `production-app/` | Machine Production App (Karigar Production) | `Code.gs` + `Index.html` (+ `inventory-app-addon.gs`); auto-deploy: `.github/workflows/deploy-production-apps-script.yml` |
 | `production/` | Hosted copy of `production-app/Index.html` (GitHub Pages) | Keep identical to `production-app/Index.html` |
 | `android/` | Android wrapper app (APK built by `.github/workflows/android-apk.yml`) | |
+| `walkie-worker/` | Walkie-talkie relay for the Attendance app (Cloudflare Worker, not Apps Script) | Deployed by hand with `npx wrangler deploy`; see its `README.md` |
 | `inventory-app/` | Travalate Inventory App | `Code.gs`, `StockSnapshot.gs`, `InventoryForm.html` |
 | `shipment-app/` | Travalate Shipment Manager (Apps Script side) | `Code.gs` + `Index.html` |
 | `daily-task-app/` | Travalate Daily Task Sheet | `Code.gs` + `Index.html` |

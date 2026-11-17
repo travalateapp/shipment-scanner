@@ -210,6 +210,16 @@
     .nav button { flex: 1; background: none; padding: 10px 4px 12px; color: var(--muted); font-size: 12px; font-weight: 600; position: relative; }
     .nav button .ic { display: block; font-size: 22px; line-height: 1.2; }
     .nav button.on { color: var(--brand); }
+    /* Walkie-talkie */
+    .wk-status { font-size: 13px; color: var(--muted); margin: 6px 0 10px; }
+    .wk-banner { min-height: 26px; text-align: center; font-weight: 700; font-size: 17px; margin: 8px 0; }
+    .ptt { display: block; width: 210px; height: 210px; border-radius: 50%; margin: 14px auto; border: 0; color: #fff; font-size: 22px; font-weight: 800;
+      background: var(--brand); box-shadow: 0 6px 18px rgba(0,0,0,.25); touch-action: none; -webkit-touch-callout: none;
+      -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; }
+    .ptt.on { background: var(--red); transform: scale(.96); }
+    .ptt.off { background: #9aa3b2; }
+    .wk-chip { display: inline-block; padding: 4px 10px; margin: 3px; border-radius: 999px; background: #eef1f7; font-size: 13px; }
+    .wk-chip.talk { background: var(--brand); color: #fff; }
     .badge { position: absolute; top: 4px; left: 55%; background: var(--red); color: #fff; border-radius: 999px; font-size: 10px; padding: 1px 6px; }
 
     /* Modal */
@@ -414,6 +424,7 @@
       <button data-tab="home" onclick="go('home')"><span class="ic">⏱</span><span id="navHome">Attendance</span></button>
       <button data-tab="month" onclick="go('month')"><span class="ic">📅</span><span id="navMonth">My Month</span></button>
       <button data-tab="requests" onclick="go('requests')"><span class="ic">📝</span><span id="navReq">Requests</span><span id="reqBadge" class="badge hidden"></span></button>
+      <button data-tab="walkie" onclick="go('walkie')"><span class="ic">🎙</span><span id="navWalkie">Walkie</span><span id="walkieBadge" class="badge hidden">●</span></button>
       <button data-tab="admin" id="navAdmin" class="hidden" onclick="go('admin')"><span class="ic">🛠</span><span id="navAdminLabel">Admin</span><span id="adminBadge" class="badge hidden"></span></button>
     </div>
   </div>
@@ -806,6 +817,7 @@
     $('navHome').textContent = t('Attendance');
     $('navMonth').textContent = t('My Month');
     $('navReq').textContent = t('Requests');
+    $('navWalkie').textContent = t('Walkie');
     if (S.home && S.home.guard) $('navAdminLabel').textContent = t('Mark Attendance');
   }
 
@@ -839,7 +851,7 @@
 
   /** Calls a server function and returns a Promise. Handles expired sessions centrally. */
   /** Calls that only read. Any other call changes data, so screens kept in memory are forgotten. */
-  var READ_ONLY = /^(get[A-Z]|my[A-Z]|publicInfo$|proxyList$|admin(Today|Holidays|Celebrations|Summary|Month|EmployeeMonth|Requests|Staff|Advances|Employees|EntryOptions|GetEntry|GetSelfie|ExportPayroll|AttendanceRegister|Payslip)$|proxyFaces$|super(ListAdmins|AuditLog)$)/;
+  var READ_ONLY = /^(get[A-Z]|my[A-Z]|publicInfo$|proxyList$|admin(Today|Holidays|Celebrations|Summary|Month|EmployeeMonth|Requests|Staff|Advances|Employees|EntryOptions|GetEntry|GetSelfie|ExportPayroll|AttendanceRegister|Payslip)$|proxyFaces$|walkiePass$|super(ListAdmins|AuditLog)$)/;
 
   var PAGE_LOADED_AT = Date.now();
   /**
@@ -965,6 +977,7 @@
   /* ---------------- Login & PIN ---------------- */
   function showLogin() {
     try { if (location.hash && history.replaceState) history.replaceState(null, '', location.pathname + location.search); } catch (e) {} // next login starts on its home screen
+    try { W.keep = false; W.state = 'off'; walkieStop(); } catch (e) { /* walkie-talkie not started */ }
     S.token = null; store('att_token', null); store('att_home', null); S.home = null; S.viewCache = {}; S.monthCache = {}; S.reqCache = null; S.prefetchedTabs = false;
     S.profile = null; store('att_role', null); applyLang(); // the login screen is always English
     S.home = null; S.monthCache = {}; S.prefetchedHome = null; S.navStack = [];
@@ -1017,7 +1030,7 @@
     S.navStack = [];
     deskInit();
     // Reload / reopen: back to the screen in the link (#admin:payroll, #month …), else the home screen.
-    var h = decodeURIComponent((location.hash || '').slice(1)), tabs = ['home', 'month', 'requests', 'admin', 'dash', 'live'];
+    var h = decodeURIComponent((location.hash || '').slice(1)), tabs = ['home', 'month', 'requests', 'walkie', 'admin', 'dash', 'live'];
     var tab = h.split(':')[0];
     if (tabs.indexOf(tab) >= 0 && tab !== 'home') {
       if (tab === 'admin' && h.split(':')[1]) S.admin.tab = h.split(':')[1];
@@ -1059,10 +1072,11 @@
       b.classList.toggle('on', b.getAttribute('data-tab') === tab);
     });
     window.scrollTo(0, 0);
-    if (S.home && S.home.guard && tab !== 'admin') return go('admin', true);
+    if (S.home && S.home.guard && tab !== 'admin' && tab !== 'walkie') return go('admin', true);
     if (tab === 'home') loadHome();
     if (tab === 'month') loadMonth(S.month || ymNow());
     if (tab === 'requests') loadMyRequests();
+    if (tab === 'walkie') loadWalkie();
     if (tab === 'admin') renderAdmin();
     if (tab === 'dash') loadDash();
     if (tab === 'live') loadLive();
@@ -1195,7 +1209,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261071;
+  var NEEDS_SERVER = 20261072;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -5155,6 +5169,316 @@
   function closeModal() { stopCamera(); $('modal').classList.add('hidden'); document.body.classList.remove('panel'); }
 
   /* ---------------- Boot ---------------- */
+  /* ---------------- Walkie-talkie ---------------- */
+  /*
+   * Push-to-talk for the team. Voice goes through a small relay server (walkie-worker/, a free Cloudflare Worker):
+   * 16 kHz mono mu-law, 100 ms frames, sent as WebSocket binary messages. One person talks at a time.
+   * The page asks the Apps Script (walkiePass) for a signed pass each time it connects.
+   * The microphone is opened once when joining and stays on standby: nothing is sent unless the button is held.
+   */
+  /* walkie:codec begin */
+  function ulawEnc(s) {
+    var sign = (s >> 8) & 0x80; if (sign) s = -s; if (s > 32635) s = 32635; s += 0x84;
+    var exp = 7; for (var m = 0x4000; (s & m) === 0 && exp > 0; m >>= 1) exp--;
+    return ~(sign | (exp << 4) | ((s >> (exp + 3)) & 0x0F)) & 0xFF;
+  }
+  function ulawDec(u) {
+    u = ~u & 0xFF; var sign = u & 0x80, exp = (u >> 4) & 7, mant = u & 0x0F;
+    var s = (((mant << 3) + 0x84) << exp) - 0x84; return sign ? -s : s;
+  }
+  /** Float samples at the phone's rate → mu-law bytes at 16 kHz (simple averaging down-sampler). */
+  function wkEncode(fr, rate) {
+    var L = fr.length, n = Math.max(1, Math.round(L * 16000 / rate)), out = new Uint8Array(n);
+    for (var i = 0; i < n; i++) {
+      var a = Math.floor(i * L / n), b = Math.max(a + 1, Math.floor((i + 1) * L / n)), s = 0;
+      for (var j = a; j < b; j++) s += fr[j];
+      s /= (b - a);
+      out[i] = ulawEnc(Math.round(Math.max(-1, Math.min(1, s)) * 32767));
+    }
+    return out;
+  }
+  function wkDecode(u8) {
+    var f = new Float32Array(u8.length);
+    for (var i = 0; i < u8.length; i++) f[i] = ulawDec(u8[i]) / 32768;
+    return f;
+  }
+  /* walkie:codec end */
+
+  var W = { ws: null, ctx: null, stream: null, node: null, ch: load('att_walkie_ch') || '', info: null, users: [], talker: null,
+    state: 'off', pttDown: false, pending: false, mine: false, pre: [], acc: [], accN: 0, frameIn: 4800, nextT: 0,
+    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0 };
+  var WK_WORKLET = 'class P extends AudioWorkletProcessor{process(i){var c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true;}}registerProcessor("walkie-cap",P);';
+
+  function loadWalkie() { renderWalkie(); }
+
+  function wkBeep(freq, ms) {
+    try {
+      if (!W.ctx) return;
+      var o = W.ctx.createOscillator(), g = W.ctx.createGain();
+      g.gain.value = 0.08; o.frequency.value = freq; o.connect(g); g.connect(W.ctx.destination);
+      o.start(); o.stop(W.ctx.currentTime + ms / 1000);
+    } catch (e) { /* no beep */ }
+  }
+
+  function walkieFail(msg) { W.keep = false; W.state = 'off'; W.err = msg; walkieStop(); renderWalkie(); }
+
+  /** Join (must be tapped by the person: phones only allow sound and microphone after a tap). */
+  function walkieJoin(ch) {
+    if (W.state !== 'off') return;
+    if (ch) W.ch = ch;
+    W.err = ''; W.keep = true; W.state = 'connecting'; renderWalkie();
+    try {
+      W.ctx = W.ctx || new (window.AudioContext || window.webkitAudioContext)();
+      W.ctx.resume();
+    } catch (e) { return walkieFail(t('This phone cannot play sound in this app.')); }
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      return walkieFail(t('The microphone is not available here. Open the app from the link your company shared (not inside Google).'));
+    }
+    var mic = W.stream ? Promise.resolve() :
+      navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+        .then(function (s) { W.stream = s; return walkieCapture(); });
+    mic.then(walkieConnect).catch(function (e) {
+      var n = e && e.name;
+      walkieFail(n === 'NotAllowedError' || n === 'SecurityError' ? t('The microphone is blocked. Allow the microphone for this app and try again.')
+        : t('Could not start the microphone.') + ' ' + ((e && e.message) || ''));
+    });
+  }
+
+  function walkieCapture() {
+    var ctx = W.ctx, src = ctx.createMediaStreamSource(W.stream), mute = ctx.createGain();
+    mute.gain.value = 0; mute.connect(ctx.destination);
+    W.acc = []; W.accN = 0; W.frameIn = Math.round(ctx.sampleRate / 10);
+    var viaProcessor = function () {
+      var p = ctx.createScriptProcessor(2048, 1, 1);
+      p.onaudioprocess = function (e) { walkieBlock(new Float32Array(e.inputBuffer.getChannelData(0))); };
+      src.connect(p); p.connect(mute); W.node = p;
+    };
+    if (ctx.audioWorklet && window.Blob && URL.createObjectURL) {
+      return ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WK_WORKLET], { type: 'application/javascript' }))).then(function () {
+        var n = new AudioWorkletNode(ctx, 'walkie-cap');
+        n.port.onmessage = function (e) { walkieBlock(e.data); };
+        src.connect(n); n.connect(mute); W.node = n;
+      }).catch(viaProcessor);
+    }
+    viaProcessor();
+    return Promise.resolve();
+  }
+
+  function walkieTake(n) {
+    var out = new Float32Array(n), o = 0;
+    while (o < n && W.acc.length) {
+      var h = W.acc[0], need = n - o;
+      if (h.length <= need) { out.set(h, o); o += h.length; W.acc.shift(); }
+      else { out.set(h.subarray(0, need), o); W.acc[0] = h.subarray(need); o += need; }
+    }
+    W.accN -= n; return out;
+  }
+
+  function walkieBlock(f) {
+    if (!W.mine && !W.pending) { W.acc = []; W.accN = 0; return; }
+    W.acc.push(f); W.accN += f.length;
+    while (W.accN >= W.frameIn) walkieSend(wkEncode(walkieTake(W.frameIn), W.ctx.sampleRate));
+  }
+
+  function walkieSend(frame) {
+    if (W.mine && W.ws && W.ws.readyState === 1) W.ws.send(frame);
+    else if (W.pending) { W.pre.push(frame); if (W.pre.length > 8) W.pre.shift(); } // while waiting for the OK to talk
+  }
+
+  function walkieConnect() {
+    clearTimeout(W.timers.re);
+    if (!W.keep) return;
+    api('walkiePass', S.token).then(function (info) {
+      if (!W.keep) return;
+      W.info = info;
+      if (!W.ch || info.channels.indexOf(W.ch) < 0) W.ch = info.channels[0];
+      store('att_walkie_ch', W.ch);
+      var ws = new WebSocket(info.url.replace(/^http/, 'ws') + '/ws?ch=' + encodeURIComponent(W.ch) + '&pass=' + encodeURIComponent(info.pass));
+      ws.binaryType = 'arraybuffer';
+      W.ws = ws;
+      ws.onopen = function () {
+        if (W.ws !== ws) return;
+        W.state = 'on'; W.retry = 0; W.lastPong = Date.now(); walkieLock(); walkieBeat(); renderWalkie();
+      };
+      ws.onmessage = function (e) { if (W.ws === ws) walkieMsg(e.data); };
+      ws.onclose = function (e) { if (W.ws === ws) walkieClosed(e.code); };
+      ws.onerror = function () { /* onclose follows */ };
+    }).catch(function (err) {
+      var m = String((err && err.message) || err);
+      if (/not set up|Unknown action/i.test(m)) {
+        return walkieFail(/Unknown action/i.test(m) ? t('The server needs an update. Admin: deploy the latest Code.gs.') : m);
+      }
+      W.err = m; W.state = 'connecting'; renderWalkie(); walkieRetry();
+    });
+  }
+
+  function walkieRetry() {
+    if (!W.keep) return;
+    clearTimeout(W.timers.re);
+    W.timers.re = setTimeout(walkieConnect, Math.min(1000 * Math.pow(2, W.retry++), 15000));
+  }
+
+  function walkieClosed(code) {
+    W.ws = null; W.users = []; W.talker = null; W.mine = false; W.pending = false; W.pttDown = false;
+    clearInterval(W.timers.hb);
+    if (code === 4000) return walkieFail(t('You opened the walkie-talkie on another phone, so it stopped here.'));
+    if (W.keep) { W.state = 'connecting'; renderWalkie(); walkieRetry(); } else { W.state = 'off'; renderWalkie(); }
+  }
+
+  /** Keeps the connection alive and notices a dead one (phone slept, Wi-Fi changed). */
+  function walkieBeat() {
+    clearInterval(W.timers.hb);
+    W.timers.hb = setInterval(function () {
+      if (!W.ws || W.ws.readyState !== 1) return;
+      if (Date.now() - W.lastPong > 50000) { try { W.ws.close(); } catch (e) {} return; }
+      try { W.ws.send('ping'); } catch (e) {}
+    }, 20000);
+  }
+
+  function walkieLock() {
+    try {
+      if (W.keep && !W.lock && navigator.wakeLock) {
+        navigator.wakeLock.request('screen').then(function (l) {
+          W.lock = l; l.addEventListener('release', function () { W.lock = null; });
+        }).catch(function () {});
+      }
+    } catch (e) { /* not supported */ }
+  }
+
+  function walkieMsg(data) {
+    if (typeof data !== 'string') { walkiePlay(new Uint8Array(data)); return; }
+    if (data === 'pong') { W.lastPong = Date.now(); return; }
+    var m; try { m = JSON.parse(data); } catch (e) { return; }
+    if (m.t === 'roster') W.users = m.users || [];
+    else if (m.t === 'talking') { W.talker = { id: m.id, name: m.name }; W.nextT = 0; if (S.tab !== 'walkie') wkBeep(660, 80); }
+    else if (m.t === 'idle') { W.talker = null; W.nextT = 0; }
+    else if (m.t === 'granted') {
+      if (W.pending && W.pttDown) {
+        W.pending = false; W.mine = true;
+        W.pre.forEach(function (f) { if (W.ws && W.ws.readyState === 1) W.ws.send(f); });
+        W.pre = []; wkBeep(880, 70);
+        try { if (navigator.vibrate) navigator.vibrate(30); } catch (e) {}
+      } else { // let go before the OK arrived
+        W.pending = false; W.pre = [];
+        try { W.ws.send(JSON.stringify({ t: 'ptt', on: false })); } catch (e) {}
+      }
+    } else if (m.t === 'busy') {
+      if (W.pending) { W.pending = false; W.pttDown = false; W.pre = []; wkBeep(220, 160); toast(t('{name} is talking', { name: m.name })); }
+    }
+    renderWalkie();
+  }
+
+  function walkiePlay(u8) {
+    if (!W.ctx || W.mine) return;
+    var f = wkDecode(u8), b = W.ctx.createBuffer(1, f.length, 16000);
+    b.copyToChannel(f, 0);
+    var s = W.ctx.createBufferSource(); s.buffer = b; s.connect(W.ctx.destination);
+    var now = W.ctx.currentTime, at = Math.max(now + 0.15, W.nextT || 0);
+    if (at - now > 1.5) at = now + 0.15;
+    s.start(at); W.nextT = at + f.length / 16000;
+  }
+
+  function pttDown(ev) {
+    if (ev) { ev.preventDefault(); try { ev.target.setPointerCapture(ev.pointerId); } catch (e) {} }
+    if (W.state !== 'on' || W.pttDown || !W.ws || W.ws.readyState !== 1) return;
+    if (W.talker) { wkBeep(220, 160); toast(t('{name} is talking', { name: W.talker.name })); return; }
+    try { W.ctx.resume(); } catch (e) {}
+    W.pttDown = true; W.pending = true; W.pre = []; W.acc = []; W.accN = 0;
+    W.ws.send(JSON.stringify({ t: 'ptt', on: true }));
+    renderWalkie();
+  }
+
+  function pttUp(ev) {
+    if (ev) ev.preventDefault();
+    if (!W.pttDown) return;
+    W.pttDown = false;
+    if (W.mine && W.accN > 0 && W.ws && W.ws.readyState === 1) { // send the last part so the end of the sentence is not cut
+      W.ws.send(wkEncode(walkieTake(W.accN), W.ctx.sampleRate));
+    }
+    if ((W.mine || W.pending) && W.ws && W.ws.readyState === 1) { try { W.ws.send(JSON.stringify({ t: 'ptt', on: false })); } catch (e) {} }
+    W.mine = false; W.pending = false; W.pre = []; W.acc = []; W.accN = 0;
+    renderWalkie();
+  }
+
+  function walkieSwitch(ch) {
+    if (!ch || ch === W.ch) return;
+    W.ch = ch; store('att_walkie_ch', ch);
+    W.users = []; W.talker = null;
+    if (W.ws) { var old = W.ws; W.ws = null; try { old.close(1000); } catch (e) {} }
+    W.state = 'connecting'; renderWalkie(); walkieConnect();
+  }
+
+  /** Releases the microphone and the connection (Leave, logout). */
+  function walkieStop() {
+    clearInterval(W.timers.hb); clearTimeout(W.timers.re);
+    if (W.ws) { var old = W.ws; W.ws = null; try { old.close(1000); } catch (e) {} }
+    try { if (W.node) W.node.disconnect(); } catch (e) {} W.node = null;
+    if (W.stream) { try { W.stream.getTracks().forEach(function (x) { x.stop(); }); } catch (e) {} W.stream = null; }
+    if (W.ctx) { try { W.ctx.close(); } catch (e) {} W.ctx = null; }
+    if (W.lock) { try { W.lock.release(); } catch (e) {} W.lock = null; }
+    W.users = []; W.talker = null; W.pttDown = W.pending = W.mine = false; W.pre = []; W.acc = []; W.accN = 0;
+  }
+
+  function walkieLeave() {
+    W.keep = false; W.state = 'off'; W.err = '';
+    walkieStop(); renderWalkie();
+  }
+
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden || !W.keep) return;
+    try { if (W.ctx) W.ctx.resume(); } catch (e) {}
+    walkieLock();
+    if (!W.ws || W.ws.readyState > 1) { W.retry = 0; walkieConnect(); }
+  });
+
+  /** Dot on the Walkie tab while someone else is talking and you are on another screen. */
+  function walkieBadge() {
+    var b = $('walkieBadge'); if (!b) return;
+    b.classList.toggle('hidden', !(W.state === 'on' && W.talker && S.tab !== 'walkie'));
+  }
+
+  /**
+   * The screen is built once per mode (off / live); after that only the texts change, so the talk button is never
+   * replaced while a finger is on it.
+   */
+  function renderWalkie() {
+    walkieBadge();
+    if (S.tab !== 'walkie') return;
+    var mode = W.state === 'off' ? 'off' : 'live', root = $('wkRoot');
+    if (!root || root.getAttribute('data-m') !== mode) {
+      var h = '<div id="wkRoot" data-m="' + mode + '"><div class="card"><h2 style="margin-top:0">🎙 ' + t('Walkie-Talkie') + '</h2>';
+      if (mode === 'off') {
+        h += '<p class="muted">' + t('Hold the big button to talk to your team. Listen on this screen. Keep the app open while you work.') + '</p>' +
+          '<div id="wkErr"></div><button class="btn" onclick="walkieJoin()">' + t('Join') + '</button>';
+      } else {
+        h += '<div class="wk-status" id="wkStatus"></div><div id="wkChan"></div><div class="wk-banner" id="wkBanner"></div>' +
+          '<button id="pttBtn" class="ptt" onpointerdown="pttDown(event)" onpointerup="pttUp(event)" onpointercancel="pttUp(event)" ' +
+          'oncontextmenu="return false"></button><div id="wkUsers" style="text-align:center"></div>' +
+          '<div id="wkErr"></div><button class="btn ghost" style="margin-top:14px" onclick="walkieLeave()">' + t('Leave') + '</button>';
+      }
+      $('content').innerHTML = h + '</div></div>';
+    }
+    $('wkErr').innerHTML = W.err ? errBox(W.err) : '';
+    if (mode === 'off') return;
+    var on = W.state === 'on', ch = W.info && W.info.channels || [];
+    $('wkStatus').textContent = on ? '🟢 ' + t('Connected') + ' · ' + t('{n} online', { n: W.users.length }) : '🟡 ' + t('Connecting…');
+    var sel = '';
+    if (ch.length > 1) {
+      sel = '<select onchange="walkieSwitch(this.value)" style="width:100%;margin-bottom:8px">' + ch.map(function (c) {
+        return '<option value="' + esc(c) + '"' + (c === W.ch ? ' selected' : '') + '>' + esc(c) + '</option>';
+      }).join('') + '</select>';
+    } else if (ch.length === 1) sel = '<div class="muted" style="margin-bottom:6px">' + t('Channel') + ': <b>' + esc(ch[0]) + '</b></div>';
+    if ($('wkChan').getAttribute('data-s') !== sel) { $('wkChan').innerHTML = sel; $('wkChan').setAttribute('data-s', sel); }
+    var banner = !on ? '' : W.mine ? '🎙 ' + t('You are talking') : W.pending ? '…' : W.talker ? '🔊 ' + t('{name} is talking', { name: W.talker.name }) : t('Hold the button to talk');
+    $('wkBanner').textContent = banner;
+    var btn = $('pttBtn');
+    btn.className = 'ptt' + (W.mine || W.pending ? ' on' : !on || W.talker ? ' off' : '');
+    btn.textContent = W.mine ? t('Talking…') : W.pending ? '…' : t('Hold to talk');
+    $('wkUsers').innerHTML = W.users.map(function (u) {
+      return '<span class="wk-chip' + (W.talker && W.talker.id === u.id ? ' talk' : '') + '">' + esc(u.name) + '</span>';
+    }).join('');
+  }
+
   (function boot() {
     var setName = function (n) { $('coName').textContent = n; document.title = n + ' – Attendance'; };
     if (COMPANY && COMPANY.charAt(0) !== '<') setName(COMPANY); // '<' = not filled in (hosted page)
