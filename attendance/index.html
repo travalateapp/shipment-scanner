@@ -5328,7 +5328,9 @@
   function walkieConnect() {
     clearTimeout(W.timers.re);
     if (!W.keep) return;
-    api('walkiePass', S.token).then(function (info) {
+    // A reconnect after a network drop reuses the pass (valid 12 h) so it is instant; only a first join or an old pass asks the server.
+    var mine = W.info && S.profile && W.info.id === S.profile.id && W.info.exp - Date.now() > 600000;
+    (mine ? Promise.resolve(W.info) : api('walkiePass', S.token)).then(function (info) {
       if (!W.keep) return;
       W.info = info;
       if (!W.ch || info.channels.indexOf(W.ch) < 0) W.ch = info.channels[0];
@@ -5355,7 +5357,7 @@
   function walkieRetry() {
     if (!W.keep) return;
     clearTimeout(W.timers.re);
-    W.timers.re = setTimeout(walkieConnect, Math.min(1000 * Math.pow(2, W.retry++), 15000));
+    W.timers.re = setTimeout(walkieConnect, Math.min(1000 * Math.pow(2, W.retry++), 4000));
   }
 
   function walkieClosed(code) {
@@ -5371,10 +5373,10 @@
     W.timers.hb = setInterval(function () {
       if (!W.ws || W.ws.readyState !== 1) return;
       // Dead = the last ping got no answer. (Checked this way because a phone with the screen off runs timers only about once a minute.)
-      if (W.pingAt && W.lastPong < W.pingAt && Date.now() - W.pingAt > 15000) { try { W.ws.close(); } catch (e) {} return; }
+      if (W.pingAt && W.lastPong < W.pingAt && Date.now() - W.pingAt > 8000) { try { W.ws.close(); } catch (e) {} return; }
       W.pingAt = Date.now();
       try { W.ws.send('ping'); } catch (e) {}
-    }, 20000);
+    }, 10000);
   }
 
   function walkieLock() {
@@ -5478,7 +5480,7 @@
     b.copyToChannel(f, 0);
     var s = W.ctx.createBufferSource(); s.buffer = b; s.connect(wkOut());
     var now = W.ctx.currentTime, at = Math.max(now + 0.15, W.nextT || 0);
-    if (at - now > 1.5) at = now + 0.15;
+    if (at - now > 0.7) return;   // more than 0.7 s behind (network stall): drop this part so the voice catches up and stays live
     s.start(at); W.nextT = at + f.length / 16000;
   }
 
@@ -5522,7 +5524,7 @@
     if (W.ctx) { try { W.ctx.close(); } catch (e) {} W.ctx = null; }
     if (W.lock) { try { W.lock.release(); } catch (e) {} W.lock = null; }
     W.users = []; W.talker = null; W.pttDown = W.pending = W.mine = false; W.pre = []; W.acc = []; W.accN = 0;
-    W.clips = []; W.playing = 0; W.clipSrc = null;
+    W.clips = []; W.playing = 0; W.clipSrc = null; W.info = null;
     wkNative(false);
   }
 
@@ -5530,6 +5532,14 @@
     W.keep = false; W.state = 'off'; W.err = ''; store('att_walkie_auto', null);
     walkieStop(); renderWalkie();
   }
+
+  // Wi-Fi ↔ mobile data switch or coverage coming back: the old connection is dead even if it still looks open.
+  window.addEventListener('online', function () {
+    if (!W.keep) return;
+    W.retry = 0;
+    if (W.ws && W.ws.readyState === 1) { W.pingAt = Date.now(); W.lastPong = 0; try { W.ws.send('ping'); } catch (e) {} setTimeout(function () { if (W.ws && W.lastPong < W.pingAt) { try { W.ws.close(); } catch (e) {} } }, 3000); }
+    else if (!W.ws || W.ws.readyState > 1) walkieConnect();
+  });
 
   document.addEventListener('visibilitychange', function () {
     if (document.hidden || !W.keep) return;
