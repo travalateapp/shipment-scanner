@@ -478,8 +478,11 @@
       '<div class="sub">' + esc(p.description) + '</div>' +
       '<div data-l="Qty"><input class="qty" type="number" step="any" min="0" inputmode="decimal" placeholder="0"></div>' +
       '<div data-l="Rate"><input class="price r" type="number" step="any" min="0" inputmode="decimal" value="' + esc(p.rate) + '"></div>' +
-      '<div class="amt">0.00</div><div></div>';
+      '<div class="amt">0.00</div>' +
+      '<div><button class="del" title="Remove from this PO (stays in the vendor\'s product list)">×</button></div>';
     el.querySelectorAll('input').forEach(i => i.addEventListener('input', recalc));
+    // Drops the line from this PO only; picking the vendor again or Clear brings it back.
+    el.querySelector('.del').addEventListener('click', () => { el.remove(); recalc(); });
     return el;
   }
 
