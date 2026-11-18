@@ -86,6 +86,31 @@ await b.until(m => m.t === 'idle');
 const r2 = await b.until(m => m.t === 'roster' && m.users.length === 1);
 ok(r2.users[0].name === 'Asha', 'talker leaving frees the floor and updates roster');
 
+// 7. saved messages: last 20 kept, older ones deleted, audio comes back unchanged
+const HTTP = BASE.replace(/^ws/, 'http'), CH = 'hist-' + RUN, P = encodeURIComponent(pass('E2', 'Asha'));
+const h1 = client('E2', 'Asha', { ch: CH }), h2 = client('E3', 'Meena', { ch: CH });
+await h1.open; await h2.open;
+const say = async (c, seed, frames) => {
+  c.send({ t: 'ptt', on: true }); await c.until(m => m.t === 'granted' && !m.seen && (m.seen = true));
+  for (let i = 0; i < frames; i++) c.send(new Uint8Array(1600).fill(seed));
+  await new Promise(r => setTimeout(r, 60));
+  c.send({ t: 'ptt', on: false }); await new Promise(r => setTimeout(r, 120));
+};
+await say(h1, 7, 1);   // 1600 bytes = too short, must not be saved
+let hist = await (await fetch(`${HTTP}/history?ch=${CH}&pass=${P}`)).json();
+ok(hist.length === 0, 'a tiny tap is not saved');
+for (let i = 1; i <= 23; i++) await say(i % 2 ? h1 : h2, i, 3);
+hist = await (await fetch(`${HTTP}/history?ch=${CH}&pass=${P}`)).json();
+ok(hist.length === 20, 'only the newest 20 messages are kept (' + hist.length + ')');
+ok(hist[0].name === 'Asha' && hist[0].dur === 300, 'newest first, with name and duration');
+const oldest = hist[hist.length - 1];
+const clip = new Uint8Array(await (await fetch(`${HTTP}/clip?ch=${CH}&pass=${P}&id=${oldest.id}`)).arrayBuffer());
+ok(clip.length === 4800 && clip[0] === 4 && clip[4799] === 4, 'saved audio comes back unchanged (message 4 is the oldest kept)');
+ok((await fetch(`${HTTP}/clip?ch=${CH}&pass=${P}&id=1`)).status === 404, 'deleted messages are gone');
+ok((await fetch(`${HTTP}/history?ch=${CH}&pass=bad.pass`)).status === 401, 'history needs a valid pass');
+ok(h2.texts.some(m => m.t === 'clip' && m.clip.dur === 300), 'listeners are told when a new message is saved');
+h1.ws.close(); h2.ws.close();
+
 b.ws.close();
 console.log(fails ? `\n${fails} FAILED` : '\nAll relay tests passed');
 process.exit(fails ? 1 : 0);

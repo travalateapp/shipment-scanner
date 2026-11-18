@@ -83,3 +83,10 @@ WebSocket messages, which Cloudflare counts at a reduced rate, so for 15 people 
 far below the allowance (this is an estimate, check the Cloudflare dashboard → Workers & Pages → travalate-walkie →
 Metrics after the first week). If the limit were ever reached, walkie-talkie pauses until the next day (00:00 UTC);
 attendance is not affected.
+
+## Saved messages
+
+Every finished message is saved in the channel's Durable Object (SQLite storage, included in the free plan). Only the newest
+20 per channel are kept; older ones are deleted automatically. Taps shorter than about a quarter of a second are not saved.
+The app lists them under "Recent messages" and plays them on tap (`GET /history` and `GET /clip`, both need a valid pass).
+Deploying this version needs no new migration: just `npx wrangler deploy`.

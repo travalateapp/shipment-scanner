@@ -220,6 +220,9 @@
     .ptt.off { background: #9aa3b2; }
     .wk-chip { display: inline-block; padding: 4px 10px; margin: 3px; border-radius: 999px; background: #eef1f7; font-size: 13px; }
     .wk-chip.talk { background: var(--brand); color: #fff; }
+    .wk-clip { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid #e6e9f0; cursor: pointer; }
+    .wk-clip .wk-play { width: 32px; height: 32px; border-radius: 50%; background: var(--brand); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; flex: none; }
+    .wk-clip .wk-who { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .badge { position: absolute; top: 4px; left: 55%; background: var(--red); color: #fff; border-radius: 999px; font-size: 10px; padding: 1px 6px; }
 
     /* Modal */
@@ -5206,7 +5209,7 @@
 
   var W = { ws: null, ctx: null, stream: null, node: null, ch: load('att_walkie_ch') || '', info: null, users: [], talker: null,
     state: 'off', pttDown: false, pending: false, mine: false, pre: [], acc: [], accN: 0, frameIn: 4800, nextT: 0,
-    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0 };
+    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, clips: [], playing: 0, clipSrc: null };
   var WK_WORKLET = 'class P extends AudioWorkletProcessor{process(i){var c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true;}}registerProcessor("walkie-cap",P);';
 
   function loadWalkie() { renderWalkie(); }
@@ -5298,7 +5301,7 @@
       W.ws = ws;
       ws.onopen = function () {
         if (W.ws !== ws) return;
-        W.state = 'on'; W.retry = 0; W.lastPong = Date.now(); walkieLock(); walkieBeat(); renderWalkie();
+        W.state = 'on'; W.retry = 0; W.lastPong = Date.now(); walkieLock(); walkieBeat(); renderWalkie(); walkieHistory();
       };
       ws.onmessage = function (e) { if (W.ws === ws) walkieMsg(e.data); };
       ws.onclose = function (e) { if (W.ws === ws) walkieClosed(e.code); };
@@ -5350,7 +5353,8 @@
     if (data === 'pong') { W.lastPong = Date.now(); return; }
     var m; try { m = JSON.parse(data); } catch (e) { return; }
     if (m.t === 'roster') W.users = m.users || [];
-    else if (m.t === 'talking') { W.talker = { id: m.id, name: m.name }; W.nextT = 0; if (S.tab !== 'walkie') wkBeep(660, 80); }
+    else if (m.t === 'clip') { if (m.clip) { W.clips = [m.clip].concat(W.clips.filter(function (c) { return c.id !== m.clip.id; })).slice(0, 20); } }
+    else if (m.t === 'talking') { walkieClipStop(); W.talker = { id: m.id, name: m.name }; W.nextT = 0; if (S.tab !== 'walkie') wkBeep(660, 80); }
     else if (m.t === 'idle') { W.talker = null; W.nextT = 0; }
     else if (m.t === 'granted') {
       if (W.pending && W.pttDown) {
@@ -5366,6 +5370,56 @@
       if (W.pending) { W.pending = false; W.pttDown = false; W.pre = []; wkBeep(220, 160); toast(t('{name} is talking', { name: m.name })); }
     }
     renderWalkie();
+  }
+
+  /** Address of the relay for plain requests (the saved-messages list and audio). */
+  function walkieHttp(path, extra) {
+    return W.info.url.replace(/^ws/, 'http') + path + '?ch=' + encodeURIComponent(W.ch) + '&pass=' + encodeURIComponent(W.info.pass) + (extra || '');
+  }
+
+  /** The last 20 saved messages of this channel. */
+  function walkieHistory() {
+    if (!W.info) return;
+    var ch = W.ch;
+    fetch(walkieHttp('/history')).then(function (r) { return r.ok ? r.json() : []; }).then(function (list) {
+      if (ch !== W.ch) return;
+      W.clips = Array.isArray(list) ? list : []; renderWalkie();
+    }).catch(function () { /* the list stays as it was */ });
+  }
+
+  function walkieClipStop() {
+    var src = W.clipSrc; W.clipSrc = null;
+    if (src) { src.onended = null; try { src.stop(); } catch (e) {} }
+    if (W.playing) { W.playing = 0; renderWalkie(); }
+  }
+
+  /** Play (or stop) a saved message. */
+  function walkieClip(id) {
+    if (W.playing === id) return walkieClipStop();
+    walkieClipStop();
+    if (!W.ctx || W.state !== 'on') return;
+    try { W.ctx.resume(); } catch (e) {}
+    W.playing = id; renderWalkie();
+    fetch(walkieHttp('/clip', '&id=' + id)).then(function (r) {
+      if (!r.ok) throw new Error('gone');
+      return r.arrayBuffer();
+    }).then(function (buf) {
+      if (W.playing !== id || !W.ctx) return;
+      var f = wkDecode(new Uint8Array(buf)), b = W.ctx.createBuffer(1, f.length, 16000);
+      b.copyToChannel(f, 0);
+      var src = W.ctx.createBufferSource(); src.buffer = b; src.connect(wkOut());
+      src.onended = function () { if (W.clipSrc === src) { W.clipSrc = null; W.playing = 0; renderWalkie(); } };
+      W.clipSrc = src; src.start();
+    }).catch(function () {
+      if (W.playing === id) W.playing = 0;
+      W.clips = W.clips.filter(function (c) { return c.id !== id; });
+      toast(t('That message is no longer available.')); renderWalkie();
+    });
+  }
+
+  function wkClipTime(ts) {
+    var d = new Date(ts), hm = d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    return d.toDateString() === new Date().toDateString() ? hm : d.toLocaleDateString([], { day: 'numeric', month: 'short' }) + ' ' + hm;
   }
 
   /** Loudness stage for incoming voice: boost, then a limiter so the boost does not distort. */
@@ -5394,6 +5448,7 @@
     if (W.state !== 'on' || W.pttDown || !W.ws || W.ws.readyState !== 1) return;
     if (W.talker) { wkBeep(220, 160); toast(t('{name} is talking', { name: W.talker.name })); return; }
     try { W.ctx.resume(); } catch (e) {}
+    walkieClipStop();
     W.pttDown = true; W.pending = true; W.pre = []; W.acc = []; W.accN = 0;
     W.ws.send(JSON.stringify({ t: 'ptt', on: true }));
     renderWalkie();
@@ -5414,7 +5469,7 @@
   function walkieSwitch(ch) {
     if (!ch || ch === W.ch) return;
     W.ch = ch; store('att_walkie_ch', ch);
-    W.users = []; W.talker = null;
+    W.users = []; W.talker = null; walkieClipStop(); W.clips = [];
     if (W.ws) { var old = W.ws; W.ws = null; try { old.close(1000); } catch (e) {} }
     W.state = 'connecting'; renderWalkie(); walkieConnect();
   }
@@ -5428,6 +5483,7 @@
     if (W.ctx) { try { W.ctx.close(); } catch (e) {} W.ctx = null; }
     if (W.lock) { try { W.lock.release(); } catch (e) {} W.lock = null; }
     W.users = []; W.talker = null; W.pttDown = W.pending = W.mine = false; W.pre = []; W.acc = []; W.accN = 0;
+    W.clips = []; W.playing = 0; W.clipSrc = null;
   }
 
   function walkieLeave() {
@@ -5465,6 +5521,7 @@
         h += '<div class="wk-status" id="wkStatus"></div><div id="wkChan"></div><div class="wk-banner" id="wkBanner"></div>' +
           '<button id="pttBtn" class="ptt" onpointerdown="pttDown(event)" onpointerup="pttUp(event)" onpointercancel="pttUp(event)" ' +
           'oncontextmenu="return false"></button><div id="wkUsers" style="text-align:center"></div>' +
+          '<h3 style="margin:16px 0 6px">' + t('Recent messages') + '</h3><div id="wkClips"></div>' +
           '<div id="wkErr"></div><button class="btn ghost" style="margin-top:14px" onclick="walkieLeave()">' + t('Leave') + '</button>';
       }
       $('content').innerHTML = h + '</div></div>';
@@ -5487,6 +5544,11 @@
     btn.textContent = W.mine ? t('Talking…') : W.pending ? '…' : t('Hold to talk');
     $('wkUsers').innerHTML = W.users.map(function (u) {
       return '<span class="wk-chip' + (W.talker && W.talker.id === u.id ? ' talk' : '') + '">' + esc(u.name) + '</span>';
+    }).join('');
+    $('wkClips').innerHTML = !W.clips.length ? '<div class="muted">' + t('No messages yet.') + '</div>' : W.clips.map(function (c) {
+      var on = W.playing === c.id;
+      return '<div class="wk-clip" onclick="walkieClip(' + (c.id | 0) + ')"><span class="wk-play">' + (on ? '⏹' : '▶') + '</span><span class="wk-who">' +
+        esc(c.name) + '</span><span class="muted">' + esc(wkClipTime(c.ts)) + ' · ' + Math.max(1, Math.round(c.dur / 1000)) + 's</span></div>';
     }).join('');
   }
 
