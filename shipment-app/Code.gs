@@ -4870,9 +4870,13 @@ function median_(arr){
 // still ask for a suggestion — they just won't have much (or any)
 // packing history to draw on, same as any other warehouse with no
 // history yet.
-const BOX_SUGGESTION_EXCLUDED_WAREHOUSES_ = ['faridabad', 'jaipur j3', 'noida n1'];
+// Every other warehouse uses the same standard box size. CITY is stored with
+// the warehouse code appended (e.g. "Faridabad (5096)", "Kundli (2010)",
+// "Jaipur J3 (3200)"), so match on a substring, not the exact name.
+const BOX_SUGGESTION_EXCLUDED_WAREHOUSES_ = ['faridabad', 'kundli', 'jaipur'];
 function isExcludedWarehouseForBoxLearning_(cityValue) {
-  return BOX_SUGGESTION_EXCLUDED_WAREHOUSES_.indexOf((cityValue || '').toString().trim().toLowerCase()) !== -1;
+  const c = (cityValue || '').toString().trim().toLowerCase();
+  return BOX_SUGGESTION_EXCLUDED_WAREHOUSES_.some(w => c.indexOf(w) !== -1);
 }
 
 function mineBoxPatterns_(poNumber, platform) {
@@ -4974,37 +4978,53 @@ function mineBoxPatterns_(poNumber, platform) {
  *  entry. This is also the AI-assisted suggestion's fallback whenever
  *  Gemini isn't configured, errors, or returns something that doesn't
  *  reconcile with the PO balance. */
+// Most common value in a list; ties go to the larger value. Used for each
+// SKU's usual box size — the median was dragged down by small leftover boxes.
+function modeQty_(arr){
+  const c={}; let best=0, bestQ=0;
+  arr.forEach(q=>{ c[q]=(c[q]||0)+1; });
+  Object.keys(c).forEach(k=>{ const q=+k; if (c[k]>best || (c[k]===best && q>bestQ)) { best=c[k]; bestQ=q; } });
+  return bestQ;
+}
+// Boxes are packed by quantity, not weight (weight is never checked when packing),
+// so leftovers from different SKUs share a box up to this many units in total.
+// 80 was the best fit on 388 past shipments (about 10.1 boxes suggested vs 9.9 packed).
+const BOX_MIX_MAX_UNITS_ = 80;
+
 function buildStatisticalBoxes_(mined) {
-  const { poItems, patterns, soloQtyByItem, anyQtyByItem, itemCodeToSkuInfo } = mined;
+  const { poItems, soloQtyByItem, anyQtyByItem, itemCodeToSkuInfo } = mined;
   const remaining={}; Object.keys(poItems).forEach(ic=>remaining[ic]=Math.max(0,poItems[ic].remaining));
   const outputBoxes=[];
   const MAX_BOXES=2000; // safety cap against any pathological data
-  for (const p of patterns) {
-    while (p.itemCodes.every(ic=>remaining[ic]>0) && outputBoxes.length<MAX_BOXES) {
-      const items=p.itemCodes.map(ic=>{
-        const qty=Math.min(p.typical[ic], remaining[ic]);
-        remaining[ic]-=qty;
-        const info=itemCodeToSkuInfo[ic]||{sku:ic,upc:'',weight:0};
-        return { sku:info.sku, upc:info.upc, qty, weightPerUnit:info.weight, inPo:true };
-      }).filter(it=>it.qty>0);
-      if (items.length) outputBoxes.push({items}); else break;
-    }
-  }
-  // Fallback: leftover balance for items whose companions in every known
-  // pattern are already exhausted — box them solo, at their own typical
-  // solo size (or typical size in any box, if never seen solo).
+  const mkItem=(ic,qty)=>{
+    const info=itemCodeToSkuInfo[ic]||{sku:ic,upc:'',weight:0};
+    return { sku:info.sku, upc:info.upc, qty, weightPerUnit:info.weight, inPo:true };
+  };
+  // Step 1: full boxes at each SKU's usual box size (most common solo size,
+  // or most common size in any box if never seen solo).
+  const leftovers=[];
   for (const ic of Object.keys(remaining)) {
     const sizes = (soloQtyByItem[ic] && soloQtyByItem[ic].length) ? soloQtyByItem[ic] : anyQtyByItem[ic];
     if (!sizes || !sizes.length) continue; // no historical data at all — leave for "unassigned"
-    const soloSize=Math.max(1, median_(sizes));
-    const info=itemCodeToSkuInfo[ic]||{sku:ic,upc:'',weight:0};
-    let guard=0;
-    while (remaining[ic]>0 && guard++<1000 && outputBoxes.length<MAX_BOXES) {
-      const qty=Math.min(soloSize, remaining[ic]);
-      remaining[ic]-=qty;
-      outputBoxes.push({items:[{sku:info.sku,upc:info.upc,qty,weightPerUnit:info.weight,inPo:true}]});
+    const boxSize=Math.max(1, modeQty_(sizes));
+    while (remaining[ic]>=boxSize && outputBoxes.length<MAX_BOXES) {
+      outputBoxes.push({items:[mkItem(ic,boxSize)]});
+      remaining[ic]-=boxSize;
     }
+    if (remaining[ic]>0) leftovers.push(ic);
   }
+  // Step 2: the partial leftovers (one per SKU) share mixed boxes, largest
+  // first, up to BOX_MIX_MAX_UNITS_ units — instead of one small box per SKU.
+  leftovers.sort((a,b)=>remaining[b]-remaining[a]);
+  const mixed=[];
+  leftovers.forEach(ic=>{
+    const qty=remaining[ic];
+    const host = mixed.find(m=>m.units+qty<=BOX_MIX_MAX_UNITS_);
+    if (host) { host.items.push(mkItem(ic,qty)); host.units+=qty; }
+    else mixed.push({ units:qty, items:[mkItem(ic,qty)] });
+    remaining[ic]=0;
+  });
+  mixed.forEach(m=>outputBoxes.push({items:m.items}));
 
   outputBoxes.forEach((b,idx)=>{b.boxNumber=idx+1;});
   const unassigned=[];
