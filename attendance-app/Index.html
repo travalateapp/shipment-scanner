@@ -220,6 +220,8 @@
     .ptt.off { background: #9aa3b2; }
     .wk-chip { display: inline-block; padding: 4px 10px; margin: 3px; border-radius: 999px; background: #eef1f7; font-size: 13px; }
     .wk-chip.talk { background: var(--brand); color: #fff; }
+    .wk-meter { height: 6px; border-radius: 3px; background: #e6e9f0; margin: 8px 24px 4px; overflow: hidden; }
+    .wk-meter i { display: block; height: 100%; width: 0; background: var(--brand); transition: width .08s; }
     .wk-clip { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid #e6e9f0; cursor: pointer; }
     .wk-clip .wk-play { width: 32px; height: 32px; border-radius: 50%; background: var(--brand); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 13px; flex: none; }
     .wk-clip .wk-who { flex: 1; font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -5211,7 +5213,8 @@
 
   var W = { ws: null, ctx: null, stream: null, node: null, ch: load('att_walkie_ch') || '', info: null, users: [], talker: null,
     state: 'off', pttDown: false, pending: false, mine: false, pre: [], acc: [], accN: 0, frameIn: 4800, nextT: 0,
-    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, pingAt: 0, allowed: false, clips: [], playing: 0, clipSrc: null };
+    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, pingAt: 0, allowed: false, clips: [], playing: 0, clipSrc: null,
+    blocks: 0, sent: 0, level: 0, capMode: '', capFix: 0, src: null, pressId: 0 };
   var WK_WORKLET = 'class P extends AudioWorkletProcessor{process(i){var c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true;}}registerProcessor("walkie-cap",P);';
 
   function loadWalkie() { renderWalkie(); }
@@ -5253,7 +5256,8 @@
   /** The Android app (1.15+): the Walkie-talkie is always on there, also with the screen off. */
   function wkApk() { try { return !!(window.AttendanceApp && typeof window.AttendanceApp.walkieService === 'function'); } catch (e) { return false; } }
   function wkNative(on) { try { if (wkApk()) window.AttendanceApp.walkieService(!!on); } catch (e) { /* older app */ } }
-  ['pointerdown', 'touchstart', 'keydown'].forEach(function (ev) {
+  // iPhone only accepts a finished touch (touchend / click) to switch sound and microphone on, not the start of a press.
+  ['pointerdown', 'pointerup', 'touchstart', 'touchend', 'click', 'keydown'].forEach(function (ev) {
     document.addEventListener(ev, function () {
       try { if (W.ctx && W.ctx.state !== 'running') W.ctx.resume(); } catch (e) { /* no sound yet */ }
     }, { passive: true });
@@ -5270,6 +5274,7 @@
     try {
       W.ctx = W.ctx || new (window.AudioContext || window.webkitAudioContext)();
       W.ctx.resume();
+      W.ctx.onstatechange = function () { renderWalkie(); };
     } catch (e) { return walkieFail(t('This phone cannot play sound in this app.')); }
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       return walkieFail(t('The microphone is not available here. Open the app from the link your company shared (not inside Google).'));
@@ -5284,24 +5289,57 @@
     });
   }
 
-  function walkieCapture() {
+  /**
+   * Starts listening to the microphone. mode 'worklet' (modern, default) or 'processor' (older, most compatible);
+   * fresh = also make a new audio context (some iPhones deliver silence to a context made before the microphone).
+   */
+  function walkieCapture(mode, fresh) {
+    try { if (W.node) W.node.disconnect(); } catch (e) {} W.node = null;
+    try { if (W.src) W.src.disconnect(); } catch (e) {} W.src = null;
+    if (fresh) {
+      try { W.ctx.close(); } catch (e) {}
+      W.ctx = new (window.AudioContext || window.webkitAudioContext)(); W.nextT = 0;
+      try { W.ctx.resume(); } catch (e) {}
+    }
     var ctx = W.ctx, src = ctx.createMediaStreamSource(W.stream), mute = ctx.createGain();
+    W.src = src;
     mute.gain.value = 0; mute.connect(ctx.destination);
     W.acc = []; W.accN = 0; W.frameIn = Math.round(ctx.sampleRate / 10);
     var viaProcessor = function () {
       var p = ctx.createScriptProcessor(2048, 1, 1);
       p.onaudioprocess = function (e) { walkieBlock(new Float32Array(e.inputBuffer.getChannelData(0))); };
-      src.connect(p); p.connect(mute); W.node = p;
+      src.connect(p); p.connect(mute); W.node = p; W.capMode = 'processor';
     };
-    if (ctx.audioWorklet && window.Blob && URL.createObjectURL) {
+    if (mode !== 'processor' && ctx.audioWorklet && window.Blob && URL.createObjectURL) {
       return ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([WK_WORKLET], { type: 'application/javascript' }))).then(function () {
         var n = new AudioWorkletNode(ctx, 'walkie-cap');
         n.port.onmessage = function (e) { walkieBlock(e.data); };
-        src.connect(n); n.connect(mute); W.node = n;
+        src.connect(n); n.connect(mute); W.node = n; W.capMode = 'worklet';
       }).catch(viaProcessor);
     }
     viaProcessor();
     return Promise.resolve();
+  }
+
+  /**
+   * Safety net: if the microphone delivers nothing after the button is pressed (seen on some iPhones), try the next
+   * way of listening, one step per attempt: older method, then a new audio context, then both together.
+   */
+  function walkieCapFix() {
+    var steps = [['processor', false], ['worklet', true], ['processor', true]];
+    if (!W.stream || W.capFix >= steps.length) return;
+    var st = steps[W.capFix++];
+    try { W.ctx.resume(); } catch (e) {}
+    walkieCapture(st[0], st[1]).then(function () { walkieDiag(); }).catch(function () {});
+  }
+
+  /** Small line under the talk button: what the microphone is doing (so a problem can be seen and reported). */
+  function walkieDiag() {
+    var el = $('wkDiag'); if (!el) return;
+    if (!(W.mine || W.pending)) { el.textContent = ''; return; }
+    var quiet = W.sent > 8 && W.level < 0.004;
+    el.textContent = (quiet ? '⚠ ' + t('No sound from the microphone. ') : '') +
+      (W.ctx ? W.ctx.state + ' · ' + W.ctx.sampleRate + ' Hz · ' : '') + (W.capMode || '?') + ' · ' + W.sent;
   }
 
   function walkieTake(n) {
@@ -5315,13 +5353,17 @@
   }
 
   function walkieBlock(f) {
+    W.blocks++;
     if (!W.mine && !W.pending) { W.acc = []; W.accN = 0; return; }
+    var pk = 0; for (var i = 0; i < f.length; i += 4) { var a = f[i] < 0 ? -f[i] : f[i]; if (a > pk) pk = a; }
+    W.level = Math.max(pk, W.level * 0.8);
+    var bar = $('wkMeterBar'); if (bar) bar.style.width = Math.min(100, Math.round(Math.sqrt(W.level) * 140)) + '%';
     W.acc.push(f); W.accN += f.length;
     while (W.accN >= W.frameIn) walkieSend(wkEncode(walkieTake(W.frameIn), W.ctx.sampleRate));
   }
 
   function walkieSend(frame) {
-    if (W.mine && W.ws && W.ws.readyState === 1) W.ws.send(frame);
+    if (W.mine && W.ws && W.ws.readyState === 1) { W.ws.send(frame); W.sent++; if (W.sent % 5 === 0) walkieDiag(); }
     else if (W.pending) { W.pre.push(frame); if (W.pre.length > 8) W.pre.shift(); } // while waiting for the OK to talk
   }
 
@@ -5489,7 +5531,14 @@
     if (W.state !== 'on' || W.pttDown || !W.ws || W.ws.readyState !== 1) return;
     if (W.talker) { wkBeep(220, 160); toast(t('{name} is talking', { name: W.talker.name })); return; }
     try { W.ctx.resume(); } catch (e) {}
+    if (W.ctx.state !== 'running') { toast(t('Sound is switching on. Let go, then press and hold again.')); return; }
     walkieClipStop();
+    var press = ++W.pressId, b0 = W.blocks; W.sent = 0; W.level = 0;
+    var watch = function () {   // no microphone data at all after the press → try the next method
+      if (!W.pttDown || W.pressId !== press || W.blocks !== b0) return;
+      walkieCapFix(); b0 = W.blocks; setTimeout(watch, 900);
+    };
+    setTimeout(watch, 900);
     W.pttDown = true; W.pending = true; W.pre = []; W.acc = []; W.accN = 0;
     W.ws.send(JSON.stringify({ t: 'ptt', on: true }));
     renderWalkie();
@@ -5504,6 +5553,7 @@
     }
     if ((W.mine || W.pending) && W.ws && W.ws.readyState === 1) { try { W.ws.send(JSON.stringify({ t: 'ptt', on: false })); } catch (e) {} }
     W.mine = false; W.pending = false; W.pre = []; W.acc = []; W.accN = 0;
+    var bar = $('wkMeterBar'); if (bar) bar.style.width = '0'; walkieDiag();
     renderWalkie();
   }
 
@@ -5524,7 +5574,7 @@
     if (W.ctx) { try { W.ctx.close(); } catch (e) {} W.ctx = null; }
     if (W.lock) { try { W.lock.release(); } catch (e) {} W.lock = null; }
     W.users = []; W.talker = null; W.pttDown = W.pending = W.mine = false; W.pre = []; W.acc = []; W.accN = 0;
-    W.clips = []; W.playing = 0; W.clipSrc = null; W.info = null;
+    W.clips = []; W.playing = 0; W.clipSrc = null; W.info = null; W.src = null; W.capFix = 0;
     wkNative(false);
   }
 
@@ -5572,7 +5622,7 @@
       } else {
         h += '<div class="wk-status" id="wkStatus"></div><div id="wkChan"></div><div class="wk-banner" id="wkBanner"></div>' +
           '<button id="pttBtn" class="ptt" onpointerdown="pttDown(event)" onpointerup="pttUp(event)" onpointercancel="pttUp(event)" ' +
-          'oncontextmenu="return false"></button><div id="wkUsers" style="text-align:center"></div>' +
+          'oncontextmenu="return false"></button><div class="wk-meter"><i id="wkMeterBar"></i></div><div id="wkDiag" class="muted" style="text-align:center;font-size:11px;min-height:14px"></div><div id="wkUsers" style="text-align:center"></div>' +
           '<h3 style="margin:16px 0 6px">' + t('Recent messages') + '</h3><div id="wkClips"></div>' +
           '<div id="wkErr"></div>' + (wkApk() ? '' : '<button class="btn ghost" style="margin-top:14px" onclick="walkieLeave()">' + t('Leave') + '</button>');
       }
@@ -5589,7 +5639,8 @@
       }).join('') + '</select>';
     } else if (ch.length === 1) sel = '<div class="muted" style="margin-bottom:6px">' + t('Channel') + ': <b>' + esc(ch[0]) + '</b></div>';
     if ($('wkChan').getAttribute('data-s') !== sel) { $('wkChan').innerHTML = sel; $('wkChan').setAttribute('data-s', sel); }
-    var banner = !on ? '' : W.mine ? '🎙 ' + t('You are talking') : W.pending ? '…' : W.talker ? '🔊 ' + t('{name} is talking', { name: W.talker.name }) : t('Hold the button to talk');
+    var soundOff = on && W.ctx && W.ctx.state !== 'running';
+    var banner = soundOff ? '🔇 ' + t('Tap anywhere once to switch the sound on') : !on ? '' : W.mine ? '🎙 ' + t('You are talking') : W.pending ? '…' : W.talker ? '🔊 ' + t('{name} is talking', { name: W.talker.name }) : t('Hold the button to talk');
     $('wkBanner').textContent = banner;
     var btn = $('pttBtn');
     btn.className = 'ptt' + (W.mine || W.pending ? ' on' : !on || W.talker ? ' off' : '');
