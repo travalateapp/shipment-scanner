@@ -980,7 +980,7 @@
   /* ---------------- Login & PIN ---------------- */
   function showLogin() {
     try { if (location.hash && history.replaceState) history.replaceState(null, '', location.pathname + location.search); } catch (e) {} // next login starts on its home screen
-    try { W.keep = false; W.state = 'off'; walkieStop(); } catch (e) { /* walkie-talkie not started */ }
+    try { W.keep = false; W.state = 'off'; walkieStop(); store('att_walkie_auto', null); } catch (e) { /* walkie-talkie not started */ }
     S.token = null; store('att_token', null); store('att_home', null); S.home = null; S.viewCache = {}; S.monthCache = {}; S.reqCache = null; S.prefetchedTabs = false;
     S.profile = null; store('att_role', null); applyLang(); // the login screen is always English
     S.home = null; S.monthCache = {}; S.prefetchedHome = null; S.navStack = [];
@@ -1040,6 +1040,7 @@
       S.deskStarted = true; // keep this screen (no jump to the Dashboard)
       go(tab, true);
     } else go('home', true);
+    walkieAuto();
   }
   /** The current screen in the address (#admin:payroll), so a reload opens the same screen. */
   function saveScreen() {
@@ -5223,13 +5224,27 @@
     } catch (e) { /* no beep */ }
   }
 
+  /**
+   * After the first tap on Join, this phone joins by itself each time the app opens. Phones only start sound after a touch,
+   * so the first touch anywhere in the app switches the sound on.
+   */
+  function walkieAuto() {
+    if (load('att_walkie_auto') === '1' && W.state === 'off') walkieJoin();
+  }
+  ['pointerdown', 'touchstart', 'keydown'].forEach(function (ev) {
+    document.addEventListener(ev, function () {
+      try { if (W.ctx && W.ctx.state !== 'running') W.ctx.resume(); } catch (e) { /* no sound yet */ }
+    }, { passive: true });
+  });
+
   function walkieFail(msg) { W.keep = false; W.state = 'off'; W.err = msg; walkieStop(); renderWalkie(); }
 
-  /** Join (must be tapped by the person: phones only allow sound and microphone after a tap). */
+  /** Join (the first time it must be tapped: phones only allow sound and microphone after a touch). */
   function walkieJoin(ch) {
     if (W.state !== 'off') return;
     if (ch) W.ch = ch;
     W.err = ''; W.keep = true; W.state = 'connecting'; renderWalkie();
+    store('att_walkie_auto', '1');   // joined once → from now on this phone joins by itself when the app opens
     try {
       W.ctx = W.ctx || new (window.AudioContext || window.webkitAudioContext)();
       W.ctx.resume();
@@ -5487,7 +5502,7 @@
   }
 
   function walkieLeave() {
-    W.keep = false; W.state = 'off'; W.err = '';
+    W.keep = false; W.state = 'off'; W.err = ''; store('att_walkie_auto', null);
     walkieStop(); renderWalkie();
   }
 
