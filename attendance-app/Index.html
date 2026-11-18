@@ -5368,11 +5368,22 @@
     renderWalkie();
   }
 
+  /** Loudness stage for incoming voice: boost, then a limiter so the boost does not distort. */
+  function wkOut() {
+    if (W.out && W.out.ctx === W.ctx) return W.out.node;
+    var g = W.ctx.createGain(); g.gain.value = 3.5;
+    var c = W.ctx.createDynamicsCompressor();
+    c.threshold.value = -18; c.knee.value = 12; c.ratio.value = 12; c.attack.value = 0.003; c.release.value = 0.15;
+    g.connect(c); c.connect(W.ctx.destination);
+    W.out = { ctx: W.ctx, node: g };
+    return g;
+  }
+
   function walkiePlay(u8) {
     if (!W.ctx || W.mine) return;
     var f = wkDecode(u8), b = W.ctx.createBuffer(1, f.length, 16000);
     b.copyToChannel(f, 0);
-    var s = W.ctx.createBufferSource(); s.buffer = b; s.connect(W.ctx.destination);
+    var s = W.ctx.createBufferSource(); s.buffer = b; s.connect(wkOut());
     var now = W.ctx.currentTime, at = Math.max(now + 0.15, W.nextT || 0);
     if (at - now > 1.5) at = now + 0.15;
     s.start(at); W.nextT = at + f.length / 16000;
