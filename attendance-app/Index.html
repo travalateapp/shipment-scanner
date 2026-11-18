@@ -314,6 +314,7 @@
     body.desk.panel #content.wrap { margin-right: 436px; }
     body.desk #content.cols #adminBody, body.desk #content.cols.mine { columns: 2 460px; column-gap: 18px; }
     body.desk #content.cols #adminBody > *, body.desk #content.cols.mine > * { break-inside: avoid; }
+    body.desk #wkRoot { max-width: 520px; }
     body.desk #content.cols #adminBody > .dfull { column-span: all; }
     /* Pop-ups become a panel on the right; the page next to it stays usable. */
     body.desk .modal { background: transparent; pointer-events: none; justify-content: flex-end; align-items: stretch; z-index: 20; }
@@ -4707,7 +4708,8 @@
       { k: 'a:summary', ic: '📊', l: 'Monthly summary', p: 'viewSummary' }, { k: 'a:pf', ic: '🏛', l: 'PF setup', p: 'editPf' }]],
     ['People', [{ k: 'a:staff', ic: '👥', l: 'Employees', p: 'manageEmployees' }, { k: 'a:holidays', ic: '🎉', l: 'Holidays & short days', p: 'manageHolidays' },
       { k: 'a:admins', ic: '🛡', l: 'Admins & speed', p: 'superAdmin' }, { k: 'a:log', ic: '🕘', l: 'Activity log', p: 'superAdmin' }]],
-    ['Me', [{ k: 'home', ic: '⏱', l: 'My attendance', me: 1 }, { k: 'month', ic: '📅', l: 'My month', me: 1 }, { k: 'requests', ic: '✉️', l: 'My requests', me: 1 }]]
+    ['Me', [{ k: 'home', ic: '⏱', l: 'My attendance', me: 1 }, { k: 'month', ic: '📅', l: 'My month', me: 1 }, { k: 'requests', ic: '✉️', l: 'My requests', me: 1 },
+      { k: 'walkie', ic: '🎙', l: 'Walkie-talkie', me: 1 }]]
   ];
   function dItems() {
     var guard = S.home && S.home.guard, out = [];
