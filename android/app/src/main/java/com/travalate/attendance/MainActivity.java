@@ -71,6 +71,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        WalkieService.background(false); // the app screen is back: it takes over from the hidden page
         web = new WebView(this);
         setContentView(web);
         appHost = Uri.parse(BuildConfig.APP_URL).getHost();
@@ -257,7 +258,18 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
-        WalkieService.stop(this);
+        if (walkieOn) {
+            // App closed or swiped away while the Walkie-talkie is on: remove this page first (so it cannot switch the
+            // service off), then let the service keep listening with its own hidden copy of the page.
+            walkieOn = false;
+            try {
+                if (web.getParent() instanceof android.view.ViewGroup) ((android.view.ViewGroup) web.getParent()).removeView(web);
+                web.destroy();
+            } catch (Exception ignored) { }
+            WalkieService.background(true);
+        } else {
+            WalkieService.stop(this);
+        }
         updater.destroy();
         super.onDestroy();
     }
@@ -396,7 +408,7 @@ public class MainActivity extends Activity {
         /** Walkie-talkie on/off (page → app): keeps listening with the screen off while on. */
         @JavascriptInterface
         public void walkieService(boolean on) {
-            runOnUiThread(() -> setWalkie(on));
+            runOnUiThread(() -> { if (!isDestroyed()) setWalkie(on); });
         }
 
         @JavascriptInterface
