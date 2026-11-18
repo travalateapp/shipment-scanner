@@ -5210,7 +5210,7 @@
 
   var W = { ws: null, ctx: null, stream: null, node: null, ch: load('att_walkie_ch') || '', info: null, users: [], talker: null,
     state: 'off', pttDown: false, pending: false, mine: false, pre: [], acc: [], accN: 0, frameIn: 4800, nextT: 0,
-    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, clips: [], playing: 0, clipSrc: null };
+    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, pingAt: 0, clips: [], playing: 0, clipSrc: null };
   var WK_WORKLET = 'class P extends AudioWorkletProcessor{process(i){var c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true;}}registerProcessor("walkie-cap",P);';
 
   function loadWalkie() { renderWalkie(); }
@@ -5229,8 +5229,11 @@
    * so the first touch anywhere in the app switches the sound on.
    */
   function walkieAuto() {
-    if (load('att_walkie_auto') === '1' && W.state === 'off') walkieJoin();
+    if ((wkApk() || load('att_walkie_auto') === '1') && W.state === 'off') walkieJoin();
   }
+  /** The Android app (1.15+): the Walkie-talkie is always on there, also with the screen off. */
+  function wkApk() { try { return !!(window.AttendanceApp && typeof window.AttendanceApp.walkieService === 'function'); } catch (e) { return false; } }
+  function wkNative(on) { try { if (wkApk()) window.AttendanceApp.walkieService(!!on); } catch (e) { /* older app */ } }
   ['pointerdown', 'touchstart', 'keydown'].forEach(function (ev) {
     document.addEventListener(ev, function () {
       try { if (W.ctx && W.ctx.state !== 'running') W.ctx.resume(); } catch (e) { /* no sound yet */ }
@@ -5316,7 +5319,7 @@
       W.ws = ws;
       ws.onopen = function () {
         if (W.ws !== ws) return;
-        W.state = 'on'; W.retry = 0; W.lastPong = Date.now(); walkieLock(); walkieBeat(); renderWalkie(); walkieHistory();
+        W.state = 'on'; W.retry = 0; W.lastPong = Date.now(); W.pingAt = 0; walkieLock(); walkieBeat(); renderWalkie(); walkieHistory(); wkNative(true);
       };
       ws.onmessage = function (e) { if (W.ws === ws) walkieMsg(e.data); };
       ws.onclose = function (e) { if (W.ws === ws) walkieClosed(e.code); };
@@ -5348,7 +5351,9 @@
     clearInterval(W.timers.hb);
     W.timers.hb = setInterval(function () {
       if (!W.ws || W.ws.readyState !== 1) return;
-      if (Date.now() - W.lastPong > 50000) { try { W.ws.close(); } catch (e) {} return; }
+      // Dead = the last ping got no answer. (Checked this way because a phone with the screen off runs timers only about once a minute.)
+      if (W.pingAt && W.lastPong < W.pingAt && Date.now() - W.pingAt > 15000) { try { W.ws.close(); } catch (e) {} return; }
+      W.pingAt = Date.now();
       try { W.ws.send('ping'); } catch (e) {}
     }, 20000);
   }
@@ -5499,6 +5504,7 @@
     if (W.lock) { try { W.lock.release(); } catch (e) {} W.lock = null; }
     W.users = []; W.talker = null; W.pttDown = W.pending = W.mine = false; W.pre = []; W.acc = []; W.accN = 0;
     W.clips = []; W.playing = 0; W.clipSrc = null;
+    wkNative(false);
   }
 
   function walkieLeave() {
@@ -5537,7 +5543,7 @@
           '<button id="pttBtn" class="ptt" onpointerdown="pttDown(event)" onpointerup="pttUp(event)" onpointercancel="pttUp(event)" ' +
           'oncontextmenu="return false"></button><div id="wkUsers" style="text-align:center"></div>' +
           '<h3 style="margin:16px 0 6px">' + t('Recent messages') + '</h3><div id="wkClips"></div>' +
-          '<div id="wkErr"></div><button class="btn ghost" style="margin-top:14px" onclick="walkieLeave()">' + t('Leave') + '</button>';
+          '<div id="wkErr"></div>' + (wkApk() ? '' : '<button class="btn ghost" style="margin-top:14px" onclick="walkieLeave()">' + t('Leave') + '</button>');
       }
       $('content').innerHTML = h + '</div></div>';
     }

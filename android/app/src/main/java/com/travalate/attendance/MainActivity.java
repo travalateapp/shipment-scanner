@@ -9,10 +9,12 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.os.PowerManager;
 import android.os.SystemClock;
 import android.print.PrintAttributes;
 import android.print.PrintManager;
 import android.provider.MediaStore;
+import android.provider.Settings;
 import android.util.Base64;
 import android.view.View;
 import android.webkit.GeolocationPermissions;
@@ -44,6 +46,8 @@ public class MainActivity extends Activity {
     private static final int REQ_CAMERA = 2;
     private static final int REQ_FILE = 3;
     private static final int REQ_STORAGE = 4;
+    private static final int REQ_AUDIO = 5;
+    private static final int REQ_NOTIFICATIONS = 6;
 
     private WebView web;
     private String appHost;
@@ -51,6 +55,8 @@ public class MainActivity extends Activity {
     private GeolocationPermissions.Callback geoCallback;
     private String geoOrigin;
     private PermissionRequest cameraRequest;
+    private PermissionRequest audioRequest;
+    private boolean walkieOn; // Walkie-talkie running: keep the page alive with the screen off
     private ValueCallback<Uri[]> fileCallback;
     private PendingFile pendingFile;
     private WebView printView; // kept so it is not garbage-collected while printing
@@ -80,6 +86,9 @@ public class MainActivity extends Activity {
         ws.setAllowFileAccess(false);
         ws.setUserAgentString(ws.getUserAgentString() + " AttendanceApp/" + BuildConfig.VERSION_NAME);
         web.addJavascriptInterface(new Bridge(), "AttendanceApp");
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            web.setRendererPriorityPolicy(WebView.RENDERER_PRIORITY_IMPORTANT, false); // keep the page running when the screen is off
+        }
 
         web.setWebViewClient(new WebViewClient() {
             @Override
@@ -116,9 +125,20 @@ public class MainActivity extends Activity {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> {
-                    boolean wantsCamera = false;
+                    boolean wantsCamera = false, wantsAudio = false;
                     for (String r : request.getResources()) {
                         if (PermissionRequest.RESOURCE_VIDEO_CAPTURE.equals(r)) wantsCamera = true;
+                        if (PermissionRequest.RESOURCE_AUDIO_CAPTURE.equals(r)) wantsAudio = true;
+                    }
+                    if (wantsAudio && !wantsCamera) { // Walkie-talkie microphone
+                        if (has(Manifest.permission.RECORD_AUDIO)) {
+                            request.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+                        } else {
+                            if (audioRequest != null) audioRequest.deny();
+                            audioRequest = request;
+                            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_AUDIO);
+                        }
+                        return;
                     }
                     if (!wantsCamera) { request.deny(); return; }
                     if (has(Manifest.permission.CAMERA)) {
@@ -178,6 +198,10 @@ public class MainActivity extends Activity {
             if (granted) cameraRequest.grant(new String[]{PermissionRequest.RESOURCE_VIDEO_CAPTURE});
             else cameraRequest.deny();
             cameraRequest = null;
+        } else if (requestCode == REQ_AUDIO && audioRequest != null) {
+            if (granted) audioRequest.grant(new String[]{PermissionRequest.RESOURCE_AUDIO_CAPTURE});
+            else audioRequest.deny();
+            audioRequest = null;
         } else if (requestCode == REQ_STORAGE && pendingFile != null) {
             PendingFile f = pendingFile;
             pendingFile = null;
@@ -233,14 +257,37 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onDestroy() {
+        WalkieService.stop(this);
         updater.destroy();
         super.onDestroy();
     }
 
     @Override
     protected void onPause() {
-        web.onPause();
+        if (walkieOn) web.resumeTimers(); else web.onPause(); // the Walkie-talkie must keep listening with the screen off
         super.onPause();
+    }
+
+    /* ---------------- Walkie-talkie ---------------- */
+
+    /** On: run the foreground service so the page keeps listening with the screen off. Off: stop it. */
+    private void setWalkie(boolean on) {
+        walkieOn = on;
+        if (!on) { WalkieService.stop(this); return; }
+        if (Build.VERSION.SDK_INT >= 33 && !has(Manifest.permission.POST_NOTIFICATIONS)) {
+            requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS}, REQ_NOTIFICATIONS); // the notice is only for show
+        }
+        if (has(Manifest.permission.RECORD_AUDIO)) WalkieService.start(this);
+        // Once: ask Android not to put the app to sleep (a system dialog with one Allow button).
+        try {
+            android.content.SharedPreferences sp = getSharedPreferences("walkie", MODE_PRIVATE);
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !sp.getBoolean("batteryAsked", false)
+                    && !pm.isIgnoringBatteryOptimizations(getPackageName())) {
+                sp.edit().putBoolean("batteryAsked", true).apply();
+                startActivity(new Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:" + getPackageName())));
+            }
+        } catch (Exception ignored) { /* not available on this phone */ }
     }
 
     /* ---------------- Downloads ---------------- */
@@ -344,6 +391,12 @@ public class MainActivity extends Activity {
         @JavascriptInterface
         public String version() {
             return BuildConfig.VERSION_NAME;
+        }
+
+        /** Walkie-talkie on/off (page → app): keeps listening with the screen off while on. */
+        @JavascriptInterface
+        public void walkieService(boolean on) {
+            runOnUiThread(() -> setWalkie(on));
         }
 
         @JavascriptInterface
