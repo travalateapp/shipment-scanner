@@ -1,0 +1,19 @@
+name = "travalate-walkie"
+main = "src/index.js"
+compatibility_date = "2025-09-01"
+
+# Free plan: Durable Objects must be SQLite-backed.
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "Room"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Room"]
+
+[vars]
+# Optional: only accept connections from these page origins (comma separated). Empty = any.
+# Example: "https://travalateapp.github.io"
+ALLOWED_ORIGINS = ""
+
+# WALKIE_SECRET is NOT stored here. Set it with:  npx wrangler secret put WALKIE_SECRET
