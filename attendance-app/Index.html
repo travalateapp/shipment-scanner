@@ -1122,6 +1122,7 @@
   function showHome(h, sentAt) {
       S.homeStale = false;
       S.home = h; S.profile = h.profile;
+      walkieSync(h);
       bdayWatch();
       if (!h.fromPhone) store('att_home', JSON.stringify({ t: S.token, h: h }));
       checkAppVersion(h);
@@ -5210,7 +5211,7 @@
 
   var W = { ws: null, ctx: null, stream: null, node: null, ch: load('att_walkie_ch') || '', info: null, users: [], talker: null,
     state: 'off', pttDown: false, pending: false, mine: false, pre: [], acc: [], accN: 0, frameIn: 4800, nextT: 0,
-    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, pingAt: 0, clips: [], playing: 0, clipSrc: null };
+    keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, pingAt: 0, allowed: false, clips: [], playing: 0, clipSrc: null };
   var WK_WORKLET = 'class P extends AudioWorkletProcessor{process(i){var c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true;}}registerProcessor("walkie-cap",P);';
 
   function loadWalkie() { renderWalkie(); }
@@ -5228,6 +5229,24 @@
    * After the first tap on Join, this phone joins by itself each time the app opens. Phones only start sound after a touch,
    * so the first touch anywhere in the app switches the sound on.
    */
+  /**
+   * Who has the Walkie-talkie: everyone (Super Admins too) only from check-in to check-out, never a guard.
+   * Called with every fresh home-screen answer. Checking out switches it off; checking in switches it on.
+   */
+  function walkieSync(h) {
+    if (!h || h.fromPhone || !h.profile) return;   // a saved copy of the home screen can be out of date
+    var r = h.record, ok = !h.guard && !!(r && r.in && !r.out);
+    var was = W.allowed; W.allowed = ok;
+    if (ok) { if (W.state === 'off' && !W.err) walkieAuto(); }
+    else if (W.state !== 'off') { W.keep = false; W.state = 'off'; W.err = ''; walkieStop(); }
+    if (ok !== was || !ok) renderWalkie();
+  }
+  // Check-outs / check-ins done elsewhere (a guard, an admin) are noticed within 10 minutes, also with the app closed.
+  setInterval(function () {
+    if (!S.token || (document.hidden && !wkApk())) return;
+    api('getHome', S.token).then(walkieSync).catch(function () { /* try again later */ });
+  }, 600000);
+
   function walkieAuto() {
     if ((wkApk() || load('att_walkie_auto') === '1') && W.state === 'off') walkieJoin();
   }
@@ -5244,7 +5263,7 @@
 
   /** Join (the first time it must be tapped: phones only allow sound and microphone after a touch). */
   function walkieJoin(ch) {
-    if (W.state !== 'off') return;
+    if (W.state !== 'off' || !W.allowed) return;
     if (ch) W.ch = ch;
     W.err = ''; W.keep = true; W.state = 'connecting'; renderWalkie();
     store('att_walkie_auto', '1');   // joined once → from now on this phone joins by itself when the app opens
@@ -5532,10 +5551,12 @@
   function renderWalkie() {
     walkieBadge();
     if (S.tab !== 'walkie') return;
-    var mode = W.state === 'off' ? 'off' : 'live', root = $('wkRoot');
+    var mode = W.state !== 'off' ? 'live' : W.allowed ? 'off' : 'locked', root = $('wkRoot');
     if (!root || root.getAttribute('data-m') !== mode) {
       var h = '<div id="wkRoot" data-m="' + mode + '"><div class="card"><h2 style="margin-top:0">🎙 ' + t('Walkie-Talkie') + '</h2>';
-      if (mode === 'off') {
+      if (mode === 'locked') {
+        h += '<p class="muted">' + t('The walkie-talkie is on while you are checked in. Check in to start it; it stops when you check out.') + '</p><div id="wkErr"></div>';
+      } else if (mode === 'off') {
         h += '<p class="muted">' + t('Hold the big button to talk to your team. Listen on this screen. Keep the app open while you work.') + '</p>' +
           '<div id="wkErr"></div><button class="btn" onclick="walkieJoin()">' + t('Join') + '</button>';
       } else {
@@ -5548,7 +5569,7 @@
       $('content').innerHTML = h + '</div></div>';
     }
     $('wkErr').innerHTML = W.err ? errBox(W.err) : '';
-    if (mode === 'off') return;
+    if (mode !== 'live') return;
     var on = W.state === 'on', ch = W.info && W.info.channels || [];
     $('wkStatus').textContent = on ? '🟢 ' + t('Connected') + ' · ' + t('{n} online', { n: W.users.length }) : '🟡 ' + t('Connecting…');
     var sel = '';
