@@ -1103,6 +1103,7 @@
     if (tab !== 'live') clearTimeout(S.liveTimer);
     saveScreen();
     deskSync();
+    walkieMicSync();
   }
 
   function setLoading(msg) {
@@ -5230,7 +5231,8 @@
   var W = { ws: null, ctx: null, stream: null, node: null, ch: load('att_walkie_ch') || '', info: null, users: [], talker: null,
     state: 'off', pttDown: false, pending: false, mine: false, pre: [], acc: [], accN: 0, frameIn: 4800, nextT: 0,
     keep: false, lock: null, retry: 0, timers: {}, err: '', lastPong: 0, pingAt: 0, allowed: false, clips: [], playing: 0, clipSrc: null,
-    blocks: 0, sent: 0, level: 0, capMode: '', capFix: 0, src: null, pressId: 0 };
+    blocks: 0, sent: 0, level: 0, capMode: '', capFix: 0, src: null, pressId: 0,
+    micReady: false, micBusy: null, micTimer: 0, micFailAt: 0, micErr: '', capPref: undefined };
   var WK_WORKLET = 'class P extends AudioWorkletProcessor{process(i){var c=i[0]&&i[0][0];if(c)this.port.postMessage(c.slice(0));return true;}}registerProcessor("walkie-cap",P);';
 
   function loadWalkie() { renderWalkie(); }
@@ -5302,7 +5304,8 @@
     }
     var mic = W.stream ? Promise.resolve() :
       navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
-        .then(function (s) { W.stream = s; return walkieCapture(); });
+        .then(function (s) { W.stream = s; return walkieCapture(W.capPref); }).then(function () { W.micReady = true; });
+    if (W.stream && !W.micReady) mic = mic.then(function () { W.micReady = true; });
     mic.then(walkieConnect).catch(function (e) {
       var n = e && e.name;
       walkieFail(n === 'NotAllowedError' || n === 'SecurityError' ? t('The microphone is blocked. Allow the microphone for this app and try again.')
@@ -5350,6 +5353,7 @@
     var steps = [['processor', false], ['worklet', true], ['processor', true]];
     if (!W.stream || W.capFix >= steps.length) return;
     var st = steps[W.capFix++];
+    W.capPref = st[0];
     try { W.ctx.resume(); } catch (e) {}
     walkieCapture(st[0], st[1]).then(function () { walkieDiag(); }).catch(function () {});
   }
@@ -5361,6 +5365,71 @@
     var quiet = W.sent > 8 && W.level < 0.004;
     el.textContent = (quiet ? '⚠ ' + t('No sound from the microphone. ') : '') +
       (W.ctx ? W.ctx.state + ' · ' + W.ctx.sampleRate + ' Hz · ' : '') + (W.capMode || '?') + ' · ' + W.sent;
+  }
+
+  /* ---------------- Microphone only when needed ----------------
+   * The microphone is held only while the Walkie screen is on (phone: the Walkie tab; computer: the open panel), so it is
+   * ready before the talk button can be pressed (nothing is clipped) and free for other apps (a WhatsApp call, say) the
+   * rest of the time. On Android it is also let go while someone else is talking, so the phone plays them on the
+   * loudspeaker and not in "call" mode. Listening never needs the microphone.
+   */
+  var WK_ANDROID = /Android/i.test(navigator.userAgent || '');
+  function wkUiVisible() { return isDesk() ? !!S.wkOpen : S.tab === 'walkie'; }
+  function walkieMicWanted() {
+    if (W.state !== 'on' || document.hidden || !wkUiVisible()) return false;
+    return !(WK_ANDROID && W.talker && !W.mine);
+  }
+  function walkieMicOpen() {
+    if (W.stream && W.micReady) return Promise.resolve();
+    if (W.micBusy) return W.micBusy;
+    if (!W.ctx || !navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) return Promise.reject(new Error('no microphone'));
+    W.micBusy = (W.stream ? Promise.resolve() : navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } })
+      .then(function (st) { W.stream = st; }))
+      .then(function () { return walkieCapture(W.capPref); })
+      .then(function () {
+        W.micBusy = null;
+        if (!walkieMicWanted() && !W.pttDown && !W.mine && !W.pending) { walkieMicClose(); return; }   // not needed any more
+        W.micReady = true; W.micErr = ''; renderWalkie();
+      }).catch(function (e) {
+        W.micBusy = null; W.micReady = false; W.micFailAt = Date.now();
+        try { if (W.stream) W.stream.getTracks().forEach(function (x) { x.stop(); }); } catch (x) {} W.stream = null;
+        var n = e && e.name;
+        W.micErr = n === 'NotAllowedError' || n === 'SecurityError' ? t('The microphone is blocked. Allow the microphone for this app and try again.')
+          : t('Could not start the microphone.') + ' ' + ((e && e.message) || '');
+        renderWalkie();
+      });
+    return W.micBusy;
+  }
+  function walkieMicClose() {
+    clearTimeout(W.micTimer); W.micTimer = 0;
+    try { if (W.node) W.node.disconnect(); } catch (e) {} W.node = null;
+    try { if (W.src) W.src.disconnect(); } catch (e) {} W.src = null;
+    if (W.stream) { try { W.stream.getTracks().forEach(function (x) { x.stop(); }); } catch (e) {} W.stream = null; }
+    W.micReady = false; W.acc = []; W.accN = 0;
+  }
+  /** Opens or lets go of the microphone to match whether it is needed now. */
+  function walkieMicSync() {
+    if (W.state !== 'on' || !W.ctx) return;
+    var busy = W.pttDown || W.mine || W.pending;
+    if (walkieMicWanted() || busy) {
+      clearTimeout(W.micTimer); W.micTimer = 0;
+      if (!(W.stream && W.micReady) && !W.micBusy && Date.now() - W.micFailAt > 10000) walkieMicOpen();
+    } else if (W.stream && !W.micTimer) {
+      W.micTimer = setTimeout(function () {
+        W.micTimer = 0;
+        if (!walkieMicWanted() && !W.pttDown && !W.mine && !W.pending) { walkieMicClose(); renderWalkie(); }
+      }, WK_ANDROID && W.talker ? 0 : 1500);
+    }
+  }
+  /** Wakes the loudspeaker as soon as someone starts talking, so the first word is not lost. */
+  function wkWake() {
+    try {
+      if (!W.ctx) return;
+      W.ctx.resume();
+      var b = W.ctx.createBuffer(1, 1600, 16000), d = b.getChannelData(0);
+      for (var i = 0; i < d.length; i++) d[i] = (i % 2 ? 1 : -1) * 0.0004;
+      var src = W.ctx.createBufferSource(); src.buffer = b; src.connect(wkOut()); src.start();
+    } catch (e) { /* no sound yet */ }
   }
 
   function walkieTake(n) {
@@ -5403,7 +5472,7 @@
       W.ws = ws;
       ws.onopen = function () {
         if (W.ws !== ws) return;
-        W.state = 'on'; W.retry = 0; W.lastPong = Date.now(); W.pingAt = 0; walkieLock(); walkieBeat(); renderWalkie(); walkieHistory(); wkNative(true);
+        W.state = 'on'; W.retry = 0; W.lastPong = Date.now(); W.pingAt = 0; walkieLock(); walkieBeat(); renderWalkie(); walkieHistory(); wkNative(true); walkieMicSync();
       };
       ws.onmessage = function (e) { if (W.ws === ws) walkieMsg(e.data); };
       ws.onclose = function (e) { if (W.ws === ws) walkieClosed(e.code); };
@@ -5458,7 +5527,7 @@
     var m; try { m = JSON.parse(data); } catch (e) { return; }
     if (m.t === 'roster') W.users = m.users || [];
     else if (m.t === 'clip') { if (m.clip) { W.clips = [m.clip].concat(W.clips.filter(function (c) { return c.id !== m.clip.id; })).slice(0, 20); } }
-    else if (m.t === 'talking') { walkieClipStop(); W.talker = { id: m.id, name: m.name }; W.nextT = 0; if (S.tab !== 'walkie') wkBeep(660, 80); }
+    else if (m.t === 'talking') { walkieClipStop(); W.talker = { id: m.id, name: m.name }; W.nextT = 0; wkWake(); if (S.tab !== 'walkie') wkBeep(660, 80); }
     else if (m.t === 'idle') { W.talker = null; W.nextT = 0; }
     else if (m.t === 'granted') {
       if (W.pending && W.pttDown) {
@@ -5473,7 +5542,7 @@
     } else if (m.t === 'busy') {
       if (W.pending) { W.pending = false; W.pttDown = false; W.pre = []; wkBeep(220, 160); toast(t('{name} is talking', { name: m.name })); }
     }
-    renderWalkie();
+    renderWalkie(); walkieMicSync();
   }
 
   /** Address of the relay for plain requests (the saved-messages list and audio). */
@@ -5542,7 +5611,7 @@
     var f = wkDecode(u8), b = W.ctx.createBuffer(1, f.length, 16000);
     b.copyToChannel(f, 0);
     var s = W.ctx.createBufferSource(); s.buffer = b; s.connect(wkOut());
-    var now = W.ctx.currentTime, at = Math.max(now + 0.15, W.nextT || 0);
+    var now = W.ctx.currentTime, at = W.nextT ? Math.max(now + 0.15, W.nextT) : now + 0.25;
     if (at - now > 0.7) return;   // more than 0.7 s behind (network stall): drop this part so the voice catches up and stays live
     s.start(at); W.nextT = at + f.length / 16000;
   }
@@ -5553,6 +5622,7 @@
     if (W.talker) { wkBeep(220, 160); toast(t('{name} is talking', { name: W.talker.name })); return; }
     try { W.ctx.resume(); } catch (e) {}
     if (W.ctx.state !== 'running') { toast(t('Sound is switching on. Let go, then press and hold again.')); return; }
+    if (!W.micReady) { W.micFailAt = 0; walkieMicOpen(); renderWalkie(); return; }   // not ready yet: it starts now, wait for the button to say Hold to talk
     walkieClipStop();
     var press = ++W.pressId, b0 = W.blocks; W.sent = 0; W.level = 0;
     var watch = function () {   // no microphone data at all after the press → try the next method
@@ -5595,6 +5665,7 @@
     if (W.ctx) { try { W.ctx.close(); } catch (e) {} W.ctx = null; }
     if (W.lock) { try { W.lock.release(); } catch (e) {} W.lock = null; }
     W.users = []; W.talker = null; W.pttDown = W.pending = W.mine = false; W.pre = []; W.acc = []; W.accN = 0;
+    clearTimeout(W.micTimer); W.micTimer = 0; W.micBusy = null; W.micReady = false; W.micErr = '';
     W.clips = []; W.playing = 0; W.clipSrc = null; W.info = null; W.src = null; W.capFix = 0;
     wkNative(false);
   }
@@ -5613,6 +5684,7 @@
   });
 
   document.addEventListener('visibilitychange', function () {
+    walkieMicSync();
     if (document.hidden || !W.keep) return;
     try { if (W.ctx) W.ctx.resume(); } catch (e) {}
     walkieLock();
@@ -5634,7 +5706,7 @@
   }
   function wkToggle(open) {
     S.wkOpen = open === undefined ? !S.wkOpen : !!open;
-    wkBubbleSync(); renderWalkie();
+    wkBubbleSync(); renderWalkie(); walkieMicSync();
   }
   function wkBubbleSync() {
     var on = isDesk() && S.token, b = $('wkBubble'), p = $('wkPanel');
@@ -5697,7 +5769,7 @@
       }
       host.innerHTML = h + '</div></div>';
     }
-    $('wkErr').innerHTML = W.err ? errBox(W.err) : '';
+    $('wkErr').innerHTML = W.err || W.micErr ? errBox(W.err || W.micErr) : '';
     if (mode !== 'live') return;
     var on = W.state === 'on', ch = W.info && W.info.channels || [];
     $('wkStatus').textContent = on ? '🟢 ' + t('Connected') + ' · ' + t('{n} online', { n: W.users.length }) : '🟡 ' + t('Connecting…');
@@ -5712,8 +5784,8 @@
     var banner = soundOff ? '🔇 ' + t('Tap anywhere once to switch the sound on') : !on ? '' : W.mine ? '🎙 ' + t('You are talking') : W.pending ? '…' : W.talker ? '🔊 ' + t('{name} is talking', { name: W.talker.name }) : t('Hold the button to talk');
     $('wkBanner').textContent = banner;
     var btn = $('pttBtn');
-    btn.className = 'ptt' + (W.mine || W.pending ? ' on' : !on || W.talker ? ' off' : '');
-    btn.textContent = W.mine ? t('Talking…') : W.pending ? '…' : t('Hold to talk');
+    btn.className = 'ptt' + (W.mine || W.pending ? ' on' : !on || W.talker || !W.micReady ? ' off' : '');
+    btn.textContent = W.mine ? t('Talking…') : W.pending ? '…' : on && !W.micReady && !W.micErr ? t('Starting microphone…') : t('Hold to talk');
     $('wkUsers').innerHTML = W.users.map(function (u) {
       return '<span class="wk-chip' + (W.talker && W.talker.id === u.id ? ' talk' : '') + '">' + esc(u.name) + '</span>';
     }).join('');
