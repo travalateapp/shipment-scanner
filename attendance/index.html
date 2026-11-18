@@ -220,6 +220,19 @@
     .ptt.off { background: #9aa3b2; }
     .wk-chip { display: inline-block; padding: 4px 10px; margin: 3px; border-radius: 999px; background: #eef1f7; font-size: 13px; }
     .wk-chip.talk { background: var(--brand); color: #fff; }
+    .wk-bubble { position: fixed; right: 18px; bottom: 24px; width: 52px; height: 52px; border-radius: 50%; background: var(--brand); color: #fff;
+      display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 14px rgba(0,0,0,.28); cursor: pointer;
+      z-index: 40; user-select: none; touch-action: none; }
+    .wk-bubble.off { background: #9aa3b5; } .wk-bubble.conn { background: #e0a100; } .wk-bubble.me { background: var(--red); }
+    .wk-bubble.talk { background: #2f5fe3; animation: wkpulse 1s infinite; }
+    .wk-bubble .wk-dot { display: none; position: absolute; top: 3px; right: 3px; width: 12px; height: 12px; border-radius: 50%; background: #2ecc71; border: 2px solid #fff; }
+    .wk-bubble.on .wk-dot { display: block; }
+    @keyframes wkpulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(47,95,227,.55); } 50% { box-shadow: 0 0 0 10px rgba(47,95,227,0); } }
+    .wk-panel { position: fixed; right: 18px; width: 340px; overflow: auto; background: #fff; border: 1px solid var(--line); border-radius: 16px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.22); z-index: 41; padding: 2px 10px 10px; }
+    .wk-panel .wk-x { position: absolute; top: 8px; right: 10px; background: none; border: 0; font-size: 22px; line-height: 1; color: var(--muted); cursor: pointer; }
+    .wk-panel .card { box-shadow: none; border: 0; padding: 8px 4px; margin: 0; }
+    body:not(.desk) .wk-bubble, body:not(.desk) .wk-panel, #appView.hidden ~ .wk-bubble, #appView.hidden ~ .wk-panel { display: none !important; }
     .wk-meter { height: 6px; border-radius: 3px; background: #e6e9f0; margin: 8px 24px 4px; overflow: hidden; }
     .wk-meter i { display: block; height: 100%; width: 0; background: var(--brand); transition: width .08s; }
     .wk-clip { display: flex; align-items: center; gap: 10px; padding: 10px 4px; border-bottom: 1px solid #e6e9f0; cursor: pointer; }
@@ -314,7 +327,6 @@
     body.desk.panel #content.wrap { margin-right: 436px; }
     body.desk #content.cols #adminBody, body.desk #content.cols.mine { columns: 2 460px; column-gap: 18px; }
     body.desk #content.cols #adminBody > *, body.desk #content.cols.mine > * { break-inside: avoid; }
-    body.desk #wkRoot { max-width: 520px; }
     body.desk #content.cols #adminBody > .dfull { column-span: all; }
     /* Pop-ups become a panel on the right; the page next to it stays usable. */
     body.desk .modal { background: transparent; pointer-events: none; justify-content: flex-end; align-items: stretch; z-index: 20; }
@@ -1073,6 +1085,7 @@
   }
 
   function go(tab, noHistory) {
+    if (tab === 'walkie' && isDesk()) { S.wkOpen = true; if (!S.tab) go('home', true); wkBubbleSync(); renderWalkie(); return; }
     if (!noHistory && S.tab !== tab && S.token) navPush();
     S.tab = tab;
     Array.prototype.forEach.call(document.querySelectorAll('.nav button'), function (b) {
@@ -4708,8 +4721,7 @@
       { k: 'a:summary', ic: '📊', l: 'Monthly summary', p: 'viewSummary' }, { k: 'a:pf', ic: '🏛', l: 'PF setup', p: 'editPf' }]],
     ['People', [{ k: 'a:staff', ic: '👥', l: 'Employees', p: 'manageEmployees' }, { k: 'a:holidays', ic: '🎉', l: 'Holidays & short days', p: 'manageHolidays' },
       { k: 'a:admins', ic: '🛡', l: 'Admins & speed', p: 'superAdmin' }, { k: 'a:log', ic: '🕘', l: 'Activity log', p: 'superAdmin' }]],
-    ['Me', [{ k: 'home', ic: '⏱', l: 'My attendance', me: 1 }, { k: 'month', ic: '📅', l: 'My month', me: 1 }, { k: 'requests', ic: '✉️', l: 'My requests', me: 1 },
-      { k: 'walkie', ic: '🎙', l: 'Walkie-talkie', me: 1 }]]
+    ['Me', [{ k: 'home', ic: '⏱', l: 'My attendance', me: 1 }, { k: 'month', ic: '📅', l: 'My month', me: 1 }, { k: 'requests', ic: '✉️', l: 'My requests', me: 1 }]]
   ];
   function dItems() {
     var guard = S.home && S.home.guard, out = [];
@@ -4742,6 +4754,7 @@
     deskSync();
   }
   function deskSync() {
+    wkBubbleSync();
     if (!isDesk() || !S.token) return;
     var key = dKey(), cur = null, p = S.profile || {};
     var html = '<div class="logo"><i>🦶</i><div>' + esc((S.home && S.home.company) || 'Attendance') + '<small>Attendance &amp; Payroll</small></div></div>';
@@ -5600,6 +5613,52 @@
     if (!W.ws || W.ws.readyState > 1) { W.retry = 0; walkieConnect(); }
   });
 
+  /* ---- Computer: floating bubble (bottom right, moves only up and down) that opens the Walkie panel ---- */
+  function wkBottom() {
+    var b = +S.wkBottom; if (!(b >= 0)) { b = +load('att_wk_bottom'); if (!(b >= 0)) b = 24; }
+    return S.wkBottom = Math.max(16, Math.min(window.innerHeight - 70, b));
+  }
+  function wkPlace() {
+    var b = $('wkBubble'), p = $('wkPanel'); if (!b) return;
+    var bot = wkBottom(), above = window.innerHeight - (bot + 60) - 16, below = bot - 8 - 16;
+    b.style.bottom = bot + 'px';
+    if (!p || p.classList.contains('hidden')) return;
+    if (above >= below) { p.style.top = 'auto'; p.style.bottom = (bot + 60) + 'px'; p.style.maxHeight = Math.max(200, above) + 'px'; }
+    else { p.style.bottom = 'auto'; p.style.top = (window.innerHeight - bot + 8) + 'px'; p.style.maxHeight = Math.max(200, below) + 'px'; }
+  }
+  function wkToggle(open) {
+    S.wkOpen = open === undefined ? !S.wkOpen : !!open;
+    wkBubbleSync(); renderWalkie();
+  }
+  function wkBubbleSync() {
+    var on = isDesk() && S.token && !(S.home && S.home.guard), b = $('wkBubble'), p = $('wkPanel');
+    if (!on) { if (b) b.classList.add('hidden'); if (p) p.classList.add('hidden'); return; }
+    if (!b) {
+      b = document.createElement('div'); b.id = 'wkBubble'; b.className = 'wk-bubble'; b.innerHTML = '<span>🎙</span><i class="wk-dot"></i>';
+      p = document.createElement('div'); p.id = 'wkPanel'; p.className = 'wk-panel hidden';
+      p.innerHTML = '<button class="wk-x" onclick="wkToggle(false)" title="Close">×</button><div id="wkHost"></div>';
+      document.body.appendChild(b); document.body.appendChild(p);
+      var d = null;
+      b.addEventListener('pointerdown', function (e) { d = { y: e.clientY, b: wkBottom(), moved: false }; try { b.setPointerCapture(e.pointerId); } catch (x) {} });
+      b.addEventListener('pointermove', function (e) {
+        if (!d) return; var dy = e.clientY - d.y;
+        if (Math.abs(dy) > 4) d.moved = true;
+        if (d.moved) { S.wkBottom = d.b - dy; wkPlace(); }   // only up and down: the sideways position never changes
+      });
+      b.addEventListener('pointerup', function () {
+        if (!d) return; var moved = d.moved; d = null;
+        if (moved) store('att_wk_bottom', String(Math.round(wkBottom()))); else wkToggle();
+      });
+      window.addEventListener('resize', function () { wkPlace(); });
+    }
+    b.classList.remove('hidden'); p.classList.toggle('hidden', !S.wkOpen);
+    var st = !W.allowed ? 'off' : W.state === 'off' ? 'off' : W.state !== 'on' ? 'conn' : W.mine || W.pending ? 'me' : W.talker ? 'talk' : 'on';
+    b.className = 'wk-bubble ' + st;
+    b.title = st === 'talk' ? t('{name} is talking', { name: W.talker.name }) : st === 'me' ? t('You are talking') : st === 'on' ? t('Walkie-talkie') + ' · ' + t('Connected')
+      : st === 'conn' ? t('Connecting…') : t('Walkie-talkie') + (W.allowed ? '' : ' · ' + t('Check in to start it'));
+    wkPlace();
+  }
+
   /** Dot on the Walkie tab while someone else is talking and you are on another screen. */
   function walkieBadge() {
     var b = $('walkieBadge'); if (!b) return;
@@ -5611,10 +5670,12 @@
    * replaced while a finger is on it.
    */
   function renderWalkie() {
-    walkieBadge();
-    if (S.tab !== 'walkie') return;
+    walkieBadge(); wkBubbleSync();
+    // Phone: the Walkie tab. Computer: the panel that opens from the floating bubble.
+    var host = isDesk() ? (S.wkOpen ? $('wkHost') : null) : (S.tab === 'walkie' ? $('content') : null);
+    if (!host) return;
     var mode = W.state !== 'off' ? 'live' : W.allowed ? 'off' : 'locked', root = $('wkRoot');
-    if (!root || root.getAttribute('data-m') !== mode) {
+    if (!root || root.getAttribute('data-m') !== mode || root.parentNode !== host) {
       var h = '<div id="wkRoot" data-m="' + mode + '"><div class="card"><h2 style="margin-top:0">🎙 ' + t('Walkie-Talkie') + '</h2>';
       if (mode === 'locked') {
         h += '<p class="muted">' + t('The walkie-talkie is on while you are checked in. Check in to start it; it stops when you check out.') + '</p><div id="wkErr"></div>';
@@ -5628,7 +5689,7 @@
           '<h3 style="margin:16px 0 6px">' + t('Recent messages') + '</h3><div id="wkClips"></div>' +
           '<div id="wkErr"></div>' + (wkApk() ? '' : '<button class="btn ghost" style="margin-top:14px" onclick="walkieLeave()">' + t('Leave') + '</button>');
       }
-      $('content').innerHTML = h + '</div></div>';
+      host.innerHTML = h + '</div></div>';
     }
     $('wkErr').innerHTML = W.err ? errBox(W.err) : '';
     if (mode !== 'live') return;
