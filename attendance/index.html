@@ -1230,7 +1230,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261072;
+  var NEEDS_SERVER = 20261073;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -2692,6 +2692,7 @@
     adminLoading();
     var sentAt = Date.now();
     api('proxyList', S.token).then(function (r) {
+      walkieGuard(r);
       S.proxy = { data: r, filter: '', pos: S.proxy && S.proxy.pos, loadedAt: Date.now(),
         phoneEpoch: Math.round((sentAt + Date.now()) / 2) };
       renderProxy();
@@ -2943,7 +2944,7 @@
       : api('proxyCheckOut', S.token, p.id, pos.lat, pos.lng, pos.accuracy, phoneClock(), photo, face);
     call.then(function (res) {
       K.recent[p.id] = Date.now(); K.busy = false;
-      S.proxy.data.list = res.list;
+      S.proxy.data.list = res.list; walkieGuard(res);
       var what = res.again ? t('back in at {t}', { t: res.time }) : mode === 'in' ? t('checked in at {t}', { t: res.time }) + (res.late ? t(' (Late)') : '')
         : t('checked out at {t}', { t: res.time });
       kioskMsg('ok big', '✓ ' + esc(p.name) + '<br><small>' + what + '</small>');
@@ -3007,7 +3008,7 @@
       : api('proxyCheckOut', S.token, e.id, p.lat, p.lng, p.accuracy, phoneClock());
     call.then(function (r) {
       if (mode === 'in') { S.pxPhoto = null; closeModal(); }
-      S.proxy.data.list = r.list;
+      S.proxy.data.list = r.list; walkieGuard(r);
       renderProxyList();
       toast(again ? t('{n} back in at {t}', { n: e.name, t: r.time }) : mode === 'in' ? t('{n} checked in at {t}', { n: e.name, t: r.time }) + (r.late ? t(' (Late)') : '')
         : t('{n} checked out at {t} · {w}', { n: e.name, t: r.time, w: hrs(r.worked) }));
@@ -5248,16 +5249,21 @@
    * so the first touch anywhere in the app switches the sound on.
    */
   /**
-   * Who has the Walkie-talkie: everyone (Super Admins too) only from check-in to check-out, never a guard.
+   * Who has the Walkie-talkie: everyone (Super Admins too) only from check-in to check-out. A guard (no check-in of their own):
+   * from checking in the first person until the last person they checked in is checked out (the server works this out: walkie).
    * Called with every fresh home-screen answer. Checking out switches it off; checking in switches it on.
    */
   function walkieSync(h) {
     if (!h || h.fromPhone || !h.profile) return;   // a saved copy of the home screen can be out of date
-    var r = h.record, ok = !h.guard && !!(r && r.in && !r.out);
+    var r = h.record, ok = h.guard ? !!h.walkie : !!(r && r.in && !r.out);   // guard: from the first person they check in to the last person they check out
     var was = W.allowed; W.allowed = ok;
     if (ok) { if (W.state === 'off' && !W.err) walkieAuto(); }
     else if (W.state !== 'off') { W.keep = false; W.state = 'off'; W.err = ''; walkieStop(); }
     if (ok !== was || !ok) renderWalkie();
+  }
+  /** A guard's marking answers (list / check-in / check-out) say whether the guard's Walkie-talkie should be on. */
+  function walkieGuard(r) {
+    if (r && typeof r.walkie === 'boolean' && S.profile && S.profile.role === 'GUARD') walkieSync({ profile: S.profile, guard: true, walkie: r.walkie });
   }
   // Check-outs / check-ins done elsewhere (a guard, an admin) are noticed within 10 minutes, also with the app closed.
   setInterval(function () {
@@ -5631,7 +5637,7 @@
     wkBubbleSync(); renderWalkie();
   }
   function wkBubbleSync() {
-    var on = isDesk() && S.token && !(S.home && S.home.guard), b = $('wkBubble'), p = $('wkPanel');
+    var on = isDesk() && S.token, b = $('wkBubble'), p = $('wkPanel');
     if (!on) { if (b) b.classList.add('hidden'); if (p) p.classList.add('hidden'); return; }
     if (!b) {
       b = document.createElement('div'); b.id = 'wkBubble'; b.className = 'wk-bubble'; b.innerHTML = '<span>🎙</span><i class="wk-dot"></i>';
@@ -5678,7 +5684,7 @@
     if (!root || root.getAttribute('data-m') !== mode || root.parentNode !== host) {
       var h = '<div id="wkRoot" data-m="' + mode + '"><div class="card"><h2 style="margin-top:0">🎙 ' + t('Walkie-Talkie') + '</h2>';
       if (mode === 'locked') {
-        h += '<p class="muted">' + t('The walkie-talkie is on while you are checked in. Check in to start it; it stops when you check out.') + '</p><div id="wkErr"></div>';
+        h += '<p class="muted">' + t('The walkie-talkie is on while you are checked in. Check in to start it; it stops when you check out. (Guards: it starts when you check in the first person and stops when the last person you checked in is checked out.)') + '</p><div id="wkErr"></div>';
       } else if (mode === 'off') {
         h += '<p class="muted">' + t('Hold the big button to talk to your team. Listen on this screen. Keep the app open while you work.') + '</p>' +
           '<div id="wkErr"></div><button class="btn" onclick="walkieJoin()">' + t('Join') + '</button>';

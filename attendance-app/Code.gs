@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261072;
+const SERVER_VERSION = 20261073;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -628,7 +628,7 @@ function getHome(token) {
   const emp = auth_(token, true);
   if (emp.role === 'GUARD') {
     // No attendance of their own: the app opens straight on Mark Attendance.
-    return { profile: profile_(emp), company: getSettings_().company, guard: true, pendingRequests: 0, adminMissed: 0, celebration: celebrationOn_(todayStr_()), birthday: birthdayOn_(todayStr_(), emp) };
+    return { profile: profile_(emp), company: getSettings_().company, guard: true, walkie: guardWalkieOn_(emp), pendingRequests: 0, adminMissed: 0, celebration: celebrationOn_(todayStr_()), birthday: birthdayOn_(todayStr_(), emp) };
   }
   sweepOpenEntries_();
   const s = getSettings_();
@@ -1238,6 +1238,22 @@ function cancelRequest(token, id) {
 
 /* ---------------- Marking attendance for others (no phone) ---------------- */
 
+/**
+ * Walkie-talkie for a guard (who has no check-in of their own): on from the moment they check in the first person today
+ * until the last person they checked in is checked out. True while someone whose latest check-in was marked by this guard
+ * today is still in (no check-out yet).
+ */
+function guardWalkieOn_(guard) {
+  const today = todayStr_(), id = String(guard.id).toUpperCase();
+  return readAttendance_().some(r => {
+    if (r.date !== today || !r.in || r.out) return false;
+    const marks = String(r.note || '').match(/Check-in marked by .+? \(([^()]+)\)(?= · |$)/g);
+    if (!marks) return false;
+    const last = /\(([^()]+)\)$/.exec(marks[marks.length - 1]);   // the latest check-in mark decides who the person belongs to
+    return !!last && last[1].toUpperCase() === id;
+  });
+}
+
 /** Employees this admin / guard may check in or out today, with their status. */
 function proxyList(token) {
   const ctx = authAdmin_(token, 'markOthers');
@@ -1246,7 +1262,7 @@ function proxyList(token) {
   const offType = offType_(today, s, getHolidays_());
   const att = readAttendance_();
   return {
-    date: today, offType: offType,
+    date: today, offType: offType, walkie: ctx.emp.role === 'GUARD' ? guardWalkieOn_(ctx.emp) : false,
     raised: raisedRequests_(ctx.emp), requestBackDays: s.requestBackDays, // time corrections this guard asked for
     office: { radius: s.radius, maxAccuracy: s.maxAccuracy,
       lat: isFinite(s.officeLat) ? s.officeLat : null, lng: isFinite(s.officeLng) ? s.officeLng : null },
@@ -1278,7 +1294,8 @@ function proxyCheckIn(token, empId, lat, lng, accuracy, phoneClock, photoDataUrl
   const again = cur && cur.in && cur.out; // back after going out: the first check-in already has the photo
   if (!again && !/^data:image\//.test(String(photoDataUrl || ''))) throw new Error('Take a photo of ' + emp.name + ' to check them in.');
   const r = checkInCore_(emp, s, checkLocation_(s, lat, lng, accuracy), photoDataUrl, ctx.emp, face);
-  return Object.assign(r, { list: proxyList(token).list });
+  const pl = proxyList(token);
+  return Object.assign(r, { list: pl.list, walkie: pl.walkie });
 }
 
 function proxyCheckOut(token, empId, lat, lng, accuracy, phoneClock, photo, face) {
@@ -1288,7 +1305,8 @@ function proxyCheckOut(token, empId, lat, lng, accuracy, phoneClock, photo, face
   checkPhoneClock_(s, phoneClock);
   // Location is always required when marking for someone else.
   const r = checkOutCore_(emp, s, checkLocation_(s, lat, lng, accuracy), ctx.emp, photo, face);
-  return Object.assign(r, { list: proxyList(token).list });
+  const pl = proxyList(token);
+  return Object.assign(r, { list: pl.list, walkie: pl.walkie });
 }
 
 /**
