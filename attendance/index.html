@@ -5230,12 +5230,12 @@
    * so the first touch anywhere in the app switches the sound on.
    */
   /**
-   * Who has the Walkie-talkie: Super Admins always; everyone else only from check-in to check-out (and never a guard).
+   * Who has the Walkie-talkie: everyone (Super Admins too) only from check-in to check-out, never a guard.
    * Called with every fresh home-screen answer. Checking out switches it off; checking in switches it on.
    */
   function walkieSync(h) {
     if (!h || h.fromPhone || !h.profile) return;   // a saved copy of the home screen can be out of date
-    var r = h.record, ok = h.profile.role === 'SUPER_ADMIN' || (!h.guard && !!(r && r.in && !r.out));
+    var r = h.record, ok = !h.guard && !!(r && r.in && !r.out);
     var was = W.allowed; W.allowed = ok;
     if (ok) { if (W.state === 'off' && !W.err) walkieAuto(); }
     else if (W.state !== 'off') { W.keep = false; W.state = 'off'; W.err = ''; walkieStop(); }
