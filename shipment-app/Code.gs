@@ -4939,9 +4939,15 @@ function mineBoxPatterns_(poNumber, platform) {
       const codes=Object.keys(reduced);
       if (!codes.length) return; // nothing in this box relevant to the current PO
       touchedThisShipment=true;
+      // A box only counts as "solo" if it held ONE SKU in real life. After
+      // dropping SKUs that aren't in this PO, a mixed box can also look
+      // like a single-SKU box — its small piece of this SKU must not be
+      // learned as that SKU's usual box size (e.g. TR-1415 came out as 50
+      // instead of its real 100).
+      const origSkuCount=new Set((box.items||[]).filter(it=>(parseInt(it.qty,10)||0)>0).map(it=>(it.sku||"").toString().trim())).size;
       codes.forEach(ic=>{
         (anyQtyByItem[ic]=anyQtyByItem[ic]||[]).push(reduced[ic]);
-        if (codes.length===1) (soloQtyByItem[ic]=soloQtyByItem[ic]||[]).push(reduced[ic]);
+        if (codes.length===1 && origSkuCount===1) (soloQtyByItem[ic]=soloQtyByItem[ic]||[]).push(reduced[ic]);
       });
       const key=codes.slice().sort().join('|');
       (patternOccurrences[key]=patternOccurrences[key]||[]).push(reduced);

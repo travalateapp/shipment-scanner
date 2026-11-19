@@ -1115,7 +1115,7 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
 
 <!-- ====== SUGGEST BOXES MODAL ====== -->
 <div id="suggestBoxesModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10400;align-items:center;justify-content:center" onclick="if(event.target===this)closeSuggestBoxesModal_()">
-  <div style="background:#fff;border-radius:14px;width:min(700px,96vw);max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+  <div style="background:#fff;border-radius:14px;width:min(860px,96vw);max-height:92vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,.4)">
     <div style="background:linear-gradient(135deg,#1a1a2e,#0f3460);color:#fff;padding:16px 20px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
       <div style="font-weight:700;font-size:16px">💡 Suggested Box Layout</div>
       <button class="btn btn-secondary btn-sm" onclick="closeSuggestBoxesModal_()">✕</button>
@@ -8965,11 +8965,12 @@ function renderSuggestModal_(res,poNum,platform) {
   }
   const ref=res.reference;
   const unassigned=res.unassigned||[];
-  let boxRows=res.boxes.map((box,bi)=>{
-    const itemRows=box.items.map(it=>`<tr><td style="padding:3px 8px;font-size:12px">${it.sku}</td><td style="padding:3px 8px;font-size:11px;color:#64748b">${it.upc}</td><td style="padding:3px 8px;text-align:center;font-weight:700">${it.qty}</td></tr>`).join('');
-    const total=box.items.reduce((s,it)=>s+it.qty,0);
-    return`<div style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden"><div style="background:#f8fafc;padding:8px 12px;font-weight:600;font-size:13px">Box ${box.boxNumber}  -  ${box.items.length} SKUs, ${total} units</div><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f1f5f9"><th style="padding:4px 8px;text-align:left;font-size:11px">SKU</th><th style="padding:4px 8px;text-align:left;font-size:11px">UPC</th><th style="padding:4px 8px;text-align:center;font-size:11px">Qty</th></tr></thead><tbody>${itemRows}</tbody></table></div>`;
-  }).join('');
+  // The popup is editable (delete a row, change a qty), so the layout lives
+  // in window.__pendingSuggestion_ as a working copy; suggestRender_ draws
+  // the box list from it and Apply / Generate Outputs read it back.
+  window.__pendingSuggestion_=(res.boxes||[]).map(b=>({items:b.items.map(it=>({sku:it.sku,upc:it.upc,qty:it.qty,weightPerUnit:it.weightPerUnit,inPo:true}))}));
+  suggestRenumber_();
+  window.__suggestStock_={};
   let unassignedHtml='';
   if(unassigned.length)unassignedHtml=`<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:14px"><div style="font-weight:600;color:#c2410c;margin-bottom:6px">⚠️ No packing history found for these PO items  -  add manually:</div>${unassigned.map(u=>`<div style="font-size:12px">${u.sku||('Item '+u.itemCode)}  -  ${u.qty} units</div>`).join('')}</div>`;
   // AI badge: aiUsed true → Gemini actually proposed the layout (auto-
@@ -8979,13 +8980,126 @@ function renderSuggestModal_(res,poNum,platform) {
   const aiBadgeHtml = res.aiUsed
     ? `<div style="background:#eef2ff;border:1px solid #c7d2fe;border-radius:8px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:#3730a3"><strong>🤖 AI-assisted (Gemini)</strong>${res.aiNote ? ' — '+res.aiNote : ''}${res.aiPatchedItems ? ' <span style="color:#64748b">('+res.aiPatchedItems+' item(s) auto-corrected to match the exact PO balance)</span>' : ''}</div>`
     : `<div style="background:#f1f5f9;border:1px solid #e2e8f0;border-radius:8px;padding:8px 14px;margin-bottom:10px;font-size:12px;color:#475569"><strong>📊 Suggestion from past packed boxes</strong> — each SKU uses its usual box size; leftovers are combined into mixed boxes. Please check before applying.</div>`;
-  window.__pendingSuggestion_=res.boxes;
   window.__pendingUnassigned_=unassigned;
   window.__pendingPlatform_=platform;
-  body.innerHTML=`${aiBadgeHtml}<div style="background:#ecfdf5;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:14px"><div style="font-weight:700;color:#166534;margin-bottom:4px">📦 ${res.totalBoxes} box(es) suggested  -  ${ref.overlapPct}% of PO items have packing history</div><div style="font-size:12px;color:#166534">Learned from <strong>${ref.shipmentsUsed}</strong> past ${platformLabel} shipment(s) across all warehouses (Faridabad, Kundli and Jaipur not counted), most recently ${ref.mostRecentDate ? formatDDMMYYYY_(ref.mostRecentDate) : ' - '}. SKUs not in this PO were dropped from historical boxes; quantities are scaled to remaining PO balance.</div></div>${unassignedHtml}<div style="max-height:380px;overflow-y:auto;margin-bottom:14px">${boxRows}</div><div style="display:flex;gap:10px;justify-content:flex-end"><button class="btn btn-secondary" onclick="closeSuggestBoxesModal_()">Cancel</button><button class="btn btn-success" onclick="applySuggestedBoxes_()">✅ Apply These Boxes (${res.totalBoxes})</button></div>`;
+  body.innerHTML=`${aiBadgeHtml}<div style="background:#ecfdf5;border:1px solid #86efac;border-radius:8px;padding:10px 14px;margin-bottom:14px"><div style="font-weight:700;color:#166534;margin-bottom:4px">📦 <span id="suggestBoxCountText">${res.totalBoxes}</span> box(es) suggested  -${ref.overlapPct}% of PO items have packing history</div><div style="font-size:12px;color:#166534">Learned from <strong>${ref.shipmentsUsed}</strong> past ${platformLabel} shipment(s) across all warehouses (Faridabad, Kundli and Jaipur not counted), most recently ${ref.mostRecentDate ? formatDDMMYYYY_(ref.mostRecentDate) : ' - '}. SKUs not in this PO were dropped from historical boxes; quantities are scaled to remaining PO balance.</div></div>${unassignedHtml}<div id="suggestNote" style="display:none;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:8px 12px;margin-bottom:10px;font-size:12px;color:#92400e"></div><div id="suggestBoxList" style="max-height:52vh;overflow-y:auto;margin-bottom:12px"></div><div style="position:sticky;bottom:0;background:#fff;border-top:1px solid #e2e8f0;padding:10px 0 2px;display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap"><button class="btn btn-secondary" onclick="closeSuggestBoxesModal_()">Cancel</button><button class="btn btn-success" id="suggestApplyBtn" onclick="applySuggestedBoxes_()">✅ Apply These Boxes</button><button class="btn btn-primary" id="suggestGenerateBtn" onclick="suggestGenerateOutputs_()" style="font-weight:700">✅ Generate Outputs</button></div>`;
+  suggestRender_();
 }
 
-function applySuggestedBoxes_() {
+/* ── Editable Suggested Box Layout popup ─────────────────────────────
+   window.__pendingSuggestion_ = [{boxNumber, items:[{sku,upc,qty,weightPerUnit}]}]
+   Every edit changes that array, renumbers the boxes, and redraws. */
+function suggestEsc_(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');}
+function suggestRenumber_(){(window.__pendingSuggestion_||[]).forEach((b,i)=>{b.boxNumber=i+1;});}
+function suggestShowNote_(msg){
+  const el=document.getElementById('suggestNote'); if(!el) return;
+  if(msg){el.textContent=msg;el.style.display='block';} else {el.style.display='none';}
+}
+
+function suggestRender_(){
+  const boxes=window.__pendingSuggestion_||[];
+  const list=document.getElementById('suggestBoxList'); if(!list) return;
+  list.innerHTML=boxes.map((box,bi)=>{
+    const total=box.items.reduce((s,it)=>s+it.qty,0);
+    const rows=box.items.map((it,ii)=>`<tr><td style="padding:3px 8px;font-size:12px">${suggestEsc_(it.sku)}</td><td style="padding:3px 8px;font-size:11px;color:#64748b">${suggestEsc_(it.upc)}</td><td data-stock-sku="${suggestEsc_(it.sku)}" style="padding:3px 8px;text-align:center;font-weight:700;color:#475569">…</td><td style="padding:3px 8px;text-align:center"><input type="number" min="1" value="${it.qty}" onchange="suggestEditQty_(${bi},${ii},this)" onkeydown="if(event.key==='Enter'){this.blur();}" style="width:84px;text-align:center;font-weight:700;font-size:14px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:6px"></td><td style="padding:3px 8px;text-align:center"><button class="btn btn-danger btn-sm" title="Remove this row" onclick="suggestDeleteRow_(${bi},${ii})" style="padding:3px 8px">✕</button></td></tr>`).join('');
+    return `<div style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden"><div style="background:#f8fafc;padding:8px 12px;font-weight:600;font-size:13px">Box ${box.boxNumber}  -  ${box.items.length} SKUs, ${total} units</div><table style="width:100%;border-collapse:collapse"><thead><tr style="background:#f1f5f9"><th style="padding:4px 8px;text-align:left;font-size:11px">SKU</th><th style="padding:4px 8px;text-align:left;font-size:11px">UPC</th><th style="padding:4px 8px;text-align:center;font-size:11px">Stock</th><th style="padding:4px 8px;text-align:center;font-size:11px">Qty</th><th style="padding:4px 8px;width:44px"></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  }).join('') || '<div style="padding:16px;text-align:center;color:#64748b">No boxes left. Close this window and add boxes manually.</div>';
+  const n=boxes.length;
+  const cnt=document.getElementById('suggestBoxCountText'); if(cnt) cnt.textContent=n;
+  const ap=document.getElementById('suggestApplyBtn'); if(ap) ap.textContent='✅ Apply These Boxes ('+n+')';
+  const ge=document.getElementById('suggestGenerateBtn'); if(ge) ge.disabled=!n;
+  if(ap) ap.disabled=!n;
+  suggestLoadStock_();
+  suggestPaintStock_();
+}
+
+/* Current stock per SKU (same RPC the New Shipment screen uses), fetched
+   once per SKU per popup and cached, so editing rows never re-queries. */
+function suggestLoadStock_(){
+  const cache=window.__suggestStock_=window.__suggestStock_||{};
+  const skus=[];
+  (window.__pendingSuggestion_||[]).forEach(b=>b.items.forEach(it=>{if(skus.indexOf(it.sku)===-1)skus.push(it.sku);}));
+  skus.forEach(sku=>{
+    if(Object.prototype.hasOwnProperty.call(cache,sku)) return;
+    cache[sku]='…';
+    google.script.run
+      .withSuccessHandler(res=>{cache[sku]=(res&&res.success&&res.stock!==null&&res.stock!==undefined)?res.stock:null;suggestPaintStock_();})
+      .withFailureHandler(()=>{cache[sku]=null;suggestPaintStock_();})
+      .getInventoryStockForSku(sku);
+  });
+}
+function suggestPaintStock_(){
+  const cache=window.__suggestStock_||{};
+  const packed={};
+  (window.__pendingSuggestion_||[]).forEach(b=>b.items.forEach(it=>{packed[it.sku]=(packed[it.sku]||0)+it.qty;}));
+  document.querySelectorAll('#suggestBoxList [data-stock-sku]').forEach(td=>{
+    const sku=td.getAttribute('data-stock-sku'); const v=cache[sku];
+    if(v==='…'||v===undefined){td.textContent='…';td.style.color='#475569';td.title='';return;}
+    if(v===null){td.textContent='-';td.style.color='#475569';td.title='Stock not available';return;}
+    td.textContent=v;
+    const short=packed[sku]>v;
+    td.style.color=short?'#dc2626':'#166534';
+    td.title=short?('Total in this layout ('+packed[sku]+') is more than current stock ('+v+')'):'Current stock in Inventory';
+  });
+}
+
+function suggestDeleteRow_(bi,ii){
+  const boxes=window.__pendingSuggestion_||[];
+  if(!boxes[bi]||!boxes[bi].items[ii]) return;
+  boxes[bi].items.splice(ii,1);
+  window.__pendingSuggestion_=boxes.filter(b=>b.items.length); // an empty box disappears
+  suggestRenumber_();
+  suggestShowNote_('');
+  suggestRender_();
+}
+
+/* Changing a qty keeps that SKU's total constant by moving the difference
+   to the SKU's rows BELOW it, in order. Raising 50 → 160 takes 110 from the
+   next rows of the same SKU (rows that reach 0 are deleted, empty boxes
+   vanish, boxes renumber). Lowering moves the freed units into a new box
+   right after the edited one, so the PO total stays the same. */
+function suggestEditQty_(bi,ii,el){
+  const boxes=window.__pendingSuggestion_||[];
+  const it=boxes[bi]&&boxes[bi].items[ii]; if(!it) return;
+  const old=it.qty; let nv=parseInt(el.value,10);
+  if(!(nv>0)||nv===old){suggestRender_();return;} // blank / zero / unchanged → put the old value back
+  const rows=[]; boxes.forEach((b,b_i)=>b.items.forEach((x,i_i)=>{if(x.sku===it.sku)rows.push({b:b_i,i:i_i,x});}));
+  const me=rows.findIndex(r=>r.b===bi&&r.i===ii);
+  const later=rows.slice(me+1);
+  let note='';
+  if(nv>old){
+    const laterSum=later.reduce((s,r)=>s+r.x.qty,0);
+    let need=nv-old;
+    if(need>laterSum){need=laterSum;nv=old+laterSum;note='Maximum for '+it.sku+' here is '+nv+' (all of its PO quantity); set to '+nv+'.';}
+    it.qty=nv;
+    for(const r of later){if(need<=0)break;const take=Math.min(r.x.qty,need);r.x.qty-=take;need-=take;}
+  } else {
+    const freed=old-nv; it.qty=nv;
+    boxes.splice(bi+1,0,{items:[{sku:it.sku,upc:it.upc,qty:freed,weightPerUnit:it.weightPerUnit,inPo:true}]});
+    note=freed+' unit(s) of '+it.sku+' moved to a new box right after Box '+(bi+1)+'.';
+  }
+  boxes.forEach(b=>{b.items=b.items.filter(x=>x.qty>0);});
+  window.__pendingSuggestion_=boxes.filter(b=>b.items.length);
+  suggestRenumber_();
+  suggestShowNote_(note);
+  suggestRender_();
+}
+
+/* "Generate Outputs" inside the popup: loads the (edited) boxes into the
+   New Shipment form in the background and runs the normal submitForm()
+   — so every check and the saved result are exactly the same as clicking
+   Generate Outputs there. */
+function suggestGenerateOutputs_(){
+  const un=window.__pendingUnassigned_||[];
+  if(un.length){
+    alert('These PO items have no packing history, so their boxes must be added by hand first:\n\n'+un.map(u=>(u.sku||('Item '+u.itemCode))+'  -  '+u.qty+' units').join('\n')+'\n\nClick "Apply These Boxes", add those boxes on the New Shipment screen, then click Generate Outputs there.');
+    return;
+  }
+  if(!(window.__pendingSuggestion_||[]).length){alert('There are no boxes to generate.');return;}
+  applySuggestedBoxes_(true);
+}
+
+function applySuggestedBoxes_(thenSubmit) {
   const suggestion=window.__pendingSuggestion_;
   if(!suggestion||!suggestion.length){closeSuggestBoxesModal_();return;}
   const poNum=document.getElementById('poNumber').value.trim();
@@ -8998,18 +9112,18 @@ function applySuggestedBoxes_() {
   // validation entirely with no visible error.
   if (poNum && rpc) {
     google.script.run
-      .withSuccessHandler(rawItems => { poLineItemsCache_[poCacheKey_(platform, poNum)] = parseRoResponse_(rawItems) || []; buildAppliedBoxes_(suggestion, platform); })
+      .withSuccessHandler(rawItems => { poLineItemsCache_[poCacheKey_(platform, poNum)] = parseRoResponse_(rawItems) || []; buildAppliedBoxes_(suggestion, platform, thenSubmit); })
       .withFailureHandler(err => {
         alert('Could not refresh the PO balance before applying boxes: ' + err.message + '\n\nApplying with the last-known balance instead.');
-        buildAppliedBoxes_(suggestion, platform);
+        buildAppliedBoxes_(suggestion, platform, thenSubmit);
       })
       [rpc.lineItems](poNum);
   } else {
-    buildAppliedBoxes_(suggestion, platform);
+    buildAppliedBoxes_(suggestion, platform, thenSubmit);
   }
 }
 
-function buildAppliedBoxes_(suggestion, platform) {
+function buildAppliedBoxes_(suggestion, platform, thenSubmit) {
   try {
     document.getElementById('boxContainer').innerHTML=''; boxCount=0;
     // upcField matches SKU_MASTER's own per-platform UPC column name in
@@ -9053,6 +9167,7 @@ function buildAppliedBoxes_(suggestion, platform) {
     const extraMsg = unassignedAdded ? ' Plus '+unassignedAdded+' starter box(es) for SKUs with no packing history  -  split those into multiple boxes if needed.' : '';
     if(hint)hint.textContent='✅ '+suggestion.length+' box(es) applied.'+extraMsg+' Review before submitting.';
     showEntryAlert('✅ '+suggestion.length+' box(es) loaded from history.'+extraMsg+' Review before submitting.','success');
+    if (thenSubmit === true) submitForm(); // "Generate Outputs" pressed inside the popup — same submit as the New Shipment screen
   } catch(err) {
     console.error('applySuggestedBoxes_ failed:', err);
     alert('Could not apply the suggested boxes: ' + err.message + '\n\nPlease screenshot this message and share it  -  this is a bug, not something you did wrong.');
