@@ -8971,6 +8971,7 @@ function renderSuggestModal_(res,poNum,platform) {
   window.__pendingSuggestion_=(res.boxes||[]).map(b=>({items:b.items.map(it=>({sku:it.sku,upc:it.upc,qty:it.qty,weightPerUnit:it.weightPerUnit,inPo:true}))}));
   suggestRenumber_();
   window.__suggestStock_={};
+  window.__suggestAdd_=null;
   let unassignedHtml='';
   if(unassigned.length)unassignedHtml=`<div style="background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:10px 14px;margin-bottom:14px"><div style="font-weight:600;color:#c2410c;margin-bottom:6px">⚠️ No packing history found for these PO items  -  add manually:</div>${unassigned.map(u=>`<div style="font-size:12px">${u.sku||('Item '+u.itemCode)}  -  ${u.qty} units</div>`).join('')}</div>`;
   // AI badge: aiUsed true → Gemini actually proposed the layout (auto-
@@ -9002,7 +9003,7 @@ function suggestRender_(){
   list.innerHTML=boxes.map((box,bi)=>{
     const total=box.items.reduce((s,it)=>s+it.qty,0);
     const rows=box.items.map((it,ii)=>`<tr><td style="padding:3px 8px;font-size:12px">${suggestEsc_(it.sku)}</td><td style="padding:3px 8px;font-size:11px;color:#64748b">${suggestEsc_(it.upc)}</td><td data-stock-sku="${suggestEsc_(it.sku)}" style="padding:3px 8px;text-align:center;font-weight:700;color:#475569">…</td><td style="padding:3px 8px;text-align:center"><input type="number" min="1" value="${it.qty}" onchange="suggestEditQty_(${bi},${ii},this)" onkeydown="if(event.key==='Enter'){this.blur();}" style="width:84px;text-align:center;font-weight:700;font-size:14px;padding:3px 4px;border:1px solid #cbd5e1;border-radius:6px"></td><td style="padding:3px 8px;text-align:center"><button class="btn btn-danger btn-sm" title="Remove this row" onclick="suggestDeleteRow_(${bi},${ii})" style="padding:3px 8px">✕</button></td></tr>`).join('');
-    return `<div style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden"><div style="background:#f8fafc;padding:8px 12px;font-weight:600;font-size:13px">Box ${box.boxNumber}  -  ${box.items.length} SKUs, ${total} units</div><table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead><tr style="background:#f1f5f9"><th style="padding:4px 8px;text-align:left;font-size:11px;width:34%">SKU</th><th style="padding:4px 8px;text-align:left;font-size:11px;width:22%">UPC</th><th style="padding:4px 8px;text-align:center;font-size:11px;width:14%">Stock</th><th style="padding:4px 8px;text-align:center;font-size:11px;width:20%">Qty</th><th style="padding:4px 8px;width:10%"></th></tr></thead><tbody>${rows}</tbody></table></div>`;
+    return `<div style="border:1px solid #e2e8f0;border-radius:8px;margin-bottom:8px;overflow:hidden"><div style="background:#f8fafc;padding:8px 12px;font-weight:600;font-size:13px;display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap"><span>Box ${box.boxNumber}  -  ${box.items.length} SKUs, ${total} units</span><span style="display:flex;gap:6px"><button class="btn btn-secondary btn-sm" title="Add another SKU to this box" onclick="suggestOpenAdd_(${bi},'sku')" style="padding:3px 9px">+ SKU</button><button class="btn btn-secondary btn-sm" title="Add a new box right below this one" onclick="suggestOpenAdd_(${bi},'box')" style="padding:3px 9px">+ Box below</button></span></div><table style="width:100%;border-collapse:collapse;table-layout:fixed"><thead><tr style="background:#f1f5f9"><th style="padding:4px 8px;text-align:left;font-size:11px;width:34%">SKU</th><th style="padding:4px 8px;text-align:left;font-size:11px;width:22%">UPC</th><th style="padding:4px 8px;text-align:center;font-size:11px;width:14%">Stock</th><th style="padding:4px 8px;text-align:center;font-size:11px;width:20%">Qty</th><th style="padding:4px 8px;width:10%"></th></tr></thead><tbody>${rows}</tbody></table>${suggestAddFormHtml_(bi)}</div>`;
   }).join('') || '<div style="padding:16px;text-align:center;color:#64748b">No boxes left. Close this window and add boxes manually.</div>';
   const n=boxes.length;
   const cnt=document.getElementById('suggestBoxCountText'); if(cnt) cnt.textContent=n;
@@ -9011,6 +9012,7 @@ function suggestRender_(){
   if(ap) ap.disabled=!n;
   suggestLoadStock_();
   suggestPaintStock_();
+  suggestAddSkuChanged_(); // fills the default qty in an open "add" form
 }
 
 /* Current stock per SKU (same RPC the New Shipment screen uses), fetched
@@ -9046,6 +9048,7 @@ function suggestPaintStock_(){
 function suggestDeleteRow_(bi,ii){
   const boxes=window.__pendingSuggestion_||[];
   if(!boxes[bi]||!boxes[bi].items[ii]) return;
+  window.__suggestAdd_=null;
   boxes[bi].items.splice(ii,1);
   window.__pendingSuggestion_=boxes.filter(b=>b.items.length); // an empty box disappears
   suggestRenumber_();
@@ -9061,6 +9064,7 @@ function suggestDeleteRow_(bi,ii){
 function suggestEditQty_(bi,ii,el){
   const boxes=window.__pendingSuggestion_||[];
   const it=boxes[bi]&&boxes[bi].items[ii]; if(!it) return;
+  window.__suggestAdd_=null;
   const old=it.qty; let nv=parseInt(el.value,10);
   if(!(nv>0)||nv===old){suggestRender_();return;} // blank / zero / unchanged → put the old value back
   const rows=[]; boxes.forEach((b,b_i)=>b.items.forEach((x,i_i)=>{if(x.sku===it.sku)rows.push({b:b_i,i:i_i,x});}));
@@ -9083,6 +9087,98 @@ function suggestEditQty_(bi,ii,el){
   suggestRenumber_();
   suggestShowNote_(note);
   suggestRender_();
+}
+
+/* ── Add a SKU to a box / add a new box below a box ──────────────────
+   Only SKUs that are on this PO can be added. Quantity comes first from the
+   SKU's unpacked PO balance; if the SKU is already placed in other boxes,
+   the rest is taken from those rows, last box first, so the PO total stays
+   the same (rows that reach 0 vanish, boxes renumber). */
+function suggestSkuInfo_(sku){
+  const platform=(window.__pendingPlatform_||'').toLowerCase();
+  const s=(skuData||[]).find(x=>x.sku===sku)||{};
+  return {upc:((s[platform]||'')+'').trim(), weight:s.weight||0};
+}
+function suggestPoRemaining_(){
+  const platform=(window.__pendingPlatform_||'').toLowerCase();
+  const poNum=document.getElementById('poNumber').value.trim();
+  const items=poLineItemsCache_[poCacheKey_(platform,poNum)];
+  if(!items) return null;
+  const idField=skuItemIdField_(platform); const map={};
+  items.forEach(it=>{
+    const code=((it.upc||'')+'').trim();
+    const s=(skuData||[]).find(x=>x[idField]&&(x[idField]+'').trim()===code);
+    if(s) map[s.sku]=Math.max(0,it.remaining||0);
+  });
+  return map;
+}
+function suggestPacked_(){
+  const packed={};
+  (window.__pendingSuggestion_||[]).forEach(b=>b.items.forEach(x=>{packed[x.sku]=(packed[x.sku]||0)+x.qty;}));
+  return packed;
+}
+/* SKUs offered in the dropdown, with how many are still unpacked in the PO. */
+function suggestAddOptions_(bi,mode){
+  const boxes=window.__pendingSuggestion_||[]; const po=suggestPoRemaining_(); const packed=suggestPacked_();
+  const inBox=(mode==='sku'&&boxes[bi])?boxes[bi].items.map(x=>x.sku):[];
+  const platform=(window.__pendingPlatform_||'').toLowerCase(); const idField=skuItemIdField_(platform);
+  const names=po?Object.keys(po):(skuData||[]).filter(s=>s.sku&&s[idField]).map(s=>s.sku);
+  return names.filter(n=>inBox.indexOf(n)===-1).sort().map(n=>({sku:n,free:po?Math.max(0,(po[n]||0)-(packed[n]||0)):null}));
+}
+function suggestOpenAdd_(bi,mode){
+  window.__suggestAdd_={bi,mode};
+  suggestShowNote_('');
+  suggestRender_();
+  const sel=document.getElementById('suggestAddSku'); if(sel) sel.focus();
+}
+function suggestCancelAdd_(){window.__suggestAdd_=null;suggestShowNote_('');suggestRender_();}
+function suggestAddFormHtml_(bi){
+  const st=window.__suggestAdd_; if(!st||st.bi!==bi) return '';
+  const opts=suggestAddOptions_(bi,st.mode);
+  const title=st.mode==='sku'?('Add a SKU to Box '+(bi+1)):('New box after Box '+(bi+1));
+  return `<div style="padding:8px 12px;background:#f0f9ff;border-top:1px solid #bae6fd;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><span style="font-size:12px;font-weight:600;color:#075985">${title}</span><select id="suggestAddSku" onchange="suggestAddSkuChanged_(true)" style="min-width:210px;padding:4px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><option value="">— select SKU —</option>${opts.map(o=>`<option value="${suggestEsc_(o.sku)}">${suggestEsc_(o.sku)}${o.free===null?'':'  ('+o.free+' unpacked)'}</option>`).join('')}</select><input type="number" id="suggestAddQty" min="1" placeholder="Qty" onkeydown="if(event.key==='Enter'){suggestCommitAdd_();}" style="width:84px;text-align:center;font-weight:700;padding:3px 4px;border:1px solid #cbd5e1;border-radius:6px"><button class="btn btn-success btn-sm" onclick="suggestCommitAdd_()" style="padding:4px 12px">Add</button><button class="btn btn-secondary btn-sm" onclick="suggestCancelAdd_()" style="padding:4px 12px">Cancel</button></div>`;
+}
+/* When a SKU is picked, pre-fill the qty with what is still unpacked. */
+function suggestAddSkuChanged_(fromUser){
+  const st=window.__suggestAdd_; if(!st) return;
+  const sel=document.getElementById('suggestAddSku'), q=document.getElementById('suggestAddQty');
+  if(!sel||!q) return;
+  if(!fromUser&&q.value) return;
+  if(!sel.value){q.value='';return;}
+  const o=suggestAddOptions_(st.bi,st.mode).find(x=>x.sku===sel.value);
+  q.value=(o&&o.free)?o.free:'';
+  if(fromUser) q.select();
+}
+function suggestCommitAdd_(){
+  const st=window.__suggestAdd_; const boxes=window.__pendingSuggestion_||[];
+  const target=st&&boxes[st.bi]; if(!target) return;
+  const sel=document.getElementById('suggestAddSku'), q=document.getElementById('suggestAddQty');
+  const sku=sel?sel.value:''; let qty=parseInt(q?q.value:'',10);
+  if(!sku){suggestShowNote_('Pick a SKU first.');return;}
+  if(!(qty>0)){suggestShowNote_('Enter a quantity above 0.');return;}
+  const info=suggestSkuInfo_(sku);
+  if(!info.upc){suggestShowNote_(sku+' has no barcode for this platform, so it cannot be added here. Add it on the New Shipment screen.');return;}
+  const po=suggestPoRemaining_(); const same=[]; let packed=0;
+  boxes.forEach(b=>b.items.forEach(x=>{if(x.sku===sku){same.push(x);packed+=x.qty;}}));
+  let free=qty; // no PO info → no cap
+  if(po){free=Math.max(0,(po[sku]||0)-packed);}
+  let note='', need=Math.max(0,qty-free);
+  if(po){
+    const avail=same.reduce((s,x)=>s+x.qty,0);
+    if(need>avail){qty=free+avail;need=avail;note='Only '+qty+' of '+sku+' is on this PO, so '+qty+' was added.';}
+    if(qty<=0){suggestShowNote_('No quantity of '+sku+' is left on this PO.');return;}
+    for(let k=same.length-1;k>=0&&need>0;k--){const t=Math.min(same[k].qty,need);same[k].qty-=t;need-=t;}
+  }
+  const newItem={sku,upc:info.upc,qty,weightPerUnit:info.weight,inPo:true};
+  if(st.mode==='sku') target.items.push(newItem);
+  // where a new box goes: after the target box, counted among the boxes that survive
+  let anchor=0; for(let i=0;i<st.bi;i++){if(boxes[i].items.some(x=>x.qty>0))anchor++;}
+  const targetAlive=target.items.some(x=>x.qty>0);
+  boxes.forEach(b=>{b.items=b.items.filter(x=>x.qty>0);});
+  const list=boxes.filter(b=>b.items.length);
+  if(st.mode==='box') list.splice(anchor+(targetAlive?1:0),0,{items:[newItem]});
+  window.__pendingSuggestion_=list; window.__suggestAdd_=null;
+  suggestRenumber_(); suggestShowNote_(note); suggestRender_();
 }
 
 /* "Generate Outputs" inside the popup: loads the (edited) boxes into the
