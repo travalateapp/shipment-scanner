@@ -5078,6 +5078,13 @@ function getSuggestedBoxLayout(poNumber, platform) {
 const BOX_SUGGESTION_MAX_PATTERNS_ = 60; // caps prompt size regardless of shipment history depth
 const BOX_SUGGESTION_PATCH_FALLBACK_RATIO_ = 0.6; // if Gemini's numbers needed correcting on more than this fraction of items, its allocation wasn't trustworthy enough to present as "AI" — use the plain statistical version instead
 
+// Gemini was inventing box layouts (e.g. mixed 34 + 20 boxes) that were never
+// packed in the warehouse's history, because reconcileAiBoxes_ only checks SKU
+// totals. Off by default: suggestions come from the statistical builder, which
+// only uses box sizes the team has really packed. The Gemini code below stays
+// intact — set this to true to bring it back.
+const BOX_SUGGESTION_USE_GEMINI_ = false;
+
 function boxSuggestionSchema_() {
   return {
     type: "OBJECT",
@@ -5231,7 +5238,7 @@ function getAiSuggestedBoxLayout(poNumber, platform) {
       aiUsed:false
     };
 
-    if (!geminiApiKey_()) return fallbackResult;
+    if (!BOX_SUGGESTION_USE_GEMINI_ || !geminiApiKey_()) return fallbackResult;
 
     // Only items with SOME packing history are worth asking Gemini
     // about — items with zero history go straight to "unassigned",
