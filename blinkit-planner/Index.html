@@ -61,6 +61,12 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .picks .chip{cursor:default}.picks .chip button{border:0;background:none;cursor:pointer;padding:0 0 0 6px;font-weight:700;color:inherit}
 .whhead{position:sticky;top:var(--stickTop,86px);z-index:5;background:var(--card);box-shadow:0 2px 4px rgba(0,0,0,.06)}
 .whhead .grp{margin:0;padding:10px 10px 6px!important}
+/* Send heading: "fill all" box + ↺ reset under the word Send. */
+.sendH{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.fillW{display:flex;gap:3px;align-items:center}
+.line .fillQ{width:58px;padding:3px 5px;font-size:11px;font-weight:600;border:1px solid var(--line);border-radius:6px;text-align:right}
+.fillR{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer;line-height:1.2}
+.fillR:hover{background:var(--chip)}
 .line .nm{font-weight:600}.line .nm small{display:block;font-weight:400;color:var(--muted);font-size:11px}
 .line input{padding:7px;text-align:right;font-weight:700}
 .line.send{background:color-mix(in srgb,var(--okbg) 45%,transparent)}
@@ -540,7 +546,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 tab-center';
+  var PAGE_BUILD = '2026-11-20 fill-all';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1015,13 +1021,21 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!rows.length) { box.innerHTML = '<div class="muted" style="padding:16px">Nothing to show with these filters.</div>'; return; }
     var groups = {};
     rows.forEach(function (r) { var k = r.wh + '||' + (r.group || '?'); (groups[k] = groups[k] || []).push(r); });
-    var head = '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right">Has now</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div><div class="right">Send</div><div class="right">Days after</div></div>';
+    // Send heading of each block: a small "fill all" box and a ↺ reset (both left out of the Tab order).
+    var head = function (gi) {
+      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right">Has now</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
+        '<div class="sendH"><span>Send</span><span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
+        '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
+        '<div class="right">Days after</div></div>';
+    };
+    var blocks = [];
     var html = '';
     Object.keys(groups).sort().forEach(function (k) {
       var rs = groups[k], p = k.split('||');
       rs.sort(function (a, b) { return (S.final[b.key] || 0) - (S.final[a.key] || 0) || (a.daysNow || 999) - (b.daysNow || 999); });
       var u = rs.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0);
-      html += '<section class="whsec"><div class="whhead"><div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head + '</div>';
+      var gi = blocks.push(rs.map(function (r) { return r.key; })) - 1;
+      html += '<section class="whsec"><div class="whhead"><div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head(gi) + '</div>';
       rs.forEach(function (r) {
         var q = S.final[r.key] || 0, after = daysAfter(r, q);
         var over = q > r.max || (q > 0 && r.locked);
@@ -1044,6 +1058,33 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     });
     box.innerHTML = html;
     setStickTop();
+    var byKey = {}; S.plan.forEach(function (r) { byKey[r.key] = r; });
+    var fillBlock = function (gi, v) {
+      blocks[gi].forEach(function (k) {
+        var r = byKey[k]; if (!r || r.locked) return;
+        var q = Math.min(v, r.max); // never above Blinkit's max for that line
+        S.final[k] = q; S.edited[k] = q;
+      });
+      renderLines(); renderBar(); toast('Filled ' + v + ' in every Send box of this block' + (blocks[gi].some(function (k) { return byKey[k] && v > byKey[k].max; }) ? ' (Blinkit max where lower)' : '') + '.');
+    };
+    var resetBlock = function (gi) {
+      blocks[gi].forEach(function (k) {
+        var r = byKey[k]; if (!r) return;
+        delete S.edited[k];
+        S.final[k] = r.locked ? 0 : r.rec + (S.starters ? r.starter : 0);
+      });
+      renderLines(); renderBar(); toast('Quantities of this block are back to the suggestion.');
+    };
+    box.onkeydown = function (e) {
+      if (!e.target.classList.contains('fillQ') || e.key !== 'Enter') return;
+      e.preventDefault();
+      if (e.target.value === '') return;
+      fillBlock(Number(e.target.getAttribute('data-g')), Math.max(0, Math.round(Number(e.target.value) || 0)));
+    };
+    box.onclick = function (e) {
+      var b = e.target.closest('.fillR'); if (!b) return;
+      resetBlock(Number(b.getAttribute('data-g')));
+    };
     box.oninput = function (e) {
       if (!e.target.classList.contains('q')) return;
       var k = e.target.closest('.line').getAttribute('data-k');
