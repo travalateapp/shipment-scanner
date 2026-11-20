@@ -1048,50 +1048,67 @@ function saveSettings(token, s) {
 }
 
 /**
- * Reads which block (TBI / TBO / TBG) each item sits in on the newest month tab that has items, and compares it
- * with the SKU list. An item in different blocks at different warehouses takes the block it is in most often.
+ * Reads the newest month tab that has items and compares it with the SKU list:
+ *  - Group = the block (TBI / TBO / TBG) the item sits in; Tier = column C of its rows (L1–L4 …). When an item
+ *    differs between warehouses, the value it has most often wins (a tie keeps the SKU list's value).
+ *  - Clashes = an item listed in two different group blocks of the SAME warehouse (fix those in the sheet).
  * apply = false only lists the changes; apply = true also saves them.
  */
 function groupsFromMonthTab(token, apply) {
   auth_(token, 'Admin');
   const tabs = monthTabs_();
-  let tab = null, counts = null;
+  let tab = null, seen = null;
   for (let t = 0; t < tabs.length && !tab; t++) {
-    const v = tabs[t].sheet.getRange(1, 1, Math.max(1, tabs[t].sheet.getLastRow()), 2).getValues();
+    const sh = tabs[t].sheet;
+    const v = sh.getRange(1, 1, Math.max(1, sh.getLastRow()), 3).getValues();
     const c = {};
-    let group = '';
+    let group = '', wh = '';
     v.forEach(r => {
       const a = typeof r[0] === 'string' ? r[0].trim() : r[0];
       const m = typeof a === 'string' ? a.match(BLOCK_RE) : null;
-      if (m) group = m[2];
-      else if (group && typeof a === 'number' && a > 1000) {
-        const k = String(a);
-        c[k] = c[k] || { TBI: 0, TBO: 0, TBG: 0, sku: r[1] === '' ? '' : String(r[1]) };
-        c[k][group]++;
-      }
+      if (m) { wh = m[1].trim(); group = m[2]; return; }
+      if (!group || typeof a !== 'number' || a <= 1000) return;
+      const k = String(a);
+      const x = c[k] = c[k] || { groups: {}, tiers: {}, sku: '', where: {} };
+      if (!x.sku && r[1] !== '') x.sku = String(r[1]);
+      x.groups[group] = (x.groups[group] || 0) + 1;
+      const tier = String(r[2] == null ? '' : r[2]).trim();
+      if (tier) x.tiers[tier] = (x.tiers[tier] || 0) + 1;
+      (x.where[wh] = x.where[wh] || []).indexOf(group) < 0 && x.where[wh].push(group);
     });
-    if (Object.keys(c).length) { tab = tabs[t]; counts = c; }
+    if (Object.keys(c).length) { tab = tabs[t]; seen = c; }
   }
-  if (!tab) return { tab: '', changes: [] };
-  const skus = getSkus_(), byItem = {};
-  skus.forEach(s => { byItem[String(s.item)] = s; });
-  const changes = [];
-  Object.keys(counts).forEach(k => {
-    const c = counts[k];
+  if (!tab) return { tab: '', changes: [], clashes: [] };
+
+  const pick = (counts, cur) => {
     let best = '';
-    GROUPS.forEach(g => { if (c[g] && (!best || c[g] > c[best])) best = g; });
-    const s = byItem[k];
-    const cur = s ? s.group : '';
-    if (best && best !== cur && !(c[cur] && c[cur] === c[best])) {
-      const where = GROUPS.filter(g => c[g]).map(g => g + ' ×' + c[g]).join(', ');
-      changes.push({ item: Number(k), sku: s ? s.sku : c.sku, from: cur, to: best, where: where,
-        row: s ? { item: s.item, sku: s.sku, name: s.name, group: best, tier: s.tier, active: s.active }
-               : { item: Number(k), sku: c.sku, name: '', group: best, tier: '', active: true } });
-    }
+    Object.keys(counts).forEach(k => { if (!best || counts[k] > counts[best]) best = k; });
+    return cur && counts[cur] && counts[cur] === counts[best] ? cur : best;
+  };
+  const byItem = {};
+  getSkus_().forEach(s => { byItem[String(s.item)] = s; });
+  const changes = [], clashes = [];
+  Object.keys(seen).sort().forEach(k => {
+    const x = seen[k], s = byItem[k];
+    const curG = s ? s.group : '', curT = s ? String(s.tier || '').trim() : '';
+    const g = pick(x.groups, curG) || curG, t = pick(x.tiers, curT) || curT;
+    Object.keys(x.where).forEach(w => {
+      if (x.where[w].length > 1) clashes.push({ item: Number(k), sku: s ? s.sku : x.sku, wh: w, groups: x.where[w].join(' + ') });
+    });
+    if (g === curG && t === curT && s) return;
+    changes.push({
+      item: Number(k), sku: s ? s.sku : x.sku, from: curG, to: g, fromTier: curT, toTier: t,
+      where: GROUPS.filter(q => x.groups[q]).map(q => q + ' ×' + x.groups[q]).join(', ') +
+        (Object.keys(x.tiers).length > 1 ? ' · tiers ' + Object.keys(x.tiers).map(q => q + ' ×' + x.tiers[q]).join(', ') : ''),
+      row: s ? { item: s.item, sku: s.sku, name: s.name, group: g, tier: t, active: s.active }
+             : { item: Number(k), sku: x.sku, name: '', group: g, tier: t, active: true },
+    });
   });
   if (apply && changes.length) saveSkus(token, changes.map(x => x.row));
-  return { tab: tab.name, changes: changes.map(x => ({ item: x.item, sku: x.sku, from: x.from, to: x.to, where: x.where })),
-    applied: !!apply, skus: apply ? getSkus_() : undefined };
+  return {
+    tab: tab.name, applied: !!apply, clashes: clashes, skus: apply ? getSkus_() : undefined,
+    changes: changes.map(x => ({ item: x.item, sku: x.sku, from: x.from, to: x.to, fromTier: x.fromTier, toTier: x.toTier, where: x.where })),
+  };
 }
 
 /** rows = [{ item, sku, name, group, tier, active }] — adds or updates by Item ID. */
