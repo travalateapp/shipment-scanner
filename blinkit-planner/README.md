@@ -86,9 +86,8 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 | Target | Stock now + incoming + this RO ≈ **daily sales × (Days of cover (26) + days since the stock date)**, so the RO still covers 26 days from today. The **stock date** is the Inventory's *generated at* date − 1 (a file generated 29 Oct counts stock as of 28 Oct). *Days now*, *Days after* and the Dashboard's *Days* = days of stock − days since the stock date, so the Dashboard counts down by one every day. |
 | Stock now | **Total sellable** from the Inventory (Formula Sheet): warehouse + in-between + darkstore. The Bulk RO file's *Sellable Quantity* isn't used. Note: if an RO is received after the Inventory snapshot but before the Bulk RO download, it's in neither figure, and the plan asks for it again. Download both close together. |
 | Incoming | Blinkit's *Incoming Quantity*, **plus** RO Log lines Blinkit can't know about yet. That means *Planned* ROs, and *Created* ROs saved after the Bulk RO file was downloaded. So an RO is never counted twice, and never forgotten. |
-| Daily sales | 50% last 7 days + 30% last 15 days + 20% last 30 days. |
-| Recently listed | All sales in the last 7 days → the 7-day rate only. 90%+ of sales in the last 15 days → 60% × 7-day + 40% × 15-day. Days before the listing don't pull the rate down. |
-| Ran low | If stock is under 7 days of 30-day sales and the last week dropped, at least the 15/30-day average is used, because a stock-out hides demand. |
+| Daily sales (Per day) | The **highest** of: last 7 days ÷ 7, last 15 days ÷ 15, last 30 days ÷ 30, **rounded up** to a whole unit. E.g. 37 / 41 / 64 sold → 5.29, 2.73, 2.13 → **6 a day**. |
+| Recently listed | Shown as *New listing (≤7 / ≤15 days)*. Taking the highest average already keeps the days before the listing from pulling the rate down. |
 | Limits | Rounded up to multiples of 5, at least 10 units per line, never above Blinkit's max. Locked rows get 0 and are listed with Blinkit's reason. |
 | Not live yet | Not sent unless **New-listing starters** is on. Then a small starter qty is suggested (half a typical warehouse's need, up to Blinkit's suggested min) for items that sell 1+ a day elsewhere. |
 
