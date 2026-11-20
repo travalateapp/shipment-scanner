@@ -552,7 +552,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 dash-first';
+  var PAGE_BUILD = '2026-11-20 android';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1287,6 +1287,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   function saveBlob(blob, name) {
+    // Inside the Android app the in-app browser cannot save downloads: hand the file to the app (→ Downloads).
+    if (window.PlannerApp && window.PlannerApp.saveFile) {
+      var rd = new FileReader();
+      rd.onload = function () { window.PlannerApp.saveFile(String(rd.result).split(',')[1], name, blob.type || 'application/octet-stream'); };
+      rd.readAsDataURL(blob);
+      return;
+    }
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
     document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
   }
@@ -1301,7 +1308,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Plan');
-    XLSX.writeFile(wb, 'Blinkit_Plan_' + today() + '.xlsx');
+    var out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveBlob(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Blinkit_Plan_' + today() + '.xlsx');
   }
 
   /* ======================= RO Log ======================= */
@@ -1787,9 +1795,31 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (S.plan && S.draftOk === false && Object.keys(S.edited || {}).length) { e.preventDefault(); e.returnValue = ''; }
   });
 
+  // Android app's Back button: close a pop-up, else go back to the Dashboard; '' = nothing left (app may exit).
+  window.appBack = function () {
+    if (!$('modal').classList.contains('hidden')) { closeModal(); return 'handled'; }
+    if (S.boot && S.tab !== 'dash' && $('nav') && !$('nav').classList.contains('hidden')) { go('dash'); return 'handled'; }
+    return '';
+  };
+
+  /** Outside Apps Script (GitHub Pages copy, Android app) the page needs the planner's link once. */
+  function showSetup(note) {
+    $('app').innerHTML = '<div class="card login"><h2>Connect the planner</h2>' + (note ? msgs([note], 'warn') : '') +
+      '<div class="small muted">Paste the planner\'s web-app link (Apps Script → Deploy → Manage deployments → Web app URL, ending in /exec) or just its Deployment ID (AKfycb…). Asked only once.</div>' +
+      '<div style="height:8px"></div><input type="text" id="setupId" placeholder="https://script.google.com/macros/s/AKfycb…/exec" autocomplete="off">' +
+      '<div style="height:10px"></div><button class="btn p" id="setupGo" style="width:100%">Continue</button></div>';
+    $('setupGo').onclick = function () {
+      var v = $('setupId').value.trim(), m = v.match(/\/macros\/s\/([A-Za-z0-9_-]+)/), id = m ? m[1] : v;
+      if (!/^[A-Za-z0-9_-]{40,}$/.test(id)) { showSetup('That does not look like the planner link or a Deployment ID.'); return; }
+      store('bp_api', id); showLogin();
+    };
+  }
+
   /* ---------------- start ---------------- */
   if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') {
     $('app').innerHTML = '<div class="card msg bad">Could not load the Excel tools (no internet?). Reload the page.</div>';
+  } else if (!IN_APPS_SCRIPT && !serverUrl()) {
+    showSetup();
   } else if (S.token) {
     refreshBoot().then(startApp, function (e) { if (S.token) $('app').innerHTML = msgs([e.message + ' — reload the page to try again.'], 'bad'); });
   } else {

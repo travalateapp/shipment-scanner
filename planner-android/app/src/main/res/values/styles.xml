@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="AppTheme" parent="@android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorPrimary">#1A1A2E</item>
+        <item name="android:colorPrimaryDark">#1A1A2E</item>
+        <item name="android:colorAccent">#0F3460</item>
+        <item name="android:statusBarColor">#1A1A2E</item>
+        <item name="android:windowBackground">@color/bg</item>
+    </style>
+    <color name="bg">#F4F6FA</color>
+    <!-- Yellow behind the Travalate logo, so it is told apart from the Attendance app (white). -->
+    <color name="icon_bg">#F8CB2E</color>
+</resources>
