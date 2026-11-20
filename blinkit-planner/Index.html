@@ -556,6 +556,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /** Items are shown by SKU and Item ID only (no product names). */
   function skuText(sku, item) { return (sku ? String(sku) : 'No SKU') + ' · ' + item; }
   function skuOf(item) { var x = (S.boot.skus || []).filter(function (s) { return s.item === Number(item); })[0]; return x ? x.sku : ''; }
+  function groupList() { var g = S.boot && S.boot.groups ? Object.keys(S.boot.groups) : []; return g.length ? g : ['TBI', 'TBO', 'TBG']; }
   function groupName(g) { return (S.boot && S.boot.groups && S.boot.groups[g]) || (g || 'No group'); }
   function msgs(list, cls) { return (list || []).map(function (w) { return '<div class="msg ' + (cls || 'warn') + '">' + esc(w) + '</div>'; }).join(''); }
 
@@ -834,14 +835,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="chips" id="whChips"><span class="chip' + (S.filter.wh ? '' : ' on') + '" data-wh="">All<b>' + fmt(t.units) + '</b></span>' +
       whs.map(function (w) { var x = t.byWh[w]; return '<span class="chip' + (S.filter.wh === w ? ' on' : '') + '" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '<b>' + (x ? fmt(x.units) : 0) + '</b></span>'; }).join('') +
       '</div><div class="row" style="margin-top:10px">' +
-      '<div><label class="f">Group</label><select id="fGroup"><option value="">TBI + TBO</option><option value="TBI"' + (S.filter.group === 'TBI' ? ' selected' : '') + '>' + esc(groupName('TBI')) + '</option><option value="TBO"' + (S.filter.group === 'TBO' ? ' selected' : '') + '>' + esc(groupName('TBO')) + '</option><option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
+      '<div><label class="f">Group</label><select id="fGroup"><option value="">' + esc(groupList().join(' + ')) + '</option>' + groupList().map(function (g) { return '<option value="' + g + '"' + (S.filter.group === g ? ' selected' : '') + '>' + esc(groupName(g)) + '</option>'; }).join('') + '<option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
       '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (S.filter.only ? '' : ' selected') + '>All items</option></select></div>' +
       '<div class="srch"><label class="f">Search — pick one or more SKUs</label><input type="text" id="fQ" autocomplete="off" placeholder="SKU or item ID, Enter to add" value="' + esc(S.filter.q) + '"><div class="sugg hidden" id="fSugg"></div></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bClr" title="Clear all filters">✕ Clear</button></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bXls">⬇ Plan (Excel)</button></div></div>' +
       '<div class="picks" id="fPicks"></div>' +
       msgs(info, 'info') +
-      (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no TBI/TBO group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
+      (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
       (locked.length ? '<div class="msg warn"><b>Needed but locked on Blinkit (' + locked.length + '):</b> ' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div>' : '') +
       '</div><div class="card" style="padding:0 0 4px" id="lines"></div>';
     out.innerHTML = html;
@@ -1023,7 +1024,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var lines = S.plan.filter(function (r) { return (S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0; });
       if (!lines.length) return;
       var noGroup = lines.filter(function (r) { return !r.group; });
-      if (noGroup.length) { $('cOut').innerHTML = msgs([noGroup.length + ' line(s) have no TBI/TBO group. Set it in Settings → SKUs (admin), then try again.'], 'bad'); return; }
+      if (noGroup.length) { $('cOut').innerHTML = msgs([noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group. Set it in Settings → SKUs (admin), then try again.'], 'bad'); return; }
       $('cGo').disabled = true; $('cGo').innerHTML = '<span class="spin"></span> Saving…';
       api('createROs', S.token, {
         lines: lines.map(function (r) { return { wh: r.wh, item: r.item, sku: r.sku, name: r.name, group: r.group, qty: S.final[r.key] }; }),
@@ -1226,7 +1227,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var notes = [];
       if (!d.totalOk) notes.push(['bad', 'The items add up to ' + d.sum + ' but the PDF says Total Quantity ' + d.total + '. Check the PDF before saving.']);
       if (!d.wh) notes.push(['warn', 'Warehouse "' + d.whRaw + '" is not one of the sheet\'s warehouses — choose it below.']);
-      if (noGroup.length) notes.push(['bad', 'No TBI/TBO group yet for ' + noGroup.map(function (l) { return skuText((m[l.item] || {}).sku, l.item); }).join(', ') + '. An admin sets it in Settings → SKUs, then save.']);
+      if (noGroup.length) notes.push(['bad', 'No ' + groupList().join('/') + ' group yet for ' + noGroup.map(function (l) { return skuText((m[l.item] || {}).sku, l.item); }).join(', ') + '. An admin sets it in Settings → SKUs, then save.']);
       if (mt) notes.push(['info', 'This is the planner\'s RO of ' + prettyDate(mt.roDate) + ' for this warehouse: the RO number is added to it, no new RO.' +
         (mt.diffs.length ? ' Quantities change to the PDF\'s: ' + mt.diffs.map(function (x) { return skuText((m[x.item] || {}).sku, x.item) + ' ' + x.from + ' → ' + x.to; }).join(', ') + '.' : '')]);
       else if (d.wh && e.state === 'ready') notes.push(['info', 'Saved as a new RO (Created) dated ' + prettyDate(d.roDate) + (S.pdfLogOnly ? ' — RO Log only (Log only is ticked).' : ' — into the RO Log and the month tab.')]);
@@ -1273,7 +1274,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="pdfLogOnly"' + (S.pdfLogOnly ? ' checked' : '') + '> <b>Log only</b> — these ROs are already typed into the month tab by hand (don\'t write them there again)</label>' +
       '<div style="margin:10px 0"><button class="btn g hidden" id="pdfAll">Save all</button></div><div id="pdfList"></div></div>' +
       '<details class="card"><summary style="cursor:pointer;font-weight:700">Add an RO by hand instead</summary><div style="margin-top:10px">' +
-      '<div class="small muted">It goes into the RO Log and the month tab like the planner\'s ROs. Items of both groups split into a TBI and a TBO RO automatically.</div>' +
+      '<div class="small muted">It goes into the RO Log and the month tab like the planner\'s ROs. Items of different groups (' + groupList().join(' / ') + ') split into one RO per group automatically.</div>' +
       '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Warehouse</label><select id="mWh"><option value="">Choose…</option>' + whs.map(function (w) { return '<option>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
       '<div><label class="f">RO date</label><input type="date" id="mDate" value="' + today() + '"></div>' +
@@ -1334,7 +1335,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var err = [];
       if (!wh) err.push('Choose the warehouse.');
       if (!lines.length) err.push('Add at least one item with a quantity.');
-      lines.forEach(function (l) { var s = m[Number(l.item)]; if (!s) err.push('Item ' + l.item + ' is not in the SKU list.'); else if (!s.group) err.push('Item ' + l.item + ' has no TBI/TBO group.'); });
+      lines.forEach(function (l) { var s = m[Number(l.item)]; if (!s) err.push('Item ' + l.item + ' is not in the SKU list.'); else if (!s.group) err.push('Item ' + l.item + ' has no ' + groupList().join('/') + ' group.'); });
       if (err.length) { $('mOut').innerHTML = msgs(err, 'bad'); return; }
       $('mSave').disabled = true;
       api('createROs', S.token, {
@@ -1416,7 +1417,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="row" style="margin-top:10px"><div><label class="f">Month</label><input type="month" id="sMonth" value="' + nextMonth + '"></div>' +
       '<div style="flex:0 0 auto"><button class="btn p" id="sStartM">Start new month</button></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="sSync">Sync month tabs</button></div></div><div id="mOut2"></div></div>' +
-      '<div class="card"><h2>SKUs</h2><div class="small muted">Group decides the TBI / TBO block an item goes into. New items from Blinkit are added here automatically with no group.</div>' +
+      '<div class="card"><h2>SKUs</h2><div class="small muted">Group decides the ' + esc(groupList().join(' / ')) + ' block an item goes into. New items from Blinkit are added here automatically with no group.</div>' +
+      '<div class="row" style="margin:8px 0"><div style="flex:0 0 auto"><button class="btn" id="kFromTab">Take groups from the month tab</button></div><div class="small muted" style="align-self:center">Reads which block each item is in on the newest month tab and shows what would change before saving.</div></div><div id="kTabOut"></div>' +
       '<div class="row" style="margin:8px 0"><div><input type="text" id="kQ" placeholder="Search"></div><div style="flex:0 0 auto"><label class="small"><input type="checkbox" id="kNo"> only items with no group</label></div></div>' +
       '<div class="scroll"><table class="t" id="kTab"></table></div><div id="kOut"></div><div style="margin-top:10px"><button class="btn p" id="kSave">Save SKU changes</button></div></div>';
     $('sSave').onclick = function () {
@@ -1443,7 +1445,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var e = edits[s.item] || s;
         return '<tr data-i="' + s.item + '"><td>' + s.item + '</td><td><input type="text" data-f="sku" value="' + esc(e.sku) + '" style="min-width:110px">' +
           (!s.sku && s.name ? '<div class="small muted">New on Blinkit — give it a SKU: ' + esc(s.name.replace(/^Travalate /, '')) + '</div>' : '') + '</td>' +
-          '<td><select data-f="group"><option value="">—</option><option' + (e.group === 'TBI' ? ' selected' : '') + '>TBI</option><option' + (e.group === 'TBO' ? ' selected' : '') + '>TBO</option></select></td>' +
+          '<td><select data-f="group"><option value="">—</option>' + groupList().map(function (g) { return '<option' + (e.group === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select></td>' +
           '<td><input type="text" data-f="tier" value="' + esc(e.tier) + '" style="width:70px"></td>' +
           '<td><input type="checkbox" data-f="active"' + (e.active ? ' checked' : '') + '></td></tr>';
       }).join('');
@@ -1457,6 +1459,28 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var f = e.target.getAttribute('data-f');
       base[f] = f === 'active' ? e.target.checked : e.target.value;
       edits[id] = base;
+    };
+    var afterSkus = function (skus) {
+      S.boot.skus = skus; edits = {}; draw();
+      if (S.plan) { var m = skuMap(); S.plan.forEach(function (r) { var x = m[r.item]; if (x) { r.sku = x.sku; r.group = x.group; r.tier = x.tier; } }); }
+    };
+    $('kFromTab').onclick = function () {
+      var b = this; b.disabled = true;
+      api('groupsFromMonthTab', S.token, false).then(function (r) {
+        b.disabled = false;
+        if (!r.tab) { $('kTabOut').innerHTML = msgs(['No month tab with items found.'], 'warn'); return; }
+        if (!r.changes.length) { $('kTabOut').innerHTML = msgs(['Every SKU already has the same group as in ' + r.tab + '.'], 'ok'); return; }
+        $('kTabOut').innerHTML = '<div class="msg info">' + r.changes.length + ' SKU(s) are in a different block in <b>' + esc(r.tab) + '</b>:</div>' +
+          '<div class="scroll"><table class="t"><tr><th>SKU · Item ID</th><th>Now</th><th>In ' + esc(r.tab) + '</th><th>Blocks (warehouses)</th></tr>' +
+          r.changes.map(function (c) { return '<tr><td>' + esc(skuText(c.sku, c.item)) + '</td><td>' + esc(c.from || '—') + '</td><td><b>' + esc(c.to) + '</b></td><td class="small muted">' + esc(c.where) + '</td></tr>'; }).join('') +
+          '</table></div><div style="margin-top:8px"><button class="btn p" id="kFromTabOk">Save these ' + r.changes.length + ' group change(s)</button></div>';
+        $('kFromTabOk').onclick = function () {
+          this.disabled = true;
+          api('groupsFromMonthTab', S.token, true).then(function (r2) {
+            afterSkus(r2.skus); $('kTabOut').innerHTML = msgs(['Saved ' + r2.changes.length + ' group change(s) from ' + r2.tab + '.'], 'ok');
+          }, function (e) { $('kTabOut').innerHTML = msgs([e.message], 'bad'); });
+        };
+      }, function (e) { b.disabled = false; $('kTabOut').innerHTML = msgs([e.message], 'bad'); });
     };
     $('kSave').onclick = function () {
       var rows = Object.keys(edits).map(function (k) { return edits[k]; });
