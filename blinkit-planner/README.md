@@ -9,7 +9,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - writes the quantities into the month tab (e.g. *Oct 2026*), in the **next free column D–H** of that warehouse's TBI / TBO / TBG block.
   - In the Create ROs window, choose the Excel file(s): **Merged** (ticked by default) and/or one file per group (**TBI / TBO / TBG**). Only the ticked warehouses are filled in; the file name carries the group, and the warehouse when only one is ticked.
 - **RO Log shows ROs as on Blinkit:** ROs created with the **Merged** file, or sharing one Blinkit RO number at one warehouse, are one card (e.g. *Faridabad · TBI + TBO + TBG*), saved together. In the RO Log tab and the month tab they stay one batch per group (each group's own block), as before; the RO Log tab's **Merged RO** column links them.
-- **RO Log:** every RO. Set the status (Planned → Created → Delivered, or Cancelled), and add the Blinkit RO number and appointment date. The RO heading in the month tab updates too, e.g. `RO 29 Oct / 4999… / app 2 Nov`. Changing a quantity, or cancelling a line, also changes the month tab.
+- **RO Log:** every RO. Set the status (Planned → Created, or Cancelled); the RO Log opens on Created ROs, and add the Blinkit RO number and appointment date. The RO heading in the month tab updates too, e.g. `RO 29 Oct / 4999… / app 2 Nov`. Changing a quantity, or cancelling a line, also changes the month tab.
 - **RO PDF:** upload one or more Blinkit R.O. PDFs. They're read with the same parser as the Shipment Manager (`parseBlinkitRoPdf_`, copied unchanged), and the app picks up the RO number, warehouse, RO date, expiry and each Item Code + Qty. The items are checked against the PDF's *Total Quantity*.
   - If a PDF is a planner RO that has no RO number yet (same warehouse, same items), that RO gets the number, and the PDF's quantities replace the planned ones. No second RO is made.
   - Otherwise it's saved as a new **Created** RO in the RO Log and the month tab. An RO with items of more than one group (TBI / TBO / TBG) becomes one column per group, all with the same RO number.
@@ -81,7 +81,6 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 3. Check the plan. Filter by warehouse, group or search, and change quantities if you need to. Lines above Blinkit's max are shown in red, and the RO can't be created until they're fixed.
 4. Click **Create RO file**, untick any warehouses you don't want, pick the date and status, then click **Save & download file**.
 5. Upload the downloaded file on Blinkit. Then open the **RO Log** and add the RO number and appointment date.
-6. When the stock reaches Blinkit, set the RO to **Delivered**.
 
 ### How the quantity is worked out
 
