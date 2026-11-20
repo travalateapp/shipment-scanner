@@ -536,6 +536,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
 (function () {
   'use strict';
   var API_URL = '';
+  // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
+  var PAGE_BUILD = '2026-11-20 refresh-safe';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -631,7 +633,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function startApp() {
     var b = S.boot;
     if (S.starters === null) S.starters = !!b.settings.starters;
-    $('who').innerHTML = esc(b.user.name || b.user.id) + '<br>' + esc(b.user.role);
+    $('who').innerHTML = esc(b.user.name || b.user.id) + '<br>' + esc(b.user.role) + '<br><span style="font-size:10px;opacity:.7">build ' + PAGE_BUILD + '</span>';
     var tabs = [['plan', 'New Plan'], ['log', 'RO Log'], ['add', 'RO PDF'], ['dash', 'Dashboard']];
     if (can('Admin')) tabs.push(['settings', 'Settings'], ['users', 'Users']);
     tabs.push(['account', 'Account']);
