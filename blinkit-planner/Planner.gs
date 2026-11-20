@@ -31,7 +31,8 @@ const USER_HEAD = ['User ID', 'Name', 'PIN', 'Role', 'Active'];
 const SNAP_HEAD = ['Warehouse', 'Item ID', 'Item Name', 'Group', 'Status', 'Daily Rate', 'Stock + Incoming',
   'Days Cover', 'Suggested', 'Locked', 'Has', 'Planned'];
 
-const STATUSES = ['Planned', 'Created', 'Delivered', 'Cancelled'];
+// 'Delivered' is no longer offered (Blinkit's own files show when stock arrives); old Delivered rows stay as they are.
+const STATUSES = ['Planned', 'Created', 'Cancelled'];
 const OPEN_STATUSES = ['Planned', 'Created'];
 const ROLES = ['Admin', 'Planner', 'Viewer'];
 const GROUPS = ['TBI', 'TBO', 'TBG'];
