@@ -546,7 +546,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 stable-rows';
+  var PAGE_BUILD = '2026-11-20 locked-collapsed';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -918,9 +918,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="picks" id="fPicks"></div>' +
       msgs(info, 'info') +
       (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
-      (locked.length ? '<div class="msg warn"><b>Needed but locked on Blinkit (' + locked.length + '):</b> ' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div>' : '') +
+      (locked.length ? '<details class="msg warn" id="lockedBox"' + (S.lockedOpen ? ' open' : '') + '><summary style="cursor:pointer"><b>Needed but locked on Blinkit (' + locked.length + ')</b> <span class="small">— click to ' + (S.lockedOpen ? 'hide' : 'show') + '</span></summary><div style="margin-top:6px">' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div></details>' : '') +
       '</div><div class="card" style="padding:0 0 4px" id="lines"></div>';
     out.innerHTML = html;
+    // "Needed but locked" starts collapsed; it opens on click and stays as you left it.
+    if ($('lockedBox')) $('lockedBox').addEventListener('toggle', function () {
+      S.lockedOpen = this.open;
+      var t = this.querySelector('summary .small'); if (t) t.textContent = '— click to ' + (this.open ? 'hide' : 'show');
+    });
     $('whChips').onclick = function (e) { var c = e.target.closest('.chip'); if (!c) return; S.filter.wh = c.getAttribute('data-wh'); renderPlanOut(); };
     $('fGroup').onchange = function () { S.filter.group = this.value; renderLines(); };
     $('fOnly').onchange = function () { S.filter.only = this.value === '1'; renderLines(); };
