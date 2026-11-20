@@ -546,7 +546,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 fill-all';
+  var PAGE_BUILD = '2026-11-20 ro-files';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1154,6 +1154,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="row"><div><label class="f">RO date</label><input type="date" id="cDate" value="' + today() + '"></div>' +
       '<div><label class="f">Status</label><select id="cStatus"><option>Created</option><option>Planned</option></select></div></div>' +
       '<div class="small muted" style="margin-top:6px">Created = you will upload the file to Blinkit now. Planned = not on Blinkit yet (still counted in the next plan).</div>' +
+      '<div style="margin-top:10px"><label class="f">Excel file(s) to download</label><div class="chips" id="cFiles">' +
+        '<label class="chip"><input type="checkbox" class="cf" value="ALL" checked> Merged (all groups)</label>' +
+        groupList().map(function (g) { return '<label class="chip"><input type="checkbox" class="cf" value="' + g + '"> ' + g + ' only</label>'; }).join('') +
+      '</div><div class="small muted" style="margin-top:4px">Only the ticked warehouses are in the file(s). A group file is made only when that group has lines.</div></div>' +
       '<div id="cOut"></div><div class="row" style="margin-top:12px"><button class="btn" id="cNo">Cancel</button><button class="btn g" id="cGo">Save &amp; download file</button></div>');
     $('cNo').onclick = closeModal;
     var tickAll = function (on) { return function (e) { e.preventDefault(); Array.prototype.forEach.call(document.querySelectorAll('.cw'), function (c) { c.checked = on; }); }; };
@@ -1165,30 +1169,59 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (!lines.length) return;
       var noGroup = lines.filter(function (r) { return !r.group; });
       if (noGroup.length) { $('cOut').innerHTML = msgs([noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group. Set it in Settings → SKUs (admin), then try again.'], 'bad'); return; }
+      var fileKinds = Array.prototype.filter.call(document.querySelectorAll('.cf'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+      if (!fileKinds.length) { $('cOut').innerHTML = msgs(['Tick at least one Excel file (Merged, or a group).'], 'warn'); return; }
+      var files = roFiles(lines, fileKinds, pick);
+      if (!files.length) { $('cOut').innerHTML = msgs(['None of the ticked groups has lines in the ticked warehouses.'], 'warn'); return; }
       $('cGo').disabled = true; $('cGo').innerHTML = '<span class="spin"></span> Saving…';
       api('createROs', S.token, {
         lines: lines.map(function (r) { return { wh: r.wh, item: r.item, sku: r.sku, name: r.name, group: r.group, qty: S.final[r.key] }; }),
         roDate: $('cDate').value || today(), status: $('cStatus').value, source: 'Plan'
       }).then(function (res) {
         S.boot.openROs = res.openROs;
-        return downloadBlinkitFile(lines).then(function () { return res; });
+        return downloadFiles(files).then(function () { return res; });
       }).then(function (res) {
         var ok = res.batches.map(function (b) { return b.wh + ' ' + b.group + ': ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); });
-        $('modalBox').innerHTML = '<h2>✅ Saved — file downloaded</h2>' + msgs(ok, 'ok') + msgs(res.warnings, 'warn') +
-          '<div class="msg info">Upload the downloaded file on Blinkit (Bulk RO upload). Then add the RO number and appointment in the RO Log.</div>' +
-          '<div class="row" style="margin-top:10px"><button class="btn" id="cAgain">Download file again</button><button class="btn p" id="cDone">Done</button></div>';
-        $('cAgain').onclick = function () { downloadBlinkitFile(lines); };
+        $('modalBox').innerHTML = '<h2>✅ Saved — ' + (files.length > 1 ? files.length + ' files' : 'file') + ' downloaded</h2>' + msgs(ok, 'ok') + msgs(res.warnings, 'warn') +
+          '<div class="msg info">Upload the downloaded file' + (files.length > 1 ? 's' : '') + ' on Blinkit (Bulk RO upload). Then add the RO number and appointment in the RO Log.' +
+          (files.length > 1 ? ' If the browser asked to allow several downloads and one is missing, download it again below.' : '') + '</div>' +
+          '<div style="margin-top:8px">' + files.map(function (f, i) { return '<button class="btn sm cAgain" data-i="' + i + '" style="margin:0 6px 6px 0">⬇ ' + esc(f.name) + ' (' + fmt(f.units) + ' units)</button>'; }).join('') + '</div>' +
+          '<div class="row" style="margin-top:6px"><button class="btn p" id="cDone">Done</button></div>';
+        Array.prototype.forEach.call(document.querySelectorAll('.cAgain'), function (b) { b.onclick = function () { var f = files[Number(b.getAttribute('data-i'))]; downloadBlinkitFile(f.lines, f.name); }; });
         $('cDone').onclick = function () { closeModal(); freshPlan(false); };
       }, function (e) {
         $('cGo').disabled = false; $('cGo').textContent = 'Save & download file';
         $('cOut').innerHTML = msgs([e.message], 'bad') + '<button class="btn sm" id="cOnly">Download the file without saving</button>';
-        $('cOnly').onclick = function () { downloadBlinkitFile(lines); };
+        $('cOnly').onclick = function () { downloadFiles(files); };
       });
     };
   }
 
+  /**
+   * The Excel files to make: "ALL" = one merged file, a group (TBI / TBO / TBG) = a file with only that group's lines.
+   * The name says the group, and the warehouse when only one is ticked.
+   */
+  function roFiles(lines, kinds, whs) {
+    var wh = whs.length === 1 ? '_' + whs[0].replace(/ - Feeder( Warehouse)?| Feeder$/, '').replace(/[^A-Za-z0-9]+/g, '') : '';
+    var out = [];
+    kinds.forEach(function (k) {
+      var ls = k === 'ALL' ? lines : lines.filter(function (r) { return r.group === k; });
+      if (!ls.length) return;
+      out.push({ name: 'Blinkit_Bulk_RO_' + today() + wh + (k === 'ALL' ? '' : '_' + k) + '.xlsx', lines: ls,
+        units: ls.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0) });
+    });
+    return out;
+  }
+  /** Downloads the files one after another (a short pause so the browser takes each one). */
+  function downloadFiles(files) {
+    return files.reduce(function (p, f, i) {
+      return p.then(function () { return downloadBlinkitFile(f.lines, f.name); })
+        .then(function () { return i < files.length - 1 ? new Promise(function (r) { setTimeout(r, 700); }) : null; });
+    }, Promise.resolve());
+  }
+
   /** Blinkit's own Bulk RO file with RO Quantity and Shipping Address filled in for these lines. */
-  function downloadBlinkitFile(lines) {
+  function downloadBlinkitFile(lines, name) {
     var head = S.bulk.head;
     var qCol = PlanCore.colLetter(head.indexOf('RO Quantity')), aCol = PlanCore.colLetter(head.indexOf('Shipping Address'));
     var fills = {}; lines.forEach(function (r) { fills[r.row] = S.final[r.key]; });
@@ -1207,7 +1240,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           });
         });
       });
-    }).then(function (blob) { saveBlob(blob, 'Blinkit_Bulk_RO_' + today() + '.xlsx'); });
+    }).then(function (blob) { saveBlob(blob, name || 'Blinkit_Bulk_RO_' + today() + '.xlsx'); });
   }
 
   function saveBlob(blob, name) {

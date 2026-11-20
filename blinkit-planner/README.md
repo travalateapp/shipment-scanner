@@ -7,6 +7,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - downloads **Blinkit's own Bulk RO file** with *RO Quantity* and *Shipping Address* filled in, ready to upload;
   - saves every line in the **RO Log**;
   - writes the quantities into the month tab (e.g. *Oct 2026*), in the **next free column D–H** of that warehouse's TBI / TBO / TBG block.
+  - In the Create ROs window, choose the Excel file(s): **Merged** (ticked by default) and/or one file per group (**TBI / TBO / TBG**). Only the ticked warehouses are filled in; the file name carries the group, and the warehouse when only one is ticked.
 - **RO Log:** every RO. Set the status (Planned → Created → Delivered, or Cancelled), and add the Blinkit RO number and appointment date. The RO heading in the month tab updates too, e.g. `RO 29 Oct / 4999… / app 2 Nov`. Changing a quantity, or cancelling a line, also changes the month tab.
 - **RO PDF:** upload one or more Blinkit R.O. PDFs. They're read with the same parser as the Shipment Manager (`parseBlinkitRoPdf_`, copied unchanged), and the app picks up the RO number, warehouse, RO date, expiry and each Item Code + Qty. The items are checked against the PDF's *Total Quantity*.
   - If a PDF is a planner RO that has no RO number yet (same warehouse, same items), that RO gets the number, and the PDF's quantities replace the planned ones. No second RO is made.
