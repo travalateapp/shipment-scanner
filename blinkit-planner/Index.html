@@ -546,7 +546,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 ro-files';
+  var PAGE_BUILD = '2026-11-20 log-merged';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1176,7 +1176,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('cGo').disabled = true; $('cGo').innerHTML = '<span class="spin"></span> Saving…';
       api('createROs', S.token, {
         lines: lines.map(function (r) { return { wh: r.wh, item: r.item, sku: r.sku, name: r.name, group: r.group, qty: S.final[r.key] }; }),
-        roDate: $('cDate').value || today(), status: $('cStatus').value, source: 'Plan'
+        roDate: $('cDate').value || today(), status: $('cStatus').value, source: 'Plan',
+        merged: fileKinds.indexOf('ALL') >= 0 // one Blinkit file per warehouse = one RO in the RO Log
       }).then(function (res) {
         S.boot.openROs = res.openROs;
         return downloadFiles(files).then(function () { return res; });
@@ -1270,7 +1271,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">To</label><input type="date" id="gTo" value="' + f.to + '"></div>' +
       '<div><label class="f">Warehouse</label><select id="gWh"><option value="">All</option>' + whs.map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
       '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ['Planned', 'Created', 'Delivered', 'Cancelled'].map(function (s) { return '<option' + (f.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
-      '</div></div><div id="logOut" class="muted card">Loading…</div>';
+      '</div><div class="small muted" style="margin-top:8px"><b>From / To</b> = RO date. <b>Status:</b> ' +
+        '<b>Planned</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
+        '<b>Created</b> = uploaded to Blinkit (counted until Blinkit\'s own Bulk RO file shows it as incoming) · ' +
+        '<b>Delivered</b> = received at the warehouse (no longer counted) · <b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
+      '</div><div id="logOut" class="muted card">Loading…</div>';
     ['gFrom', 'gTo', 'gWh', 'gSt'].forEach(function (id) {
       $(id).onchange = function () { f.from = $('gFrom').value; f.to = $('gTo').value; f.wh = $('gWh').value; f.status = $('gSt').value; loadLog(); };
     });
@@ -1282,10 +1287,23 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     api('listROs', S.token, f).then(function (rows) { S.logRows = rows; drawLog(); }, function (e) { $('logOut').innerHTML = msgs([e.message], 'bad'); });
   }
 
-  function batchesOf(rows) {
-    var b = {};
+  /**
+   * One card per RO as it is on Blinkit. The app keeps one batch per group (each goes into its own TBI / TBO / TBG
+   * block of the month tab), but batches created together with the Merged file, or carrying the same Blinkit RO
+   * number for one warehouse, are one RO and are shown — and saved — together.
+   */
+  function cardsOf(rows) {
+    var b = {}, cards = {};
     rows.forEach(function (r) { (b[r.batch] = b[r.batch] || []).push(r); });
-    return Object.keys(b).map(function (k) { return b[k]; }).sort(function (x, y) { return (y[0].roDate + y[0].batch).localeCompare(x[0].roDate + x[0].batch); });
+    Object.keys(b).forEach(function (id) {
+      var r0 = b[id][0];
+      var key = r0.merged ? 'M|' + r0.merged + '|' + r0.wh : r0.roNo ? 'N|' + PlanCore.whNorm(r0.wh) + '|' + r0.roNo : 'B|' + id;
+      (cards[key] = cards[key] || { key: key, batches: [], rows: [] }).batches.push(id);
+      cards[key].rows = cards[key].rows.concat(b[id]);
+    });
+    return Object.keys(cards).map(function (k) { return cards[k]; }).sort(function (x, y) {
+      return (y.rows[0].roDate + y.rows[0].batch).localeCompare(x.rows[0].roDate + x.rows[0].batch);
+    });
   }
 
   function batchStatus(rs) {
@@ -1295,27 +1313,32 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
 
   function drawLog() {
     var box = $('logOut'); if (!box) return;
-    var bs = batchesOf(S.logRows || []);
-    if (!bs.length) { box.className = 'card muted'; box.innerHTML = 'No ROs for these filters.'; return; }
+    var cs = cardsOf(S.logRows || []);
+    if (!cs.length) { box.className = 'card muted'; box.innerHTML = 'No ROs for these filters.'; return; }
     box.className = '';
     var open = S.openBatch || {};
     var pc = { Planned: 'info', Created: 'warn', Delivered: 'ok', Cancelled: 'bad', Mixed: '' };
-    box.innerHTML = bs.map(function (rs) {
+    var gOrder = groupList();
+    box.innerHTML = cs.map(function (c, ci) {
+      var rs = c.rows.slice().sort(function (a, b) { return gOrder.indexOf(a.group) - gOrder.indexOf(b.group); });
       var r0 = rs[0], st = batchStatus(rs);
+      var groups = []; rs.forEach(function (r) { if (groups.indexOf(r.group) < 0) groups.push(r.group); });
+      var tabs = []; rs.forEach(function (r) { if (r.tabs && tabs.indexOf(r.tabs) < 0) tabs.push(r.tabs); });
       var units = rs.reduce(function (a, r) { return a + (r.status === 'Cancelled' ? 0 : r.qty); }, 0);
-      var edit = can('Planner');
-      return '<div class="ro' + (open[r0.batch] ? ' open' : '') + '" data-b="' + esc(r0.batch) + '"><div class="h">' +
-        '<span class="w">' + esc(r0.wh) + ' · ' + esc(r0.group) + '</span><span class="pill ' + pc[st] + '">' + st + '</span>' +
+      var edit = can('Planner'), multi = groups.length > 1;
+      return '<div class="ro' + (open[c.key] ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
+        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span><span class="pill ' + pc[st] + '">' + st + '</span>' +
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
         (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
-        (r0.tabs ? '<span class="small muted">' + esc(r0.tabs) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
+        (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
         (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ['Planned', 'Created', 'Delivered', 'Cancelled'].map(function (s) { return '<option>' + s + '</option>'; }).join('') + '</select></div>' +
           '<div><label class="f">Appointment</label><input type="date" class="bAp" value="' + esc(r0.appt) + '"></div>' +
           '<div><label class="f">Blinkit RO No.</label><input type="text" class="bNo" value="' + esc(r0.roNo) + '"></div>' +
           '<div style="flex:0 0 auto"><button class="btn p bSave">Save RO</button></div></div>' : '') +
-        '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th><th class="right">Qty</th><th>Status</th>' + (edit ? '<th></th>' : '') + '</tr>' +
+        '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th>' + (multi ? '<th>Group</th>' : '') + '<th class="right">Qty</th><th>Status</th>' + (edit ? '<th></th>' : '') + '</tr>' +
         rs.map(function (r) {
           return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.sku || 'No SKU') + '<div class="small muted">by ' + esc(r.createdBy) + (r.source && r.source !== 'Plan' ? ' · ' + esc(r.source === 'PDF' ? 'from PDF' : 'manual') : '') + '</div></td><td>' + r.item + '</td>' +
+            (multi ? '<td>' + esc(r.group) + '</td>' : '') +
             '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) + '</td>' +
             '<td><span class="pill ' + pc[r.status] + '">' + r.status + '</span></td>' +
             (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
@@ -1323,8 +1346,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     }).join('');
     box.onclick = function (e) {
       var ro = e.target.closest('.ro'); if (!ro) return;
-      var b = ro.getAttribute('data-b');
-      if (e.target.closest('.h')) { ro.classList.toggle('open'); (S.openBatch = S.openBatch || {})[b] = ro.classList.contains('open'); return; }
+      var c = cs[Number(ro.getAttribute('data-c'))];
+      if (e.target.closest('.h')) { ro.classList.toggle('open'); (S.openBatch = S.openBatch || {})[c.key] = ro.classList.contains('open'); return; }
       var out = ro.querySelector('.bmsg');
       var done = function (r) { out.innerHTML = msgs(r && r.warnings, 'warn'); toast('Saved'); refreshBoot().then(refreshPlanAfterRoChange, function () {}); loadLog(); };
       var err = function (er) { out.innerHTML = msgs([er.message], 'bad'); };
@@ -1332,7 +1355,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var ch = { appt: ro.querySelector('.bAp').value, roNo: ro.querySelector('.bNo').value.trim() };
         var st = ro.querySelector('.bSt').value; if (st) ch.status = st;
         if (st === 'Cancelled' && !confirm('Cancel the whole RO? Its quantities are taken out of the month tab.')) return;
-        e.target.disabled = true; api('updateBatch', S.token, b, ch).then(done, err);
+        e.target.disabled = true;
+        // A merged RO is several batches (one per group): save each, then report all warnings together.
+        var warns = [];
+        c.batches.reduce(function (p, id) {
+          return p.then(function () { return api('updateBatch', S.token, id, ch).then(function (r) { warns = warns.concat((r && r.warnings) || []); }); });
+        }, Promise.resolve()).then(function () { done({ warnings: warns }); }, err);
       }
       var tr = e.target.closest('tr'); if (!tr) return;
       var k = tr.getAttribute('data-k');

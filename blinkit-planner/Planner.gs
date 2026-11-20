@@ -23,7 +23,7 @@ const TAB = {
 
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
-  'Updated By', 'Tab Refs', 'Blinkit Created At'];
+  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 const SKU_HEAD = ['Item ID', 'SKU', 'Item Name', 'Group', 'Tier', 'Active'];
@@ -456,7 +456,7 @@ function readLog_() {
     name: String(r[L['Item Name']]), qty: Number(r[L['Qty']]) || 0, status: String(r[L['Status']]),
     appt: r[L['Appointment Date']], roNo: String(r[L['Blinkit RO No.']]), source: String(r[L['Source']]),
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
-    blinkitAt: r[L['Blinkit Created At']],
+    blinkitAt: r[L['Blinkit Created At']], merged: String(r[L['Merged RO']] == null ? '' : r[L['Merged RO']]),
   })).filter(r => r.key);
 }
 
@@ -468,7 +468,7 @@ function publicRo_(r) {
   return {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
-    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt),
+    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged,
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
 }
@@ -531,6 +531,9 @@ function createROs_(u, data) {
 
     const tab = monthTabFor_(roDate);
     const out = { batches: [], warnings: [] };
+    // Created with one merged Blinkit file: the group batches of a warehouse are one RO, shown as one in the RO Log.
+    // (Each group still gets its own batch, because each goes into its own TBI / TBO / TBG block of the month tab.)
+    const mergedId = data.merged ? Utilities.formatDate(now, tz_(), 'yyMMdd-HHmmss') + '-M' + Utilities.getUuid().slice(0, 4) : '';
     const rows = [];
     Object.keys(batches).forEach(k => {
       const b = batches[k];
@@ -569,12 +572,13 @@ function createROs_(u, data) {
         r[L['Updated By']] = u.name || u.id;
         r[L['Tab Refs']] = JSON.stringify(ref ? [ref] : []);
         r[L['Blinkit Created At']] = data.blinkitAt instanceof Date ? data.blinkitAt : '';
+        r[L['Merged RO']] = mergedId;
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
         lines: b.lines.length, tab: ref ? ref.t + ' (' + ref.c + ')' : '' });
     });
-    const log = sheet_(TAB.LOG);
+    const log = ensureSheet_(TAB.LOG, LOG_HEAD); // adds a column a newer version needs (e.g. "Merged RO") by itself
     log.getRange(log.getLastRow() + 1, 1, rows.length, LOG_HEAD.length).setValues(rows);
     out.openROs = readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_);
     return out;
