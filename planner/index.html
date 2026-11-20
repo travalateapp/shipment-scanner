@@ -46,6 +46,11 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .grp{margin:14px 0 6px;font-weight:800;font-size:13px;display:flex;justify-content:space-between;gap:8px}
 .line{display:grid;grid-template-columns:minmax(200px,2.2fr) repeat(5,minmax(62px,.7fr)) 92px minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
 .line.head{font-size:11px;color:var(--muted);font-weight:700;border-bottom:2px solid var(--line)}
+/* Each warehouse block's title + column headings stay pinned under the top bar
+   while scrolling through that block, and scroll away when the next block starts. */
+.whsec{position:relative}
+.whhead{position:sticky;top:var(--stickTop,86px);z-index:5;background:var(--card);box-shadow:0 2px 4px rgba(0,0,0,.06)}
+.whhead .grp{margin:0;padding:10px 10px 6px!important}
 .line .nm{font-weight:600}.line .nm small{display:block;font-weight:400;color:var(--muted);font-size:11px}
 .line input{padding:7px;text-align:right;font-weight:700}
 .line.send{background:color-mix(in srgb,var(--okbg) 45%,transparent)}
@@ -850,7 +855,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var rs = groups[k], p = k.split('||');
       rs.sort(function (a, b) { return (S.final[b.key] || 0) - (S.final[a.key] || 0) || (a.daysNow || 999) - (b.daysNow || 999); });
       var u = rs.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0);
-      html += '<div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head;
+      html += '<section class="whsec"><div class="whhead"><div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head + '</div>';
       rs.forEach(function (r) {
         var q = S.final[r.key] || 0, after = r.rate > 0 ? (r.position + q) / r.rate - r.elapsed : null;
         var over = q > r.max || (q > 0 && r.locked);
@@ -869,8 +874,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
           '<div class="right"><span class="lbl">Days after</span>' + (after == null ? '–' : fmt(after, 1)) + '</div></div>';
       });
+      html += '</section>';
     });
     box.innerHTML = html;
+    setStickTop();
     box.oninput = function (e) {
       if (!e.target.classList.contains('q')) return;
       var k = e.target.closest('.line').getAttribute('data-k');
@@ -882,6 +889,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       renderBar();
     };
   }
+
+  // Pinned warehouse headers sit just below the sticky top bar + tab row.
+  function setStickTop() {
+    var nav = document.querySelector('.nav'), top = document.querySelector('.top');
+    var h = (top ? top.offsetHeight : 0) + (nav && nav.offsetParent ? nav.offsetHeight : 0);
+    if (h) document.documentElement.style.setProperty('--stickTop', h + 'px');
+  }
+  window.addEventListener('resize', setStickTop);
 
   function renderBar() {
     if (!S.plan || !can('Planner')) { $('bar').classList.add('hidden'); return; }
