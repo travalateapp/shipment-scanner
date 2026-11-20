@@ -546,7 +546,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 fill-zero';
+  var PAGE_BUILD = '2026-11-20 stable-rows';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1034,7 +1034,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var html = '';
     Object.keys(groups).sort().forEach(function (k) {
       var rs = groups[k], p = k.split('||');
-      rs.sort(function (a, b) { return (S.final[b.key] || 0) - (S.final[a.key] || 0) || (a.daysNow || 999) - (b.daysNow || 999); });
+      // Sorted by the planner's suggestion (not by what you typed), so rows stay put while you edit, fill or reset.
+      var sug = function (r) { return r.locked ? 0 : r.rec + (S.starters ? r.starter : 0); };
+      rs.sort(function (a, b) { return sug(b) - sug(a) || (a.daysNow == null ? 999 : a.daysNow) - (b.daysNow == null ? 999 : b.daysNow) || a.item - b.item; });
       var u = rs.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0);
       var gi = blocks.push(rs.map(function (r) { return r.key; })) - 1;
       html += '<section class="whsec"><div class="whhead"><div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head(gi) + '</div>';
