@@ -32,6 +32,8 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .btn.p{background:var(--brand);color:#fff}.btn.g{background:#16a34a;color:#fff}.btn.r{background:var(--badbg);color:var(--bad)}
 .btn:disabled{opacity:.5;cursor:not-allowed}.btn.sm{padding:6px 10px;font-size:12px}
 .drop{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;cursor:pointer;display:block}
+/* The two upload boxes are always the same width and height. */
+.row.ups{align-items:stretch}.row.ups>.drop{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center}
 .drop.ok{border-color:#16a34a;background:var(--okbg)}
 .drop.stale{border-color:#ca8a04;background:var(--warnbg)}
 .drop input{display:none}.drop b{display:block;margin-bottom:2px}.drop span{overflow-wrap:anywhere}
@@ -61,6 +63,10 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .picks .chip{cursor:default}.picks .chip button{border:0;background:none;cursor:pointer;padding:0 0 0 6px;font-weight:700;color:inherit}
 .whhead{position:sticky;top:var(--stickTop,86px);z-index:5;background:var(--card);box-shadow:0 2px 4px rgba(0,0,0,.06)}
 .whhead .grp{margin:0;padding:10px 10px 6px!important}
+/* Warehouse blocks collapse / expand by clicking their title. */
+.grp.tgl{cursor:pointer;user-select:none}.grp.tgl .chev{display:inline-block;width:14px;color:var(--muted)}
+.whsec.shut .line{display:none}.whsec.shut .whhead{position:static;box-shadow:none;border-bottom:1px solid var(--line)}
+.whsec.shut .whhead .grp{padding-bottom:10px!important}
 /* Send heading: "fill all" box + ↺ reset under the word Send. */
 .sendH{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
 .fillW{display:flex;gap:3px;align-items:center}
@@ -546,9 +552,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 locked-collapsed';
+  var PAGE_BUILD = '2026-11-20 dash-first';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
-  var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
+  var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
 
   /* ---------------- small helpers ---------------- */
@@ -643,7 +649,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var b = S.boot;
     if (S.starters === null) S.starters = !!b.settings.starters;
     $('who').innerHTML = esc(b.user.name || b.user.id) + '<br>' + esc(b.user.role) + '<br><span style="font-size:10px;opacity:.7">build ' + PAGE_BUILD + '</span>';
-    var tabs = [['plan', 'New Plan'], ['log', 'RO Log'], ['add', 'RO PDF'], ['dash', 'Dashboard']];
+    var tabs = [['dash', 'Dashboard'], ['plan', 'New Plan'], ['log', 'RO Log'], ['add', 'RO PDF']]; // the app opens on the Dashboard
     if (can('Admin')) tabs.push(['settings', 'Settings'], ['users', 'Users']);
     tabs.push(['account', 'Account']);
     if (!can('Planner')) tabs = tabs.filter(function (t) { return t[0] !== 'plan' && t[0] !== 'add'; });
@@ -651,6 +657,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (can('Planner') && !S.bulk && restoreDraft() && S.inv) { S.keepEditsOnce = false; freshPlan(true); }
     $('nav').innerHTML = tabs.map(function (t) { return '<button data-t="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('');
     $('nav').classList.remove('hidden');
+    setStickTop();
     $('nav').onclick = function (e) { var t = e.target.getAttribute('data-t'); if (t) go(t); };
     go(S.tab);
   }
@@ -669,7 +676,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function renderPlan() {
     var s = S.boot.settings;
     var html = '<div class="card"><h2>1. Upload today\'s Blinkit downloads</h2>' +
-      '<div class="row">' +
+      '<div class="row ups">' +
       '<label class="drop' + (S.inv ? (invIsToday() ? ' ok' : ' stale') : '') + '" id="dInv"><input type="file" accept=".xlsx" id="fInv"><b>Inventory</b>' +
       '<span class="small muted">' + (S.invLoading ? '<span class="spin"></span> Reading Formula Sheet…' : S.inv ? (S.inv.fromSheet ? 'From Formula Sheet' : esc(S.inv.fileName)) + ' · ' + S.inv.rows.length + ' rows' + (S.inv.generatedAt ? ' · generated ' + esc(S.inv.generatedAt) : '') : 'InventoryData.xlsx (Stock On Hand)') +
       (S.invLoading ? '' : '<br>' + (S.inv && S.inv.fromSheet ? 'Tap to upload the file instead' : 'Tap to upload, or <a href="#" id="useSheet">use Formula Sheet</a>')) + '</span></label>' +
@@ -1044,7 +1051,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       rs.sort(function (a, b) { return sug(b) - sug(a) || (a.daysNow == null ? 999 : a.daysNow) - (b.daysNow == null ? 999 : b.daysNow) || a.item - b.item; });
       var u = rs.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0);
       var gi = blocks.push(rs.map(function (r) { return r.key; })) - 1;
-      html += '<section class="whsec"><div class="whhead"><div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head(gi) + '</div>';
+      var shut = !!(S.shut && S.shut[k]);
+      html += '<section class="whsec' + (shut ? ' shut' : '') + '" data-sk="' + esc(k) + '"><div class="whhead"><div class="grp tgl" style="padding:0 10px" title="Click to collapse / expand this block"><span><span class="chev">' + (shut ? '▸' : '▾') + '</span> ' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units · ' + rs.length + (rs.length === 1 ? ' line' : ' lines') + '</span></div>' + head(gi) + '</div>';
       rs.forEach(function (r) {
         var q = S.final[r.key] || 0, after = daysAfter(r, q);
         var over = q > r.max || (q > 0 && r.locked);
@@ -1065,8 +1073,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       });
       html += '</section>';
     });
-    box.innerHTML = html;
+    box.innerHTML = '<div class="small" style="padding:10px 10px 0;text-align:right"><a href="#" id="shutAll">Collapse all</a> · <a href="#" id="openAll">Expand all</a></div>' + html;
     setStickTop();
+    var setShut = function (sec, on) {
+      S.shut = S.shut || {};
+      S.shut[sec.getAttribute('data-sk')] = on;
+      sec.classList.toggle('shut', on);
+      sec.querySelector('.chev').textContent = on ? '▸' : '▾';
+    };
+    $('shutAll').onclick = function (e) { e.preventDefault(); Array.prototype.forEach.call(box.querySelectorAll('.whsec'), function (x) { setShut(x, true); }); };
+    $('openAll').onclick = function (e) { e.preventDefault(); Array.prototype.forEach.call(box.querySelectorAll('.whsec'), function (x) { setShut(x, false); }); };
     var byKey = {}; S.plan.forEach(function (r) { byKey[r.key] = r; });
     var fillBlock = function (gi, v) {
       blocks[gi].forEach(function (k) {
@@ -1091,6 +1107,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       fillBlock(Number(e.target.getAttribute('data-g')), Math.max(0, Math.round(Number(e.target.value) || 0)));
     };
     box.onclick = function (e) {
+      var t = e.target.closest('.tgl');
+      if (t) {
+        var sec = t.closest('.whsec'), on = !sec.classList.contains('shut');
+        setShut(sec, on);
+        // Collapsing a block that is pinned at the top: bring its heading back into view.
+        if (on && sec.getBoundingClientRect().top < 0) sec.scrollIntoView({ block: 'start' });
+        return;
+      }
       var b = e.target.closest('.fillR'); if (!b) return;
       resetBlock(Number(b.getAttribute('data-g')));
     };
@@ -1110,6 +1134,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   // Pinned warehouse headers sit just below the sticky top bar + tab row.
   function setStickTop() {
     var nav = document.querySelector('.nav'), top = document.querySelector('.top');
+    // On a phone the top bar is taller (name, role, build on 3 lines): the tab row sticks right below it.
+    if (nav && top) nav.style.top = top.offsetHeight + 'px';
     var h = (top ? top.offsetHeight : 0) + (nav && nav.offsetParent ? nav.offsetHeight : 0);
     if (h) document.documentElement.style.setProperty('--stickTop', h + 'px');
   }
