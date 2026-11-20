@@ -931,6 +931,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
   }
 
+  // Days of cover after sending q more units (null when nothing sells).
+  function daysAfter(r, q) { return r.rate > 0 ? (r.position + (q || 0)) / r.rate - r.elapsed : null; }
+  // Days are always shown rounded DOWN to whole days (never below 0).
+  function fmtDays(d) { return d == null || !isFinite(d) ? '–' : fmt(Math.max(0, Math.floor(d))); }
+
   function statusPill(r) {
     var cls = { est: '', low: 'warn', new: 'info', nosale: '', notlive: '' }[r.kind] || '';
     return '<span class="pill ' + cls + '">' + esc(r.status) + '</span>';
@@ -949,7 +954,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var u = rs.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0);
       html += '<section class="whsec"><div class="whhead"><div class="grp" style="padding:0 10px"><span>' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units</span></div>' + head + '</div>';
       rs.forEach(function (r) {
-        var q = S.final[r.key] || 0, after = r.rate > 0 ? (r.position + q) / r.rate - r.elapsed : null;
+        var q = S.final[r.key] || 0, after = daysAfter(r, q);
         var over = q > r.max || (q > 0 && r.locked);
         var inc = r.incoming + r.appIncoming;
         html += '<div class="line' + (q > 0 ? ' send' : '') + (r.locked ? ' lock' : '') + '" data-k="' + esc(r.key) + '">' +
@@ -961,10 +966,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Sold 7d / 30d</span>' + fmt(r.s7) + ' / ' + fmt(r.s30) + '</div>' +
           '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate, 1) + '</div>' +
           '<div class="right"><span class="lbl">Has now</span>' + fmt(r.position) + '</div>' +
-          '<div class="right c-days">' + (r.daysNow == null ? '–' : fmt(r.daysNow, 1)) + '</div>' +
+          '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
           '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
-          '<div class="right"><span class="lbl">Days after</span>' + (after == null ? '–' : fmt(after, 1)) + '</div></div>';
+          '<div class="right"><span class="lbl">Days after</span><span class="dAfter">' + fmtDays(after) + '</span></div></div>';
       });
       html += '</section>';
     });
@@ -978,6 +983,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var r = S.plan.filter(function (x) { return x.key === k; })[0];
       e.target.classList.toggle('over', v > r.max);
       e.target.closest('.line').classList.toggle('send', v > 0);
+      var da = e.target.closest('.line').querySelector('.dAfter'); if (da) da.textContent = fmtDays(daysAfter(r, v));
       renderBar();
     };
   }
@@ -1073,7 +1079,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return { Warehouse: r.wh, Group: r.group, SKU: r.sku, 'Item ID': r.item, Status: r.status,
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
-        'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.round(r.daysNow * 10) / 10, 'Days since stock date': r.elapsed,
+        'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
         Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, Note: r.note, Locked: r.locked ? r.remarks : '' };
     });
     var wb = XLSX.utils.book_new();
