@@ -6,17 +6,17 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
 - **Create RO file:** one tap does three things:
   - downloads **Blinkit's own Bulk RO file** with *RO Quantity* and *Shipping Address* filled in, ready to upload;
   - saves every line in the **RO Log**;
-  - writes the quantities into the month tab (e.g. *Oct 2026*), in the **next free column D–H** of that warehouse's TBI / TBO block.
+  - writes the quantities into the month tab (e.g. *Oct 2026*), in the **next free column D–H** of that warehouse's TBI / TBO / TBG block.
 - **RO Log:** every RO. Set the status (Planned → Created → Delivered, or Cancelled), and add the Blinkit RO number and appointment date. The RO heading in the month tab updates too, e.g. `RO 29 Oct / 4999… / app 2 Nov`. Changing a quantity, or cancelling a line, also changes the month tab.
 - **RO PDF:** upload one or more Blinkit R.O. PDFs. They're read with the same parser as the Shipment Manager (`parseBlinkitRoPdf_`, copied unchanged), and the app picks up the RO number, warehouse, RO date, expiry and each Item Code + Qty. The items are checked against the PDF's *Total Quantity*.
   - If a PDF is a planner RO that has no RO number yet (same warehouse, same items), that RO gets the number, and the PDF's quantities replace the planned ones. No second RO is made.
-  - Otherwise it's saved as a new **Created** RO in the RO Log and the month tab. An RO with both TBI and TBO items becomes two columns with the same RO number.
+  - Otherwise it's saved as a new **Created** RO in the RO Log and the month tab. An RO with items of more than one group (TBI / TBO / TBG) becomes one column per group, all with the same RO number.
   - An RO number already in the log is skipped.
   - Tick **Log only** for ROs you've already typed into the month tab by hand. They're logged, but never written into the tab, even by *Sync month tabs* or *Start new month*.
   - *Add an RO by hand* is still there, under the upload, for an RO without a PDF.
 - **Planned vs Created:** *Planned* = not on Blinkit yet; it always counts as incoming in the next plan. *Created* = on Blinkit; it counts only until Blinkit's own Bulk RO file shows it as incoming, so it's never counted twice. For an RO from a PDF, "on Blinkit since" is the **R.O. date and time printed on the PDF** (RO Log column *Blinkit Created At*), not the upload time. An older RO's PDF is therefore never counted on top of a Bulk RO file that already shows it.
 - **Dashboard:** days of cover per warehouse and item from the last plan (red under 7 days, amber 7–15). Handy on a phone.
-- **Settings (admin):** days of cover, rounding, address, the SKU list with TBI / TBO group, and **Start new month**.
+- **Settings (admin):** days of cover, rounding, address, the SKU list with TBI / TBO / TBG group (or **Take groups from the month tab**), and **Start new month**.
 - **Users (admin):** User ID + PIN logins with the roles Admin, Planner (plans and ROs) and Viewer (dashboard and log only).
 
 The app only writes to **columns D–H** of a month tab and the RO heading above them. Columns **I onwards are never changed.**
@@ -32,7 +32,7 @@ The Blinkit sheet's Apps Script project already holds the **daily inventory upda
 3. Click **+ → HTML**, name it **`Index`** (exactly, without `.html`), and paste [`Index.html`](Index.html) into it.
 4. Leave `Code.gs`, `UploadDialog.html` and `appsscript.json` as they are. The project's time zone (Asia/Kolkata) and permissions (spreadsheets) already cover the planner.
 5. Choose the function **`setup`** in the toolbar (from the file *Planner*) and click **Run**. Allow the permissions if asked.
-   This creates the tabs *Planner Settings*, *Planner SKUs*, *Planner Users*, *RO Log* and *Planner Snapshot*. It also fills the SKU list (Item ID, SKU, TBI/TBO group, tier) from the month tabs, and creates the first login: **User ID `admin`, PIN `1234`**.
+   This creates the tabs *Planner Settings*, *Planner SKUs*, *Planner Users*, *RO Log* and *Planner Snapshot*. It also fills the SKU list (Item ID, SKU, TBI/TBO/TBG group, tier) from the month tabs, and creates the first login: **User ID `admin`, PIN `1234`**.
 6. **Deploy → New deployment → ⚙ → Web app**
    - **Execute as:** `Me`
    - **Who has access:** `Anyone`
@@ -97,7 +97,7 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 ## 3. Month tabs
 
 - An RO goes into the tab of the month of its **RO date**: a tab named like `Oct 2026`, `Sept 2026` or `January 2026`.
-- In the warehouse block (`<Warehouse>-TBI` or `<Warehouse>-TBO`), the app uses the first column D–H in which **no item row has a quantity**. It writes each item's quantity on its row and the RO heading above it.
+- In the warehouse block (`<Warehouse>-TBI`, `<Warehouse>-TBO` or `<Warehouse>-TBG`; a warehouse with no TBG block gets its TBG items in the TBO block), the app uses the first column D–H in which **no item row has a quantity**. It writes each item's quantity on its row and the RO heading above it.
 - An item that isn't in the block gets a new row at the end of the block. The formulas and formatting of the row above are copied; the numbers aren't.
 - If D–H are all used, the RO stays in the RO Log only and you get a warning. Free a column, then use **Settings → Sync month tabs**.
 
@@ -115,7 +115,7 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 | Tab | Holds |
 |---|---|
 | Planner Settings | Days of cover, min line, rounding, address, starters, carry-over days |
-| Planner SKUs | Item ID, SKU, name, **Group (TBI = Travalate Bags Inhouse, TBO = Travalate Bags Outsourced)**, tier, active. New Blinkit items are added automatically with no group, and an admin sets it. |
+| Planner SKUs | Item ID, SKU, name, **Group (TBI = Travalate Bags Inhouse, TBO = Travalate Bags Outsourced, TBG)**, tier, active. New Blinkit items are added automatically with no group, and an admin sets it. |
 | Planner Users | User ID, name, PIN (stored hashed), role, active |
 | RO Log | One row per RO line. This is what the app works from, and you can filter it like any sheet. |
 | Planner Snapshot | The last plan's figures, for the dashboard |

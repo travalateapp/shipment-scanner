@@ -34,8 +34,10 @@ const SNAP_HEAD = ['Warehouse', 'Item ID', 'Item Name', 'Group', 'Status', 'Dail
 const STATUSES = ['Planned', 'Created', 'Delivered', 'Cancelled'];
 const OPEN_STATUSES = ['Planned', 'Created'];
 const ROLES = ['Admin', 'Planner', 'Viewer'];
-const GROUPS = ['TBI', 'TBO'];
-const GROUP_NAMES = { TBI: 'TBI – Travalate Bags Inhouse', TBO: 'TBO – Travalate Bags Outsourced' };
+const GROUPS = ['TBI', 'TBO', 'TBG'];
+const GROUP_NAMES = { TBI: 'TBI – Travalate Bags Inhouse', TBO: 'TBO – Travalate Bags Outsourced', TBG: 'TBG' };
+// A warehouse without a block for a group (e.g. no "-TBG" block yet) gets that group's ROs in the next block here.
+const GROUP_FALLBACK = { TBG: ['TBO', 'TBI'] };
 
 const DEFAULT_SETTINGS = [
   ['Company', 'Travalate', 'Shown at the top of the app'],
@@ -50,7 +52,7 @@ const DEFAULT_SETTINGS = [
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
   'November', 'December'];
 const MONTH_TAB_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
-const BLOCK_RE = /^(.+)-(TBI|TBO)$/;
+const BLOCK_RE = /^(.+)-(TBI|TBO|TBG)$/;
 const RO_COLS = ['D', 'E', 'F', 'G', 'H'];
 const FIRST_RO_COL = 4; // D
 const SESSION_DAYS = 30;
@@ -155,7 +157,7 @@ function ensureSheet_(name, head) {
   return sh;
 }
 
-/** Adds every item found under a TBI/TBO block of the month tabs (newest first) to the SKU list. */
+/** Adds every item found under a TBI/TBO/TBG block of the month tabs (newest first) to the SKU list. */
 function seedSkus_() {
   const sh = sheet_(TAB.SKUS);
   const known = {};
@@ -813,6 +815,16 @@ function findBlock_(values, wh, group) {
   return { start: start, end: end, items: items, firstItem: firstItem, lastItem: lastItem, headRow: headRow };
 }
 
+/** findBlock_, but a missing group block falls back to GROUP_FALLBACK (b.group = the block actually used). */
+function blockFor_(values, wh, group) {
+  const tries = [group].concat(GROUP_FALLBACK[group] || []);
+  for (let i = 0; i < tries.length; i++) {
+    const b = findBlock_(values, wh, tries[i]);
+    if (b) { b.group = tries[i]; return b; }
+  }
+  return null;
+}
+
 function readBlockValues_(sh) {
   return sh.getRange(1, 1, Math.max(1, sh.getLastRow()), 8).getValues();
 }
@@ -825,12 +837,13 @@ function readBlockValues_(sh) {
 function writeBatch_(sh, wh, group, lines, label) {
   const warnings = [];
   let v = readBlockValues_(sh);
-  let b = findBlock_(v, wh, group);
+  let b = blockFor_(v, wh, group);
   if (!b) return { col: '', warnings: ['No block "' + wh + '-' + group + '" in tab ' + sh.getName() + '. Saved in the RO Log only.'] };
+  if (b.group !== group) warnings.push('No "' + wh + '-' + group + '" block in ' + sh.getName() + ', so it went into the ' + b.group + ' block.');
 
   const missing = lines.filter(l => b.items[l.item] === undefined);
   if (missing.length) {
-    missing.forEach(l => { insertItemRow_(sh, b, l.item, l.sku); v = readBlockValues_(sh); b = findBlock_(v, wh, group); });
+    missing.forEach(l => { insertItemRow_(sh, b, l.item, l.sku); v = readBlockValues_(sh); b = blockFor_(v, wh, group); });
     warnings.push('Added a row for ' + missing.map(l => l.sku || l.item).join(', ') + ' (it was not in this block).');
   }
 
@@ -874,12 +887,12 @@ function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
   const ci = RO_COLS.indexOf(colLetter);
   if (ci < 0 || !delta) return '';
   let v = readBlockValues_(sh);
-  let b = findBlock_(v, wh, group);
+  let b = blockFor_(v, wh, group);
   if (!b) return 'Block ' + wh + '-' + group + ' not found in ' + sh.getName() + '.';
   if (b.items[item] === undefined) {
     if (delta < 0) return '';
     insertItemRow_(sh, b, item, sku);
-    v = readBlockValues_(sh); b = findBlock_(v, wh, group);
+    v = readBlockValues_(sh); b = blockFor_(v, wh, group);
   }
   const cell = sh.getRange(b.items[item] + 1, FIRST_RO_COL + ci);
   const cur = Number(cell.getValue()) || 0;
@@ -891,7 +904,7 @@ function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
 function setBatchLabel_(sh, wh, group, colLetter, label) {
   const ci = RO_COLS.indexOf(colLetter);
   if (ci < 0) return;
-  const b = findBlock_(readBlockValues_(sh), wh, group);
+  const b = blockFor_(readBlockValues_(sh), wh, group);
   if (b) sh.getRange(b.headRow + 1, FIRST_RO_COL + ci).setValue(label);
 }
 
@@ -1034,6 +1047,53 @@ function saveSettings(token, s) {
   return getSettings_();
 }
 
+/**
+ * Reads which block (TBI / TBO / TBG) each item sits in on the newest month tab that has items, and compares it
+ * with the SKU list. An item in different blocks at different warehouses takes the block it is in most often.
+ * apply = false only lists the changes; apply = true also saves them.
+ */
+function groupsFromMonthTab(token, apply) {
+  auth_(token, 'Admin');
+  const tabs = monthTabs_();
+  let tab = null, counts = null;
+  for (let t = 0; t < tabs.length && !tab; t++) {
+    const v = tabs[t].sheet.getRange(1, 1, Math.max(1, tabs[t].sheet.getLastRow()), 2).getValues();
+    const c = {};
+    let group = '';
+    v.forEach(r => {
+      const a = typeof r[0] === 'string' ? r[0].trim() : r[0];
+      const m = typeof a === 'string' ? a.match(BLOCK_RE) : null;
+      if (m) group = m[2];
+      else if (group && typeof a === 'number' && a > 1000) {
+        const k = String(a);
+        c[k] = c[k] || { TBI: 0, TBO: 0, TBG: 0, sku: r[1] === '' ? '' : String(r[1]) };
+        c[k][group]++;
+      }
+    });
+    if (Object.keys(c).length) { tab = tabs[t]; counts = c; }
+  }
+  if (!tab) return { tab: '', changes: [] };
+  const skus = getSkus_(), byItem = {};
+  skus.forEach(s => { byItem[String(s.item)] = s; });
+  const changes = [];
+  Object.keys(counts).forEach(k => {
+    const c = counts[k];
+    let best = '';
+    GROUPS.forEach(g => { if (c[g] && (!best || c[g] > c[best])) best = g; });
+    const s = byItem[k];
+    const cur = s ? s.group : '';
+    if (best && best !== cur && !(c[cur] && c[cur] === c[best])) {
+      const where = GROUPS.filter(g => c[g]).map(g => g + ' ×' + c[g]).join(', ');
+      changes.push({ item: Number(k), sku: s ? s.sku : c.sku, from: cur, to: best, where: where,
+        row: s ? { item: s.item, sku: s.sku, name: s.name, group: best, tier: s.tier, active: s.active }
+               : { item: Number(k), sku: c.sku, name: '', group: best, tier: '', active: true } });
+    }
+  });
+  if (apply && changes.length) saveSkus(token, changes.map(x => x.row));
+  return { tab: tab.name, changes: changes.map(x => ({ item: x.item, sku: x.sku, from: x.from, to: x.to, where: x.where })),
+    applied: !!apply, skus: apply ? getSkus_() : undefined };
+}
+
 /** rows = [{ item, sku, name, group, tier, active }] — adds or updates by Item ID. */
 function saveSkus(token, rows) {
   auth_(token, 'Admin');
@@ -1046,7 +1106,7 @@ function saveSkus(token, rows) {
       const id = Number(r.item);
       if (!id) return;
       const group = String(r.group || '').toUpperCase();
-      if (group && GROUPS.indexOf(group) < 0) throw new Error('Group must be TBI or TBO.');
+      if (group && GROUPS.indexOf(group) < 0) throw new Error('Group must be ' + GROUPS.join(', ') + '.');
       const vals = [id, String(r.sku || ''), String(r.name || ''), group, String(r.tier || ''), r.active === false ? 'No' : 'Yes'];
       const i = cur.indexOf(String(id));
       if (i >= 0) sh.getRange(i + 2, 1, 1, vals.length).setValues([vals]);
