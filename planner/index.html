@@ -537,7 +537,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 refresh-safe';
+  var PAGE_BUILD = '2026-11-20 tab-scroll';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1061,6 +1061,25 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (h) document.documentElement.style.setProperty('--stickTop', h + 'px');
   }
   window.addEventListener('resize', setStickTop);
+
+  // Tabbing through the Send boxes: keep the focused box clear of the fixed bottom bar and of the
+  // pinned warehouse heading at the top, by scrolling just enough.
+  document.addEventListener('focusin', function (e) {
+    var el = e.target;
+    if (!el || !el.classList || !el.classList.contains('q')) return;
+    requestAnimationFrame(function () { keepVisible(el); }); // after the browser's own scroll-into-view
+  });
+  function keepVisible(el) {
+    var line = el.closest('.line') || el;
+    var r = line.getBoundingClientRect(), gap = 8;
+    var bar = $('bar'), barTop = bar && !bar.classList.contains('hidden') ? bar.getBoundingClientRect().top : window.innerHeight;
+    var sec = line.closest('.whsec'), head = sec && sec.querySelector('.whhead');
+    // Where the heading sits once pinned: just under the top bar, its own height tall (it may be mid-scroll now).
+    var stick = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stickTop')) || 0;
+    var headBottom = stick + (head ? head.offsetHeight : 0);
+    if (r.bottom > barTop - gap) window.scrollBy(0, r.bottom - (barTop - gap));
+    else if (r.top < headBottom + gap) window.scrollBy(0, r.top - (headBottom + gap));
+  }
 
   function renderBar() {
     saveDraftState();
