@@ -747,10 +747,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function recompute(keepEdits) {
     if (!S.inv || !S.bulk) { S.plan = null; renderPlanOut(); return; }
     var s = S.boot.settings;
+    var sm = skuMap();
     S.plan = PlanCore.computePlan(S.inv.rows, S.bulk.rows, {
-      coverDays: S.cover || s.coverDays, minLine: s.minLine, roundTo: s.roundTo, skus: skuMap(),
+      coverDays: S.cover || s.coverDays, minLine: s.minLine, roundTo: s.roundTo, skus: sm,
       openROs: S.boot.openROs, bulkAt: S.bulkAt, elapsed: (stockInfoNow() || {}).elapsed || 0
-    });
+    }).filter(function (r) { return !(sm[r.item] && sm[r.item].active === false); }); // Settings → SKUs: Active unticked = left out
     var old = keepEdits ? S.edited || {} : {};
     S.edited = {}; S.final = {};
     S.plan.forEach(function (r) {
@@ -1013,17 +1014,23 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function openCreate() {
     var t = totals();
     var whs = Object.keys(t.byWh).sort();
+    // Only the warehouse picked on the plan is ticked; with "All" nothing is ticked, so you choose.
+    var pre = S.filter.wh;
     openModal('<h2>Create ROs</h2><div class="small muted">Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.</div>' +
-      '<div style="margin:10px 0">' + whs.map(function (w) {
-        return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '" checked> <span style="flex:1">' + esc(w) + '</span><b>' + fmt(t.byWh[w].units) + '</b><span class="small muted">' + t.byWh[w].lines + ' lines</span></label>';
+      '<div class="small" style="margin-top:10px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
+      '<div style="margin:6px 0 10px">' + whs.map(function (w) {
+        return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (w === pre ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span><b>' + fmt(t.byWh[w].units) + '</b><span class="small muted">' + t.byWh[w].lines + ' lines</span></label>';
       }).join('') + '</div>' +
       '<div class="row"><div><label class="f">RO date</label><input type="date" id="cDate" value="' + today() + '"></div>' +
       '<div><label class="f">Status</label><select id="cStatus"><option>Created</option><option>Planned</option></select></div></div>' +
       '<div class="small muted" style="margin-top:6px">Created = you will upload the file to Blinkit now. Planned = not on Blinkit yet (still counted in the next plan).</div>' +
       '<div id="cOut"></div><div class="row" style="margin-top:12px"><button class="btn" id="cNo">Cancel</button><button class="btn g" id="cGo">Save &amp; download file</button></div>');
     $('cNo').onclick = closeModal;
+    var tickAll = function (on) { return function (e) { e.preventDefault(); Array.prototype.forEach.call(document.querySelectorAll('.cw'), function (c) { c.checked = on; }); }; };
+    $('cAll').onclick = tickAll(true); $('cNone').onclick = tickAll(false);
     $('cGo').onclick = function () {
       var pick = Array.prototype.filter.call(document.querySelectorAll('.cw'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+      if (!pick.length) { $('cOut').innerHTML = msgs(['Tick at least one warehouse.'], 'warn'); return; }
       var lines = S.plan.filter(function (r) { return (S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0; });
       if (!lines.length) return;
       var noGroup = lines.filter(function (r) { return !r.group; });
@@ -1465,7 +1472,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var afterSkus = function (skus) {
       S.boot.skus = skus; edits = {}; draw();
-      if (S.plan) { var m = skuMap(); S.plan.forEach(function (r) { var x = m[r.item]; if (x) { r.sku = x.sku; r.group = x.group; r.tier = x.tier; } }); }
+      if (S.plan) recompute(true); // new groups/tiers, and SKUs set inactive drop out of the plan
     };
     var clashHtml = function (r) {
       if (!r.clashes || !r.clashes.length) return msgs(['No SKU is listed in two groups of the same warehouse in ' + r.tab + '.'], 'ok');
@@ -1501,8 +1508,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var rows = Object.keys(edits).map(function (k) { return edits[k]; });
       if (!rows.length) { $('kOut').innerHTML = msgs(['No changes.'], 'info'); return; }
       api('saveSkus', S.token, rows).then(function (skus) {
-        S.boot.skus = skus; edits = {}; draw(); $('kOut').innerHTML = msgs(['Saved ' + rows.length + ' SKU(s).'], 'ok');
-        if (S.plan) { var m = skuMap(); S.plan.forEach(function (r) { var x = m[r.item]; if (x) { r.sku = x.sku; r.group = x.group; r.tier = x.tier; } }); }
+        afterSkus(skus); $('kOut').innerHTML = msgs(['Saved ' + rows.length + ' SKU(s).'], 'ok');
       }, function (e) { $('kOut').innerHTML = msgs([e.message], 'bad'); });
     };
   }
