@@ -546,7 +546,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 no-delivered';
+  var PAGE_BUILD = '2026-11-20 fill-zero';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -870,7 +870,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       // Picked SKUs: show every line of just those SKUs (even ones with nothing to send);
       // the search text then only drives the suggestion list.
       if (picks.length) return picks.indexOf(Number(r.item)) >= 0;
-      if (f.only && !(S.final[r.key] > 0) && !(r.locked && r.note)) return false;
+      // "Lines to send": a line you changed yourself stays on screen even at 0, so a block filled or typed down to 0
+      // keeps its heading (and its ↺ reset) instead of disappearing.
+      if (f.only && !(S.final[r.key] > 0) && !(r.locked && r.note) && !(S.edited && r.key in S.edited)) return false;
       if (q && (r.name + ' ' + r.sku + ' ' + r.item).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
@@ -1134,6 +1136,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     saveDraftState();
     if (!S.plan || !can('Planner')) { $('bar').classList.add('hidden'); return; }
     var t = totals();
+    // Keep the warehouse chips' unit totals in step with every change (typing, fill, ↺).
+    Array.prototype.forEach.call(document.querySelectorAll('#whChips .chip'), function (c) {
+      var w = c.getAttribute('data-wh'), b = c.querySelector('b');
+      if (b) b.textContent = fmt(w ? (t.byWh[w] ? t.byWh[w].units : 0) : t.units);
+    });
+    var h2 = document.querySelector('#planOut h2');
+    if (h2) h2.textContent = '2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines';
     $('bar').innerHTML = '<div class="sum"><b>' + fmt(t.units) + '</b> units · ' + t.lines + ' lines · ' + Object.keys(t.byWh).length + ' warehouses' +
       (t.bad ? ' · <span style="color:var(--bad)">' + t.bad + ' above Blinkit max</span>' : '') + '</div>' +
       '<button class="btn g" id="bCreate"' + (t.lines && !t.bad ? '' : ' disabled') + '>Create RO file</button>';
