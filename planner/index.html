@@ -65,6 +65,9 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .line input{padding:7px;text-align:right;font-weight:700}
 .line.send{background:color-mix(in srgb,var(--okbg) 45%,transparent)}
 .line.lock{opacity:.6}
+/* The row you are typing in (Tab / click) is highlighted. */
+.line:focus-within{box-shadow:inset 4px 0 0 var(--brand);background:color-mix(in srgb,var(--infobg) 70%,transparent)}
+.line input.q:focus{outline:2px solid var(--brand);outline-offset:1px}
 .line .over{border-color:var(--bad);background:var(--badbg)}
 .lbl{display:none;font-size:10px;color:var(--muted)}
 @media (max-width:760px){
@@ -537,7 +540,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 tab-scroll';
+  var PAGE_BUILD = '2026-11-20 tab-center';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1077,8 +1080,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // Where the heading sits once pinned: just under the top bar, its own height tall (it may be mid-scroll now).
     var stick = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stickTop')) || 0;
     var headBottom = stick + (head ? head.offsetHeight : 0);
-    if (r.bottom > barTop - gap) window.scrollBy(0, r.bottom - (barTop - gap));
-    else if (r.top < headBottom + gap) window.scrollBy(0, r.top - (headBottom + gap));
+    // Keep the row in the middle part of the visible area: once it comes within ~2 rows of the bottom bar
+    // or the pinned heading, scroll so it sits in the middle again (the rows around it stay visible too).
+    var margin = Math.min(2 * r.height + gap, (barTop - headBottom) / 4);
+    if (r.bottom > barTop - margin || r.top < headBottom + margin) {
+      var mid = (headBottom + barTop) / 2;
+      window.scrollBy(0, (r.top + r.bottom) / 2 - mid);
+    }
   }
 
   function renderBar() {
