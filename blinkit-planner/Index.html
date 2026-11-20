@@ -189,9 +189,11 @@ var PlanCore = (function () {
    *  - stock now = "Total sellable" of the Inventory file (warehouse + in-between + darkstore)
    *  - incoming  = Blinkit "Incoming Quantity" + RO Log lines Blinkit cannot know yet
    *                (Planned, or Created on Blinkit — R.O. PDF time, else app save time — after the Bulk file was downloaded)
-   *  - daily rate: recent weeks weigh most; recently listed items use only the days they were listed;
-   *    when stock ran low the last 7 days understate demand, so a longer average is used.
+   *  - daily rate ("Per day") = the HIGHEST of the 7-, 15- and 30-day averages (sold ÷ days), rounded UP to a
+   *    whole unit — e.g. 37 in 7 days (5.29/day), 41 in 15 (2.73), 64 in 30 (2.13) → 6 a day.
    */
+  function dailyRate(s7, s15, s30) { return s30 > 0 || s15 > 0 || s7 > 0 ? Math.ceil(Math.max(s7 / 7, s15 / 15, s30 / 30)) : 0; }
+
   function computePlan(inv, bulk, o) {
     var COVER = o.coverDays || 26, MIN = o.minLine || 10, RT = o.roundTo || 5, skus = o.skus || {};
     var invAt = {};
@@ -199,7 +201,7 @@ var PlanCore = (function () {
     var rates = {};
     bulk.forEach(function (b) {
       var x = invAt[b.whId + '|' + b.item];
-      if (x && x.s30 > 0) (rates[b.item] = rates[b.item] || []).push(0.5 * x.s7 / 7 + 0.3 * x.s15 / 15 + 0.2 * x.s30 / 30);
+      if (x && x.s30 > 0) (rates[b.item] = rates[b.item] || []).push(dailyRate(x.s7, x.s15, x.s30));
     });
     var med = {};
     Object.keys(rates).forEach(function (k) { med[k] = median(rates[k]); });
@@ -218,14 +220,11 @@ var PlanCore = (function () {
       var s7 = x ? x.s7 : 0, s15 = x ? x.s15 : 0, s30 = x ? x.s30 : 0;
       var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming, app = extra[whNorm(b.whName) + '|' + b.item] || 0;
       var pos = wh + ds + inc + app;
-      var r7 = s7 / 7, r15 = s15 / 15, r30 = s30 / 30, drr, status, kind;
+      var drr = dailyRate(s7, s15, s30), status, kind;
       if (s30 === 0) { drr = 0; status = pos === 0 ? 'Not live here' : 'In stock, no sales yet'; kind = pos === 0 ? 'notlive' : 'nosale'; }
-      else if (s7 === s30) { drr = r7; status = 'New listing (≤7 days)'; kind = 'new'; }
-      else if (s30 - s15 <= 0.1 * s30) { drr = 0.6 * r7 + 0.4 * r15; status = 'New listing (≤15 days)'; kind = 'new'; }
-      else {
-        drr = 0.5 * r7 + 0.3 * r15 + 0.2 * r30; status = 'Established'; kind = 'est';
-        if (wh + ds < 7 * r30 && r7 < 0.8 * r30) { drr = Math.max(drr, 0.5 * r15 + 0.5 * r30); status = 'Ran low – longer average used'; kind = 'low'; }
-      }
+      else if (s7 === s30) { status = 'New listing (≤7 days)'; kind = 'new'; }
+      else if (s30 - s15 <= 0.1 * s30) { status = 'New listing (≤15 days)'; kind = 'new'; }
+      else { status = 'Established'; kind = 'est'; }
       var EL = o.elapsed || 0;
       var target = drr * (COVER + EL), need = Math.max(0, target - pos), rec = 0, note = '';
       if (need >= MIN / 2) { rec = Math.ceil(need / RT) * RT; if (rec < MIN) rec = MIN; }
@@ -969,7 +968,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           (r.note ? ' · <b>' + esc(r.note) + '</b>' : (r.locked ? ' · Locked: ' + esc(r.remarks) : '')) +
           (r.starter && !r.locked ? ' · starter ' + r.starter : '') + '</small></div>' +
           '<div class="right"><span class="lbl">Sold 7d / 30d</span>' + fmt(r.s7) + ' / ' + fmt(r.s30) + '</div>' +
-          '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate, 1) + '</div>' +
+          '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
           '<div class="right"><span class="lbl">Has now</span>' + fmt(r.position) + '</div>' +
           '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
