@@ -49,6 +49,16 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 /* Each warehouse block's title + column headings stay pinned under the top bar
    while scrolling through that block, and scroll away when the next block starts. */
 .whsec{position:relative}
+/* Search: pick several SKUs (chips) from a suggestion list. */
+.srch{position:relative}
+.sugg{position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.12);z-index:25;max-height:280px;overflow:auto}
+.sugg div{padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line)}
+.sugg div:last-child{border-bottom:0}
+.sugg div.on,.sugg div:hover{background:var(--chip)}
+.sugg small{color:var(--muted)}
+.picks{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.picks:empty{display:none}
+.picks .chip{cursor:default}.picks .chip button{border:0;background:none;cursor:pointer;padding:0 0 0 6px;font-weight:700;color:inherit}
 .whhead{position:sticky;top:var(--stickTop,86px);z-index:5;background:var(--card);box-shadow:0 2px 4px rgba(0,0,0,.06)}
 .whhead .grp{margin:0;padding:10px 10px 6px!important}
 .line .nm{font-weight:600}.line .nm small{display:block;font-weight:400;color:var(--muted);font-size:11px}
@@ -529,7 +539,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   var API_URL = '';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'plan', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
-    plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '' }, starters: null, logFilter: null, manual: [] };
+    plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
 
   /* ---------------- small helpers ---------------- */
   function $(id) { return document.getElementById(id); }
@@ -779,10 +789,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   function visibleRows() {
-    var f = S.filter, q = f.q.toLowerCase();
+    var f = S.filter, q = f.q.toLowerCase(), picks = f.picks || [];
     return S.plan.filter(function (r) {
       if (f.wh && r.wh !== f.wh) return false;
       if (f.group && (r.group || '?') !== f.group) return false;
+      // Picked SKUs: show every line of just those SKUs (even ones with nothing to send);
+      // the search text then only drives the suggestion list.
+      if (picks.length) return picks.indexOf(Number(r.item)) >= 0;
       if (f.only && !(S.final[r.key] > 0) && !(r.locked && r.note)) return false;
       if (q && (r.name + ' ' + r.sku + ' ' + r.item).toLowerCase().indexOf(q) < 0) return false;
       return true;
@@ -823,8 +836,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '</div><div class="row" style="margin-top:10px">' +
       '<div><label class="f">Group</label><select id="fGroup"><option value="">TBI + TBO</option><option value="TBI"' + (S.filter.group === 'TBI' ? ' selected' : '') + '>' + esc(groupName('TBI')) + '</option><option value="TBO"' + (S.filter.group === 'TBO' ? ' selected' : '') + '>' + esc(groupName('TBO')) + '</option><option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
       '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (S.filter.only ? '' : ' selected') + '>All items</option></select></div>' +
-      '<div><label class="f">Search</label><input type="text" id="fQ" placeholder="SKU or item ID" value="' + esc(S.filter.q) + '"></div>' +
+      '<div class="srch"><label class="f">Search — pick one or more SKUs</label><input type="text" id="fQ" autocomplete="off" placeholder="SKU or item ID, Enter to add" value="' + esc(S.filter.q) + '"><div class="sugg hidden" id="fSugg"></div></div>' +
+      '<div style="flex:0 0 auto"><button class="btn" id="bClr" title="Clear all filters">✕ Clear</button></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bXls">⬇ Plan (Excel)</button></div></div>' +
+      '<div class="picks" id="fPicks"></div>' +
       msgs(info, 'info') +
       (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no TBI/TBO group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
       (locked.length ? '<div class="msg warn"><b>Needed but locked on Blinkit (' + locked.length + '):</b> ' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div>' : '') +
@@ -833,10 +848,87 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('whChips').onclick = function (e) { var c = e.target.closest('.chip'); if (!c) return; S.filter.wh = c.getAttribute('data-wh'); renderPlanOut(); };
     $('fGroup').onchange = function () { S.filter.group = this.value; renderLines(); };
     $('fOnly').onchange = function () { S.filter.only = this.value === '1'; renderLines(); };
-    $('fQ').oninput = function () { S.filter.q = this.value; renderLines(); };
+    initSkuPicker();
+    $('bClr').onclick = function () { S.filter = { wh: '', group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
     $('bXls').onclick = exportPlan;
+    renderPicks();
     renderLines();
     renderBar();
+  }
+
+  // ---- Search: multi-SKU picker ----
+  function skuChoices() {
+    var seen = {}, out = [];
+    S.plan.forEach(function (r) {
+      var k = Number(r.item); if (seen[k]) return; seen[k] = 1;
+      out.push({ item: k, sku: r.sku || '', name: r.name || '' });
+    });
+    return out.sort(function (a, b) { return String(a.sku || a.item).localeCompare(String(b.sku || b.item), undefined, { numeric: true }); });
+  }
+  function skuMatches(q) {
+    q = String(q || '').trim().toLowerCase(); if (!q) return [];
+    var picks = S.filter.picks;
+    return skuChoices().filter(function (c) {
+      return picks.indexOf(c.item) < 0 && (c.sku + ' ' + c.item + ' ' + c.name).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  function addPicks(items) {
+    var changed = false;
+    items.forEach(function (it) { it = Number(it); if (it && S.filter.picks.indexOf(it) < 0) { S.filter.picks.push(it); changed = true; } });
+    if (changed) { S.filter.q = ''; $('fQ').value = ''; renderPicks(); renderLines(); }
+    return changed;
+  }
+  function renderPicks() {
+    var box = $('fPicks'); if (!box) return;
+    var all = skuChoices(), by = {}; all.forEach(function (c) { by[c.item] = c; });
+    box.innerHTML = S.filter.picks.map(function (it) {
+      var c = by[it] || { sku: '', item: it };
+      return '<span class="chip on">' + esc(skuText(c.sku, c.item)) + '<button data-it="' + it + '" title="Remove">×</button></span>';
+    }).join('') + (S.filter.picks.length ? '<span class="small muted" style="align-self:center">Showing all lines of ' + S.filter.picks.length + ' SKU' + (S.filter.picks.length > 1 ? 's' : '') + '</span>' : '');
+    box.onclick = function (e) {
+      var b = e.target.closest('button[data-it]'); if (!b) return;
+      var it = Number(b.getAttribute('data-it'));
+      S.filter.picks = S.filter.picks.filter(function (x) { return x !== it; });
+      renderPicks(); renderLines();
+    };
+  }
+  function initSkuPicker() {
+    var inp = $('fQ'), sg = $('fSugg'), list = [], hi = 0;
+    function draw() {
+      list = skuMatches(inp.value).slice(0, 30);
+      if (!list.length) { sg.classList.add('hidden'); return; }
+      if (hi >= list.length) hi = 0;
+      sg.innerHTML = list.map(function (c, i) {
+        return '<div data-i="' + i + '" class="' + (i === hi ? 'on' : '') + '"><b>' + esc(c.sku || 'No SKU') + '</b> · ' + c.item + (c.name ? ' <small>' + esc(c.name) + '</small>' : '') + '</div>';
+      }).join('');
+      sg.classList.remove('hidden');
+    }
+    inp.oninput = function () {
+      S.filter.q = this.value; hi = 0; draw();
+      if (!S.filter.picks.length) renderLines();
+    };
+    inp.onfocus = draw;
+    inp.onblur = function () { setTimeout(function () { sg.classList.add('hidden'); }, 150); };
+    inp.onkeydown = function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!list.length) return; e.preventDefault();
+        hi = (hi + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; draw();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        // Several SKUs pasted at once (comma / space / new line separated): add each exact match.
+        var parts = inp.value.split(/[\s,;]+/).filter(Boolean);
+        if (parts.length > 1) {
+          var all = skuChoices(), hits = [];
+          parts.forEach(function (p) { p = p.toLowerCase(); all.forEach(function (c) { if (String(c.sku).toLowerCase() === p || String(c.item) === p) hits.push(c.item); }); });
+          if (addPicks(hits)) { sg.classList.add('hidden'); return; }
+        }
+        if (list.length) { addPicks([list[hi].item]); hi = 0; draw(); }
+      } else if (e.key === 'Escape') { sg.classList.add('hidden'); }
+    };
+    sg.onmousedown = function (e) {
+      var d = e.target.closest('[data-i]'); if (!d) return;
+      e.preventDefault(); addPicks([list[Number(d.getAttribute('data-i'))].item]); draw();
+    };
   }
 
   function statusPill(r) {
