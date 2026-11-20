@@ -1,5 +1,5 @@
-# Shared deploy steps for the Apps Script apps in inventory-app/, shipment-app/, daily-task-app/ and po-app/.
-# Called by deploy-inventory.yml, deploy-shipment.yml, deploy-daily-task.yml and deploy-po.yml.
+# Shared deploy steps for the Apps Script apps in inventory-app/, shipment-app/, daily-task-app/, po-app/ and warehouse-app/.
+# Called by deploy-inventory.yml, deploy-shipment.yml, deploy-daily-task.yml, deploy-po.yml and deploy-warehouse.yml.
 #
 # What it does: downloads the app's current Apps Script project, puts in every .gs and .html file from the app's
 # folder (matched by file name; an unknown file name stops the deploy so nothing is duplicated), fills in the

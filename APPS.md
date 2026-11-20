@@ -8,6 +8,7 @@
 | 4 | Travalate Daily Task Sheet | `daily-task-app/` | Yes, once set up (`deploy-daily-task.yml`) |
 | 5 | PO Web App with Vendor Autofill | `po-app/` | Yes, once set up (`deploy-po.yml`) |
 | 6 | Machine Production App (Karigar Production) | `production-app/` (+ hosted copy `production/`) | Yes (`deploy-production-apps-script.yml`) |
+| 7 | Travalate Warehouse (Raw Material Stock, Employee Logins, Daily Ledger) | `warehouse-app/` | Yes, once set up (`deploy-warehouse.yml`) |
 
 How the apps talk to each other: Shipment Manager → Inventory (shipped stock), Production → Inventory
 (`productionIn`, `setInProduction`); both use the same shared secret (kept only in Apps Script, `XXXX` here).

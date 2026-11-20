@@ -9,6 +9,7 @@ updates the web app to a new version. The `/exec` link stays the same.
 | Shipment Manager | Deploy Shipment Manager | `SHIPMENT_SCRIPT_ID`, `SHIPMENT_DEPLOYMENT_ID` |
 | Daily Task Sheet | Deploy Daily Task Sheet | `DAILY_TASK_SCRIPT_ID`, `DAILY_TASK_DEPLOYMENT_ID` |
 | PO App | Deploy PO App | `PO_SCRIPT_ID`, `PO_DEPLOYMENT_ID` |
+| Warehouse | Deploy Warehouse App | `WAREHOUSE_SCRIPT_ID`, `WAREHOUSE_DEPLOYMENT_ID` |
 | Inventory + Shipment | (both) | `TRAVALATE_SHARED_SECRET` |
 
 An app without its secrets is simply skipped, so you can set them up one at a time.

@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<base target="_top">
+<title>Travalate Warehouse</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#f4f6f9;--card:#fff;--ink:#1a1f36;--muted:#6b7385;--line:#e3e7ee;--brand:#0f3460;--brand2:#2563eb;--in:#15803d;--in-bg:#dcfce7;--out:#b91c1c;--out-bg:#fee2e2;--adj:#a16207;--adj-bg:#fef3c7}
+body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+button,input,select,textarea{font:inherit;color:inherit}
+.hidden{display:none!important}
+
+/* auth */
+.center{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;background:linear-gradient(135deg,#0f3460,#16213e 60%,#1a1a2e)}
+.auth-card{background:#fff;border-radius:14px;padding:28px 24px;width:100%;max-width:370px;box-shadow:0 20px 60px rgba(0,0,0,.35)}
+.auth-card h1{font-size:20px;margin-bottom:4px}
+.auth-card .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+.logo{display:inline-flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:linear-gradient(135deg,var(--brand),var(--brand2));color:#ffe600;font-weight:800;margin-bottom:12px}
+
+/* forms */
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12px;font-weight:600;color:#47506a;margin-bottom:4px}
+.field input,.field select,.field textarea{width:100%;padding:9px 10px;border:1px solid #d5dbe5;border-radius:8px;background:#fff;outline:none}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--brand2);box-shadow:0 0 0 3px #dbeafe}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.row3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px}
+.err{background:var(--out-bg);color:var(--out);font-size:12.5px;font-weight:600;padding:8px 10px;border-radius:8px;margin-bottom:12px}
+.btn{border:1px solid var(--line);background:#fff;border-radius:8px;padding:8px 13px;font-weight:600;cursor:pointer;white-space:nowrap}
+.btn:hover{background:#f3f5f8}
+.btn.primary{background:var(--brand);border-color:var(--brand);color:#fff}
+.btn.primary:hover{background:#0b2747}
+.btn.green{background:var(--in);border-color:var(--in);color:#fff}
+.btn.red{background:var(--out);border-color:var(--out);color:#fff}
+.btn.small{padding:4px 9px;font-size:12px}
+.btn.full{width:100%;padding:11px}
+.btn:disabled{opacity:.55;cursor:default}
+.link{background:none;border:none;color:var(--brand2);cursor:pointer;font-weight:600;padding:0}
+.icon-btn{background:none;border:none;cursor:pointer;color:var(--muted);padding:3px 6px;border-radius:6px;font-size:14px}
+.icon-btn:hover{background:#eef1f5;color:var(--out)}
+
+/* shell */
+.app{display:flex;min-height:100vh}
+.side{width:220px;flex:none;background:#0f1d33;color:#cfd6e4;display:flex;flex-direction:column;padding:14px 10px;position:sticky;top:0;height:100vh}
+.side .brand{display:flex;gap:9px;align-items:center;font-weight:700;color:#fff;padding:4px 6px 16px}
+.side .brand .logo{margin:0;width:26px;height:26px;font-size:13px}
+.nav-btn{display:flex;gap:10px;align-items:center;width:100%;background:none;border:none;color:inherit;padding:9px 10px;border-radius:8px;cursor:pointer;text-align:left;font-size:13.5px}
+.nav-btn:hover{background:rgba(255,255,255,.07)}
+.nav-btn.active{background:rgba(255,255,255,.14);color:#fff;font-weight:600}
+.nav-btn .ic{width:18px;text-align:center}
+.nav-sep{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:#7f8aa3;padding:14px 10px 4px}
+.side .me{margin-top:auto;border-top:1px solid rgba(255,255,255,.1);padding:10px 6px 0;font-size:12.5px}
+.side .me b{color:#fff;display:block}
+.main{flex:1;min-width:0;padding:22px 26px 90px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:16px;flex-wrap:wrap}
+.topbar h2{font-size:20px}
+.tb-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.bottom-nav{display:none}
+
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+.card h3{font-size:14.5px;margin-bottom:10px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:14px}
+.stat{background:#fff;border:1px solid var(--line);border-radius:12px;padding:14px}
+.stat .k{font-size:12px;color:var(--muted);font-weight:600}
+.stat .v{font-size:22px;font-weight:700;margin-top:4px;font-variant-numeric:tabular-nums}
+.stat .s{font-size:11.5px;color:var(--muted);margin-top:2px}
+.v.in{color:var(--in)}.v.out{color:var(--out)}
+
+table{width:100%;border-collapse:collapse}
+th{font-size:11.5px;text-transform:uppercase;letter-spacing:.03em;color:var(--muted);text-align:left;padding:8px;border-bottom:1px solid var(--line);white-space:nowrap;background:#fafbfc}
+td{padding:9px 8px;border-bottom:1px solid #eef1f5;vertical-align:top}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.table-wrap{overflow-x:auto;background:#fff;border:1px solid var(--line);border-radius:12px}
+.clickable tbody tr{cursor:pointer}
+.clickable tbody tr:hover{background:#f7f9fc}
+.tag{display:inline-block;font-size:11px;font-weight:700;padding:2px 7px;border-radius:20px}
+.tag.IN{background:var(--in-bg);color:var(--in)}
+.tag.OUT{background:var(--out-bg);color:var(--out)}
+.tag.ADJUST{background:var(--adj-bg);color:var(--adj)}
+.tag.low{background:var(--out-bg);color:var(--out)}
+.tag.off{background:#eceff3;color:var(--muted)}
+.tag.role{background:#e0e7ff;color:#3730a3}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+.filters{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.filters input,.filters select{padding:8px 10px;border:1px solid #d5dbe5;border-radius:8px;background:#fff}
+.filters input[type=search]{flex:1;min-width:160px}
+
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:9px;overflow:hidden;background:#fff}
+.seg button{border:none;background:none;padding:9px 16px;font-weight:700;cursor:pointer}
+.seg button.on-in{background:var(--in);color:#fff}
+.seg button.on-out{background:var(--out);color:#fff}
+.seg button.on{background:var(--brand);color:#fff}
+.stock-hint{font-size:12.5px;margin-top:-6px;margin-bottom:12px;color:var(--muted)}
+.check{display:flex;gap:8px;align-items:center;font-size:13px;margin-bottom:12px}
+
+.date-nav{display:flex;align-items:center;gap:6px}
+.date-nav input{padding:7px 9px;border:1px solid #d5dbe5;border-radius:8px}
+.count-input{width:110px;padding:6px 8px;border:1px solid #d5dbe5;border-radius:7px;text-align:right}
+.diff-pos{color:var(--in);font-weight:700}.diff-neg{color:var(--out);font-weight:700}
+
+/* modal + toast */
+.modal-bg{position:fixed;inset:0;background:rgba(10,15,30,.45);display:flex;align-items:flex-start;justify-content:center;padding:40px 14px;z-index:50;overflow-y:auto}
+.modal{background:#fff;border-radius:14px;width:100%;max-width:480px;padding:20px}
+.modal h3{font-size:17px;margin-bottom:14px}
+.modal .actions{display:flex;justify-content:flex-end;gap:8px;margin-top:6px}
+#toasts{position:fixed;top:14px;right:14px;z-index:100;display:flex;flex-direction:column;gap:8px;max-width:320px}
+.toast{padding:10px 14px;border-radius:9px;font-size:13px;font-weight:600;color:#fff;box-shadow:0 8px 24px rgba(0,0,0,.18)}
+.loading{padding:30px;text-align:center;color:var(--muted)}
+.spinner{display:inline-block;width:16px;height:16px;border:2px solid #cbd3df;border-top-color:var(--brand);border-radius:50%;animation:spin .7s linear infinite;vertical-align:-3px}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+@media (max-width:820px){
+  .side{display:none}
+  .main{padding:14px 14px 90px}
+  .bottom-nav{display:flex;position:fixed;left:0;right:0;bottom:0;background:#fff;border-top:1px solid var(--line);z-index:40;justify-content:space-around;padding:4px 2px calc(4px + env(safe-area-inset-bottom))}
+  .bottom-nav button{background:none;border:none;font-size:10.5px;color:var(--muted);display:flex;flex-direction:column;align-items:center;gap:1px;padding:5px 4px;flex:1;cursor:pointer}
+  .bottom-nav button .ic{font-size:18px}
+  .bottom-nav button.active{color:var(--brand);font-weight:700}
+  .row3{grid-template-columns:1fr 1fr}
+  .hide-m{display:none}
+  .topbar h2{font-size:18px}
+}
+@media print{
+  .side,.bottom-nav,.tb-actions,.filters,.no-print{display:none!important}
+  .main{padding:0}
+  body{background:#fff}
+}
+</style>
+</head>
+<body>
+
+<div id="toasts"></div>
+
+<!-- ───── Auth screens ───── -->
+<div id="authLoading" class="center"><div style="color:#fff"><span class="spinner"></span> Loading…</div></div>
+
+<div id="setupScreen" class="center hidden">
+  <div class="auth-card">
+    <div class="logo">W</div>
+    <h1>First-time setup</h1>
+    <div class="sub">Create the admin login. You can add employees after this.</div>
+    <div id="setupErr" class="err hidden"></div>
+    <div class="field"><label>Your name</label><input id="setupName" autocomplete="name"></div>
+    <div class="field"><label>Username</label><input id="setupUser" autocapitalize="off" autocomplete="username" placeholder="e.g. admin"></div>
+    <div class="field"><label>Password (min 6 characters)</label><input id="setupPass" type="password" autocomplete="new-password"></div>
+    <button id="setupBtn" class="btn primary full">Create admin login</button>
+  </div>
+</div>
+
+<div id="loginScreen" class="center hidden">
+  <div class="auth-card">
+    <div class="logo">W</div>
+    <h1>Travalate Warehouse</h1>
+    <div class="sub">Raw material stock &amp; daily ledger</div>
+    <div id="loginErr" class="err hidden"></div>
+    <div class="field"><label>Username</label><input id="loginUser" autocapitalize="off" autocomplete="username"></div>
+    <div class="field"><label>Password</label><input id="loginPass" type="password" autocomplete="current-password"></div>
+    <button id="loginBtn" class="btn primary full">Log in</button>
+    <div class="small muted" style="margin-top:12px;text-align:center">Forgot your password? Ask your admin to reset it.</div>
+  </div>
+</div>
+
+<!-- ───── App ───── -->
+<div id="app" class="app hidden">
+  <aside class="side">
+    <div class="brand"><span class="logo">W</span><span id="companyName">Travalate</span></div>
+    <div id="sideNav"></div>
+    <div class="me">
+      <b id="meName"></b><span id="meRole" class="muted"></span>
+      <div style="margin-top:8px;display:flex;gap:10px">
+        <button class="link" style="color:#9cc1ff" onclick="openPasswordModal()">Password</button>
+        <button class="link" style="color:#9cc1ff" onclick="doLogout()">Log out</button>
+      </div>
+    </div>
+  </aside>
+  <main class="main" id="main"></main>
+  <nav class="bottom-nav" id="bottomNav"></nav>
+</div>
+
+<div id="modalRoot"></div>
+
+<script>
+/* ══════════════════════════════════════════════
+   TRAVALATE WAREHOUSE — front end
+   Talks to Code.gs through google.script.run. The session token
+   is kept in localStorage; the server checks it on every call.
+══════════════════════════════════════════════ */
+const TOKEN_KEY = 'tw_wh_token';
+// Storage can be blocked inside the Apps Script frame (private mode, blocked cookies) — then
+// the login simply lasts until the page is closed.
+const store = {
+  get(k) { try { return localStorage.getItem(k); } catch (e) { return null; } },
+  set(k, v) { try { localStorage.setItem(k, v); } catch (e) {} },
+  del(k) { try { localStorage.removeItem(k); } catch (e) {} },
+};
+let token = null, me = null, settings = {}, materials = [], payModes = ['Cash'], today = '';
+let view = 'home';
+let ledgerDate = '';
+let entryType = 'IN';
+let stockFilter = { q: '', cat: '', status: '' };
+
+const NAV = [
+  { id: 'home',    ic: '🏠', label: 'Dashboard',   short: 'Home' },
+  { id: 'entry',   ic: '➕', label: 'Stock In / Out', short: 'In/Out' },
+  { id: 'stock',   ic: '📦', label: 'Raw Material Stock', short: 'Stock' },
+  { id: 'count',   ic: '🔢', label: 'Stock Count', short: 'Count', roles: ['admin', 'manager'] },
+  { id: 'history', ic: '🧾', label: 'Stock History', short: 'History' },
+  { id: 'ledger',  ic: '📒', label: 'Daily Ledger', short: 'Ledger' },
+  { id: 'report',  ic: '📊', label: 'Ledger Report', short: 'Report' },
+  { sep: 'Admin', roles: ['admin'] },
+  { id: 'users',   ic: '👥', label: 'Employee Logins', short: 'Users', roles: ['admin'] },
+  { id: 'activity',ic: '🕑', label: 'Activity Log', short: 'Log', roles: ['admin'] },
+  { id: 'settings',ic: '⚙️', label: 'Settings', short: 'Settings', roles: ['admin'] },
+];
+const MOBILE_NAV = ['home', 'entry', 'stock', 'ledger', 'more'];
+
+/* ───── helpers ───── */
+const $ = id => document.getElementById(id);
+function esc(s) { return String(s === undefined || s === null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function money(n) { return '₹' + Number(n || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function qty(n) { return Number(n || 0).toLocaleString('en-IN', { maximumFractionDigits: 3 }); }
+function fmtDate(d) { if (!d) return ''; const [y, m, dd] = d.split('-'); return dd + '-' + m + '-' + y; }
+function fmtTime(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }); }
+function addDays(d, n) { const x = new Date(d + 'T00:00:00'); x.setDate(x.getDate() + n); return x.getFullYear() + '-' + String(x.getMonth() + 1).padStart(2, '0') + '-' + String(x.getDate()).padStart(2, '0'); }
+function isManager() { return me && (me.role === 'admin' || me.role === 'manager'); }
+function isAdmin() { return me && me.role === 'admin'; }
+function canSee(item) { return !item.roles || item.roles.indexOf(me.role) !== -1; }
+function matById(id) { return materials.find(m => m.id === id); }
+
+function api(fn, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(err => {
+        const msg = (err && err.message) || String(err);
+        if (/log in again|expired|switched off/i.test(msg) && fn !== 'login') { store.del(TOKEN_KEY); setTimeout(() => location.reload(), 1800); }
+        reject(new Error(msg));
+      })[fn](...args);
+  });
+}
+function toast(msg, type) {
+  const el = document.createElement('div');
+  el.className = 'toast';
+  el.style.background = { error: '#b91c1c', success: '#15803d' }[type] || '#1a1f36';
+  el.textContent = msg;
+  $('toasts').appendChild(el);
+  setTimeout(() => el.remove(), 3500);
+}
+function busy(btn, on, text) {
+  if (!btn) return;
+  if (on) { btn.dataset.t = btn.textContent; btn.disabled = true; btn.textContent = text || 'Saving…'; }
+  else { btn.disabled = false; btn.textContent = btn.dataset.t || btn.textContent; }
+}
+function showErr(id, msg) { const el = $(id); if (!el) return; el.textContent = msg || ''; el.classList.toggle('hidden', !msg); }
+function setMain(html) { $('main').innerHTML = html; }
+function loadingMain(title) { setMain(topbar(title) + '<div class="loading"><span class="spinner"></span> Loading…</div>'); }
+function topbar(title, actions) { return `<div class="topbar"><h2>${esc(title)}</h2><div class="tb-actions">${actions || ''}</div></div>`; }
+
+function openModal(html) { $('modalRoot').innerHTML = `<div class="modal-bg" onclick="if(event.target===this)closeModal()"><div class="modal">${html}</div></div>`; }
+function closeModal() { $('modalRoot').innerHTML = ''; }
+
+function downloadCsv(name, rows) {
+  const csv = rows.map(r => r.map(v => { const s = String(v === undefined || v === null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
+  a.download = name;
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* ───── auth ───── */
+function boot() {
+  api('needsSetup').then(needs => {
+    $('authLoading').classList.add('hidden');
+    if (needs) { $('setupScreen').classList.remove('hidden'); return; }
+    const saved = store.get(TOKEN_KEY);
+    if (!saved) { $('loginScreen').classList.remove('hidden'); return; }
+    api('resumeSession', saved).then(res => {
+      if (res) enterApp(saved); else { store.del(TOKEN_KEY); $('loginScreen').classList.remove('hidden'); }
+    }).catch(() => $('loginScreen').classList.remove('hidden'));
+  }).catch(e => { $('authLoading').innerHTML = '<div style="color:#fff">Could not load: ' + esc(e.message) + '</div>'; });
+}
+$('setupBtn').onclick = () => {
+  showErr('setupErr', ''); busy($('setupBtn'), true, 'Creating…');
+  api('setupFirstAdmin', $('setupName').value, $('setupUser').value, $('setupPass').value)
+    .then(res => { $('setupScreen').classList.add('hidden'); enterApp(res.token); })
+    .catch(e => { busy($('setupBtn'), false); showErr('setupErr', e.message); });
+};
+function doLogin() {
+  showErr('loginErr', ''); busy($('loginBtn'), true, 'Logging in…');
+  api('login', $('loginUser').value, $('loginPass').value)
+    .then(res => { $('loginScreen').classList.add('hidden'); enterApp(res.token); })
+    .catch(e => { busy($('loginBtn'), false); showErr('loginErr', e.message); });
+}
+$('loginBtn').onclick = doLogin;
+['loginUser', 'loginPass'].forEach(id => $(id).addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); }));
+
+function enterApp(t) {
+  token = t;
+  store.set(TOKEN_KEY, t);
+  $('authLoading').classList.remove('hidden');
+  api('getAppData', token).then(d => {
+    me = d.user; settings = d.settings; materials = d.materials; payModes = d.payModes; today = d.today; ledgerDate = today;
+    $('authLoading').classList.add('hidden');
+    $('app').classList.remove('hidden');
+    $('meName').textContent = me.name;
+    $('meRole').textContent = me.username + ' · ' + me.role;
+    $('companyName').textContent = settings.companyName || 'Travalate';
+    renderNav();
+    go('home');
+  }).catch(e => { $('authLoading').classList.add('hidden'); $('loginScreen').classList.remove('hidden'); showErr('loginErr', e.message); });
+}
+function doLogout() {
+  api('logout', token).finally(() => { store.del(TOKEN_KEY); location.reload(); });
+}
+
+/* ───── navigation ───── */
+function renderNav() {
+  $('sideNav').innerHTML = NAV.filter(canSee).map(n => n.sep
+    ? `<div class="nav-sep">${esc(n.sep)}</div>`
+    : `<button class="nav-btn${view === n.id ? ' active' : ''}" onclick="go('${n.id}')"><span class="ic">${n.ic}</span>${esc(n.label)}</button>`).join('');
+  $('bottomNav').innerHTML = MOBILE_NAV.map(id => {
+    if (id === 'more') {
+      const active = !['home', 'entry', 'stock', 'ledger'].includes(view);
+      return `<button class="${active ? 'active' : ''}" onclick="openMoreMenu()"><span class="ic">☰</span>More</button>`;
+    }
+    const n = NAV.find(x => x.id === id);
+    return `<button class="${view === id ? 'active' : ''}" onclick="go('${id}')"><span class="ic">${n.ic}</span>${esc(n.short)}</button>`;
+  }).join('');
+}
+function openMoreMenu() {
+  const items = NAV.filter(n => !n.sep && canSee(n) && !['home', 'entry', 'stock', 'ledger'].includes(n.id));
+  openModal(`<h3>Menu</h3>
+    ${items.map(n => `<button class="nav-btn" style="color:var(--ink)" onclick="closeModal();go('${n.id}')"><span class="ic">${n.ic}</span>${esc(n.label)}</button>`).join('')}
+    <hr style="border:none;border-top:1px solid var(--line);margin:10px 0">
+    <div class="small muted" style="padding:0 10px 8px">Signed in as <b>${esc(me.name)}</b> (${esc(me.role)})</div>
+    <button class="nav-btn" style="color:var(--ink)" onclick="openPasswordModal()"><span class="ic">🔑</span>Change password</button>
+    <button class="nav-btn" style="color:var(--out)" onclick="doLogout()"><span class="ic">↩</span>Log out</button>`);
+}
+function go(v) {
+  view = v;
+  renderNav();
+  window.scrollTo(0, 0);
+  ({ home: renderHome, entry: renderEntry, stock: renderStock, count: renderCount, history: renderHistory,
+     ledger: renderLedger, report: renderReport, users: renderUsers, activity: renderActivity, settings: renderSettings })[v]();
+}
+
+/* ───── dashboard ───── */
+function renderHome() {
+  loadingMain('Dashboard');
+  api('getDashboard', token).then(d => {
+    const low = d.lowStock.length
+      ? `<table><thead><tr><th>Material</th><th class="num">In stock</th><th class="num">Minimum</th></tr></thead><tbody>
+          ${d.lowStock.map(m => `<tr><td>${esc(m.name)}</td><td class="num" style="color:var(--out);font-weight:700">${qty(m.stock)} ${esc(m.unit)}</td><td class="num">${qty(m.minStock)}</td></tr>`).join('')}
+         </tbody></table>`
+      : '<div class="empty">All materials are above their minimum level 👍</div>';
+    setMain(topbar('Dashboard', `<span class="muted">${fmtDate(d.today)}</span>`) + `
+      <div class="stats">
+        <div class="stat"><div class="k">Raw materials</div><div class="v">${d.materialCount}</div><div class="s">active items</div></div>
+        <div class="stat"><div class="k">Low stock</div><div class="v ${d.lowStock.length ? 'out' : ''}">${d.lowStock.length}</div><div class="s">at or below minimum</div></div>
+        <div class="stat"><div class="k">Stock value</div><div class="v">${money(d.stockValue)}</div><div class="s">at last purchase rate</div></div>
+        <div class="stat"><div class="k">Today's stock entries</div><div class="v">${d.todayInCount} <span class="small in" style="color:var(--in)">IN</span> · ${d.todayOutCount} <span class="small" style="color:var(--out)">OUT</span></div></div>
+      </div>
+      <div class="stats">
+        <div class="stat"><div class="k">Ledger opening (today)</div><div class="v">${money(d.ledger.opening)}</div></div>
+        <div class="stat"><div class="k">Money IN today</div><div class="v in">${money(d.ledger.totalIn)}</div></div>
+        <div class="stat"><div class="k">Money OUT today</div><div class="v out">${money(d.ledger.totalOut)}</div></div>
+        <div class="stat"><div class="k">Closing balance</div><div class="v">${money(d.ledger.closing)}</div><div class="s">${d.ledger.count} entries today</div></div>
+      </div>
+      <div class="card"><h3>⚠️ Low stock</h3>${low}</div>
+      <div class="card"><h3>Latest stock entries</h3>${movesTable(d.recentMoves, false)}</div>`);
+  }).catch(e => setMain(topbar('Dashboard') + `<div class="err">${esc(e.message)}</div>`));
+}
+
+function movesTable(rows, withDelete) {
+  if (!rows.length) return '<div class="empty">No entries yet.</div>';
+  return `<div style="overflow-x:auto"><table><thead><tr><th>Date</th><th>Type</th><th>Material</th><th class="num">Qty</th><th class="num hide-m">Rate</th><th class="hide-m">Party / Ref</th><th class="hide-m">By</th>${withDelete ? '<th></th>' : ''}</tr></thead><tbody>
+    ${rows.map(r => `<tr>
+      <td style="white-space:nowrap">${fmtDate(r.date)}</td>
+      <td><span class="tag ${r.type}">${r.type === 'ADJUST' ? 'COUNT' : r.type}</span></td>
+      <td>${esc(r.material)}${r.note ? `<div class="small muted">${esc(r.note)}</div>` : ''}</td>
+      <td class="num">${r.qty > 0 && r.type === 'ADJUST' ? '+' : ''}${qty(r.qty)} ${esc(r.unit)}</td>
+      <td class="num hide-m">${r.rate ? money(r.rate) : ''}</td>
+      <td class="hide-m">${esc(r.party)}${r.reference ? `<div class="small muted">${esc(r.reference)}</div>` : ''}</td>
+      <td class="hide-m small muted">${esc(r.user)}</td>
+      ${withDelete ? `<td>${isManager() ? `<button class="icon-btn" title="Delete" onclick="deleteMove('${r.id}')">🗑</button>` : ''}</td>` : ''}
+    </tr>`).join('')}</tbody></table></div>`;
+}
+
+/* ───── stock in / out ───── */
+function materialOptions(selected, onlyActive) {
+  return '<option value="">— choose material —</option>' + materials.filter(m => !onlyActive || m.active)
+    .map(m => `<option value="${m.id}"${m.id === selected ? ' selected' : ''}>${esc(m.name)}${m.code ? ' (' + esc(m.code) + ')' : ''} — ${qty(m.stock)} ${esc(m.unit)}</option>`).join('');
+}
+function renderEntry(keepMaterial) {
+  if (!materials.some(m => m.active)) {
+    setMain(topbar('Stock In / Out') + `<div class="card empty">No raw materials yet. ${isManager() ? '<br><br><button class="btn primary" onclick="go(\'stock\');setTimeout(()=>openMaterialModal(),50)">+ Add your first material</button>' : 'Ask a manager to add materials first.'}</div>`);
+    return;
+  }
+  const isIn = entryType === 'IN';
+  setMain(topbar('Stock In / Out') + `
+    <div class="card" style="max-width:560px">
+      <div class="seg" style="margin-bottom:16px">
+        <button class="${isIn ? 'on-in' : ''}" onclick="entryType='IN';renderEntry(true)">⬇ Stock IN (received)</button>
+        <button class="${!isIn ? 'on-out' : ''}" onclick="entryType='OUT';renderEntry(true)">⬆ Stock OUT (issued)</button>
+      </div>
+      <div id="entryErr" class="err hidden"></div>
+      <div class="field"><label>Raw material</label><select id="eMat" onchange="entryHint()">${materialOptions(keepMaterial === true ? ($('eMat') || {}).value : '', true)}</select></div>
+      <div class="stock-hint" id="eHint"></div>
+      <div class="row2">
+        <div class="field"><label>Date</label><input id="eDate" type="date" value="${today}"></div>
+        <div class="field"><label>Quantity <span id="eUnit" class="muted"></span></label><input id="eQty" type="number" inputmode="decimal" min="0" step="any" oninput="entryHint()"></div>
+      </div>
+      ${isIn ? `<div class="row2">
+        <div class="field"><label>Rate per unit (₹, optional)</label><input id="eRate" type="number" inputmode="decimal" min="0" step="any" oninput="entryHint()"></div>
+        <div class="field"><label>Supplier</label><input id="eParty" list="partyList" placeholder="Who sent it"></div>
+      </div>` : `<div class="field"><label>Issued to (karigar / machine / dept.)</label><input id="eParty" list="partyList" placeholder="Who took it"></div>`}
+      <datalist id="partyList"></datalist>
+      <div class="row2">
+        <div class="field"><label>${isIn ? 'Bill / Challan no.' : 'Reference / Job no.'}</label><input id="eRef"></div>
+        <div class="field"><label>Note</label><input id="eNote"></div>
+      </div>
+      ${isIn ? `<label class="check"><input type="checkbox" id="eLedger" onchange="$('eModeWrap').classList.toggle('hidden',!this.checked)"> Paid now — also add to Daily Ledger as Money OUT</label>
+      <div id="eModeWrap" class="field hidden"><label>Paid by</label><select id="eMode">${payModes.map(p => `<option>${p}</option>`).join('')}</select></div>` : ''}
+      <button id="eSave" class="btn ${isIn ? 'green' : 'red'} full" onclick="saveEntry()">Save Stock ${entryType}</button>
+    </div>`);
+  entryHint();
+  fillPartyList();
+}
+function fillPartyList() {
+  api('listStockMoves', token, { type: entryType }).then(rows => {
+    const set = [...new Set(rows.map(r => r.party).filter(Boolean))].slice(0, 100);
+    const dl = $('partyList'); if (dl) dl.innerHTML = set.map(p => `<option value="${esc(p)}">`).join('');
+  }).catch(() => {});
+}
+function entryHint() {
+  const m = matById(($('eMat') || {}).value);
+  if (!$('eHint')) return;
+  if (!m) { $('eHint').textContent = ''; $('eUnit').textContent = ''; return; }
+  $('eUnit').textContent = '(' + m.unit + ')';
+  const q = Number($('eQty').value) || 0;
+  const after = entryType === 'IN' ? m.stock + q : m.stock - q;
+  let txt = `In stock now: <b>${qty(m.stock)} ${esc(m.unit)}</b>`;
+  if (q) txt += ` → after this entry: <b style="color:${after < 0 ? 'var(--out)' : 'inherit'}">${qty(after)} ${esc(m.unit)}</b>`;
+  if (entryType === 'IN' && $('eRate') && Number($('eRate').value) && q) txt += ` · Amount: <b>${money(q * Number($('eRate').value))}</b>`;
+  if (m.lastRate && entryType === 'IN') txt += ` · last rate ${money(m.lastRate)}`;
+  $('eHint').innerHTML = txt;
+}
+function saveEntry() {
+  showErr('entryErr', '');
+  const btn = $('eSave'); busy(btn, true);
+  const input = {
+    type: entryType, materialId: $('eMat').value, date: $('eDate').value, qty: $('eQty').value,
+    rate: $('eRate') ? $('eRate').value : 0, party: $('eParty').value, reference: $('eRef').value, note: $('eNote').value,
+    addToLedger: $('eLedger') ? $('eLedger').checked : false, ledgerMode: $('eMode') ? $('eMode').value : 'Cash',
+  };
+  api('addStockMove', token, input).then(mats => {
+    materials = mats;
+    const m = matById(input.materialId);
+    toast(`Saved: ${entryType} ${qty(input.qty)} ${m ? m.unit + ' ' + m.name : ''}`, 'success');
+    renderEntry();
+  }).catch(e => { busy(btn, false); showErr('entryErr', e.message); });
+}
+
+/* ───── materials / stock list ───── */
+function renderStock() {
+  const cats = [...new Set(materials.map(m => m.category).filter(Boolean))].sort();
+  setMain(topbar('Raw Material Stock', `
+      <button class="btn" onclick="refreshMaterials()">↻ Refresh</button>
+      <button class="btn" onclick="exportStock()">⬇ CSV</button>
+      <button class="btn hide-m" onclick="window.print()">🖨 Print</button>
+      ${isManager() ? '<button class="btn primary" onclick="openMaterialModal()">+ Add material</button>' : ''}`) + `
+    <div class="filters">
+      <input type="search" id="sQ" placeholder="Search name, code, location…" value="${esc(stockFilter.q)}" oninput="stockFilter.q=this.value;drawStock()">
+      <select id="sCat" onchange="stockFilter.cat=this.value;drawStock()"><option value="">All categories</option>${cats.map(c => `<option${c === stockFilter.cat ? ' selected' : ''}>${esc(c)}</option>`).join('')}</select>
+      <select onchange="stockFilter.status=this.value;drawStock()">
+        <option value="">Active items</option><option value="low"${stockFilter.status === 'low' ? ' selected' : ''}>Low stock only</option><option value="all"${stockFilter.status === 'all' ? ' selected' : ''}>Include inactive</option>
+      </select>
+    </div>
+    <div id="stockTable"></div>`);
+  drawStock();
+}
+function filteredMaterials() {
+  const q = stockFilter.q.toLowerCase();
+  return materials.filter(m =>
+    (stockFilter.status === 'all' || m.active) && (stockFilter.status !== 'low' || m.low) &&
+    (!stockFilter.cat || m.category === stockFilter.cat) &&
+    (!q || [m.name, m.code, m.location, m.category].join(' ').toLowerCase().includes(q)));
+}
+function drawStock() {
+  const list = filteredMaterials();
+  const total = list.reduce((s, m) => s + Math.max(0, m.value), 0);
+  $('stockTable').innerHTML = !list.length ? '<div class="card empty">No materials found.</div>' : `
+    <div class="table-wrap"><table class="clickable"><thead><tr>
+      <th>Material</th><th class="hide-m">Category</th><th class="num">In stock</th><th class="num hide-m">Min</th><th class="num hide-m">Total IN</th><th class="num hide-m">Total OUT</th><th class="num hide-m">Value</th><th class="hide-m">Location</th>
+    </tr></thead><tbody>
+    ${list.map(m => `<tr onclick="openMaterialDetail('${m.id}')">
+      <td><b>${esc(m.name)}</b>${m.code ? ` <span class="muted small">${esc(m.code)}</span>` : ''} ${m.low ? '<span class="tag low">LOW</span>' : ''}${!m.active ? ' <span class="tag off">inactive</span>' : ''}</td>
+      <td class="hide-m">${esc(m.category)}</td>
+      <td class="num"><b style="color:${m.low ? 'var(--out)' : 'inherit'}">${qty(m.stock)}</b> ${esc(m.unit)}</td>
+      <td class="num hide-m">${m.minStock ? qty(m.minStock) : '—'}</td>
+      <td class="num hide-m">${qty(m.totalIn)}</td>
+      <td class="num hide-m">${qty(m.totalOut)}</td>
+      <td class="num hide-m">${m.value ? money(m.value) : '—'}</td>
+      <td class="hide-m">${esc(m.location)}</td>
+    </tr>`).join('')}
+    </tbody></table></div>
+    <div class="small muted" style="margin-top:8px">${list.length} items · stock value ${money(total)} (at last purchase rate)</div>`;
+}
+function refreshMaterials() {
+  api('listMaterials', token).then(m => { materials = m; if (view === 'stock') drawStock(); toast('Stock updated'); }).catch(e => toast(e.message, 'error'));
+}
+function exportStock() {
+  downloadCsv('raw-material-stock-' + today + '.csv', [['Code', 'Material', 'Category', 'Unit', 'In stock', 'Minimum', 'Low', 'Opening', 'Total IN', 'Total OUT', 'Last rate', 'Value', 'Location', 'Active']]
+    .concat(filteredMaterials().map(m => [m.code, m.name, m.category, m.unit, m.stock, m.minStock, m.low ? 'YES' : '', m.openingStock, m.totalIn, m.totalOut, m.lastRate, m.value, m.location, m.active ? 'Yes' : 'No'])));
+}
+function openMaterialDetail(id) {
+  const m = matById(id);
+  openModal(`<h3>${esc(m.name)}</h3>
+    <div class="stats" style="grid-template-columns:1fr 1fr">
+      <div class="stat"><div class="k">In stock</div><div class="v">${qty(m.stock)} <span class="small">${esc(m.unit)}</span></div></div>
+      <div class="stat"><div class="k">Minimum</div><div class="v">${qty(m.minStock)}</div></div>
+    </div>
+    <div class="small muted" style="margin-bottom:10px">Code ${esc(m.code || '—')} · ${esc(m.category || 'No category')} · Location ${esc(m.location || '—')} · Opening ${qty(m.openingStock)} · Last rate ${m.lastRate ? money(m.lastRate) : '—'}</div>
+    <div id="matMoves" class="loading"><span class="spinner"></span></div>
+    <div class="actions">
+      ${isManager() ? `<button class="btn" onclick="openMaterialModal('${m.id}')">Edit</button>` : ''}
+      <button class="btn green" onclick="closeModal();entryType='IN';go('entry');setTimeout(()=>{$('eMat').value='${m.id}';entryHint()},30)">+ IN</button>
+      <button class="btn red" onclick="closeModal();entryType='OUT';go('entry');setTimeout(()=>{$('eMat').value='${m.id}';entryHint()},30)">− OUT</button>
+      <button class="btn" onclick="closeModal()">Close</button>
+    </div>`);
+  api('listStockMoves', token, { materialId: id }).then(rows => {
+    const el = $('matMoves'); if (!el) return;
+    el.className = '';
+    el.innerHTML = '<div class="small" style="font-weight:700;margin-bottom:4px">Last entries</div>' + (rows.length ? `<table><tbody>${rows.slice(0, 15).map(r => `<tr><td class="small">${fmtDate(r.date)}</td><td><span class="tag ${r.type}">${r.type === 'ADJUST' ? 'COUNT' : r.type}</span></td><td class="num">${qty(r.qty)}</td><td class="small muted">${esc(r.party || r.reference)}</td></tr>`).join('')}</tbody></table>` : '<div class="muted small">No entries yet.</div>');
+  }).catch(() => {});
+}
+function openMaterialModal(id) {
+  const m = id ? matById(id) : { active: true };
+  const cats = [...new Set(materials.map(x => x.category).filter(Boolean))];
+  const units = [...new Set(['kg', 'gram', 'metre', 'pcs', 'roll', 'litre', 'box', 'set'].concat(materials.map(x => x.unit)))];
+  openModal(`<h3>${id ? 'Edit material' : 'Add raw material'}</h3>
+    <div id="mErr" class="err hidden"></div>
+    <div class="field"><label>Material name *</label><input id="mName" value="${esc(m.name)}" placeholder="e.g. Polyester fabric 600D"></div>
+    <div class="row2">
+      <div class="field"><label>Code / SKU</label><input id="mCode" value="${esc(m.code)}"></div>
+      <div class="field"><label>Unit *</label><input id="mUnit" list="unitList" value="${esc(m.unit)}" placeholder="kg, metre, pcs…"><datalist id="unitList">${units.map(u => `<option value="${esc(u)}">`).join('')}</datalist></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Category</label><input id="mCat" list="catList" value="${esc(m.category)}" placeholder="e.g. Fabric, Zipper"><datalist id="catList">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+      <div class="field"><label>Rack / Location</label><input id="mLoc" value="${esc(m.location)}"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Opening stock</label><input id="mOpen" type="number" step="any" value="${m.openingStock || ''}" placeholder="0"></div>
+      <div class="field"><label>Minimum stock (alert)</label><input id="mMin" type="number" step="any" min="0" value="${m.minStock || ''}" placeholder="0"></div>
+    </div>
+    ${id ? `<label class="check"><input type="checkbox" id="mActive"${m.active ? ' checked' : ''}> Active (untick to hide from entry lists)</label>` : ''}
+    <div class="actions">
+      ${id && isAdmin() ? `<button class="btn red" style="margin-right:auto" onclick="deleteMaterial('${id}')">Delete</button>` : ''}
+      <button class="btn" onclick="closeModal()">Cancel</button>
+      <button class="btn primary" id="mSave" onclick="saveMaterial('${id || ''}')">Save</button>
+    </div>`);
+  $('mName').focus();
+}
+function saveMaterial(id) {
+  showErr('mErr', ''); busy($('mSave'), true);
+  api('saveMaterial', token, {
+    id: id || null, name: $('mName').value, code: $('mCode').value, unit: $('mUnit').value, category: $('mCat').value,
+    location: $('mLoc').value, openingStock: $('mOpen').value, minStock: $('mMin').value, active: $('mActive') ? $('mActive').checked : true,
+  }).then(mats => { materials = mats; closeModal(); toast('Material saved', 'success'); if (view === 'stock') renderStock(); else go(view); })
+    .catch(e => { busy($('mSave'), false); showErr('mErr', e.message); });
+}
+function deleteMaterial(id) {
+  if (!confirm('Delete this material permanently?')) return;
+  api('deleteMaterial', token, id).then(mats => { materials = mats; closeModal(); toast('Deleted'); renderStock(); })
+    .catch(e => showErr('mErr', e.message));
+}
+
+/* ───── stock count ───── */
+function renderCount() {
+  const list = materials.filter(m => m.active);
+  setMain(topbar('Stock Count', '<button class="btn hide-m" onclick="window.print()">🖨 Print count sheet</button>') + `
+    <div class="card">
+      <div class="small muted" style="margin-bottom:10px">Count each material in the warehouse and type the real quantity. Leave blank to skip an item. When you save, the system stock is corrected to your count (the difference is saved as a <span class="tag ADJUST">COUNT</span> entry).</div>
+      <div class="row2" style="max-width:520px">
+        <div class="field"><label>Count date</label><input id="cDate" type="date" value="${today}"></div>
+        <div class="field"><label>Note</label><input id="cNote" placeholder="e.g. Monthly count"></div>
+      </div>
+      <div class="filters no-print"><input type="search" placeholder="Search…" oninput="filterCountRows(this.value)"></div>
+      ${list.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Material</th><th class="hide-m">Location</th><th class="num">System</th><th class="num">Counted</th><th class="num">Difference</th></tr></thead><tbody>
+        ${list.map(m => `<tr data-s="${esc((m.name + ' ' + m.code + ' ' + m.location).toLowerCase())}">
+          <td><b>${esc(m.name)}</b> <span class="muted small">${esc(m.unit)}</span></td>
+          <td class="hide-m">${esc(m.location)}</td>
+          <td class="num">${qty(m.stock)}</td>
+          <td class="num"><input class="count-input" type="number" step="any" min="0" inputmode="decimal" data-id="${m.id}" data-sys="${m.stock}" oninput="countDiff(this)"></td>
+          <td class="num" id="d_${m.id}"></td>
+        </tr>`).join('')}</tbody></table></div>` : '<div class="empty">No active materials.</div>'}
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center" class="no-print">
+        <button class="btn primary" id="cSave" onclick="saveCount()">Save stock count</button>
+        <span class="small muted" id="cSummary"></span>
+      </div>
+    </div>`);
+}
+function filterCountRows(q) { q = q.toLowerCase(); document.querySelectorAll('tr[data-s]').forEach(tr => { tr.style.display = tr.dataset.s.includes(q) ? '' : 'none'; }); }
+function countDiff(inp) {
+  const cell = $('d_' + inp.dataset.id);
+  if (inp.value === '') { cell.textContent = ''; } else {
+    const d = Math.round((Number(inp.value) - Number(inp.dataset.sys)) * 1000) / 1000;
+    cell.innerHTML = d === 0 ? '<span class="muted">✓ matches</span>' : `<span class="${d > 0 ? 'diff-pos' : 'diff-neg'}">${d > 0 ? '+' : ''}${qty(d)}</span>`;
+  }
+  const filled = [...document.querySelectorAll('.count-input')].filter(i => i.value !== '');
+  const diffs = filled.filter(i => Number(i.value) !== Number(i.dataset.sys));
+  $('cSummary').textContent = filled.length ? `${filled.length} counted · ${diffs.length} with a difference` : '';
+}
+function saveCount() {
+  const counts = [...document.querySelectorAll('.count-input')].filter(i => i.value !== '').map(i => ({ materialId: i.dataset.id, counted: i.value }));
+  if (!counts.length) { toast('Type at least one counted quantity', 'error'); return; }
+  if (!confirm(`Save the count for ${counts.length} material(s)? Stock will be corrected to these numbers.`)) return;
+  busy($('cSave'), true);
+  api('saveStockCount', token, $('cDate').value, counts, $('cNote').value).then(res => {
+    materials = res.materials;
+    toast(res.changed ? `${res.changed} material(s) corrected` : 'Everything matched — no changes', 'success');
+    renderCount();
+  }).catch(e => { busy($('cSave'), false); toast(e.message, 'error'); });
+}
+
+/* ───── stock history ───── */
+let histFilter = null;
+let histRows = [];
+function renderHistory() {
+  histFilter = histFilter || { from: addDays(today, -30), to: today, materialId: '', type: '' };
+  setMain(topbar('Stock History', '<button class="btn" onclick="exportHistory()">⬇ CSV</button>') + `
+    <div class="filters">
+      <input type="date" id="hFrom" value="${histFilter.from}">
+      <input type="date" id="hTo" value="${histFilter.to}">
+      <select id="hMat">${materialOptions(histFilter.materialId, false).replace('— choose material —', 'All materials')}</select>
+      <select id="hType"><option value="">All types</option>${['IN', 'OUT', 'ADJUST'].map(t => `<option value="${t}"${histFilter.type === t ? ' selected' : ''}>${t === 'ADJUST' ? 'Stock count' : 'Stock ' + t}</option>`).join('')}</select>
+      <button class="btn primary" onclick="loadHistory()">Show</button>
+    </div>
+    <div id="histBody" class="card"><div class="loading"><span class="spinner"></span></div></div>`);
+  loadHistory();
+}
+function loadHistory() {
+  histFilter = { from: $('hFrom').value, to: $('hTo').value, materialId: $('hMat').value, type: $('hType').value };
+  $('histBody').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  api('listStockMoves', token, histFilter).then(rows => {
+    histRows = rows;
+    const tin = rows.filter(r => r.type === 'IN').reduce((s, r) => s + r.amount, 0);
+    $('histBody').innerHTML = movesTable(rows, true) + (rows.length ? `<div class="small muted" style="margin-top:8px">${rows.length} entries${tin ? ' · purchase value ' + money(tin) : ''}${rows.length >= 1000 ? ' (showing newest 1000 — narrow the dates)' : ''}</div>` : '');
+  }).catch(e => { $('histBody').innerHTML = `<div class="err">${esc(e.message)}</div>`; });
+}
+function deleteMove(id) {
+  if (!confirm('Delete this stock entry? Stock will be recalculated.')) return;
+  api('deleteStockMove', token, id).then(mats => { materials = mats; toast('Entry deleted'); loadHistory(); }).catch(e => toast(e.message, 'error'));
+}
+function exportHistory() {
+  downloadCsv(`stock-history-${histFilter.from}-to-${histFilter.to}.csv`, [['Date', 'Type', 'Material', 'Qty', 'Unit', 'Rate', 'Amount', 'Party', 'Reference', 'Note', 'Entered by']]
+    .concat(histRows.map(r => [r.date, r.type, r.material, r.qty, r.unit, r.rate, r.amount, r.party, r.reference, r.note, r.user])));
+}
+
+/* ───── daily ledger ───── */
+let ledgerData = null;
+function renderLedger() {
+  setMain(topbar('Daily Ledger', `
+    <div class="date-nav">
+      <button class="btn" onclick="ledgerDate=addDays(ledgerDate,-1);renderLedger()">‹</button>
+      <input type="date" id="lDate" value="${ledgerDate}" onchange="ledgerDate=this.value;renderLedger()">
+      <button class="btn" onclick="ledgerDate=addDays(ledgerDate,1);renderLedger()">›</button>
+      ${ledgerDate !== today ? `<button class="btn" onclick="ledgerDate=today;renderLedger()">Today</button>` : ''}
+    </div>
+    <button class="btn hide-m" onclick="window.print()">🖨</button>`) + '<div id="ledgerBody"><div class="loading"><span class="spinner"></span> Loading…</div></div>');
+  api('getLedgerDay', token, ledgerDate).then(drawLedger).catch(e => { $('ledgerBody').innerHTML = `<div class="err">${esc(e.message)}</div>`; });
+}
+function drawLedger(d) {
+  ledgerData = d;
+  if (!$('ledgerBody') || d.date !== ledgerDate) return;
+  const modes = Object.keys(d.byMode);
+  $('ledgerBody').innerHTML = `
+    <div class="stats">
+      <div class="stat"><div class="k">Opening balance</div><div class="v">${money(d.opening)}</div></div>
+      <div class="stat"><div class="k">Money IN</div><div class="v in">${money(d.totalIn)}</div></div>
+      <div class="stat"><div class="k">Money OUT</div><div class="v out">${money(d.totalOut)}</div></div>
+      <div class="stat"><div class="k">Closing balance</div><div class="v">${money(d.closing)}</div></div>
+    </div>
+    <div class="card no-print">
+      <div class="seg" style="margin-bottom:12px">
+        <button id="lbIn" class="on-in" onclick="setLType('IN')">+ Money IN</button>
+        <button id="lbOut" onclick="setLType('OUT')">− Money OUT</button>
+      </div>
+      <input type="hidden" id="lType" value="IN">
+      <div id="lErr" class="err hidden"></div>
+      <div class="row3">
+        <div class="field"><label>Amount (₹)</label><input id="lAmt" type="number" inputmode="decimal" min="0" step="any"></div>
+        <div class="field"><label>Category</label><input id="lCat" list="lCats" placeholder="e.g. Sales, Salary"><datalist id="lCats">${d.categories.map(c => `<option value="${esc(c)}">`).join('')}</datalist></div>
+        <div class="field"><label>Mode</label><select id="lMode">${payModes.map(p => `<option>${p}</option>`).join('')}</select></div>
+      </div>
+      <div class="row3">
+        <div class="field"><label>Party / Person</label><input id="lParty"></div>
+        <div class="field"><label>Description</label><input id="lDesc"></div>
+        <div class="field"><label>Bill / Ref no.</label><input id="lRef"></div>
+      </div>
+      <button class="btn primary" id="lSave" onclick="saveLedger()">Add entry for ${fmtDate(d.date)}</button>
+    </div>
+    <div class="card">
+      <h3>Entries — ${fmtDate(d.date)}</h3>
+      ${d.entries.length ? `<div style="overflow-x:auto"><table><thead><tr><th>Type</th><th>Category / Description</th><th class="hide-m">Party</th><th class="hide-m">Mode</th><th class="num">IN</th><th class="num">OUT</th><th class="hide-m">By</th><th class="no-print"></th></tr></thead><tbody>
+        ${d.entries.map(e => `<tr>
+          <td><span class="tag ${e.type}">${e.type}</span></td>
+          <td><b>${esc(e.category)}</b>${e.description ? `<div class="small muted">${esc(e.description)}</div>` : ''}${e.reference ? `<div class="small muted">Ref: ${esc(e.reference)}</div>` : ''}</td>
+          <td class="hide-m">${esc(e.party)}</td>
+          <td class="hide-m">${esc(e.mode)}</td>
+          <td class="num" style="color:var(--in)">${e.type === 'IN' ? money(e.amount) : ''}</td>
+          <td class="num" style="color:var(--out)">${e.type === 'OUT' ? money(e.amount) : ''}</td>
+          <td class="hide-m small muted">${esc(e.user)}</td>
+          <td class="no-print" style="white-space:nowrap">${isManager() ? `<button class="icon-btn" title="Edit" onclick="editLedger('${e.id}')">✏️</button><button class="icon-btn" title="Delete" onclick="deleteLedger('${e.id}')">🗑</button>` : ''}</td>
+        </tr>`).join('')}
+        <tr><td></td><td><b>Total</b></td><td class="hide-m"></td><td class="hide-m"></td><td class="num"><b>${money(d.totalIn)}</b></td><td class="num"><b>${money(d.totalOut)}</b></td><td class="hide-m"></td><td></td></tr>
+      </tbody></table></div>` : '<div class="empty">No entries on this day.</div>'}
+      ${modes.length ? `<div class="small muted" style="margin-top:10px">By mode: ${modes.map(k => `${esc(k)} — IN ${money(d.byMode[k].in)} / OUT ${money(d.byMode[k].out)}`).join(' · ')}</div>` : ''}
+    </div>`;
+}
+function setLType(t) {
+  $('lType').value = t;
+  $('lbIn').className = t === 'IN' ? 'on-in' : '';
+  $('lbOut').className = t === 'OUT' ? 'on-out' : '';
+}
+function saveLedger() {
+  showErr('lErr', ''); busy($('lSave'), true);
+  api('addLedgerEntry', token, { date: ledgerDate, type: $('lType').value, amount: $('lAmt').value, category: $('lCat').value, mode: $('lMode').value, party: $('lParty').value, description: $('lDesc').value, reference: $('lRef').value })
+    .then(d => { toast('Entry added', 'success'); drawLedger(d); setTimeout(() => $('lAmt') && $('lAmt').focus(), 30); })
+    .catch(e => { busy($('lSave'), false); showErr('lErr', e.message); });
+}
+function editLedger(id) {
+  const e = ledgerData.entries.find(x => x.id === id);
+  openModal(`<h3>Edit ledger entry</h3>
+    <div id="leErr" class="err hidden"></div>
+    <div class="row2">
+      <div class="field"><label>Date</label><input id="leDate" type="date" value="${e.date}"></div>
+      <div class="field"><label>Type</label><select id="leType"><option value="IN"${e.type === 'IN' ? ' selected' : ''}>Money IN</option><option value="OUT"${e.type === 'OUT' ? ' selected' : ''}>Money OUT</option></select></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>Amount (₹)</label><input id="leAmt" type="number" step="any" value="${e.amount}"></div>
+      <div class="field"><label>Mode</label><select id="leMode">${payModes.map(p => `<option${p === e.mode ? ' selected' : ''}>${p}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Category</label><input id="leCat" list="lCats" value="${esc(e.category)}"></div>
+    <div class="field"><label>Party / Person</label><input id="leParty" value="${esc(e.party)}"></div>
+    <div class="field"><label>Description</label><input id="leDesc" value="${esc(e.description)}"></div>
+    <div class="field"><label>Bill / Ref no.</label><input id="leRef" value="${esc(e.reference)}"></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="leSave" onclick="saveLedgerEdit('${id}')">Save</button></div>`);
+}
+function saveLedgerEdit(id) {
+  showErr('leErr', ''); busy($('leSave'), true);
+  api('updateLedgerEntry', token, id, { date: $('leDate').value, type: $('leType').value, amount: $('leAmt').value, mode: $('leMode').value, category: $('leCat').value, party: $('leParty').value, description: $('leDesc').value, reference: $('leRef').value })
+    .then(() => { closeModal(); toast('Entry updated', 'success'); renderLedger(); })
+    .catch(e => { busy($('leSave'), false); showErr('leErr', e.message); });
+}
+function deleteLedger(id) {
+  if (!confirm('Delete this ledger entry?')) return;
+  api('deleteLedgerEntry', token, id).then(d => { toast('Entry deleted'); drawLedger(d); }).catch(e => toast(e.message, 'error'));
+}
+
+/* ───── ledger report ───── */
+let reportRange = null, reportData = null;
+function renderReport() {
+  reportRange = reportRange || { from: today.slice(0, 8) + '01', to: today };
+  setMain(topbar('Ledger Report', '<button class="btn" onclick="exportReport()">⬇ CSV</button><button class="btn hide-m" onclick="window.print()">🖨 Print</button>') + `
+    <div class="filters">
+      <input type="date" id="rFrom" value="${reportRange.from}"><input type="date" id="rTo" value="${reportRange.to}">
+      <button class="btn primary" onclick="loadReport()">Show</button>
+    </div>
+    <div id="repBody"><div class="loading"><span class="spinner"></span></div></div>`);
+  loadReport();
+}
+function loadReport() {
+  reportRange = { from: $('rFrom').value, to: $('rTo').value };
+  $('repBody').innerHTML = '<div class="loading"><span class="spinner"></span></div>';
+  api('getLedgerRange', token, reportRange.from, reportRange.to).then(r => {
+    reportData = r;
+    const cats = Object.keys(r.byCategory).sort();
+    $('repBody').innerHTML = `
+      <div class="stats">
+        <div class="stat"><div class="k">Opening (${fmtDate(r.from)})</div><div class="v">${money(r.opening)}</div></div>
+        <div class="stat"><div class="k">Total IN</div><div class="v in">${money(r.totalIn)}</div></div>
+        <div class="stat"><div class="k">Total OUT</div><div class="v out">${money(r.totalOut)}</div></div>
+        <div class="stat"><div class="k">Closing (${fmtDate(r.to)})</div><div class="v">${money(r.closing)}</div></div>
+      </div>
+      <div class="card"><h3>Day by day</h3>${r.days.length ? `<div style="overflow-x:auto"><table class="clickable"><thead><tr><th>Date</th><th class="num">Opening</th><th class="num">IN</th><th class="num">OUT</th><th class="num">Closing</th></tr></thead><tbody>
+        ${r.days.map(x => `<tr onclick="ledgerDate='${x.date}';go('ledger')"><td>${fmtDate(x.date)}</td><td class="num">${money(x.opening)}</td><td class="num" style="color:var(--in)">${money(x.in)}</td><td class="num" style="color:var(--out)">${money(x.out)}</td><td class="num"><b>${money(x.closing)}</b></td></tr>`).join('')}
+      </tbody></table></div>` : '<div class="empty">No entries in this period.</div>'}</div>
+      ${cats.length ? `<div class="card"><h3>By category</h3><table><tbody>${cats.map(k => `<tr><td>${esc(k)}</td><td class="num">${money(r.byCategory[k])}</td></tr>`).join('')}</tbody></table></div>` : ''}`;
+  }).catch(e => { $('repBody').innerHTML = `<div class="err">${esc(e.message)}</div>`; });
+}
+function exportReport() {
+  if (!reportData) return;
+  downloadCsv(`ledger-${reportData.from}-to-${reportData.to}.csv`, [['Date', 'Type', 'Category', 'Party', 'Description', 'Mode', 'Reference', 'IN', 'OUT', 'Entered by']]
+    .concat([['', '', 'Opening balance', '', '', '', '', reportData.opening, '', '']])
+    .concat(reportData.entries.map(e => [e.date, e.type, e.category, e.party, e.description, e.mode, e.reference, e.type === 'IN' ? e.amount : '', e.type === 'OUT' ? e.amount : '', e.user]))
+    .concat([['', '', 'Totals', '', '', '', '', reportData.totalIn, reportData.totalOut, ''], ['', '', 'Closing balance', '', '', '', '', reportData.closing, '', '']]));
+}
+
+/* ───── users (admin) ───── */
+let users = [];
+function renderUsers() {
+  loadingMain('Employee Logins');
+  api('listUsers', token).then(list => {
+    users = list;
+    setMain(topbar('Employee Logins', '<button class="btn primary" onclick="openUserModal()">+ Add employee</button>') + `
+      <div class="card small muted">
+        <b>admin</b> — everything, incl. logins &amp; settings · <b>manager</b> — materials, stock count, edit/delete entries ·
+        <b>staff</b> — add stock IN/OUT and ledger entries, view only otherwise.
+      </div>
+      <div class="table-wrap"><table><thead><tr><th>Name</th><th>Username</th><th>Role</th><th class="hide-m">Last login</th><th></th></tr></thead><tbody>
+      ${users.map(u => `<tr>
+        <td><b>${esc(u.name)}</b>${!u.active ? ' <span class="tag off">switched off</span>' : ''}</td>
+        <td>${esc(u.username)}</td>
+        <td><span class="tag role">${esc(u.role)}</span></td>
+        <td class="hide-m small muted">${u.lastLogin ? fmtTime(u.lastLogin) : 'never'}</td>
+        <td style="white-space:nowrap;text-align:right"><button class="btn small" onclick="openUserModal('${u.id}')">Edit</button> <button class="btn small" onclick="resetPassword('${u.id}')">Reset password</button></td>
+      </tr>`).join('')}</tbody></table></div>`);
+  }).catch(e => setMain(topbar('Employee Logins') + `<div class="err">${esc(e.message)}</div>`));
+}
+function openUserModal(id) {
+  const u = id ? users.find(x => x.id === id) : { role: 'staff', active: true };
+  openModal(`<h3>${id ? 'Edit employee' : 'Add employee login'}</h3>
+    <div id="uErr" class="err hidden"></div>
+    <div class="field"><label>Full name</label><input id="uName" value="${esc(u.name)}"></div>
+    ${id ? `<div class="field"><label>Username</label><input value="${esc(u.username)}" disabled></div>` : `
+    <div class="row2">
+      <div class="field"><label>Username</label><input id="uUser" autocapitalize="off" placeholder="e.g. ramesh"></div>
+      <div class="field"><label>Password (min 6)</label><input id="uPass" type="text" autocomplete="off"></div>
+    </div>`}
+    <div class="field"><label>Role</label><select id="uRole">${['staff', 'manager', 'admin'].map(r => `<option${r === u.role ? ' selected' : ''}>${r}</option>`).join('')}</select></div>
+    ${id ? `<label class="check"><input type="checkbox" id="uActive"${u.active ? ' checked' : ''}> Login allowed (untick to block this employee)</label>` : ''}
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="uSave" onclick="saveUser('${id || ''}')">Save</button></div>`);
+}
+function saveUser(id) {
+  showErr('uErr', ''); busy($('uSave'), true);
+  const p = id
+    ? api('updateUser', token, id, { name: $('uName').value, role: $('uRole').value, active: $('uActive').checked })
+    : api('addUser', token, { name: $('uName').value, username: $('uUser').value, password: $('uPass').value, role: $('uRole').value });
+  p.then(() => { closeModal(); toast('Saved', 'success'); renderUsers(); }).catch(e => { busy($('uSave'), false); showErr('uErr', e.message); });
+}
+function resetPassword(id) {
+  const u = users.find(x => x.id === id);
+  const pw = prompt('New password for ' + u.name + ' (min 6 characters):');
+  if (!pw) return;
+  api('resetUserPassword', token, id, pw).then(() => toast('Password changed. Tell ' + u.name + ' the new password.', 'success')).catch(e => toast(e.message, 'error'));
+}
+function openPasswordModal() {
+  openModal(`<h3>Change my password</h3><div id="pErr" class="err hidden"></div>
+    <div class="field"><label>Current password</label><input id="pOld" type="password"></div>
+    <div class="field"><label>New password (min 6)</label><input id="pNew" type="password"></div>
+    <div class="actions"><button class="btn" onclick="closeModal()">Cancel</button><button class="btn primary" id="pSave" onclick="changePw()">Change</button></div>`);
+}
+function changePw() {
+  showErr('pErr', ''); busy($('pSave'), true);
+  api('changeOwnPassword', token, $('pOld').value, $('pNew').value).then(() => { closeModal(); toast('Password changed', 'success'); })
+    .catch(e => { busy($('pSave'), false); showErr('pErr', e.message); });
+}
+
+/* ───── activity + settings (admin) ───── */
+function renderActivity() {
+  loadingMain('Activity Log');
+  api('listActivity', token, 500).then(rows => {
+    setMain(topbar('Activity Log', '<span class="small muted">Last 500 actions</span>') + (rows.length ? `<div class="table-wrap"><table><thead><tr><th>When</th><th>Who</th><th>Action</th><th>Details</th></tr></thead><tbody>
+      ${rows.map(r => `<tr><td class="small" style="white-space:nowrap">${fmtTime(r.at)}</td><td>${esc(r.user)}</td><td><b>${esc(r.action)}</b></td><td class="small muted">${esc(r.details)}</td></tr>`).join('')}
+    </tbody></table></div>` : '<div class="card empty">Nothing yet.</div>'));
+  }).catch(e => setMain(topbar('Activity Log') + `<div class="err">${esc(e.message)}</div>`));
+}
+function renderSettings() {
+  setMain(topbar('Settings') + `
+    <div class="card" style="max-width:520px">
+      <div id="stErr" class="err hidden"></div>
+      <div class="field"><label>Company name</label><input id="stName" value="${esc(settings.companyName)}"></div>
+      <h3 style="margin-top:16px">Daily Ledger opening balance</h3>
+      <div class="small muted" style="margin-bottom:10px">The cash/bank balance you start the ledger with. If you set a start date, entries before that date are ignored.</div>
+      <div class="row2">
+        <div class="field"><label>Opening balance (₹)</label><input id="stBal" type="number" step="any" value="${settings.openingBalance || 0}"></div>
+        <div class="field"><label>Start date (optional)</label><input id="stDate" type="date" value="${settings.openingDate || ''}"></div>
+      </div>
+      <button class="btn primary" id="stSave" onclick="saveSettings()">Save settings</button>
+    </div>`);
+}
+function saveSettings() {
+  showErr('stErr', ''); busy($('stSave'), true);
+  api('saveSettings', token, { companyName: $('stName').value, openingBalance: $('stBal').value, openingDate: $('stDate').value })
+    .then(s => { settings = s; $('companyName').textContent = s.companyName; busy($('stSave'), false); toast('Settings saved', 'success'); })
+    .catch(e => { busy($('stSave'), false); showErr('stErr', e.message); });
+}
+
+boot();
+</script>
+</body>
+</html>

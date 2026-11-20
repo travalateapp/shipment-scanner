@@ -18,6 +18,7 @@ with all the code already here, so there is no need to re-upload `Code.gs` / `.h
 | `shipment-app/` | Travalate Shipment Manager (Apps Script side) | `Code.gs` + `Index.html` |
 | `daily-task-app/` | Travalate Daily Task Sheet | `Code.gs` + `Index.html` |
 | `po-app/` | PO Web App with Vendor Autofill | `Code.gs` + `Index.html` |
+| `warehouse-app/` | Travalate Warehouse: raw material stock, employee logins, daily ledger | `Code.gs` + `Index.html`; auto-deploy once set up: `.github/workflows/deploy-warehouse.yml` |
 | `_new-app-template/` | How to add another app | |
 
 The full list with links is in `APPS.md`. Keep it up to date when an app is added.
