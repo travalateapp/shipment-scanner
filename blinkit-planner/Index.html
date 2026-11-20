@@ -1381,7 +1381,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     Object.keys(byWh).forEach(function (w) { whByNorm[PlanCore.whNorm(w)] = w; });
     d.openROs.forEach(function (r) { var w = whByNorm[PlanCore.whNorm(r.wh)]; if (w) byWh[w].open += r.qty; });
     var whs = Object.keys(byWh).sort();
-    var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) { return a.days - b.days; });
+    var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) { return b.rate - a.rate || a.days - b.days; }); // fastest sellers first, then fewest days
     box.innerHTML = '<div class="card"><h2>Days of cover</h2><div class="small muted">From the plan made ' + new Date(d.meta.at).toLocaleString('en-IN') + ' by ' + esc(d.meta.by) +
       (d.meta.inventoryAt ? ' · Blinkit inventory of ' + esc(d.meta.inventoryAt) : '') + (dsi ? ' · stock as of ' + prettyDate(dsi.stockDate) + ', so Days count from today (' + el + ' day' + (el === 1 ? '' : 's') + ' of sales taken off)' : '') + '. ROs created since then are not counted here.</div>' +
       (ageDays >= 2 ? '<div class="msg warn">This is ' + ageDays + ' days old — upload fresh files in New Plan.</div>' : '') +
@@ -1391,7 +1391,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
-      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items by days of cover <span class="small muted">(lowest first' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Per day</th><th class="right">Has</th><th class="right">Planned</th><th class="right">Days</th><th class="right">Suggested</th></tr>' +
+      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items by Per day <span class="small muted">(highest first, then fewest days' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Per day</th><th class="right">Has</th><th class="right">Planned</th><th class="right">Days</th><th class="right">Suggested</th></tr>' +
       list.slice(0, 300).map(function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
         return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? fmt(r.planned) : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
