@@ -556,7 +556,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /** Items are shown by SKU and Item ID only (no product names). */
   function skuText(sku, item) { return (sku ? String(sku) : 'No SKU') + ' · ' + item; }
   function skuOf(item) { var x = (S.boot.skus || []).filter(function (s) { return s.item === Number(item); })[0]; return x ? x.sku : ''; }
-  function groupList() { var g = S.boot && S.boot.groups ? Object.keys(S.boot.groups) : []; return g.length ? g : ['TBI', 'TBO', 'TBG']; }
+  // Always TBI, TBO, TBG first (the server's object can arrive in any key order), then any others.
+  function groupList() {
+    var order = ['TBI', 'TBO', 'TBG'], g = S.boot && S.boot.groups ? Object.keys(S.boot.groups) : [];
+    return order.concat(g.filter(function (x) { return order.indexOf(x) < 0; }).sort());
+  }
   function groupName(g) { return (S.boot && S.boot.groups && S.boot.groups[g]) || (g || 'No group'); }
   function msgs(list, cls) { return (list || []).map(function (w) { return '<div class="msg ' + (cls || 'warn') + '">' + esc(w) + '</div>'; }).join(''); }
 
@@ -1418,7 +1422,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div style="flex:0 0 auto"><button class="btn p" id="sStartM">Start new month</button></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="sSync">Sync month tabs</button></div></div><div id="mOut2"></div></div>' +
       '<div class="card"><h2>SKUs</h2><div class="small muted">Group decides the ' + esc(groupList().join(' / ')) + ' block an item goes into. New items from Blinkit are added here automatically with no group.</div>' +
-      '<div class="row" style="margin:8px 0"><div style="flex:0 0 auto"><button class="btn" id="kFromTab">Take groups from the month tab</button></div><div class="small muted" style="align-self:center">Reads which block each item is in on the newest month tab and shows what would change before saving.</div></div><div id="kTabOut"></div>' +
+      '<div class="row" style="margin:8px 0"><div style="flex:0 0 auto"><button class="btn" id="kFromTab">Take groups &amp; tiers from the month tab</button></div><div class="small muted" style="align-self:center">Reads each item\'s block (group) and tier from the newest month tab, and lists SKUs that are in two groups of the same warehouse. Shows the changes before saving.</div></div><div id="kTabOut"></div>' +
       '<div class="row" style="margin:8px 0"><div><input type="text" id="kQ" placeholder="Search"></div><div style="flex:0 0 auto"><label class="small"><input type="checkbox" id="kNo"> only items with no group</label></div></div>' +
       '<div class="scroll"><table class="t" id="kTab"></table></div><div id="kOut"></div><div style="margin-top:10px"><button class="btn p" id="kSave">Save SKU changes</button></div></div>';
     $('sSave').onclick = function () {
@@ -1464,20 +1468,32 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       S.boot.skus = skus; edits = {}; draw();
       if (S.plan) { var m = skuMap(); S.plan.forEach(function (r) { var x = m[r.item]; if (x) { r.sku = x.sku; r.group = x.group; r.tier = x.tier; } }); }
     };
+    var clashHtml = function (r) {
+      if (!r.clashes || !r.clashes.length) return msgs(['No SKU is listed in two groups of the same warehouse in ' + r.tab + '.'], 'ok');
+      return '<div class="msg warn"><b>' + r.clashes.length + ' SKU(s) are listed in two groups of the same warehouse in ' + esc(r.tab) + '.</b> Remove the extra row in the sheet, or the RO quantity can land in the wrong block.</div>' +
+        '<div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU · Item ID</th><th>Listed in</th></tr>' +
+        r.clashes.map(function (c) { return '<tr><td>' + esc(c.wh) + '</td><td>' + esc(skuText(c.sku, c.item)) + '</td><td><b>' + esc(c.groups) + '</b></td></tr>'; }).join('') + '</table></div>';
+    };
+    var chg = function (a, b) { return a === b ? esc(b || '—') : '<span class="muted">' + esc(a || '—') + ' →</span> <b>' + esc(b || '—') + '</b>'; };
     $('kFromTab').onclick = function () {
       var b = this; b.disabled = true;
       api('groupsFromMonthTab', S.token, false).then(function (r) {
         b.disabled = false;
         if (!r.tab) { $('kTabOut').innerHTML = msgs(['No month tab with items found.'], 'warn'); return; }
-        if (!r.changes.length) { $('kTabOut').innerHTML = msgs(['Every SKU already has the same group as in ' + r.tab + '.'], 'ok'); return; }
-        $('kTabOut').innerHTML = '<div class="msg info">' + r.changes.length + ' SKU(s) are in a different block in <b>' + esc(r.tab) + '</b>:</div>' +
-          '<div class="scroll"><table class="t"><tr><th>SKU · Item ID</th><th>Now</th><th>In ' + esc(r.tab) + '</th><th>Blocks (warehouses)</th></tr>' +
-          r.changes.map(function (c) { return '<tr><td>' + esc(skuText(c.sku, c.item)) + '</td><td>' + esc(c.from || '—') + '</td><td><b>' + esc(c.to) + '</b></td><td class="small muted">' + esc(c.where) + '</td></tr>'; }).join('') +
-          '</table></div><div style="margin-top:8px"><button class="btn p" id="kFromTabOk">Save these ' + r.changes.length + ' group change(s)</button></div>';
+        var html = '';
+        if (!r.changes.length) html += msgs(['Every SKU already has the same group and tier as in ' + r.tab + '.'], 'ok');
+        else {
+          html += '<div class="msg info">' + r.changes.length + ' SKU(s) have a different group or tier in <b>' + esc(r.tab) + '</b>:</div>' +
+            '<div class="scroll"><table class="t"><tr><th>SKU · Item ID</th><th>Group</th><th>Tier</th><th>In the tab</th></tr>' +
+            r.changes.map(function (c) { return '<tr><td>' + esc(skuText(c.sku, c.item)) + '</td><td>' + chg(c.from, c.to) + '</td><td>' + chg(c.fromTier, c.toTier) + '</td><td class="small muted">' + esc(c.where) + '</td></tr>'; }).join('') +
+            '</table></div><div style="margin:8px 0"><button class="btn p" id="kFromTabOk">Save these ' + r.changes.length + ' change(s)</button></div>';
+        }
+        $('kTabOut').innerHTML = html + clashHtml(r);
+        if (!r.changes.length) return;
         $('kFromTabOk').onclick = function () {
           this.disabled = true;
           api('groupsFromMonthTab', S.token, true).then(function (r2) {
-            afterSkus(r2.skus); $('kTabOut').innerHTML = msgs(['Saved ' + r2.changes.length + ' group change(s) from ' + r2.tab + '.'], 'ok');
+            afterSkus(r2.skus); $('kTabOut').innerHTML = msgs(['Saved ' + r2.changes.length + ' group / tier change(s) from ' + r2.tab + '.'], 'ok') + clashHtml(r2);
           }, function (e) { $('kTabOut').innerHTML = msgs([e.message], 'bad'); });
         };
       }, function (e) { b.disabled = false; $('kTabOut').innerHTML = msgs([e.message], 'bad'); });
