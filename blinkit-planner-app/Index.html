@@ -103,6 +103,8 @@ table.t th{font-size:11px;color:var(--muted)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px}
 .modal .box{background:var(--card);border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px}
 .hidden{display:none!important}
+/* A Send box not yet confirmed (the planner's suggestion): grey until clicked, typed in or filled. */
+.line input.q.pend{color:var(--muted);font-weight:400;background:var(--chip)}
 /* TI = Travalate Inventory stock; red when the plan sends more of the SKU (all warehouses) than TI has. */
 .ti-c b{font-weight:700}.ti-c.tiover b{color:var(--bad)}.ti-c .tiw{display:block;font-size:10px;color:var(--bad)}
 a.plk{color:var(--brand);font-weight:700;text-decoration:underline dotted;cursor:pointer}
@@ -570,7 +572,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 ti-stock';
+  var PAGE_BUILD = '2026-11-21 ti-confirm';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -790,18 +792,18 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     catch (e) { S.draftOk = false; try { localStorage.removeItem(DRAFT_FILES); } catch (e2) { /* ignore */ } }
   }
   var draftTimer = null;
-  function saveDraftState() {
+  function saveDraftState(now) {
     clearTimeout(draftTimer);
     draftTimer = setTimeout(function () {
       if (!S.bulk && !S.inv) return;
-      store(DRAFT_STATE, JSON.stringify({ user: draftUser(), edited: S.edited || {}, filter: S.filter, cover: S.cover || null,
+      store(DRAFT_STATE, JSON.stringify({ user: draftUser(), edited: S.edited || {}, confirmed: S.confirmed || {}, filter: S.filter, cover: S.cover || null,
         starters: S.starters, invFromSheet: !!(S.inv && S.inv.fromSheet) }));
-    }, 250);
+    }, now ? 0 : 250);
   }
   function wipeDraft() {
     store(DRAFT_FILES, null); store(DRAFT_STATE, null);
     S.inv = null; S.invBuf = null; S.invTried = false; S.invErr = ''; S.bulk = null; S.bulkBuf = null; S.bulkAt = null; S.bulkName = '';
-    S.plan = null; S.final = {}; S.edited = {}; S.cover = null; S.starters = !!S.boot.settings.starters;
+    S.plan = null; S.final = {}; S.edited = {}; S.confirmed = {}; S.cover = null; S.starters = !!S.boot.settings.starters;
     S.filter = { wh: '', group: '', only: true, q: '', picks: [] };
   }
   /** Puts back the uploaded files, typed quantities and filters saved before the page was refreshed. */
@@ -815,6 +817,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     } catch (e) { return false; }
     if (st && st.user === draftUser()) {
       S.edited = st.edited || {};
+      S.confirmed = st.confirmed || {};
       if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; }
       if (st.cover) S.cover = st.cover;
       if (st.starters != null) S.starters = st.starters;
@@ -848,6 +851,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     }).filter(function (r) { return !(sm[r.item] && sm[r.item].active === false); }); // Settings → SKUs: Active unticked = left out
     var old = keepEdits ? S.edited || {} : {};
     S.edited = {}; S.final = {};
+    if (!keepEdits || !S.confirmed) S.confirmed = {}; // a fresh plan starts with every Send box grey (suggested)
     S.plan.forEach(function (r) {
       var def = r.locked ? 0 : r.rec + (S.starters ? r.starter : 0);
       S.final[r.key] = old[r.key] !== undefined ? old[r.key] : def;
@@ -1053,7 +1057,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function tiNorm(x) { return String(x || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
   function tiKey(item, sku) { var x = skuMap()[Number(item)]; return tiNorm((x && x.tiSku) || sku || (x && x.sku)); }
   function tiQty(r) { if (!S.ti || !S.ti.ok) return null; var k = tiKey(r.item, r.sku); return k && S.ti.map[k] !== undefined ? S.ti.map[k] : null; }
-  function sendOfItem(item) { var t = 0; S.plan.forEach(function (x) { if (x.item === item) t += S.final[x.key] || 0; }); return t; }
+  // A Send box counts in TI's "sending" only once confirmed: clicked into, typed in or filled (All). Until then it is
+  // the planner's suggestion and shown grey.
+  function isConfirmed(k) { return !!((S.confirmed && S.confirmed[k]) || (S.edited && k in S.edited)); }
+  function sendOfItem(item) { var t = 0; S.plan.forEach(function (x) { if (x.item === item && isConfirmed(x.key)) t += S.final[x.key] || 0; }); return t; }
   function tiInner(r) {
     var q = tiQty(r);
     if (q == null) return '<b title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</b>';
@@ -1088,6 +1095,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var miss = [], seen = {};
     S.plan.forEach(function (r) { if (!seen[r.item] && (S.final[r.key] || 0) > 0 && tiQty(r) == null) { seen[r.item] = 1; miss.push(skuText(r.sku, r.item)); } });
     return '<div class="msg info">TI = stock in Travalate Inventory' + (S.ti.updatedAt ? ', read ' + new Date(S.ti.updatedAt).toLocaleString('en-IN') : '') + ' · <a href="#" id="tiRe">↻ refresh</a>' +
+      '<br>Send boxes in <span style="color:var(--muted)">grey</span> are suggestions: they count in TI\'s "sending" once you click into them (or type / fill a quantity).' +
       (miss.length ? '<br><b>' + miss.length + ' SKU(s) to send are not found in TI:</b> ' + esc(miss.slice(0, 8).join(', ')) + (miss.length > 8 ? '…' : '') + '. An admin sets their name in TI under Settings → SKUs → TI SKU.' : '') + '</div>';
   }
 
@@ -1131,7 +1139,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Has now</span>' + fmt(r.position) + '</div>' +
           '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
-          '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
+          '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + (isConfirmed(r.key) ? '' : ' pend') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
           tiCell(r) +
           '<div class="right"><span class="lbl">Days after</span><span class="dAfter">' + fmtDays(after) + '</span></div></div>';
       });
@@ -1160,6 +1168,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       blocks[gi].forEach(function (k) {
         var r = byKey[k]; if (!r) return;
         delete S.edited[k];
+        if (S.confirmed) delete S.confirmed[k]; // back to a grey suggestion
         S.final[k] = r.locked ? 0 : r.rec + (S.starters ? r.starter : 0);
       });
       renderLines(); renderBar(); toast('Quantities of this block are back to the suggestion.');
@@ -1211,6 +1220,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   document.addEventListener('focusin', function (e) {
     var el = e.target;
     if (!el || !el.classList || !el.classList.contains('q')) return;
+    // Clicking (or tabbing) into a Send box confirms it: it turns normal and now counts in TI's "sending".
+    var ln = el.closest('.line'), ck = ln && ln.getAttribute('data-k');
+    if (ck && S.plan && !isConfirmed(ck)) {
+      (S.confirmed = S.confirmed || {})[ck] = true;
+      el.classList.remove('pend');
+      var rr = S.plan.filter(function (x) { return x.key === ck; })[0];
+      if (rr) refreshTiCells(rr.item);
+      saveDraftState();
+    }
     requestAnimationFrame(function () { keepVisible(el); }); // after the browser's own scroll-into-view
   });
   function keepVisible(el) {
@@ -2001,6 +2019,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('aOut2').onclick = function () { api('logout', S.token).catch(function () {}); store('bp_token', null); S.token = null; S.boot = null; showLogin(); };
   }
 
+  // Leaving or reloading the page: save the draft at once (typing is saved with a short delay).
+  window.addEventListener('pagehide', function () {
+    if (draftTimer && (S.bulk || S.inv)) {
+      clearTimeout(draftTimer);
+      store(DRAFT_STATE, JSON.stringify({ user: draftUser(), edited: S.edited || {}, confirmed: S.confirmed || {}, filter: S.filter, cover: S.cover || null,
+        starters: S.starters, invFromSheet: !!(S.inv && S.inv.fromSheet) }));
+    }
+  });
   window.addEventListener('beforeunload', function (e) {
     if (S.plan && S.draftOk === false && Object.keys(S.edited || {}).length) { e.preventDefault(); e.returnValue = ''; }
   });
