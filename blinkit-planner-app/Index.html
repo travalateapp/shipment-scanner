@@ -588,7 +588,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 dispatch-plan';
+  var PAGE_BUILD = '2026-11-21 planned-no-ro';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1861,17 +1861,24 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return c * srt.dir || b.rate - a.rate || (a.days == null ? 1e9 : a.days) - (b.days == null ? 1e9 : b.days);
     });
     // Search (Ctrl+F): every word must appear in the row's warehouse, SKU, item ID or group.
+    // "Planned without RO": the part of Planned that no open RO in the RO Log explains (e.g. ROs made on Blinkit
+    // directly, or never uploaded as a PDF). Planned is from the plan; the RO Log is as it is now.
+    var openQty = {};
+    (d.openROs || []).forEach(function (x) { if (x.status === 'Planned' || x.status === 'Created') { var k = PlanCore.whNorm(x.wh) + '|' + Number(x.item); openQty[k] = (openQty[k] || 0) + (Number(x.qty) || 0); } });
+    var noRo = function (r) { return r.planned > 0 ? Math.max(0, r.planned - (openQty[PlanCore.whNorm(r.wh) + '|' + Number(r.item)] || 0)) : 0; };
+    var noRoCount = list.filter(function (r) { return noRo(r) > 0; }).length;
     var dashMatch = function (r) {
+      if (S.dashNoRo && !(noRo(r) > 0)) return false;
       var words = String(S.dashQ || '').toLowerCase().split(/\s+/).filter(Boolean); if (!words.length) return true;
       var hay = (r.wh + ' ' + (skuOf(r.item) || '') + ' ' + r.item + ' ' + r.group).toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) >= 0; });
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     var dashRows = function () { var m = list.filter(dashMatch); return m.length ? m.slice(0, 300).map(rowHtml).join('') : '<tr><td colspan="9" class="muted">No item matches the search.</td></tr>'; };
-    var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ ? n + ' of ' + list.length + ' items match' : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
+    var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
     var sortHint = COLS.filter(function (c) { return c[0] === srt.col; })[0][1] + ', ' + (isText ? (srt.dir > 0 ? 'A → Z' : 'Z → A') : (srt.dir > 0 ? 'lowest first' : 'highest first'));
     box.innerHTML = '<div class="card"><h2>Days of cover</h2><div class="small muted">From the plan made ' + new Date(d.meta.at).toLocaleString('en-IN') + ' by ' + esc(d.meta.by) +
       (d.meta.inventoryAt ? ' · Blinkit inventory of ' + esc(d.meta.inventoryAt) : '') + (dsi ? ' · stock as of ' + prettyDate(dsi.stockDate) + ', so Days count from today (' + el + ' day' + (el === 1 ? '' : 's') + ' of sales taken off)' : '') + '. ROs created since then are not counted here.</div>' +
@@ -1884,6 +1891,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       }).join('') + '</div></div>' +
       '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— dispatch plan, last 7 days + next 30: 🚚 load per day, 📦 packing, 📍 arrivals, ⚠ warnings' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
       '<div class="card"><div class="row" style="align-items:center;margin-bottom:8px"><h3 style="flex:1 1 300px;margin:0">' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'Items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3>' +
+        '<div style="flex:0 0 auto"><label class="chip' + (S.dashNoRo ? ' on' : '') + '" title="Items whose Planned (on its way) has no open RO in the RO Log"><input type="checkbox" id="dNoRo"' + (S.dashNoRo ? ' checked' : '') + ' style="display:none">Planned without RO <b>' + noRoCount + '</b></label></div>' +
         '<div style="flex:0 1 280px"><input type="search" id="dQ" placeholder="🔍 Search (Ctrl+F)" title="SKU, item ID, warehouse or group — several words narrow it down" value="' + esc(S.dashQ || '') + '" autocomplete="off"></div></div><div class="scroll"><table class="t" id="dTab"><tr>' +
         COLS.map(function (c) {
           var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
@@ -1891,6 +1899,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         }).join('') + '</tr>' +
       '<tbody id="dRows">' + dashRows() + '</tbody></table></div><div class="small muted" id="dCount" style="margin-top:6px">' + dashCountText() + '</div></div>';
     box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
+    $('dNoRo').onchange = function () { S.dashNoRo = this.checked; drawDash(); };
     $('dQ').oninput = function () { S.dashQ = this.value; $('dRows').innerHTML = dashRows(); $('dCount').textContent = dashCountText(); };
     $('dQ').onkeydown = function (e) { if (e.key === 'Escape') { this.value = ''; this.oninput(); } };
     $('dTab').querySelector('tr').onclick = function (e) {
