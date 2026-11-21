@@ -588,7 +588,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 planned-no-ro';
+  var PAGE_BUILD = '2026-11-21 day-popup';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -602,7 +602,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function today() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
   function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
   function prettyDate(s) { if (!s) return ''; var d = new Date(s + 'T12:00:00'); return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); }
-  function toast(msg, ms) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, ms || 3200); }
+  function toast(msg, ms) { Array.prototype.forEach.call(document.querySelectorAll('.toast'), function (o) { o.remove(); }); var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, ms || 3200); }
   function role() { return S.boot ? S.boot.user.role : 'Viewer'; }
   function can(r) { var order = ['Admin', 'Planner', 'Viewer']; return order.indexOf(role()) <= order.indexOf(r); }
   /** Items are shown by SKU and Item ID only (no product names). */
@@ -2053,9 +2053,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (S.dashCalDay) {
         var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 };
         var mv = function (r) {
-          if (r.appt) return ' <span class="small muted">(from appointment ' + prettyDate(r.appt) + ')</span>';
+          if (r.appt && !can('Planner')) return ' <span class="small muted">(from appointment ' + prettyDate(r.appt) + ')</span>';
+          if (r.appt) return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" value="' + esc(r.appt) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Change</button></span>';
           if (!can('Planner')) return '';
-          return ' <span class="nowrap">· move to <input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" style="width:140px;padding:4px 6px"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button></span>';
+          return ' <span class="nowrap">· move to <input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button></span>';
         };
         info = '<div class="calinfo"><b>' + dlab(S.dashCalDay) + '</b>' + (isWorkDay(S.dashCalDay) ? '' : ' <span class="small muted">(no dispatch day)</span>') +
           (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, mv(r)); }).join('') + '</ul>' : '') +
@@ -2064,10 +2065,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           (x.ros.length ? '<div class="small" style="margin-top:6px"><b>ROs dated this day</b></div><ul>' + x.ros.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
           (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
           (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul>' + x.exp.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
-          (!sel ? '<div class="small muted">Nothing on this day.</div>' : '') + '</div>';
+          (!sel ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
       }
       $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · RO = RO date · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
-        warns + '<div class="cal" style="margin-top:8px">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>' + info;
+        warns + '<div class="cal" style="margin-top:8px">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>';
+      lastInfo = info;
       if ($('calSched')) $('calSched').onclick = function () {
         var b = this; b.disabled = true;
         var urg = function (x) { var m = 999; rows.forEach(function (r) { if (PlanCore.whNorm(r.wh) === PlanCore.whNorm(x.wh) && r.days != null) m = Math.min(m, r.days); }); return m - leadOf(x.wh); };
@@ -2075,8 +2077,56 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         saveDays(sp.dates, 'Dispatch days given to ' + W.unsched.length + ' RO(s).');
       };
     };
+    var lastInfo = '';
+    /** Open ROs (no appointment) that are not on day k, to add to it: those without a dispatch day first. */
+    var addHtml = function (k) {
+      if (!can('Planner') || !isWorkDay(k)) return '';
+      var cand = roGroups(d.openROs).filter(function (x) { return inWh(x.wh) && !x.appt && (x.status === 'Created' || x.status === 'Planned') && dispatchOf(x) !== k; })
+        .sort(function (a, b) { return (dispatchOf(a) || '0').localeCompare(dispatchOf(b) || '0') || a.wh.localeCompare(b.wh); });
+      if (!cand.length) return '';
+      return '<div class="small" style="margin-top:10px"><b>➕ Add an open RO to this day</b> <span class="muted">(ROs without an appointment)</span></div>' +
+        '<div class="row" style="margin-top:4px"><div style="flex:3 1 320px"><select id="calAddSel">' + cand.map(function (x) {
+          return '<option value="' + esc(x.key) + '">' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · ' + fmt(x.units) + ' units · ' + (dispatchOf(x) ? 'now ' + dlab(dispatchOf(x)) : 'no dispatch day') + (x.roNo ? ' · #' + esc(x.roNo) : '') + '</option>';
+        }).join('') + '</select></div><div style="flex:0 0 auto"><button class="btn sm p" id="calAddGo">Add to ' + dlab(k) + '</button></div></div>';
+    };
+    var openDay = function () {
+      openModal('<div id="calPop">' + lastInfo + '</div><div class="row" style="margin-top:12px"><button class="btn p" id="calPopX">Close</button></div>');
+      $('modalBox').style.maxWidth = '860px';
+      $('calPopX').onclick = closeModal;
+      $('modalBox').onclick = dayClick;
+    };
+    var popOpen = function () { return !$('modal').classList.contains('hidden') && !!$('calPop'); };
+    var refreshAfter = function (okMsg) { draw(); if (popOpen()) openDay(); toast(okMsg); };
     var saveDays = function (dates, okMsg) {
-      api('setDispatchDates', S.token, dates).then(function (r) { d.openROs = r.openROs; S.boot.openROs = r.openROs; draw(); toast(okMsg); }, function (e) { toast(e.message, 6000); draw(); });
+      api('setDispatchDates', S.token, dates).then(function (r) { d.openROs = r.openROs; S.boot.openROs = r.openROs; refreshAfter(okMsg); }, function (e) { toast(e.message, 6000); draw(); });
+    };
+    /** Clicks inside the day pop-up: move a dispatch, change an appointment, add an open RO. */
+    var dayClick = function (e) {
+      var box = $('modalBox'), q = function (cls, k) { return box.querySelector('.' + cls + '[data-k="' + k.replace(/"/g, '\\"') + '"]'); };
+      var grp = function (k) { return roGroups(d.openROs).filter(function (x) { return x.key === k; })[0]; };
+      var mvb = e.target.closest('.mvGo');
+      if (mvb) {
+        var key = mvb.getAttribute('data-k'), inp = q('mvIn', key), g = grp(key); if (!g || !inp.value) return;
+        if (!isWorkDay(inp.value)) { toast(dlab(inp.value) + ' is not a dispatch day (Settings → Dispatch).', 5000); return; }
+        var dates = {}; g.batches.forEach(function (b) { dates[b] = inp.value; });
+        mvb.disabled = true; saveDays(dates, 'Moved to ' + dlab(inp.value) + '.');
+        return;
+      }
+      var apb = e.target.closest('.apGo2');
+      if (apb) {
+        var k2 = apb.getAttribute('data-k'), ai = q('apIn2', k2), g2 = grp(k2); if (!g2 || !ai.value) return;
+        apb.disabled = true;
+        g2.batches.reduce(function (pr, id) { return pr.then(function () { return api('updateBatch', S.token, id, { appt: ai.value }); }); }, Promise.resolve())
+          .then(function () { return refreshBoot(); })
+          .then(function () { d.openROs = S.boot.openROs; refreshAfter('Appointment ' + dlab(ai.value) + ' saved; dispatch ' + dlab(dispatchOf({ appt: ai.value, wh: g2.wh })) + '.'); },
+            function (er) { apb.disabled = false; toast(er.message, 6000); });
+        return;
+      }
+      if (e.target.id === 'calAddGo') {
+        var g3 = grp($('calAddSel').value); if (!g3) return;
+        var dt = {}; g3.batches.forEach(function (b) { dt[b] = S.dashCalDay; });
+        e.target.disabled = true; saveDays(dt, short(g3.wh) + ' added to ' + dlab(S.dashCalDay) + '.');
+      }
     };
     det.addEventListener('toggle', function () { S.dashCalOpen = det.open; if (det.open) draw(); });
     $('dCalBody').onclick = function (e) {
@@ -2089,9 +2139,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         mvb.disabled = true; S.dashCalDay = inp.value; saveDays(dates, 'Moved to ' + dlab(inp.value) + '.');
         return;
       }
-      if (e.target.closest('.calinfo') || e.target.closest('.calw') || e.target.closest('button')) return;
+      if (e.target.closest('.calw') || e.target.closest('button')) return;
       var cc = e.target.closest('.cd[data-d]'); if (!cc) return;
-      var k = cc.getAttribute('data-d'); S.dashCalDay = S.dashCalDay === k ? '' : k; draw();
+      S.dashCalDay = cc.getAttribute('data-d'); draw(); openDay(); // the day's details open in a pop-up
     };
     if (det.open) draw();
   }
