@@ -106,7 +106,7 @@ table.t th{font-size:11px;color:var(--muted)}
 /* A Send box not yet confirmed (the planner's suggestion): grey until clicked, typed in or filled. */
 .line input.q.pend{color:var(--muted);font-weight:400;background:var(--chip)}
 /* TI = Travalate Inventory stock; red when the plan sends more of the SKU (all warehouses) than TI has. */
-.ti-c b{font-weight:700}.ti-c.tiover b{color:var(--bad)}.ti-c .tiw{display:block;font-size:10px;color:var(--bad)}
+.ti-c b{font-weight:700}.ti-c.tiover b{color:var(--bad)}.ti-c .tiw{display:block;font-size:10px;color:var(--bad)}.ti-c .tiw.ok{color:var(--muted)}
 a.plk{color:var(--brand);font-weight:700;text-decoration:underline dotted;cursor:pointer}
 /* Dashboard: sortable headings and the calendar. */
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover{color:var(--ink)}th.sortable.on{color:var(--brand)}
@@ -572,7 +572,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 ti-confirm';
+  var PAGE_BUILD = '2026-11-21 ti-sending';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1065,7 +1065,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var q = tiQty(r);
     if (q == null) return '<b title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</b>';
     var send = sendOfItem(r.item), over = send > q;
-    return '<b' + (over ? ' title="The plan sends ' + send + ' of this SKU (all warehouses) but TI has ' + q + '"' : '') + '>' + fmt(q) + '</b>' + (over ? '<span class="tiw">sending ' + fmt(send) + '</span>' : '');
+    // "sending N" = confirmed Send boxes of this SKU, all warehouses: grey while within TI, red once it is more.
+    return '<b' + (over ? ' title="The plan sends ' + send + ' of this SKU (all warehouses) but TI has ' + q + '"' : '') + '>' + fmt(q) + '</b>' +
+      (send > 0 ? '<span class="tiw' + (over ? '' : ' ok') + '" title="Confirmed Send quantity of this SKU, all warehouses together">sending ' + fmt(send) + '</span>' : '');
   }
   function tiCell(r) {
     var q = tiQty(r), over = q != null && sendOfItem(r.item) > q;
@@ -1095,7 +1097,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var miss = [], seen = {};
     S.plan.forEach(function (r) { if (!seen[r.item] && (S.final[r.key] || 0) > 0 && tiQty(r) == null) { seen[r.item] = 1; miss.push(skuText(r.sku, r.item)); } });
     return '<div class="msg info">TI = stock in Travalate Inventory' + (S.ti.updatedAt ? ', read ' + new Date(S.ti.updatedAt).toLocaleString('en-IN') : '') + ' · <a href="#" id="tiRe">↻ refresh</a>' +
-      '<br>Send boxes in <span style="color:var(--muted)">grey</span> are suggestions: they count in TI\'s "sending" once you click into them (or type / fill a quantity).' +
+      '<br>Send boxes in <span style="color:var(--muted)">grey</span> are suggestions: they count in TI\'s "sending" once you click into them (or type / fill a quantity). "sending" turns red when it is more than TI.' +
       (miss.length ? '<br><b>' + miss.length + ' SKU(s) to send are not found in TI:</b> ' + esc(miss.slice(0, 8).join(', ')) + (miss.length > 8 ? '…' : '') + '. An admin sets their name in TI under Settings → SKUs → TI SKU.' : '') + '</div>';
   }
 
