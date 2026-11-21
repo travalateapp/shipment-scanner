@@ -32,5 +32,5 @@ stay logged in and the plan is kept). Server changes (`Planner.gs`) need no new 
   builds, signs with the same private key as the Attendance app (repository secrets `ANDROID_KEYSTORE_BASE64`,
   `ANDROID_KEYSTORE_PASSWORD`) and publishes. Pushes to other branches make a test APK only (Actions → the run →
   Artifacts), signed with a throwaway key.
-- Optional repository secret `PLANNER_DEPLOYMENT_ID` (the planner's `AKfycb…` Deployment ID): built into the app so
+- Repository secret `PLANNER_DEPLOYMENT_ID` (set 21 Nov 2026) (the planner's `AKfycb…` Deployment ID): built into the app so
   nobody has to paste the link. Without it, the app asks once.
