@@ -26,7 +26,8 @@ const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'War
   'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
-const SKU_HEAD = ['Item ID', 'SKU', 'Item Name', 'Group', 'Tier', 'Active'];
+// 'TI SKU' = the SKU's name in the Travalate Inventory (TI) app, when it differs from 'SKU' (blank = same as SKU).
+const SKU_HEAD = ['Item ID', 'SKU', 'Item Name', 'Group', 'Tier', 'Active', 'TI SKU'];
 const USER_HEAD = ['User ID', 'Name', 'PIN', 'Role', 'Active'];
 // 'Blinkit Incoming' + 'RO Log Incoming' = 'Planned' (its two parts, for the Dashboard's Planned breakdown).
 const SNAP_HEAD = ['Warehouse', 'Item ID', 'Item Name', 'Group', 'Status', 'Daily Rate', 'Stock + Incoming',
@@ -82,6 +83,7 @@ function doGet(e) {
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
+  groupsFromMonthTab, getTiStock, getTiLink, saveTiLink,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -173,7 +175,7 @@ function seedSkus_() {
       if (typeof a === 'string' && BLOCK_RE.test(a.trim())) group = a.trim().match(BLOCK_RE)[2];
       else if (group && typeof a === 'number' && a > 1000 && !known[String(a)]) {
         known[String(a)] = 1;
-        add.push([a, r[1] === '' ? '' : String(r[1]), '', group, r[2] === '' ? '' : String(r[2]), 'Yes']);
+        add.push([a, r[1] === '' ? '' : String(r[1]), '', group, r[2] === '' ? '' : String(r[2]), 'Yes', '']);
       }
     });
   });
@@ -224,7 +226,7 @@ function getSkus_() {
   return sh.getRange(2, 1, sh.getLastRow() - 1, SKU_HEAD.length).getValues()
     .filter(r => r[0] !== '')
     .map(r => ({ item: Number(r[0]), sku: String(r[1]), name: String(r[2]), group: String(r[3]).toUpperCase(),
-      tier: String(r[4]), active: !/^n/i.test(String(r[5])) }));
+      tier: String(r[4]), active: !/^n/i.test(String(r[5])), tiSku: String(r[6] == null ? '' : r[6]).trim() }));
 }
 
 /* ---------------- Users & sessions ---------------- */
@@ -1025,6 +1027,64 @@ function syncMonthTabs(token) {
   }
 }
 
+/* ---------------- Travalate Inventory (TI) stock ---------------- */
+
+// The Travalate Inventory app's web app (same link the Shipment Manager uses). Its shared secret is never kept in
+// the repo: an admin enters it once in Settings → Travalate Inventory, and it is stored in this script's Script
+// Properties (TI_SECRET). The link can be changed there too (TI_URL).
+const TI_DEFAULT_URL = 'https://script.google.com/macros/s/AKfycbwyU5NATMoqY3La_piZ7XG34HohF5qhKsxJwUDOHdYOFdSBShtBmmIqrPJBgTvxhXx9/exec';
+
+function tiCall_(url, secret) {
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+    payload: JSON.stringify({ secret: secret, action: 'getStockSnapshot' }),
+  });
+  let res;
+  try { res = JSON.parse(resp.getContentText()); } catch (e) {
+    throw new Error('Travalate Inventory did not answer properly (HTTP ' + resp.getResponseCode() + '). Check its link in Settings.');
+  }
+  if (!res || !res.success) throw new Error('Travalate Inventory: ' + ((res && res.error) || 'no data') + (res && res.error === 'Unauthorized.' ? ' Check the shared secret in Settings.' : ''));
+  return res;
+}
+
+/** Current company stock per SKU from Travalate Inventory: { ok, updatedAt, monthLabel, stocks: [{ sku, qty, asOf }] }. */
+function getTiStock(token) {
+  auth_(token, 'Viewer');
+  const p = PropertiesService.getScriptProperties();
+  const secret = p.getProperty('TI_SECRET');
+  if (!secret) return { ok: false, setup: true, error: 'Travalate Inventory is not connected yet. An admin enters its shared secret in Settings → Travalate Inventory.' };
+  const cache = CacheService.getScriptCache();
+  const hit = cache.get('ti_stock');
+  if (hit) return JSON.parse(hit);
+  const res = tiCall_(p.getProperty('TI_URL') || TI_DEFAULT_URL, secret);
+  const out = { ok: true, updatedAt: res.updatedAt, monthLabel: res.monthLabel,
+    stocks: (res.stocks || []).map(x => ({ sku: String(x.sku), qty: Number(x.qty) || 0, asOf: String(x.asOf || '') })) };
+  const json = JSON.stringify(out);
+  if (json.length < 90000) cache.put('ti_stock', json, 120); // 2 minutes: quick reloads don't call Inventory again
+  return out;
+}
+
+function getTiLink(token) {
+  auth_(token, 'Admin');
+  const p = PropertiesService.getScriptProperties();
+  return { url: p.getProperty('TI_URL') || TI_DEFAULT_URL, hasSecret: !!p.getProperty('TI_SECRET') };
+}
+
+/** Saves the TI link / shared secret (secret '' = keep the saved one) after checking they work. */
+function saveTiLink(token, url, secret) {
+  auth_(token, 'Admin');
+  const p = PropertiesService.getScriptProperties();
+  url = String(url || '').trim() || TI_DEFAULT_URL;
+  if (!/^https:\/\/script\.google\.com\/macros\/s\/[\w-]+\/exec$/.test(url)) throw new Error('The link must be the Inventory web app link ending in /exec.');
+  secret = String(secret || '') || p.getProperty('TI_SECRET') || '';
+  if (!secret) throw new Error('Enter the shared secret.');
+  const res = tiCall_(url, secret); // throws with the reason if it doesn't work; nothing is saved then
+  p.setProperty('TI_URL', url);
+  p.setProperty('TI_SECRET', secret);
+  CacheService.getScriptCache().remove('ti_stock');
+  return { ok: true, skus: (res.stocks || []).length, monthLabel: res.monthLabel };
+}
+
 /* ---------------- Settings & SKUs ---------------- */
 
 function saveSettings(token, s) {
@@ -1120,7 +1180,7 @@ function groupsFromMonthTab(token, apply) {
 /** rows = [{ item, sku, name, group, tier, active }] — adds or updates by Item ID. */
 function saveSkus(token, rows) {
   auth_(token, 'Admin');
-  const sh = sheet_(TAB.SKUS);
+  const sh = ensureSheet_(TAB.SKUS, SKU_HEAD); // adds the "TI SKU" heading to an older tab
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
@@ -1132,8 +1192,12 @@ function saveSkus(token, rows) {
       if (group && GROUPS.indexOf(group) < 0) throw new Error('Group must be ' + GROUPS.join(', ') + '.');
       const vals = [id, String(r.sku || ''), String(r.name || ''), group, String(r.tier || ''), r.active === false ? 'No' : 'Yes'];
       const i = cur.indexOf(String(id));
-      if (i >= 0) sh.getRange(i + 2, 1, 1, vals.length).setValues([vals]);
-      else { sh.appendRow(vals); cur.push(String(id)); }
+      // TI SKU is only changed when the caller sends it (e.g. "Take groups & tiers" leaves it as it is).
+      const ti = r.tiSku === undefined ? undefined : String(r.tiSku || '').trim();
+      if (i >= 0) {
+        sh.getRange(i + 2, 1, 1, vals.length).setValues([vals]);
+        if (ti !== undefined) sh.getRange(i + 2, vals.length + 1).setValue(ti);
+      } else { sh.appendRow(vals.concat([ti || ''])); cur.push(String(id)); }
     });
   } finally {
     lock.releaseLock();
