@@ -23,7 +23,7 @@ const TAB = {
 
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
-  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date'];
+  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date', 'Delivered On', 'Removed From Tab'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 // 'TI SKU' = the SKU's name in the Travalate Inventory (TI) app, when it differs from 'SKU' (blank = same as SKU).
@@ -33,8 +33,9 @@ const USER_HEAD = ['User ID', 'Name', 'PIN', 'Role', 'Active'];
 const SNAP_HEAD = ['Warehouse', 'Item ID', 'Item Name', 'Group', 'Status', 'Daily Rate', 'Stock + Incoming',
   'Days Cover', 'Suggested', 'Locked', 'Has', 'Planned', 'Blinkit Incoming', 'RO Log Incoming'];
 
-// 'Delivered' is no longer offered (Blinkit's own files show when stock arrives); old Delivered rows stay as they are.
-const STATUSES = ['Planned', 'Created', 'Cancelled'];
+// Delivered: asks for the delivery date; 2 days later the RO's quantities and heading are removed from the month tab.
+const STATUSES = ['Planned', 'Created', 'Delivered', 'Cancelled'];
+const DELIVERED_KEEP_DAYS = 2;
 const OPEN_STATUSES = ['Planned', 'Created'];
 const ROLES = ['Admin', 'Planner', 'Viewer'];
 const GROUPS = ['TBI', 'TBO', 'TBG'];
@@ -362,8 +363,51 @@ function resetUserPin(token, id, pin) {
 /* ---------------- Boot data ---------------- */
 
 /** Everything the page needs after login: who you are, settings, SKUs, warehouses and the open ROs. */
+/**
+ * ROs marked Delivered: 2 days after the delivery date their quantities and RO heading are removed from the month
+ * tab (columns D–H), so the column is free again; the RO Log keeps them ("Removed From Tab" = when). Runs when the
+ * planner is opened (at most every 30 minutes) and from cleanupDeliveredROs (e.g. a daily trigger).
+ */
+function cleanupDelivered_() {
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const due = readLog_().filter(r => r.status === 'Delivered' && r.deliveredOn instanceof Date && !r.removedAt && r.refs.length &&
+    today.getTime() >= r.deliveredOn.getTime() + DELIVERED_KEEP_DAYS * 864e5);
+  if (!due.length) return 0;
+  const log = ensureSheet_(TAB.LOG, LOG_HEAD), now = new Date(), cols = {};
+  due.forEach(r => {
+    r.refs.forEach(ref => {
+      const sh = SpreadsheetApp.getActive().getSheetByName(ref.t);
+      if (!sh) return;
+      adjustCell_(sh, r.wh, r.group, r.item, r.sku, ref.c, -r.qty);
+      cols[ref.t + '|' + r.wh + '|' + r.group + '|' + ref.c] = { sh: sh, wh: r.wh, group: r.group, c: ref.c };
+    });
+    log.getRange(r.row, L['Removed From Tab'] + 1).setValue(now);
+  });
+  // A column left without quantities in its block also loses its RO heading.
+  Object.keys(cols).forEach(k => {
+    const x = cols[k], ci = RO_COLS.indexOf(x.c), b = blockFor_(readBlockValues_(x.sh), x.wh, x.group);
+    if (!b || ci < 0) return;
+    const v = x.sh.getRange(b.start + 1, FIRST_RO_COL + ci, b.end - b.start + 1, 1).getValues();
+    const empty = Object.keys(b.items).every(it => { const val = v[b.items[it] - b.start][0]; return val === '' || val === null || Number(val) === 0; });
+    if (empty) x.sh.getRange(b.headRow + 1, FIRST_RO_COL + ci).clearContent();
+  });
+  return due.length;
+}
+
+/** For a time-driven trigger (Apps Script → Triggers → cleanupDeliveredROs, daily). */
+function cleanupDeliveredROs() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try { return cleanupDelivered_(); } finally { lock.releaseLock(); }
+}
+
 function getBoot(token) {
   const u = auth_(token);
+  const cache = CacheService.getScriptCache();
+  if (!cache.get('deliv_clean')) {
+    cache.put('deliv_clean', '1', 1800);
+    try { cleanupDeliveredROs(); } catch (e) { /* never blocks opening the planner */ }
+  }
   const latest = monthTabs_()[0];
   return {
     user: { id: u.id, name: u.name, role: u.role },
@@ -473,7 +517,7 @@ function readLog_() {
     appt: r[L['Appointment Date']], roNo: String(r[L['Blinkit RO No.']]), source: String(r[L['Source']]),
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
     blinkitAt: r[L['Blinkit Created At']], merged: String(r[L['Merged RO']] == null ? '' : r[L['Merged RO']]),
-    dispatch: r[L['Dispatch Date']],
+    dispatch: r[L['Dispatch Date']], deliveredOn: r[L['Delivered On']], removedAt: r[L['Removed From Tab']],
   })).filter(r => r.key);
 }
 
@@ -486,6 +530,7 @@ function publicRo_(r) {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
     appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch),
+    deliveredOn: fmtDate_(r.deliveredOn), removedAt: fmtDate_(r.removedAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
 }
@@ -591,6 +636,8 @@ function createROs_(u, data) {
         r[L['Blinkit Created At']] = data.blinkitAt instanceof Date ? data.blinkitAt : '';
         r[L['Merged RO']] = mergedId;
         r[L['Dispatch Date']] = ''; // set right after by the planner (spread over the next working days)
+        r[L['Delivered On']] = '';
+        r[L['Removed From Tab']] = '';
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
@@ -792,7 +839,15 @@ function updateBatch(token, batch, changes) {
     const appt = changes.appt !== undefined ? parseDate_(changes.appt) : (lines[0].appt instanceof Date ? lines[0].appt : null);
     const roNo = changes.roNo !== undefined ? String(changes.roNo) : lines[0].roNo;
     if (changes.status !== undefined && STATUSES.indexOf(changes.status) < 0) throw new Error('Unknown status.');
+    const delivered = changes.status === 'Delivered' ? parseDate_(changes.deliveredOn) : null;
+    if (changes.status === 'Delivered' && !delivered) throw new Error('Enter the delivery date.');
+    if (changes.status !== undefined) ensureSheet_(TAB.LOG, LOG_HEAD); // "Delivered On" / "Removed From Tab" headings
     lines.forEach(r => {
+      if (changes.status !== undefined && (changes.status === 'Delivered' || r.status === 'Delivered')) {
+        // Delivered: keep the date (the quantities leave the month tab 2 days later); un-delivered: clear it.
+        log.getRange(r.row, L['Delivered On'] + 1).setValue(changes.status === 'Delivered' ? delivered : '');
+        if (changes.status !== 'Delivered' && r.removedAt) warnings.push('RO ' + (r.roNo || r.batch) + ' was already removed from the month tab; its quantities are not put back.');
+      }
       if (changes.status !== undefined && changes.status !== r.status) {
         const oldEff = r.status === 'Cancelled' ? 0 : r.qty, newEff = changes.status === 'Cancelled' ? 0 : r.qty;
         if (newEff !== oldEff) {
