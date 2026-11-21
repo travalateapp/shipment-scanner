@@ -588,7 +588,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 day-popup';
+  var PAGE_BUILD = '2026-11-21 no-ro-dates';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1981,7 +1981,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /**
    * Dashboard calendar — 38 days from 7 days ago, as a dispatch plan (Settings → Dispatch):
    *  🚚 load bar = units dispatched that day vs the daily capacity (red when over); 📦 packing days before a dispatch;
-   *  📍 arrivals (appointment, or dispatch + shipping days); RO = ROs dated that day; ⚠ items that run out before
+   *  📍 arrivals (appointment, or dispatch + shipping days); ⚠ items that run out before
    *  their next possible arrival; ⏳ ROs that expire without an appointment. Above the days: the warnings.
    *  Click a day for its details; a dispatch without an appointment can be moved to another day there.
    * Follows the warehouse picked on the dashboard.
@@ -2039,7 +2039,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           (x.load ? '<div class="ld' + (over ? ' over' : '') + '" title="Dispatch ' + fmt(x.load) + ' of ' + fmt(c.cap) + ' units"><span style="width:' + Math.min(100, Math.round(x.load / c.cap * 100)) + '%"></span></div><span class="cb ds' + (over ? ' over' : '') + '">🚚 ' + fmt(x.load) + '</span>' : '') +
           (x.pack.length ? '<span class="cb pk" title="Packing">📦 ' + x.pack.length + '</span>' : '') +
           (x.arr.length ? '<span class="cb ap" title="Arrivals">📍 ' + x.arr.length + '</span>' : '') +
-          (x.ros.length ? '<span class="cb ro" title="ROs dated this day">RO ' + x.ros.length + '</span>' : '') +
           (x.out.length ? '<span class="cb out" title="Run out before the next arrival">⚠ ' + x.out.length + '</span>' : '') +
           (x.exp.length ? '<span class="cb out" title="RO expires without appointment">⏳ ' + x.exp.length + '</span>' : '') + '</div>';
       }
@@ -2062,12 +2061,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, mv(r)); }).join('') + '</ul>' : '') +
           (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul>' + x.pack.map(function (r) { return roLine(r, ' · dispatch ' + prettyDate(dispatchOf(r))); }).join('') + '</ul>' : '') +
           (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, r.appt ? '' : ' · expected'); }).join('') + '</ul>' : '') +
-          (x.ros.length ? '<div class="small" style="margin-top:6px"><b>ROs dated this day</b></div><ul>' + x.ros.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
           (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
           (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul>' + x.exp.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
-          (!sel ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
+          (!(x.disp.length || x.pack.length || x.arr.length || x.out.length || x.exp.length) ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
       }
-      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · RO = RO date · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
+      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
         warns + '<div class="cal" style="margin-top:8px">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>';
       lastInfo = info;
       if ($('calSched')) $('calSched').onclick = function () {
