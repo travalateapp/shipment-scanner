@@ -333,6 +333,34 @@ var PlanCore = (function () {
   }
 
 
+  /**
+   * Removes the rows numbered in dropRows ({rowNumber: 1}) from a sheet's XML and renumbers the rows below them, so the
+   * Bulk RO file holds only the header and the lines being ordered (not every warehouse × item Blinkit listed).
+   */
+  function keepRowsXml(xml, dropRows) {
+    var sd = xml.match(/<sheetData>([\s\S]*)<\/sheetData>/);
+    if (!sd) return xml;
+    var rows = sd[1].match(/<row\b[^>]*?(?:\/>|>[\s\S]*?<\/row>)/g) || [];
+    if (rows.some(function (r) { return !/^<row\b[^>]*\sr="\d+"/.test(r); })) return xml; // rows without numbers: leave as is
+    var n = 0, maxCol = '';
+    var kept = rows.filter(function (r) { return !dropRows[r.match(/^<row\b[^>]*\sr="(\d+)"/)[1]]; }).map(function (r) {
+      n++;
+      return r.replace(/^(<row\b[^>]*\sr=")\d+"/, '$1' + n + '"').replace(/(<c\b[^>]*\sr="[A-Z]+)\d+"/g, function (m0, a) {
+        var col = a.match(/([A-Z]+)$/)[1];
+        if (col.length > maxCol.length || (col.length === maxCol.length && col > maxCol)) maxCol = col;
+        return a + n + '"';
+      });
+    });
+    xml = xml.replace(sd[0], '<sheetData>' + kept.join('') + '</sheetData>');
+    // The used range / filter / ignored-error ranges now end at the last kept row.
+    var fixRef = function (ref) { return ref.replace(/^([A-Z]+)(\d+):([A-Z]+)\d+$/, function (m0, c1, r1, c2) { return c1 + Math.min(+r1, n) + ':' + c2 + Math.max(n, 1); }); };
+    xml = xml.replace(/(<dimension ref=")([^"]+)(")/, function (m0, a, ref, c) { return a + fixRef(ref) + c; })
+      .replace(/(<autoFilter ref=")([^"]+)(")/, function (m0, a, ref, c) { return a + fixRef(ref) + c; })
+      .replace(/(<ignoredError\b[^>]*\ssqref=")([^"]+)(")/g, function (m0, a, ref, c) { return a + ref.split(' ').map(fixRef).join(' ') + c; });
+    return xml;
+  }
+
+
   /* ---- Blinkit R.O. PDF ----
    * parseBlinkitRoPdf_ and its helpers below are copied unchanged from the Shipment Manager (ShipmentManager.gs),
    * so both apps read Blinkit R.O. PDFs the same way. Keep them in step when one changes. */
@@ -577,7 +605,7 @@ var PlanCore = (function () {
     return null;
   }
 
-  return { parseInventory: parseInventory, parseBulk: parseBulk, computePlan: computePlan, fillSheetXml: fillSheetXml,
+  return { parseInventory: parseInventory, parseBulk: parseBulk, computePlan: computePlan, fillSheetXml: fillSheetXml, keepRowsXml: keepRowsXml,
     colLetter: colLetter, median: median, whNorm: whNorm, stockInfo: stockInfo, readRoPdf: readRoPdf, matchPlannerRo: matchPlannerRo, matchWarehouse: matchWarehouse };
 })();
 if (typeof module !== 'undefined') module.exports = PlanCore;
@@ -589,7 +617,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 day-popup2';
+  var PAGE_BUILD = '2026-11-21 ro-file-rows';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1386,7 +1414,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div style="margin-top:10px"><label class="f">Excel file(s) to download</label><div class="chips" id="cFiles">' +
         '<label class="chip"><input type="checkbox" class="cf" value="ALL" checked> Merged (all groups)</label>' +
         groupList().map(function (g) { return '<label class="chip"><input type="checkbox" class="cf" value="' + g + '"> ' + g + ' only</label>'; }).join('') +
-      '</div><div class="small muted" style="margin-top:4px">Only the ticked warehouses are in the file(s). A group file is made only when that group has lines.</div></div>' +
+      '</div><div class="small muted" style="margin-top:4px">The file(s) have only the ticked warehouses and the SKUs being ordered. A group file is made only when that group has lines.</div></div>' +
       '<div id="cOut"></div><div class="row" style="margin-top:12px"><button class="btn" id="cNo">Cancel</button><button class="btn g" id="cGo">Save &amp; download file</button></div>');
     $('cNo').onclick = closeModal;
     var tickAll = function (on) { return function (e) { e.preventDefault(); Array.prototype.forEach.call(document.querySelectorAll('.cw'), function (c) { c.checked = on; }); }; };
@@ -1479,7 +1507,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           if (!tg) throw new Error('Could not find the Bulk RO sheet inside the file.');
           var path = tg.charAt(0) === '/' ? tg.slice(1) : 'xl/' + tg.replace(/^\.\//, '');
           return zip.file(path).async('string').then(function (xml) {
-            zip.file(path, PlanCore.fillSheetXml(xml, fills, qCol, aCol, S.boot.settings.address));
+            // Only the lines being ordered: Blinkit's other rows (other warehouses, items not ordered) are left out.
+            var drop = {}; S.bulk.rows.forEach(function (b) { if (!fills[b.row]) drop[b.row] = 1; });
+            zip.file(path, PlanCore.keepRowsXml(PlanCore.fillSheetXml(xml, fills, qCol, aCol, S.boot.settings.address), drop));
             return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
           });
         });
