@@ -584,7 +584,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 appt-label';
+  var PAGE_BUILD = '2026-11-21 snap-restore';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -843,7 +843,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (st.cover) S.cover = st.cover;
       if (st.starters != null) S.starters = st.starters;
     }
-    S.draftOk = true; S.keepEditsOnce = true; S.restoredAt = f.savedAt;
+    S.draftOk = true; S.keepEditsOnce = true; S.restoredAt = f.savedAt; S.snapOnce = true;
     return true;
   }
 
@@ -879,7 +879,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (old[r.key] !== undefined) S.edited[r.key] = old[r.key];
     });
     renderPlanOut();
-    if (!keepEdits) saveSnapshot();
+    // A new plan updates the Dashboard; so does a plan brought back after a refresh (worked out again with the
+    // current rules and RO Log), so the Dashboard never keeps an older calculation.
+    if (!keepEdits || S.snapOnce) { S.snapOnce = false; saveSnapshot(); }
   }
 
   /**

@@ -49,6 +49,8 @@ The Blinkit sheet's Apps Script project already holds the **daily inventory upda
 
 > **Updating:** paste `Planner.gs` and `Index.html` again, run `setup` again (it only adds what is missing), then **Deploy → Manage deployments → ✏ Edit → Version: New version → Deploy**. The link stays the same. With *Automatic deploy* (below) this happens by itself; it only replaces `Planner` and `Index`.
 
+Ideas discussed but not built yet are kept in [`IDEAS-ON-HOLD.md`](IDEAS-ON-HOLD.md).
+
 ### Working together with the daily inventory updater
 
 - The updater finds today's column from **row 4** (the rightmost filled cell, e.g. AO). The planner only writes RO quantities and headings into **D–H**, so that detection is not affected.
