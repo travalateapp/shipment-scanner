@@ -572,7 +572,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 ti-sending';
+  var PAGE_BUILD = '2026-11-21 pdf-cards';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1530,7 +1530,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function addPdfFiles(files) {
     Array.prototype.forEach.call(files, function (f) {
       var e = { name: f.name, state: 'reading' };
-      S.pdfs.push(e);
+      S.pdfs.unshift(e); // newest upload on top
       var rd = new FileReader();
       rd.onload = function () {
         extractPdfText(rd.result).then(function (text) {
@@ -1568,13 +1568,19 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         (mt.diffs.length ? ' Quantities change to the PDF\'s: ' + mt.diffs.map(function (x) { return skuText((m[x.item] || {}).sku, x.item) + ' ' + x.from + ' → ' + x.to; }).join(', ') + '.' : '')]);
       else if (d.wh && e.state === 'ready') notes.push(['info', 'Saved as a new RO (Created) dated ' + prettyDate(d.roDate) + (S.pdfLogOnly ? ' — RO Log only (Log only is ticked).' : ' — into the RO Log and the month tab.')]);
       var done = e.state === 'saved' || e.state === 'skipped';
-      return '<div class="ro open"><div class="h"><span class="w">RO ' + esc(d.roNo) + '</span>' +
+      // Collapsed by default (click the header to open). A PDF that needs something fixed opens by itself.
+      var attention = !done && (!d.wh || noGroup.length > 0 || !d.totalOk);
+      var isOpen = e.open !== undefined ? e.open : attention;
+      var canSave = d.wh && !noGroup.length && e.state === 'ready';
+      return '<div class="ro' + (isOpen ? ' open' : '') + '" data-i="' + i + '"><div class="h"><span class="chev" style="color:var(--muted)">' + (isOpen ? '▾' : '▸') + '</span><span class="w">RO ' + esc(d.roNo) + '</span>' +
         '<span class="small">' + esc(d.whRaw) + '</span><span class="small">RO ' + prettyDate(d.roDate) + (d.expiry ? ' · expires ' + prettyDate(d.expiry) : '') + '</span>' +
         '<span class="small"><b>' + fmt(d.sum) + '</b> units · ' + d.lines.length + ' items ' + (d.totalOk ? '✓' : '⚠') + '</span>' +
-        (done ? '<span class="pill ' + (e.state === 'saved' ? 'ok' : 'warn') + '">' + (e.state === 'saved' ? 'Saved' : 'Skipped') + '</span>' : '') + '</div><div class="b">' +
+        (done ? '<span class="pill ' + (e.state === 'saved' ? 'ok' : 'warn') + '">' + (e.state === 'saved' ? 'Saved' : 'Skipped') + '</span>' :
+          (attention ? '<span class="pill warn">' + (!d.wh ? 'choose warehouse' : noGroup.length ? 'SKU without group' : 'check total') + '</span>' : '') +
+          '<span style="margin-left:auto;display:flex;gap:6px"><button class="btn sm g pSave" data-i="' + i + '"' + (canSave ? '' : ' disabled') + '>' + (e.state === 'saving' ? '<span class="spin"></span>' : 'Save') + '</button>' +
+          '<button class="btn sm pX" data-i="' + i + '">Remove</button></span>') + '</div><div class="b">' +
         (done ? msgs([e.msg], e.state === 'saved' ? 'ok' : 'warn') + msgs(e.warnings, 'warn') :
-          '<div class="row"><div><label class="f">Warehouse</label><select class="pWh" data-i="' + i + '"><option value="">Choose…</option>' + (S.boot.warehouses || []).map(function (w) { return '<option' + (d.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
-          '<div style="flex:0 0 auto"><button class="btn g pSave" data-i="' + i + '"' + (d.wh && !noGroup.length && e.state === 'ready' ? '' : ' disabled') + '>' + (e.state === 'saving' ? '<span class="spin"></span>' : 'Save') + '</button> <button class="btn pX" data-i="' + i + '">Remove</button></div></div>' +
+          '<div class="row"><div><label class="f">Warehouse</label><select class="pWh" data-i="' + i + '"><option value="">Choose…</option>' + (S.boot.warehouses || []).map(function (w) { return '<option' + (d.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div></div>' +
           notes.map(function (n) { return '<div class="msg ' + n[0] + '">' + esc(n[1]) + '</div>'; }).join('')) +
         '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Qty</th></tr>' + d.lines.map(function (l) {
           var x = m[l.item] || {};
@@ -1630,8 +1636,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     $('pdfList').onclick = function (ev) {
       var i = Number(ev.target.getAttribute('data-i'));
-      if (ev.target.classList.contains('pSave')) savePdf(i);
-      if (ev.target.classList.contains('pX')) { S.pdfs.splice(i, 1); drawPdfs(); }
+      if (ev.target.classList.contains('pSave')) { savePdf(i); return; }
+      if (ev.target.classList.contains('pX')) { S.pdfs.splice(i, 1); drawPdfs(); return; }
+      // Click on a card's header (not on its buttons): open / close it.
+      var h = ev.target.closest('.ro .h'); if (!h || ev.target.closest('button,select,a')) return;
+      var card = h.closest('.ro'), e = S.pdfs[Number(card.getAttribute('data-i'))]; if (!e || !e.d) return;
+      e.open = !card.classList.contains('open'); drawPdfs();
     };
     $('pdfList').onchange = function (ev) {
       if (!ev.target.classList.contains('pWh')) return;
