@@ -584,7 +584,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 snap-restore';
+  var PAGE_BUILD = '2026-11-21 appt-popup';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -664,7 +664,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
 
   /* ---------------- modal ---------------- */
   function openModal(html) { $('modalBox').innerHTML = html; $('modal').classList.remove('hidden'); }
-  function closeModal() { $('modal').classList.add('hidden'); $('modalBox').innerHTML = ''; }
+  function closeModal() { $('modal').classList.add('hidden'); $('modalBox').innerHTML = ''; $('modalBox').style.maxWidth = ''; }
   $('modal').addEventListener('click', function (e) { if (e.target === $('modal')) closeModal(); });
 
   /* ---------------- login ---------------- */
@@ -1831,14 +1831,39 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<h3 style="margin-top:12px">Open ROs for this item here (RO Log, now)</h3>' +
       (ros.length ? '<div class="scroll"><table class="t"><tr><th>RO date</th><th>RO No.</th><th>Status</th><th class="right">Qty</th><th>Appointment</th><th>In the RO Log part?</th></tr>' +
         ros.map(function (x) {
-          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + roStatusPill(x.status, x.appt) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + (x.appt ? prettyDate(x.appt) : '—') + '</td>' +
+          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + roStatusPill(x.status, x.appt) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + apptCell(x) + '</td>' +
             '<td class="small">' + (counted(x) ? 'Yes' : gapLeft > 0 && isRecent(x) ? 'Yes — Blinkit\'s Incoming did not show it yet' : 'No — Blinkit\'s file already shows it') + '</td></tr>';
         }).join('') + '</table></div>'
         : '<div class="small muted">No open ROs for this item at this warehouse in the RO Log. ' + (split && r.plBlinkit ? 'The ' + fmt(r.plBlinkit) + ' are ROs on Blinkit that are not in the RO Log (e.g. made on Blinkit directly).' : '') + '</div>') +
       '<div class="small muted" style="margin-top:8px">ROs created or changed since the plan are listed here but not in the numbers above.</div>' +
       '<div class="row" style="margin-top:12px"><button class="btn p" id="plOk">Close</button></div>';
     openModal(html);
+    $('modalBox').style.maxWidth = '820px'; // wider: RO table with appointment boxes
     $('plOk').onclick = closeModal;
+    // Appointment straight from here: saved like "Save RO" in the RO Log (RO Log + the RO heading in the month tab),
+    // for every group of the RO (merged RO / same Blinkit RO number).
+    $('modalBox').onclick = function (e) {
+      var b = e.target.closest('.apSave'); if (!b) return;
+      var x = ros[Number(b.getAttribute('data-i'))], val = $('modalBox').querySelector('.apIn[data-i="' + b.getAttribute('data-i') + '"]').value;
+      var same = function (y) { return PlanCore.whNorm(y.wh) === PlanCore.whNorm(x.wh) && (x.merged ? y.merged === x.merged : x.roNo ? y.roNo === x.roNo : y.batch === x.batch); };
+      var batches = []; (d.openROs || []).forEach(function (y) { if (same(y) && batches.indexOf(y.batch) < 0) batches.push(y.batch); });
+      b.disabled = true; b.innerHTML = '<span class="spin"></span>';
+      var warns = [];
+      batches.reduce(function (pr, id) { return pr.then(function () { return api('updateBatch', S.token, id, { appt: val }).then(function (res) { warns = warns.concat((res && res.warnings) || []); }); }); }, Promise.resolve())
+        .then(function () {
+          (d.openROs || []).forEach(function (y) { if (same(y)) y.appt = val; });
+          refreshBoot().then(refreshPlanAfterRoChange, function () {});
+          showPlanned(d, r);
+          toast(val ? 'Appointment ' + prettyDate(val) + ' saved for RO ' + (x.roNo || '') : 'Appointment removed');
+          if (warns.length) toast(warns.join(' '), 6000);
+        }, function (er) { b.disabled = false; b.textContent = 'Save'; toast(er.message, 6000); });
+    };
+    function apptCell(x) {
+      var i = ros.indexOf(x);
+      if (!can('Planner') || x.status === 'Cancelled') return x.appt ? prettyDate(x.appt) : '—';
+      return '<span class="nowrap"><input type="date" class="apIn" data-i="' + i + '" value="' + esc(x.appt || '') + '" style="width:140px;padding:5px 6px"> ' +
+        '<button class="btn sm apSave" data-i="' + i + '">Save</button></span>';
+    }
   }
 
   /**
