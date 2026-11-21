@@ -53,3 +53,12 @@ Suggested first step: 1 + 2 + 3 together, then 4 + 5.
 2. Is Blinkit's appointment date the day the stock arrives at the warehouse (so dispatch = appointment − shipping)?
 3. Do the 2 packing days also use the daily capacity, or only units leaving that day?
 4. First step: Settings + dispatch days from appointments + load bar (1–3), then spreading and cover days (4–5)?
+
+### Decided 21 Nov 2026 and built (dispatch plan, steps 1–4 and 6)
+
+Answers: capacity **2,800** units a day (one number); the appointment date **is** the arrival at the warehouse;
+capacity counts **only units leaving** that day. Built: Settings → Dispatch, dispatch day per RO (from the
+appointment, else set), calendar load bar / packing / arrivals, spreading after Create RO (movable), warnings.
+
+**Still on hold:** step 5 — Days of cover per warehouse from the schedule (far ≈ 25, Faridabad/Kundli/Jaipur ≈ 14
+instead of the flat 26).

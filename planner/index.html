@@ -121,6 +121,10 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .cd.today .cdn{color:var(--brand)}
 .cb{font-size:10px;font-weight:700;border-radius:5px;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .cb.ro{background:var(--infobg);color:var(--info)}.cb.ap{background:var(--okbg);color:var(--ok)}.cb.out{background:var(--badbg);color:var(--bad)}
+.cb.ds{background:var(--chip);color:var(--ink)}.cb.ds.over{background:var(--badbg);color:var(--bad)}.cb.pk{background:var(--warnbg);color:var(--warn)}
+.ld{height:5px;border-radius:3px;background:var(--line);overflow:hidden}.ld span{display:block;height:100%;background:var(--brand)}.ld.over span{background:var(--bad)}
+.cd.off{background:repeating-linear-gradient(45deg,var(--card),var(--card) 6px,var(--chip) 6px,var(--chip) 12px)}
+.calw{margin:4px 0;font-size:13px}.calw summary{cursor:pointer}.calw ul{margin:4px 0 6px;padding-left:20px}
 .calinfo{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px}.calinfo ul{margin:4px 0 0;padding-left:18px;font-size:13px}
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;z-index:60;font-size:13px;max-width:90vw}
@@ -584,7 +588,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 dash-search';
+  var PAGE_BUILD = '2026-11-21 dispatch-plan';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -610,6 +614,63 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (status === 'Created') return appt ? '<span class="pill ok">Created · appt ' + prettyDate(appt) + '</span>' : '<span class="pill warn">Created · awaiting appointment</span>';
     var c = { Planned: 'info', Delivered: 'ok', Cancelled: 'bad' }[status] || '';
     return '<span class="pill ' + c + '">' + esc(status) + '</span>';
+  }
+  /* ---- Dispatch: working days, lead times, dispatch / arrival day of an RO (Settings → Dispatch) ---- */
+  var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  function dConf() {
+    var st = (S.boot && S.boot.settings) || {};
+    return { cap: Number(st.dispatchCap) || 2800, days: String(st.dispatchDays || 'Mon,Tue,Wed,Thu,Fri,Sat'), lead: Number(st.leadDays) || 15,
+      shortLead: Number(st.shortLeadDays) || 4, shortWh: String(st.shortLeadWh || ''), pack: st.packDays == null || st.packDays === '' ? 2 : Number(st.packDays) };
+  }
+  function isWorkDay(ds) { return dConf().days.toLowerCase().indexOf(DOW[new Date(ds + 'T12:00:00').getDay()].toLowerCase()) >= 0; }
+  function prevWorkDay(ds) { for (var i = 0; i < 14 && !isWorkDay(ds); i++) ds = addDays(ds, -1); return ds; }
+  function nextWorkDay(ds) { for (var i = 0; i < 14 && !isWorkDay(ds); i++) ds = addDays(ds, 1); return ds; }
+  /** Lead days (packing start → arrival) of a warehouse: the short one for Settings' "Short Lead Warehouses". */
+  function leadOf(wh) {
+    var c = dConf(), k = PlanCore.whNorm(wh);
+    var isShort = c.shortWh.split(',').map(function (x) { return x.trim().toLowerCase().replace(/\s+/g, ''); }).filter(Boolean).some(function (x) { return k.indexOf(x) >= 0; });
+    return isShort ? c.shortLead : c.lead;
+  }
+  function transitOf(wh) { return Math.max(0, leadOf(wh) - dConf().pack); }
+  /** Dispatch day: from the appointment (appointment − shipping days, on a working day) or the day set for it. */
+  function dispatchOf(r) { return r.appt ? prevWorkDay(addDays(r.appt, -transitOf(r.wh))) : (r.dispatch || ''); }
+  /** Arrival at the warehouse: the appointment, or dispatch + shipping days. */
+  function arrivalOf(r) { if (r.appt) return r.appt; var d = dispatchOf(r); return d ? addDays(d, transitOf(r.wh)) : ''; }
+  /** One entry per RO as on Blinkit (merged RO / same RO number / one batch) from RO Log lines. */
+  function roGroups(lines) {
+    var g = {};
+    (lines || []).forEach(function (r) {
+      if (r.status === 'Cancelled') return;
+      var k = r.merged ? 'M' + r.merged + r.wh : r.roNo ? 'N' + r.roNo + PlanCore.whNorm(r.wh) : 'B' + r.batch;
+      var x = g[k] = g[k] || { key: k, wh: r.wh, groups: [], batches: [], units: 0, roNo: r.roNo, status: r.status, appt: r.appt, dispatch: r.dispatch, roDate: r.roDate, notes: r.notes || '', lines: [] };
+      if (x.groups.indexOf(r.group) < 0) x.groups.push(r.group);
+      if (x.batches.indexOf(r.batch) < 0) x.batches.push(r.batch);
+      x.units += Number(r.qty) || 0; x.lines.push(r);
+      if (r.appt) x.appt = r.appt;
+      if (r.dispatch && !x.dispatch) x.dispatch = r.dispatch;
+    });
+    return Object.keys(g).map(function (k) { return g[k]; });
+  }
+  /**
+   * Spreads ROs (no appointment, no dispatch day) over the working days after packing, up to the daily capacity
+   * on top of what is already planned, most urgent first. Returns { batchId: day } and the plan per RO.
+   */
+  function spreadDispatch(todo, openLines, urgency) {
+    var c = dConf(), load = {}, out = {}, plan = [], skip = {};
+    todo.forEach(function (t) { t.batches.forEach(function (b) { skip[b] = 1; }); });
+    roGroups(openLines).forEach(function (x) { if (x.batches.some(function (b) { return skip[b]; })) return; var dd = dispatchOf(x); if (dd) load[dd] = (load[dd] || 0) + x.units; });
+    var start = nextWorkDay(addDays(today(), c.pack));
+    todo.slice().sort(function (a, b) { return (urgency(a) - urgency(b)) || (b.units - a.units); }).forEach(function (t) {
+      var d = start;
+      for (var i = 0; i < 90; i++) {
+        if (isWorkDay(d) && ((load[d] || 0) + t.units <= c.cap || !(load[d] || 0))) break;
+        d = addDays(d, 1);
+      }
+      load[d] = (load[d] || 0) + t.units;
+      t.batches.forEach(function (b) { out[b] = d; });
+      plan.push({ wh: t.wh, groups: t.groups, units: t.units, day: d });
+    });
+    return { dates: out, plan: plan.sort(function (a, b) { return a.day.localeCompare(b.day); }), load: load };
   }
   function skuText(sku, item) { return (sku ? String(sku) : 'No SKU') + ' · ' + item; }
   function skuOf(item) { var x = (S.boot.skus || []).filter(function (s) { return s.item === Number(item); })[0]; return x ? x.sku : ''; }
@@ -1341,10 +1402,24 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         merged: fileKinds.indexOf('ALL') >= 0 // one Blinkit file per warehouse = one RO in the RO Log
       }).then(function (res) {
         S.boot.openROs = res.openROs;
-        return downloadFiles(files).then(function () { return res; });
+        // Give the new ROs dispatch days: next working days after packing, within the daily capacity, most urgent
+        // warehouse first (fewest days of cover left compared with its lead time).
+        var newIds = {}; res.batches.forEach(function (b) { newIds[b.batch] = 1; });
+        var todo = roGroups(res.openROs.filter(function (r) { return newIds[r.batch]; })).filter(function (x) { return !x.appt; });
+        var urg = function (x) {
+          var m = 999; lines.forEach(function (r) { if (r.wh === x.wh && r.daysNow != null) m = Math.min(m, r.daysNow); });
+          return m - leadOf(x.wh);
+        };
+        var sp = spreadDispatch(todo, res.openROs, urg);
+        res.dispatchPlan = sp.plan;
+        return (Object.keys(sp.dates).length ? api('setDispatchDates', S.token, sp.dates).then(function (r2) { S.boot.openROs = r2.openROs; }, function (e) { res.dispatchErr = e.message; }) : Promise.resolve())
+          .then(function () { return downloadFiles(files); }).then(function () { return res; });
       }).then(function (res) {
         var ok = res.batches.map(function (b) { return b.wh + ' ' + b.group + ': ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); });
         $('modalBox').innerHTML = '<h2>✅ Saved — ' + (files.length > 1 ? files.length + ' files' : 'file') + ' downloaded</h2>' + msgs(ok, 'ok') + msgs(res.warnings, 'warn') +
+          (res.dispatchPlan && res.dispatchPlan.length ? '<div class="msg info"><b>🚚 Dispatch days</b> (within ' + fmt(dConf().cap) + ' units a day; change them in the Dashboard calendar or the RO Log):<br>' +
+            res.dispatchPlan.map(function (x) { return esc(x.wh) + ' · ' + esc(x.groups.join(' + ')) + ' · ' + fmt(x.units) + ' units → <b>' + new Date(x.day + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>'; }).join('<br>') + '</div>' : '') +
+          (res.dispatchErr ? msgs(['Dispatch days could not be saved: ' + res.dispatchErr], 'warn') : '') +
           '<div class="msg info">Upload the downloaded file' + (files.length > 1 ? 's' : '') + ' on Blinkit (Bulk RO upload). Then add the RO number and appointment in the RO Log.' +
           (files.length > 1 ? ' If the browser asked to allow several downloads and one is missing, download it again below.' : '') + '</div>' +
           '<div style="margin-top:8px">' + files.map(function (f, i) { return '<button class="btn sm cAgain" data-i="' + i + '" style="margin:0 6px 6px 0">⬇ ' + esc(f.name) + ' (' + fmt(f.units) + ' units)</button>'; }).join('') + '</div>' +
@@ -1490,7 +1565,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var gOrder = groupList();
     box.innerHTML = cs.map(function (c, ci) {
       var rs = c.rows.slice().sort(function (a, b) { return gOrder.indexOf(a.group) - gOrder.indexOf(b.group); });
-      var r0 = rs[0], st = batchStatus(rs);
+      var r0 = rs[0], st = batchStatus(rs), cg = roGroups(rs)[0] || { wh: r0.wh, appt: r0.appt, dispatch: r0.dispatch };
       var groups = []; rs.forEach(function (r) { if (groups.indexOf(r.group) < 0) groups.push(r.group); });
       var tabs = []; rs.forEach(function (r) { if (r.tabs && tabs.indexOf(r.tabs) < 0) tabs.push(r.tabs); });
       var units = rs.reduce(function (a, r) { return a + (r.status === 'Cancelled' ? 0 : r.qty); }, 0);
@@ -1498,10 +1573,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return '<div class="ro' + (open[c.key] ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
         '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : roStatusPill(st, r0.appt)) +
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
-        (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
+        (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (dispatchOf(cg) ? '<span class="small">🚚 ' + prettyDate(dispatchOf(cg)) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
         (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
         (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ['Planned', 'Created', 'Cancelled'].map(function (s) { return '<option>' + s + '</option>'; }).join('') + '</select></div>' +
           '<div><label class="f">Appointment</label><input type="date" class="bAp" value="' + esc(r0.appt) + '"></div>' +
+          '<div><label class="f">Dispatch day' + (cg.appt ? ' (from appointment)' : '') + '</label><input type="date" class="bDs" value="' + esc(dispatchOf(cg)) + '"' + (cg.appt ? ' disabled title="Worked out from the appointment"' : '') + '></div>' +
           '<div><label class="f">Blinkit RO No.</label><input type="text" class="bNo" value="' + esc(r0.roNo) + '"></div>' +
           '<div style="flex:0 0 auto"><button class="btn p bSave">Save RO</button></div></div>' : '') +
         '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th>' + (multi ? '<th>Group</th>' : '') + '<th class="right">Qty</th><th>Status</th>' + (edit ? '<th></th>' : '') + '</tr>' +
@@ -1529,7 +1605,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var warns = [];
         c.batches.reduce(function (p, id) {
           return p.then(function () { return api('updateBatch', S.token, id, ch).then(function (r) { warns = warns.concat((r && r.warnings) || []); }); });
-        }, Promise.resolve()).then(function () { done({ warnings: warns }); }, err);
+        }, Promise.resolve()).then(function () {
+          var ds = ro.querySelector('.bDs');
+          if (!ds || ds.disabled || ds.value === (c.rows[0].dispatch || '')) return;
+          if (ds.value && !isWorkDay(ds.value)) { warns.push(prettyDate(ds.value) + ' is not a dispatch day; the dispatch day was not changed.'); return; }
+          var dates = {}; c.batches.forEach(function (id) { dates[id] = ds.value; });
+          return api('setDispatchDates', S.token, dates);
+        }).then(function () { done({ warnings: warns }); }, err);
       }
       var tr = e.target.closest('tr'); if (!tr) return;
       var k = tr.getAttribute('data-k');
@@ -1800,7 +1882,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
-      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— last 7 days + next 30 (38 days): ROs, appointments, items running out' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
+      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— dispatch plan, last 7 days + next 30: 🚚 load per day, 📦 packing, 📍 arrivals, ⚠ warnings' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
       '<div class="card"><div class="row" style="align-items:center;margin-bottom:8px"><h3 style="flex:1 1 300px;margin:0">' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'Items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3>' +
         '<div style="flex:0 1 280px"><input type="search" id="dQ" placeholder="🔍 Search (Ctrl+F)" title="SKU, item ID, warehouse or group — several words narrow it down" value="' + esc(S.dashQ || '') + '" autocomplete="off"></div></div><div class="scroll"><table class="t" id="dTab"><tr>' +
         COLS.map(function (c) {
@@ -1888,61 +1970,119 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   /**
-   * Dashboard calendar: 38 days from 7 days ago (the last 7 days, today and the next 30). Each day shows the ROs dated that day, the appointments that day
-   * and the items whose days of cover run out that day (from the dashboard's plan). Click a day for the details.
+   * Dashboard calendar — 38 days from 7 days ago, as a dispatch plan (Settings → Dispatch):
+   *  🚚 load bar = units dispatched that day vs the daily capacity (red when over); 📦 packing days before a dispatch;
+   *  📍 arrivals (appointment, or dispatch + shipping days); RO = ROs dated that day; ⚠ items that run out before
+   *  their next possible arrival; ⏳ ROs that expire without an appointment. Above the days: the warnings.
+   *  Click a day for its details; a dispatch without an appointment can be moved to another day there.
    * Follows the warehouse picked on the dashboard.
    */
   function initDashCal(d, rows, el) {
     var det = $('dCal'); if (!det) return;
-    var DAYS = 38, start = addDays(today(), -7), todayS = today();
+    var DAYS = 38, start = addDays(today(), -7), todayS = today(), c = dConf();
     var inWh = function (w) { return !S.dashWh || PlanCore.whNorm(w) === PlanCore.whNorm(S.dashWh); };
     var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
-    var days = {};
-    var day = function (k) { return days[k] = days[k] || { ros: {}, appts: {}, out: [] }; };
-    (d.openROs || []).forEach(function (r) {
-      if (!inWh(r.wh)) return;
-      var key = r.merged ? 'M' + r.merged + r.wh : r.roNo ? 'N' + r.roNo + r.wh : 'B' + r.batch;
-      [['roDate', 'ros'], ['appt', 'appts']].forEach(function (f) {
-        var dt = r[f[0]]; if (!dt) return;
-        var x = day(dt)[f[1]], c = x[key] = x[key] || { wh: r.wh, groups: [], units: 0, roNo: r.roNo, status: r.status, appt: r.appt };
-        if (c.groups.indexOf(r.group) < 0) c.groups.push(r.group);
-        c.units += r.qty;
+    var dlab = function (k) { return new Date(k + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }); };
+    var expiryOf = function (x) { var m = String(x.notes || '').match(/R\.O\. expiry (\d{1,2} [A-Za-z]{3} \d{4})/); if (!m) return ''; var t = new Date(m[1] + ' 12:00'); return isNaN(t) ? '' : t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); };
+    var build = function () {
+      var days = {}, warn = { gap: [], waiting: [], expiring: [], unsched: [] };
+      var day = function (k) { return days[k] = days[k] || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 }; };
+      var groups = roGroups(d.openROs).filter(function (x) { return inWh(x.wh); });
+      groups.forEach(function (x) {
+        var dd = dispatchOf(x), ar = arrivalOf(x), ex = expiryOf(x);
+        if (x.roDate) day(x.roDate).ros.push(x);
+        if (dd) {
+          day(dd).disp.push(x); day(dd).load += x.units;
+          var p = dd; for (var i = 0; i < c.pack; i++) { p = prevWorkDay(addDays(p, -1)); day(p).pack.push(x); }
+        } else if (x.status === 'Created' || x.status === 'Planned') warn.unsched.push(x);
+        if (ar) day(ar).arr.push(x);
+        if (!x.appt && x.status === 'Created' && x.roDate && x.roDate <= addDays(todayS, -3)) warn.waiting.push(x);
+        if (!x.appt && ex) { day(ex).exp.push(x); if (ex >= todayS && ex <= addDays(todayS, 5)) warn.expiring.push(x); }
       });
-    });
-    rows.forEach(function (r) {
-      if (!(r.rate > 0) || r.days == null || !inWh(r.wh)) return;
-      day(addDays(todayS, Math.max(0, Math.floor(r.days)))).out.push(r);
-    });
+      // ⚠ An item that runs out before its next possible arrival (an open RO's arrival, or a new RO dispatched
+      // after packing): shown on the day it runs out, with the days it would be out of stock.
+      var arrOf = {};
+      roGroups(d.openROs).forEach(function (x) { var ar = arrivalOf(x); if (!ar || ar < todayS) return; x.lines.forEach(function (l) { var k = PlanCore.whNorm(x.wh) + '|' + l.item; if (!arrOf[k] || ar < arrOf[k]) arrOf[k] = ar; }); });
+      rows.forEach(function (r) {
+        if (!(r.rate > 0) || r.days == null || !inWh(r.wh)) return;
+        var out = addDays(todayS, Math.max(0, Math.floor(r.days)));
+        var next = arrOf[PlanCore.whNorm(r.wh) + '|' + r.item] || addDays(nextWorkDay(addDays(todayS, c.pack)), transitOf(r.wh));
+        if (out < next) {
+          var gap = Math.round((new Date(next + 'T12:00:00') - new Date(out + 'T12:00:00')) / 864e5);
+          var w = { r: r, out: out, next: next, gap: gap }; day(out).out.push(w); warn.gap.push(w);
+        }
+      });
+      return { days: days, warn: warn };
+    };
+    var roLine = function (x, extra) {
+      return '<li>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · #' + esc(x.roNo) : '') + ' ' + roStatusPill(x.status, x.appt) + (extra || '') + '</li>';
+    };
     var draw = function () {
+      var B = build(), days = B.days, W = B.warn;
       var first = new Date(start + 'T12:00:00'), lead = (first.getDay() + 6) % 7; // weeks start on Monday
       var cells = '';
       for (var i = 0; i < lead; i++) cells += '<div class="cd empty"></div>';
       for (var j = 0; j < DAYS; j++) {
-        var k = addDays(start, j), x = days[k] || { ros: {}, appts: {}, out: [] };
-        var nR = Object.keys(x.ros).length, nA = Object.keys(x.appts).length, nO = x.out.length;
-        var dd = new Date(k + 'T12:00:00');
-        cells += '<div class="cd' + (k < todayS ? ' past' : '') + (k === todayS ? ' today' : '') + (S.dashCalDay === k ? ' sel' : '') + ((nR || nA || nO) ? ' has' : '') + '" data-d="' + k + '">' +
+        var k = addDays(start, j), x = days[k] || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 };
+        var dd = new Date(k + 'T12:00:00'), off = !isWorkDay(k), over = x.load > c.cap;
+        cells += '<div class="cd' + (k < todayS ? ' past' : '') + (k === todayS ? ' today' : '') + (off ? ' off' : '') + (S.dashCalDay === k ? ' sel' : '') + '" data-d="' + k + '">' +
           '<div class="cdn">' + dd.getDate() + (dd.getDate() === 1 || j === 0 ? ' ' + dd.toLocaleDateString('en-IN', { month: 'short' }) : '') + '</div>' +
-          (nR ? '<span class="cb ro" title="ROs dated this day">RO ' + nR + '</span>' : '') +
-          (nA ? '<span class="cb ap" title="Appointments">📅 ' + nA + '</span>' : '') +
-          (nO ? '<span class="cb out" title="Items running out">⚠ ' + nO + '</span>' : '') + '</div>';
+          (x.load ? '<div class="ld' + (over ? ' over' : '') + '" title="Dispatch ' + fmt(x.load) + ' of ' + fmt(c.cap) + ' units"><span style="width:' + Math.min(100, Math.round(x.load / c.cap * 100)) + '%"></span></div><span class="cb ds' + (over ? ' over' : '') + '">🚚 ' + fmt(x.load) + '</span>' : '') +
+          (x.pack.length ? '<span class="cb pk" title="Packing">📦 ' + x.pack.length + '</span>' : '') +
+          (x.arr.length ? '<span class="cb ap" title="Arrivals">📍 ' + x.arr.length + '</span>' : '') +
+          (x.ros.length ? '<span class="cb ro" title="ROs dated this day">RO ' + x.ros.length + '</span>' : '') +
+          (x.out.length ? '<span class="cb out" title="Run out before the next arrival">⚠ ' + x.out.length + '</span>' : '') +
+          (x.exp.length ? '<span class="cb out" title="RO expires without appointment">⏳ ' + x.exp.length + '</span>' : '') + '</div>';
       }
+      var wl = function (icon, title, list, fn) { return list.length ? '<details class="calw"><summary>' + icon + ' <b>' + list.length + '</b> ' + title + '</summary><ul>' + list.map(fn).join('') + '</ul></details>' : ''; };
+      var warns = wl('⚠', 'item(s) run out before their next possible arrival', W.gap.sort(function (a, b) { return a.out.localeCompare(b.out); }), function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' — runs out ' + dlab(w.out) + ', next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day' + (w.gap === 1 ? '' : 's') + ' out of stock</b></li>'; }) +
+        wl('🕑', 'RO(s) awaiting appointment for more than 3 days', W.waiting, function (x) { return roLine(x, ' · RO ' + prettyDate(x.roDate)); }) +
+        wl('⏳', 'RO(s) expire within 5 days without appointment', W.expiring, function (x) { return roLine(x, ' · expires ' + prettyDate(expiryOf(x))); }) +
+        wl('📋', 'open RO(s) without a dispatch day', W.unsched, function (x) { return roLine(x, ''); }) +
+        (W.unsched.length && can('Planner') ? '<button class="btn sm" id="calSched">Give them dispatch days</button>' : '');
       var sel = S.dashCalDay && days[S.dashCalDay], info = '';
       if (S.dashCalDay) {
-        var lst = function (o) { return Object.keys(o).map(function (k2) { var c = o[k2]; return '<li>' + esc(short(c.wh)) + ' · ' + esc(c.groups.join(' + ')) + ' · <b>' + fmt(c.units) + '</b> units' + (c.roNo ? ' · #' + esc(c.roNo) : '') + ' ' + roStatusPill(c.status, c.appt) + '</li>'; }).join(''); };
-        info = '<div class="calinfo"><b>' + new Date(S.dashCalDay + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>' +
-          (!sel ? '<div class="small muted">Nothing on this day.</div>' :
-            (Object.keys(sel.ros).length ? '<div class="small" style="margin-top:6px"><b>ROs dated this day</b></div><ul>' + lst(sel.ros) + '</ul>' : '') +
-            (Object.keys(sel.appts).length ? '<div class="small" style="margin-top:6px"><b>Appointments</b></div><ul>' + lst(sel.appts) + '</ul>' : '') +
-            (sel.out.length ? '<div class="small" style="margin-top:6px"><b>Running out (days of cover end)</b></div><ul>' + sel.out.sort(function (a, b) { return b.rate - a.rate; }).map(function (r) { return '<li>' + esc(short(r.wh)) + ' · ' + esc(skuText(skuOf(r.item), r.item)) + ' <span class="small muted">· ' + fmt(r.rate, 1) + '/day' + (r.rec ? ' · suggested ' + fmt(r.rec) : '') + '</span></li>'; }).join('') + '</ul>' : '')) + '</div>';
+        var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 };
+        var mv = function (r) {
+          if (r.appt) return ' <span class="small muted">(from appointment ' + prettyDate(r.appt) + ')</span>';
+          if (!can('Planner')) return '';
+          return ' <span class="nowrap">· move to <input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" style="width:140px;padding:4px 6px"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button></span>';
+        };
+        info = '<div class="calinfo"><b>' + dlab(S.dashCalDay) + '</b>' + (isWorkDay(S.dashCalDay) ? '' : ' <span class="small muted">(no dispatch day)</span>') +
+          (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, mv(r)); }).join('') + '</ul>' : '') +
+          (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul>' + x.pack.map(function (r) { return roLine(r, ' · dispatch ' + prettyDate(dispatchOf(r))); }).join('') + '</ul>' : '') +
+          (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, r.appt ? '' : ' · expected'); }).join('') + '</ul>' : '') +
+          (x.ros.length ? '<div class="small" style="margin-top:6px"><b>ROs dated this day</b></div><ul>' + x.ros.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
+          (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
+          (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul>' + x.exp.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
+          (!sel ? '<div class="small muted">Nothing on this day.</div>' : '') + '</div>';
       }
-      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only (Planned / Created). "Running out" uses the plan the dashboard was made from. Click a day for details.</div>' +
-        '<div class="cal">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>' + info;
+      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · RO = RO date · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
+        warns + '<div class="cal" style="margin-top:8px">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>' + info;
+      if ($('calSched')) $('calSched').onclick = function () {
+        var b = this; b.disabled = true;
+        var urg = function (x) { var m = 999; rows.forEach(function (r) { if (PlanCore.whNorm(r.wh) === PlanCore.whNorm(x.wh) && r.days != null) m = Math.min(m, r.days); }); return m - leadOf(x.wh); };
+        var sp = spreadDispatch(W.unsched, d.openROs, urg);
+        saveDays(sp.dates, 'Dispatch days given to ' + W.unsched.length + ' RO(s).');
+      };
+    };
+    var saveDays = function (dates, okMsg) {
+      api('setDispatchDates', S.token, dates).then(function (r) { d.openROs = r.openROs; S.boot.openROs = r.openROs; draw(); toast(okMsg); }, function (e) { toast(e.message, 6000); draw(); });
     };
     det.addEventListener('toggle', function () { S.dashCalOpen = det.open; if (det.open) draw(); });
     $('dCalBody').onclick = function (e) {
-      var c = e.target.closest('.cd[data-d]'); if (!c) return;
-      var k = c.getAttribute('data-d'); S.dashCalDay = S.dashCalDay === k ? '' : k; draw();
+      var mvb = e.target.closest('.mvGo');
+      if (mvb) {
+        var key = mvb.getAttribute('data-k'), inp = $('dCalBody').querySelector('.mvIn[data-k="' + key.replace(/"/g, '\\"') + '"]');
+        var g = roGroups(d.openROs).filter(function (x) { return x.key === key; })[0]; if (!g || !inp.value) return;
+        if (!isWorkDay(inp.value)) { toast(dlab(inp.value) + ' is not a dispatch day (Settings → Dispatch).', 5000); return; }
+        var dates = {}; g.batches.forEach(function (b) { dates[b] = inp.value; });
+        mvb.disabled = true; S.dashCalDay = inp.value; saveDays(dates, 'Moved to ' + dlab(inp.value) + '.');
+        return;
+      }
+      if (e.target.closest('.calinfo') || e.target.closest('.calw') || e.target.closest('button')) return;
+      var cc = e.target.closest('.cd[data-d]'); if (!cc) return;
+      var k = cc.getAttribute('data-d'); S.dashCalDay = S.dashCalDay === k ? '' : k; draw();
     };
     if (det.open) draw();
   }
@@ -1961,6 +2101,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">New-listing starters by default</label><select id="sStart"><option value="0">No</option><option value="1"' + (s.starters ? ' selected' : '') + '>Yes</option></select></div>' +
       '<div><label class="f">Company</label><input type="text" id="sCo" value="' + esc(s.company) + '"></div></div>' +
       '<div id="sOut"></div><div style="margin-top:10px"><button class="btn p" id="sSave">Save settings</button></div></div>' +
+      '<div class="card"><h2>Dispatch</h2><div class="small muted">Used by the Dashboard calendar (load per day, packing, arrivals, warnings) and to give new ROs their dispatch days. An RO with an appointment is dispatched on appointment − shipping days (shipping days = lead days − packing days).</div>' +
+        '<div class="row" style="margin-top:8px"><div><label class="f">Units a day (capacity)</label><input type="number" id="dpCap" min="1" value="' + esc(s.dispatchCap || 2800) + '"></div>' +
+        '<div><label class="f">Packing days</label><input type="number" id="dpPack" min="0" max="10" value="' + esc(s.packDays == null ? 2 : s.packDays) + '"></div>' +
+        '<div><label class="f">Lead days (incl. packing)</label><input type="number" id="dpLead" min="1" max="60" value="' + esc(s.leadDays || 15) + '"></div>' +
+        '<div><label class="f">Short lead days</label><input type="number" id="dpShort" min="1" max="60" value="' + esc(s.shortLeadDays || 4) + '"></div></div>' +
+        '<div class="row" style="margin-top:8px"><div style="flex:2 1 300px"><label class="f">Warehouses with the short lead days (comma separated)</label><input type="text" id="dpShortWh" value="' + esc(s.shortLeadWh || '') + '"></div>' +
+        '<div style="flex:2 1 300px"><label class="f">Dispatch days</label><div class="chips">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<label class="chip"><input type="checkbox" class="dpDay" value="' + w + '"' + (String(s.dispatchDays || 'Mon,Tue,Wed,Thu,Fri,Sat').indexOf(w) >= 0 ? ' checked' : '') + '> ' + w + '</label>'; }).join('') + '</div></div></div>' +
+        '<div id="dpOut"></div><div style="margin-top:10px"><button class="btn p" id="dpSave">Save dispatch settings</button></div></div>' +
       '<div class="card"><h2>Travalate Inventory (TI)</h2><div class="small muted">Gives New Plan its <b>TI</b> column: your current stock per SKU, read from the Travalate Inventory app (the same connection the Shipment Manager uses). ' +
         'The shared secret is the Inventory app\'s <code>SHARED_SECRET</code>; it is kept only in this script\'s settings, never on GitHub.</div>' +
         '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Inventory web-app link (/exec)</label><input type="text" id="tiUrl" placeholder="Loading…"></div>' +
@@ -1985,6 +2133,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         b.disabled = false; b.textContent = 'Save & test'; $('tiSec').value = ''; $('tiSec').placeholder = 'saved — leave empty to keep it';
         S.ti = null; $('tiOut').innerHTML = msgs(['Connected: ' + r.skus + ' SKUs in Travalate Inventory (' + r.monthLabel + ').'], 'ok');
       }, function (e) { b.disabled = false; b.textContent = 'Save & test'; $('tiOut').innerHTML = msgs([e.message], 'bad'); });
+    };
+    $('dpSave').onclick = function () {
+      var days = Array.prototype.filter.call(document.querySelectorAll('.dpDay'), function (x) { return x.checked; }).map(function (x) { return x.value; });
+      if (!days.length) { $('dpOut').innerHTML = msgs(['Tick at least one dispatch day.'], 'bad'); return; }
+      api('saveSettings', S.token, { dispatchCap: Number($('dpCap').value), packDays: Number($('dpPack').value), leadDays: Number($('dpLead').value),
+        shortLeadDays: Number($('dpShort').value), shortLeadWh: $('dpShortWh').value.trim(), dispatchDays: days.join(',') })
+        .then(function (st) { S.boot.settings = st; $('dpOut').innerHTML = msgs(['Saved.'], 'ok'); }, function (e) { $('dpOut').innerHTML = msgs([e.message], 'bad'); });
     };
     $('sSave').onclick = function () {
       api('saveSettings', S.token, { coverDays: Number($('sCover').value), minLine: Number($('sMin').value), roundTo: Number($('sRound').value),

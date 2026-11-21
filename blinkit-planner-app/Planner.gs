@@ -23,7 +23,7 @@ const TAB = {
 
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
-  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO'];
+  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 // 'TI SKU' = the SKU's name in the Travalate Inventory (TI) app, when it differs from 'SKU' (blank = same as SKU).
@@ -50,6 +50,12 @@ const DEFAULT_SETTINGS = [
   ['Shipping Address', 'H-1177, SITAPURA INDUSTRIAL AREA, Jaipur', 'Must match an address in the Blinkit file dropdown'],
   ['New Listing Starters', 'No', 'Yes = also suggest a small starter qty where an item is not live at a warehouse yet'],
   ['Carry Over Days', 5, 'When a new month tab starts, open ROs from this many last days of the old month are copied in (0 = none)'],
+  ['Dispatch Capacity', 2800, 'Most units that can be dispatched in one day (the calendar\'s load bar)'],
+  ['Dispatch Days', 'Mon,Tue,Wed,Thu,Fri,Sat', 'Days on which shipments are dispatched'],
+  ['Lead Days', 15, 'Days from packing start to arrival at a warehouse (incl. packing)'],
+  ['Short Lead Days', 4, 'Lead days for the warehouses listed in Short Lead Warehouses'],
+  ['Short Lead Warehouses', 'Faridabad, Kundli, Jaipur', 'Warehouses with the short lead time (names or parts of names, comma separated)'],
+  ['Packing Days', 2, 'Days of packing before dispatch (part of the lead days)'],
 ];
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
@@ -83,7 +89,7 @@ function doGet(e) {
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
-  groupsFromMonthTab, getTiStock, getTiLink, saveTiLink,
+  groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -217,6 +223,12 @@ function getSettings_() {
     address: String(out['Shipping Address'] || ''),
     starters: /^y/i.test(String(out['New Listing Starters'])),
     carryDays: out['Carry Over Days'] === '' || isNaN(Number(out['Carry Over Days'])) ? 5 : Number(out['Carry Over Days']),
+    dispatchCap: Number(out['Dispatch Capacity']) || 2800,
+    dispatchDays: String(out['Dispatch Days'] || 'Mon,Tue,Wed,Thu,Fri,Sat'),
+    leadDays: Number(out['Lead Days']) || 15,
+    shortLeadDays: Number(out['Short Lead Days']) || 4,
+    shortLeadWh: String(out['Short Lead Warehouses'] || ''),
+    packDays: out['Packing Days'] === '' || isNaN(Number(out['Packing Days'])) ? 2 : Number(out['Packing Days']),
   };
 }
 
@@ -461,6 +473,7 @@ function readLog_() {
     appt: r[L['Appointment Date']], roNo: String(r[L['Blinkit RO No.']]), source: String(r[L['Source']]),
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
     blinkitAt: r[L['Blinkit Created At']], merged: String(r[L['Merged RO']] == null ? '' : r[L['Merged RO']]),
+    dispatch: r[L['Dispatch Date']],
   })).filter(r => r.key);
 }
 
@@ -472,7 +485,7 @@ function publicRo_(r) {
   return {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
-    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged,
+    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
 }
@@ -577,6 +590,7 @@ function createROs_(u, data) {
         r[L['Tab Refs']] = JSON.stringify(ref ? [ref] : []);
         r[L['Blinkit Created At']] = data.blinkitAt instanceof Date ? data.blinkitAt : '';
         r[L['Merged RO']] = mergedId;
+        r[L['Dispatch Date']] = ''; // set right after by the planner (spread over the next working days)
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
@@ -685,6 +699,39 @@ function roLabel_(roDate, roNo, appt) {
   if (roNo) s += '\n' + roNo;
   if (appt) s += '\napp ' + shortDate_(appt);
   return s;
+}
+
+/**
+ * Sets the planned dispatch day of ROs: dates = { batchId: 'yyyy-mm-dd' or '' (none) }. All lines of each batch get
+ * it. (A RO with an appointment is dispatched by its appointment; this day is used while it has none.)
+ */
+function setDispatchDates(token, dates) {
+  auth_(token, 'Planner');
+  dates = dates || {};
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const log = ensureSheet_(TAB.LOG, LOG_HEAD); // adds the "Dispatch Date" heading to an older RO Log
+    // Rows to change, written run by run (a batch's lines sit on consecutive rows), not cell by cell.
+    const rows = [];
+    readLog_().forEach(r => {
+      if (!Object.prototype.hasOwnProperty.call(dates, r.batch)) return;
+      const d = dates[r.batch] ? parseDate_(dates[r.batch]) : null;
+      if (dates[r.batch] && !d) throw new Error('Bad date: ' + dates[r.batch]);
+      rows.push({ row: r.row, v: d || '' });
+    });
+    rows.sort((a, b) => a.row - b.row);
+    for (let i = 0; i < rows.length;) {
+      let j = i;
+      while (j + 1 < rows.length && rows[j + 1].row === rows[j].row + 1) j++;
+      log.getRange(rows[i].row, L['Dispatch Date'] + 1, j - i + 1, 1).setValues(rows.slice(i, j + 1).map(x => [x.v]));
+      i = j + 1;
+    }
+    const n = rows.length;
+    return { lines: n, openROs: readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_) };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /** Changes one line: qty, status or notes. The month tab follows (a cancelled line is taken out of it). */
@@ -1094,7 +1141,14 @@ function saveSettings(token, s) {
     'Company': s.company, 'Cover Days': s.coverDays, 'Min Line Qty': s.minLine, 'Round To': s.roundTo,
     'Shipping Address': s.address, 'New Listing Starters': s.starters === undefined ? undefined : (s.starters ? 'Yes' : 'No'),
     'Carry Over Days': s.carryDays,
+    'Dispatch Capacity': s.dispatchCap, 'Dispatch Days': s.dispatchDays, 'Lead Days': s.leadDays,
+    'Short Lead Days': s.shortLeadDays, 'Short Lead Warehouses': s.shortLeadWh, 'Packing Days': s.packDays,
   };
+  if (map['Dispatch Capacity'] !== undefined && !(Number(map['Dispatch Capacity']) >= 1)) throw new Error('Dispatch Capacity must be a number above 0.');
+  ['Lead Days', 'Short Lead Days'].forEach(k => {
+    if (map[k] !== undefined && !(Number(map[k]) >= 1 && Number(map[k]) <= 60)) throw new Error(k + ' must be a number from 1 to 60.');
+  });
+  if (map['Packing Days'] !== undefined && !(Number(map['Packing Days']) >= 0 && Number(map['Packing Days']) <= 10)) throw new Error('Packing Days must be a number from 0 to 10.');
   ['Cover Days', 'Min Line Qty', 'Round To'].forEach(k => {
     if (map[k] !== undefined && !(Number(map[k]) >= 1 && Number(map[k]) <= 120)) throw new Error(k + ' must be a number from 1 to 120.');
   });
