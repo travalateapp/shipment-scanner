@@ -28,8 +28,9 @@ const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 const SKU_HEAD = ['Item ID', 'SKU', 'Item Name', 'Group', 'Tier', 'Active'];
 const USER_HEAD = ['User ID', 'Name', 'PIN', 'Role', 'Active'];
+// 'Blinkit Incoming' + 'RO Log Incoming' = 'Planned' (its two parts, for the Dashboard's Planned breakdown).
 const SNAP_HEAD = ['Warehouse', 'Item ID', 'Item Name', 'Group', 'Status', 'Daily Rate', 'Stock + Incoming',
-  'Days Cover', 'Suggested', 'Locked', 'Has', 'Planned'];
+  'Days Cover', 'Suggested', 'Locked', 'Has', 'Planned', 'Blinkit Incoming', 'RO Log Incoming'];
 
 // 'Delivered' is no longer offered (Blinkit's own files show when stock arrives); old Delivered rows stay as they are.
 const STATUSES = ['Planned', 'Created', 'Cancelled'];

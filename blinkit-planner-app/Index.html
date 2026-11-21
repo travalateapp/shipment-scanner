@@ -103,6 +103,7 @@ table.t th{font-size:11px;color:var(--muted)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px}
 .modal .box{background:var(--card);border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px}
 .hidden{display:none!important}
+a.plk{color:var(--brand);font-weight:700;text-decoration:underline dotted;cursor:pointer}
 /* Dashboard: sortable headings and the calendar. */
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover{color:var(--ink)}th.sortable.on{color:var(--brand)}
 .cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
@@ -567,7 +568,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 cal-38';
+  var PAGE_BUILD = '2026-11-21 planned-why';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -870,7 +871,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var rows = S.plan.filter(function (r) { return r.rate > 0 || r.position > 0; }).map(function (r) {
       return [r.wh, r.item, r.name, r.group, r.status, Math.round(r.rate * 10) / 10, r.position,
         r.daysAtStock == null ? '' : Math.round(r.daysAtStock * 10) / 10, r.rec, r.locked ? 'Yes' : '',
-        r.whStock + r.dsStock, r.incoming + r.appIncoming];
+        r.whStock + r.dsStock, r.incoming + r.appIncoming, r.incoming, r.appIncoming];
     });
     var items = {}; S.plan.forEach(function (r) { items[r.item] = { item: r.item, name: r.name }; });
     var units = 0, lines = 0; S.plan.forEach(function (r) { if (r.rec > 0) { units += r.rec; lines++; } });
@@ -1630,7 +1631,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!d.meta || !d.rows.length) { box.className = 'card muted'; box.innerHTML = 'No data yet. Make a plan once (New Plan → upload the two files) and the dashboard fills from it.'; return; }
     var rows = d.rows.map(function (r) { return { wh: r[0], item: r[1], name: r[2], group: r[3], status: r[4], rate: Number(r[5]) || 0, pos: Number(r[6]) || 0, days: r[7] === '' ? null : Number(r[7]), rec: Number(r[8]) || 0, locked: r[9] === 'Yes',
       // Has = stock (Total sellable); Planned = on ROs not received yet. A snapshot from before the split has only the sum.
-      has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]) }; });
+      has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]),
+      // Planned's two parts (snapshots from before 21 Nov 2026 don't have them).
+      plBlinkit: r[12] === '' || r[12] === undefined ? null : Number(r[12]), plLog: r[13] === '' || r[13] === undefined ? null : Number(r[13]) }; });
     var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
     // "Days" counts down every day from the stock date of the plan the dashboard was made from.
     var dsi = PlanCore.stockInfo(d.meta.inventoryAt, today()), el = dsi ? dsi.elapsed : 0;
@@ -1680,7 +1683,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         }).join('') + '</tr>' +
       list.slice(0, 300).map(function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? fmt(r.planned) : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
       }).join('') + '</table></div></div>';
     box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
     $('dTab').querySelector('tr').onclick = function (e) {
@@ -1690,7 +1693,44 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       drawDash();
     };
     initDashCal(d, rows, el);
+    $('dTab').onclick = function (e) {
+      var a = e.target.closest('.plk'); if (!a) return;
+      e.preventDefault();
+      var wh = a.getAttribute('data-wh'), it = Number(a.getAttribute('data-it'));
+      showPlanned(d, rows.filter(function (r) { return r.wh === wh && Number(r.item) === it; })[0]);
+    };
     if ($('dAll')) $('dAll').onclick = function (e) { e.preventDefault(); S.dashWh = ''; drawDash(); };
+  }
+
+  /**
+   * Dashboard: what makes up an item's "Planned" (stock on its way to the warehouse) at the time of the plan:
+   * Blinkit's own Incoming (ROs already on Blinkit, from the Bulk RO file) + RO Log lines Blinkit could not show
+   * yet (Planned, or Created after the Bulk RO file was downloaded). Below: that item's open ROs in the RO Log now.
+   */
+  function showPlanned(d, r) {
+    if (!r) return;
+    var bulkAt = d.meta && d.meta.bulkAt;
+    var ros = (d.openROs || []).filter(function (x) { return PlanCore.whNorm(x.wh) === PlanCore.whNorm(r.wh) && Number(x.item) === Number(r.item); })
+      .sort(function (a, b) { return String(b.roDate).localeCompare(String(a.roDate)); });
+    var counted = function (x) { var at = x.blinkitAt || x.createdAt; return x.status === 'Planned' || (x.status === 'Created' && (!bulkAt || !at || at > bulkAt)); };
+    var split = r.plBlinkit != null && r.plLog != null;
+    var html = '<h2>Planned ' + fmt(r.planned) + ' — ' + esc(skuText(skuOf(r.item), r.item)) + '</h2><div class="small muted">' + esc(r.wh) +
+      ' · stock on its way to the warehouse, at the time of the plan (' + new Date(d.meta.at).toLocaleString('en-IN') + ')</div>' +
+      (split ? '<table class="t" style="margin-top:10px"><tr><td>Incoming in <b>Blinkit\'s Bulk RO file</b> (ROs already on Blinkit)</td><td class="right"><b>' + fmt(r.plBlinkit) + '</b></td></tr>' +
+        '<tr><td>From the <b>RO Log</b>, not in Blinkit\'s file yet (Planned, or created after the file was downloaded)</td><td class="right"><b>' + fmt(r.plLog) + '</b></td></tr>' +
+        '<tr><th>Planned</th><th class="right">' + fmt(r.planned) + '</th></tr></table>'
+        : '<div class="msg info">The split into Blinkit\'s Incoming and RO Log lines shows from the next plan on (New Plan saves it).</div>') +
+      '<h3 style="margin-top:12px">Open ROs for this item here (RO Log, now)</h3>' +
+      (ros.length ? '<div class="scroll"><table class="t"><tr><th>RO date</th><th>RO No.</th><th>Status</th><th class="right">Qty</th><th>Appointment</th><th>In the RO Log part?</th></tr>' +
+        ros.map(function (x) {
+          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + esc(x.status) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + (x.appt ? prettyDate(x.appt) : '—') + '</td>' +
+            '<td class="small">' + (counted(x) ? 'Yes' : 'No — Blinkit\'s file already shows it') + '</td></tr>';
+        }).join('') + '</table></div>'
+        : '<div class="small muted">No open ROs for this item at this warehouse in the RO Log. ' + (split && r.plBlinkit ? 'The ' + fmt(r.plBlinkit) + ' are ROs on Blinkit that are not in the RO Log (e.g. made on Blinkit directly).' : '') + '</div>') +
+      '<div class="small muted" style="margin-top:8px">ROs created or changed since the plan are listed here but not in the numbers above.</div>' +
+      '<div class="row" style="margin-top:12px"><button class="btn p" id="plOk">Close</button></div>';
+    openModal(html);
+    $('plOk').onclick = closeModal;
   }
 
   /**
