@@ -103,6 +103,21 @@ table.t th{font-size:11px;color:var(--muted)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px}
 .modal .box{background:var(--card);border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px}
 .hidden{display:none!important}
+/* Dashboard: sortable headings and the calendar. */
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover{color:var(--ink)}th.sortable.on{color:var(--brand)}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cw7{font-size:11px;color:var(--muted);text-align:center;font-weight:700;padding:2px 0}
+.cd{min-height:64px;border:1px solid var(--line);border-radius:8px;padding:4px;cursor:pointer;display:flex;flex-direction:column;gap:2px;background:var(--card);overflow:hidden}
+.cd.empty{border:0;background:none;cursor:default}
+.cd.past{background:var(--chip);opacity:.8}
+.cd.today{border:2px solid var(--brand)}
+.cd.sel{outline:2px solid var(--accent)}
+.cdn{font-size:11px;font-weight:700;color:var(--muted)}
+.cd.today .cdn{color:var(--brand)}
+.cb{font-size:10px;font-weight:700;border-radius:5px;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cb.ro{background:var(--infobg);color:var(--info)}.cb.ap{background:var(--okbg);color:var(--ok)}.cb.out{background:var(--badbg);color:var(--bad)}
+.calinfo{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px}.calinfo ul{margin:4px 0 0;padding-left:18px;font-size:13px}
+@media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;z-index:60;font-size:13px;max-width:90vw}
 .login{max-width:360px;margin:40px auto}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(127,127,127,.35);border-top-color:currentColor;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
@@ -552,7 +567,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-20 android';
+  var PAGE_BUILD = '2026-11-21 dash-sort-cal';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1629,7 +1644,25 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     Object.keys(byWh).forEach(function (w) { whByNorm[PlanCore.whNorm(w)] = w; });
     d.openROs.forEach(function (r) { var w = whByNorm[PlanCore.whNorm(r.wh)]; if (w) byWh[w].open += r.qty; });
     var whs = Object.keys(byWh).sort();
-    var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) { return b.rate - a.rate || a.days - b.days; }); // fastest sellers first, then fewest days
+    // Sortable columns: click a heading for A→Z / lowest first, click again for Z→A / highest first.
+    // Default: Per day, highest first (then fewest days). Empty values always go last.
+    var COLS = [['wh', 'Warehouse', 't'], ['sku', 'SKU', 't'], ['item', 'Item ID', 'n'], ['group', 'Group', 't'], ['rate', 'Per day', 'n'],
+      ['has', 'Has', 'n'], ['planned', 'Planned', 'n'], ['days', 'Days', 'n'], ['rec', 'Suggested', 'n']];
+    var srt = S.dashSort = S.dashSort || { col: 'rate', dir: -1 };
+    var val = function (r, c) {
+      if (c === 'sku') return skuOf(r.item) || '';
+      if (c === 'has') return r.has == null ? r.pos : r.has;
+      return r[c];
+    };
+    var isText = COLS.filter(function (c) { return c[0] === srt.col; })[0][2] === 't';
+    var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) {
+      var x = val(a, srt.col), y = val(b, srt.col);
+      var ex = x == null || x === '', ey = y == null || y === '';
+      if (ex || ey) return ex && ey ? 0 : ex ? 1 : -1;
+      var c = isText ? String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }) : x - y;
+      return c * srt.dir || b.rate - a.rate || (a.days == null ? 1e9 : a.days) - (b.days == null ? 1e9 : b.days);
+    });
+    var sortHint = COLS.filter(function (c) { return c[0] === srt.col; })[0][1] + ', ' + (isText ? (srt.dir > 0 ? 'A → Z' : 'Z → A') : (srt.dir > 0 ? 'lowest first' : 'highest first'));
     box.innerHTML = '<div class="card"><h2>Days of cover</h2><div class="small muted">From the plan made ' + new Date(d.meta.at).toLocaleString('en-IN') + ' by ' + esc(d.meta.by) +
       (d.meta.inventoryAt ? ' · Blinkit inventory of ' + esc(d.meta.inventoryAt) : '') + (dsi ? ' · stock as of ' + prettyDate(dsi.stockDate) + ', so Days count from today (' + el + ' day' + (el === 1 ? '' : 's') + ' of sales taken off)' : '') + '. ROs created since then are not counted here.</div>' +
       (ageDays >= 2 ? '<div class="msg warn">This is ' + ageDays + ' days old — upload fresh files in New Plan.</div>' : '') +
@@ -1639,13 +1672,85 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
-      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items by Per day <span class="small muted">(highest first, then fewest days' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Per day</th><th class="right">Has</th><th class="right">Planned</th><th class="right">Days</th><th class="right">Suggested</th></tr>' +
+      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— last 7 days + next 23 (31 days): ROs, appointments, items running out' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
+      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t" id="dTab"><tr>' +
+        COLS.map(function (c) {
+          var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
+          return '<th class="sortable' + (c[2] === 'n' && c[0] !== 'item' ? ' right' : '') + (on ? ' on' : '') + '" data-c="' + c[0] + '" title="Sort by ' + c[1] + '">' + c[1] + arrow + '</th>';
+        }).join('') + '</tr>' +
       list.slice(0, 300).map(function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
         return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? fmt(r.planned) : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
       }).join('') + '</table></div></div>';
     box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
+    $('dTab').querySelector('tr').onclick = function (e) {
+      var th = e.target.closest('th[data-c]'); if (!th) return;
+      var c = th.getAttribute('data-c');
+      S.dashSort = srt.col === c ? { col: c, dir: -srt.dir } : { col: c, dir: 1 };
+      drawDash();
+    };
+    initDashCal(d, rows, el);
     if ($('dAll')) $('dAll').onclick = function (e) { e.preventDefault(); S.dashWh = ''; drawDash(); };
+  }
+
+  /**
+   * Dashboard calendar: 31 days from 7 days ago. Each day shows the ROs dated that day, the appointments that day
+   * and the items whose days of cover run out that day (from the dashboard's plan). Click a day for the details.
+   * Follows the warehouse picked on the dashboard.
+   */
+  function initDashCal(d, rows, el) {
+    var det = $('dCal'); if (!det) return;
+    var DAYS = 31, start = addDays(today(), -7), todayS = today();
+    var inWh = function (w) { return !S.dashWh || PlanCore.whNorm(w) === PlanCore.whNorm(S.dashWh); };
+    var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
+    var days = {};
+    var day = function (k) { return days[k] = days[k] || { ros: {}, appts: {}, out: [] }; };
+    (d.openROs || []).forEach(function (r) {
+      if (!inWh(r.wh)) return;
+      var key = r.merged ? 'M' + r.merged + r.wh : r.roNo ? 'N' + r.roNo + r.wh : 'B' + r.batch;
+      [['roDate', 'ros'], ['appt', 'appts']].forEach(function (f) {
+        var dt = r[f[0]]; if (!dt) return;
+        var x = day(dt)[f[1]], c = x[key] = x[key] || { wh: r.wh, groups: [], units: 0, roNo: r.roNo, status: r.status };
+        if (c.groups.indexOf(r.group) < 0) c.groups.push(r.group);
+        c.units += r.qty;
+      });
+    });
+    rows.forEach(function (r) {
+      if (!(r.rate > 0) || r.days == null || !inWh(r.wh)) return;
+      day(addDays(todayS, Math.max(0, Math.floor(r.days)))).out.push(r);
+    });
+    var draw = function () {
+      var first = new Date(start + 'T12:00:00'), lead = (first.getDay() + 6) % 7; // weeks start on Monday
+      var cells = '';
+      for (var i = 0; i < lead; i++) cells += '<div class="cd empty"></div>';
+      for (var j = 0; j < DAYS; j++) {
+        var k = addDays(start, j), x = days[k] || { ros: {}, appts: {}, out: [] };
+        var nR = Object.keys(x.ros).length, nA = Object.keys(x.appts).length, nO = x.out.length;
+        var dd = new Date(k + 'T12:00:00');
+        cells += '<div class="cd' + (k < todayS ? ' past' : '') + (k === todayS ? ' today' : '') + (S.dashCalDay === k ? ' sel' : '') + ((nR || nA || nO) ? ' has' : '') + '" data-d="' + k + '">' +
+          '<div class="cdn">' + dd.getDate() + (dd.getDate() === 1 || j === 0 ? ' ' + dd.toLocaleDateString('en-IN', { month: 'short' }) : '') + '</div>' +
+          (nR ? '<span class="cb ro" title="ROs dated this day">RO ' + nR + '</span>' : '') +
+          (nA ? '<span class="cb ap" title="Appointments">📅 ' + nA + '</span>' : '') +
+          (nO ? '<span class="cb out" title="Items running out">⚠ ' + nO + '</span>' : '') + '</div>';
+      }
+      var sel = S.dashCalDay && days[S.dashCalDay], info = '';
+      if (S.dashCalDay) {
+        var lst = function (o) { return Object.keys(o).map(function (k2) { var c = o[k2]; return '<li>' + esc(short(c.wh)) + ' · ' + esc(c.groups.join(' + ')) + ' · <b>' + fmt(c.units) + '</b> units' + (c.roNo ? ' · #' + esc(c.roNo) : '') + ' <span class="small muted">' + esc(c.status) + '</span></li>'; }).join(''); };
+        info = '<div class="calinfo"><b>' + new Date(S.dashCalDay + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>' +
+          (!sel ? '<div class="small muted">Nothing on this day.</div>' :
+            (Object.keys(sel.ros).length ? '<div class="small" style="margin-top:6px"><b>ROs dated this day</b></div><ul>' + lst(sel.ros) + '</ul>' : '') +
+            (Object.keys(sel.appts).length ? '<div class="small" style="margin-top:6px"><b>Appointments</b></div><ul>' + lst(sel.appts) + '</ul>' : '') +
+            (sel.out.length ? '<div class="small" style="margin-top:6px"><b>Running out (days of cover end)</b></div><ul>' + sel.out.sort(function (a, b) { return b.rate - a.rate; }).map(function (r) { return '<li>' + esc(short(r.wh)) + ' · ' + esc(skuText(skuOf(r.item), r.item)) + ' <span class="small muted">· ' + fmt(r.rate, 1) + '/day' + (r.rec ? ' · suggested ' + fmt(r.rec) : '') + '</span></li>'; }).join('') + '</ul>' : '')) + '</div>';
+      }
+      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only (Planned / Created). "Running out" uses the plan the dashboard was made from. Click a day for details.</div>' +
+        '<div class="cal">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>' + info;
+    };
+    det.addEventListener('toggle', function () { S.dashCalOpen = det.open; if (det.open) draw(); });
+    $('dCalBody').onclick = function (e) {
+      var c = e.target.closest('.cd[data-d]'); if (!c) return;
+      var k = c.getAttribute('data-d'); S.dashCalDay = S.dashCalDay === k ? '' : k; draw();
+    };
+    if (det.open) draw();
   }
 
   /* ======================= Settings (admin) ======================= */
