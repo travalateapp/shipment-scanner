@@ -240,7 +240,8 @@ var PlanCore = (function () {
     });
     var med = {};
     Object.keys(rates).forEach(function (k) { med[k] = median(rates[k]); });
-    var extra = {};
+    var extra = {}, recent = {}, older = {}, RECENT_MS = 3 * 864e5, LIVE_MS = 30 * 864e5;
+    var bulkDay = o.bulkAt ? new Date(o.bulkAt + 330 * 60000).toISOString().slice(0, 10) : ''; // India date of the file
     (o.openROs || []).forEach(function (r) {
       // A Created RO is in Blinkit's Incoming once Blinkit has it: from the R.O. time printed on its PDF when known,
       // otherwise from when it was saved in the app.
@@ -248,12 +249,22 @@ var PlanCore = (function () {
       var count = r.status === 'Planned' || (r.status === 'Created' && (!o.bulkAt || !at || at > o.bulkAt));
       var k = whNorm(r.wh) + '|' + num(r.item);
       if (count) extra[k] = (extra[k] || 0) + num(r.qty);
+      // Created on Blinkit in the 3 days before the Bulk RO file: it should be in Blinkit's Incoming already.
+      else if (r.status === 'Created' && o.bulkAt && at && at >= o.bulkAt - RECENT_MS) recent[k] = (recent[k] || 0) + num(r.qty);
+      // Older Created ROs still on their way (under 30 days old, appointment not passed): Blinkit's Incoming is
+      // matched to these first. One whose appointment has passed has most likely arrived.
+      else if (r.status === 'Created' && o.bulkAt && at && at >= o.bulkAt - LIVE_MS && !(r.appt && bulkDay && String(r.appt) < bulkDay)) older[k] = (older[k] || 0) + num(r.qty);
     });
 
     return bulk.map(function (b) {
       var x = invAt[b.whId + '|' + b.item] || null;
       var s7 = x ? x.s7 : 0, s15 = x ? x.s15 : 0, s30 = x ? x.s30 : 0;
       var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming, app = extra[whNorm(b.whName) + '|' + b.item] || 0;
+      // Safety: when Blinkit's Incoming is less than those recent ROs (Blinkit doesn't show them yet), count the
+      // missing part from the RO Log, so the same stock is never planned twice.
+      var kk = whNorm(b.whName) + '|' + b.item;
+      var gap = Math.max(0, (recent[kk] || 0) - Math.max(0, inc - (older[kk] || 0)));
+      app += gap;
       var pos = wh + ds + inc + app;
       var drr = dailyRate(s7, s15, s30), status, kind;
       if (s30 === 0) { drr = 0; status = pos === 0 ? 'Not live here' : 'In stock, no sales yet'; kind = pos === 0 ? 'notlive' : 'nosale'; }
@@ -274,7 +285,7 @@ var PlanCore = (function () {
         key: b.whId + '|' + b.item, row: b.row, whId: b.whId, wh: b.whName, item: b.item, name: b.name,
         sku: s.sku || '', group: s.group || '', tier: s.tier || '',
         s7: s7, s15: s15, s30: s30, status: status, kind: kind, rate: drr,
-        whStock: wh, dsStock: ds, incoming: inc, appIncoming: app, position: pos,
+        whStock: wh, dsStock: ds, incoming: inc, appIncoming: app, blinkitGap: gap, position: pos,
         daysAtStock: drr > 0 ? pos / drr : null, daysNow: drr > 0 ? pos / drr - EL : null, elapsed: EL,
         target: target, min: b.min, max: b.max,
         rec: rec, starter: starter, note: note, locked: b.locked, remarks: b.remarks
@@ -572,7 +583,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 pdf-cards';
+  var PAGE_BUILD = '2026-11-21 incoming-gap';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -935,6 +946,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     else info.push('The Inventory has no "generated at" date, so its stock is taken as of today.');
     var inApp = S.plan.reduce(function (a, r) { return a + r.appIncoming; }, 0);
     if (inApp) info.push('Counted ' + fmt(inApp) + ' units from the RO Log that Blinkit\'s file cannot show yet (Planned, or created after this file was downloaded).');
+    var gapAll = S.plan.reduce(function (a, r) { return a + (r.blinkitGap || 0); }, 0);
+    if (gapAll) info.push('Of these, ' + fmt(gapAll) + ' units are from ROs created on Blinkit in the 3 days before this Bulk RO file that its Incoming does not show yet (counted so they are not sent twice).');
     var html = '<div class="card"><h2>2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines</h2>' +
       '<div class="chips" id="whChips"><span class="chip' + (S.filter.wh ? '' : ' on') + '" data-wh="">All<b>' + fmt(t.units) + '</b></span>' +
       whs.map(function (w) { var x = t.byWh[w]; return '<span class="chip' + (S.filter.wh === w ? ' on' : '') + '" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '<b>' + (x ? fmt(x.units) : 0) + '</b></span>'; }).join('') +
@@ -1792,6 +1805,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var ros = (d.openROs || []).filter(function (x) { return PlanCore.whNorm(x.wh) === PlanCore.whNorm(r.wh) && Number(x.item) === Number(r.item); })
       .sort(function (a, b) { return String(b.roDate).localeCompare(String(a.roDate)); });
     var counted = function (x) { var at = x.blinkitAt || x.createdAt; return x.status === 'Planned' || (x.status === 'Created' && (!bulkAt || !at || at > bulkAt)); };
+    // RO Log part beyond the lines counted by time = recent ROs Blinkit's Incoming did not show yet (safety rule).
+    var byTime = ros.reduce(function (a, x) { return a + (counted(x) ? x.qty : 0); }, 0);
+    var gapLeft = r.plLog != null ? Math.max(0, r.plLog - byTime) : 0;
+    var isRecent = function (x) { var at = x.blinkitAt || x.createdAt; return x.status === 'Created' && bulkAt && at && at <= bulkAt && at >= bulkAt - 3 * 864e5; };
     var split = r.plBlinkit != null && r.plLog != null;
     var html = '<h2>Planned ' + fmt(r.planned) + ' — ' + esc(skuText(skuOf(r.item), r.item)) + '</h2><div class="small muted">' + esc(r.wh) +
       ' · stock on its way to the warehouse, at the time of the plan (' + new Date(d.meta.at).toLocaleString('en-IN') + ')</div>' +
@@ -1803,7 +1820,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       (ros.length ? '<div class="scroll"><table class="t"><tr><th>RO date</th><th>RO No.</th><th>Status</th><th class="right">Qty</th><th>Appointment</th><th>In the RO Log part?</th></tr>' +
         ros.map(function (x) {
           return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + esc(x.status) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + (x.appt ? prettyDate(x.appt) : '—') + '</td>' +
-            '<td class="small">' + (counted(x) ? 'Yes' : 'No — Blinkit\'s file already shows it') + '</td></tr>';
+            '<td class="small">' + (counted(x) ? 'Yes' : gapLeft > 0 && isRecent(x) ? 'Yes — Blinkit\'s Incoming did not show it yet' : 'No — Blinkit\'s file already shows it') + '</td></tr>';
         }).join('') + '</table></div>'
         : '<div class="small muted">No open ROs for this item at this warehouse in the RO Log. ' + (split && r.plBlinkit ? 'The ' + fmt(r.plBlinkit) + ' are ROs on Blinkit that are not in the RO Log (e.g. made on Blinkit directly).' : '') + '</div>') +
       '<div class="small muted" style="margin-top:8px">ROs created or changed since the plan are listed here but not in the numbers above.</div>' +
