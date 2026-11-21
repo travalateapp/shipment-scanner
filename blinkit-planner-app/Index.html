@@ -588,7 +588,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 no-ro-dates';
+  var PAGE_BUILD = '2026-11-21 delivered';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -671,6 +671,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       plan.push({ wh: t.wh, groups: t.groups, units: t.units, day: d });
     });
     return { dates: out, plan: plan.sort(function (a, b) { return a.day.localeCompare(b.day); }), load: load };
+  }
+  /** "Delivered 24 Nov · leaves the month tab 26 Nov" / "… · removed from the tab 26 Nov". */
+  function deliveredPill(r) {
+    var d = r.deliveredOn ? prettyDate(r.deliveredOn) : '';
+    var gone = r.removedAt ? 'removed from the month tab ' + prettyDate(r.removedAt) : r.deliveredOn ? 'leaves the month tab ' + prettyDate(addDays(r.deliveredOn, 2)) : '';
+    return '<span class="pill ok">Delivered' + (d ? ' ' + d : '') + '</span>' + (gone ? ' <span class="small muted">' + gone + '</span>' : '');
   }
   function skuText(sku, item) { return (sku ? String(sku) : 'No SKU') + ' · ' + item; }
   function skuOf(item) { var x = (S.boot.skus || []).filter(function (s) { return s.item === Number(item); })[0]; return x ? x.sku : ''; }
@@ -1514,11 +1520,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">From</label><input type="date" id="gFrom" value="' + f.from + '"></div>' +
       '<div><label class="f">To</label><input type="date" id="gTo" value="' + f.to + '"></div>' +
       '<div><label class="f">Warehouse</label><select id="gWh"><option value="">All</option>' + whs.map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
-      '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ['Planned', 'Created', 'Cancelled'].concat(f.status === 'Delivered' ? ['Delivered'] : []).map(function (s) { return '<option' + (f.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
+      '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ['Planned', 'Created', 'Delivered', 'Cancelled'].map(function (s) { return '<option' + (f.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
       '</div><div class="small muted" style="margin-top:8px"><b>From / To</b> = RO date. <b>Status:</b> ' +
         '<b>Planned</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
         '<b>Created</b> = uploaded to Blinkit (counted until Blinkit\'s own Bulk RO file shows it as incoming) · ' +
-        '<b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
+        '<b>Delivered</b> = received at the warehouse (asks for the date; 2 days later its quantities leave the month tab) · <b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
       '</div><div id="logOut" class="muted card">Loading…</div>';
     ['gFrom', 'gTo', 'gWh', 'gSt'].forEach(function (id) {
       $(id).onchange = function () { f.from = $('gFrom').value; f.to = $('gTo').value; f.wh = $('gWh').value; f.status = $('gSt').value; loadLog(); };
@@ -1571,11 +1577,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var units = rs.reduce(function (a, r) { return a + (r.status === 'Cancelled' ? 0 : r.qty); }, 0);
       var edit = can('Planner'), multi = groups.length > 1;
       return '<div class="ro' + (open[c.key] ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
-        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : roStatusPill(st, r0.appt)) +
+        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : st === 'Delivered' ? deliveredPill(r0) : roStatusPill(st, r0.appt)) +
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
         (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (dispatchOf(cg) ? '<span class="small">🚚 ' + prettyDate(dispatchOf(cg)) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
         (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
-        (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ['Planned', 'Created', 'Cancelled'].map(function (s) { return '<option>' + s + '</option>'; }).join('') + '</select></div>' +
+        (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ['Planned', 'Created', 'Delivered', 'Cancelled'].map(function (s) { return '<option>' + s + '</option>'; }).join('') + '</select></div>' +
+          '<div class="bDelW hidden"><label class="f">Delivered on</label><input type="date" class="bDel" value="' + today() + '" max="' + today() + '"></div>' +
           '<div><label class="f">Appointment</label><input type="date" class="bAp" value="' + esc(r0.appt) + '"></div>' +
           '<div><label class="f">Dispatch day' + (cg.appt ? ' (from appointment)' : '') + '</label><input type="date" class="bDs" value="' + esc(dispatchOf(cg)) + '"' + (cg.appt ? ' disabled title="Worked out from the appointment"' : '') + '></div>' +
           '<div><label class="f">Blinkit RO No.</label><input type="text" class="bNo" value="' + esc(r0.roNo) + '"></div>' +
@@ -1589,6 +1596,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
             (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
         }).join('') + '</table></div><div class="bmsg"></div></div></div>';
     }).join('');
+    box.onchange = function (e) {
+      if (!e.target.classList.contains('bSt')) return;
+      e.target.closest('.ro').querySelector('.bDelW').classList.toggle('hidden', e.target.value !== 'Delivered');
+    };
     box.onclick = function (e) {
       var ro = e.target.closest('.ro'); if (!ro) return;
       var c = cs[Number(ro.getAttribute('data-c'))];
@@ -1600,6 +1611,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var ch = { appt: ro.querySelector('.bAp').value, roNo: ro.querySelector('.bNo').value.trim() };
         var st = ro.querySelector('.bSt').value; if (st) ch.status = st;
         if (st === 'Cancelled' && !confirm('Cancel the whole RO? Its quantities are taken out of the month tab.')) return;
+        if (st === 'Delivered') {
+          ch.deliveredOn = ro.querySelector('.bDel').value;
+          if (!ch.deliveredOn) { ro.querySelector('.bmsg').innerHTML = msgs(['Enter the delivery date.'], 'bad'); return; }
+        }
         e.target.disabled = true;
         // A merged RO is several batches (one per group): save each, then report all warnings together.
         var warns = [];
@@ -2051,6 +2066,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var sel = S.dashCalDay && days[S.dashCalDay], info = '';
       if (S.dashCalDay) {
         var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 };
+        // Mark an arriving RO as delivered (asks the date; 2 days later it leaves the month tab).
+        var delv = function (r) {
+          if (!can('Planner')) return '';
+          var dv = S.dashCalDay < todayS ? S.dashCalDay : todayS;
+          return ' <span class="nowrap">· delivered on <input type="date" class="dlIn" data-k="' + esc(r.key) + '" value="' + dv + '" max="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm g dlGo" data-k="' + esc(r.key) + '">Mark delivered</button></span>';
+        };
         var mv = function (r) {
           if (r.appt && !can('Planner')) return ' <span class="small muted">(from appointment ' + prettyDate(r.appt) + ')</span>';
           if (r.appt) return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" value="' + esc(r.appt) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Change</button></span>';
@@ -2060,7 +2081,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         info = '<div class="calinfo"><b>' + dlab(S.dashCalDay) + '</b>' + (isWorkDay(S.dashCalDay) ? '' : ' <span class="small muted">(no dispatch day)</span>') +
           (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, mv(r)); }).join('') + '</ul>' : '') +
           (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul>' + x.pack.map(function (r) { return roLine(r, ' · dispatch ' + prettyDate(dispatchOf(r))); }).join('') + '</ul>' : '') +
-          (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, r.appt ? '' : ' · expected'); }).join('') + '</ul>' : '') +
+          (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, (r.appt ? '' : ' · expected') + delv(r)); }).join('') + '</ul>' : '') +
           (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
           (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul>' + x.exp.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
           (!(x.disp.length || x.pack.length || x.arr.length || x.out.length || x.exp.length) ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
@@ -2118,6 +2139,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           .then(function () { return refreshBoot(); })
           .then(function () { d.openROs = S.boot.openROs; refreshAfter('Appointment ' + dlab(ai.value) + ' saved; dispatch ' + dlab(dispatchOf({ appt: ai.value, wh: g2.wh })) + '.'); },
             function (er) { apb.disabled = false; toast(er.message, 6000); });
+        return;
+      }
+      var dlb = e.target.closest('.dlGo');
+      if (dlb) {
+        var k4 = dlb.getAttribute('data-k'), di = q('dlIn', k4), g4 = grp(k4); if (!g4 || !di.value) { toast('Enter the delivery date.', 4000); return; }
+        if (!confirm('Mark ' + short(g4.wh) + ' · ' + g4.groups.join(' + ') + ' (' + fmt(g4.units) + ' units) as delivered on ' + dlab(di.value) + '? Its quantities leave the month tab on ' + dlab(addDays(di.value, 2)) + '.')) return;
+        dlb.disabled = true;
+        g4.batches.reduce(function (pr, id) { return pr.then(function () { return api('updateBatch', S.token, id, { status: 'Delivered', deliveredOn: di.value }); }); }, Promise.resolve())
+          .then(function () { return refreshBoot(); })
+          .then(function () { d.openROs = S.boot.openROs; refreshPlanAfterRoChange(); refreshAfter(short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.'); },
+            function (er) { dlb.disabled = false; toast(er.message, 6000); });
         return;
       }
       if (e.target.id === 'calAddGo') {
