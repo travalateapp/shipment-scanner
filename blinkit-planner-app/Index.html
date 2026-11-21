@@ -58,6 +58,7 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .sugg div:last-child{border-bottom:0}
 .sugg div.on,.sugg div:hover{background:var(--chip)}
 .sugg small{color:var(--muted)}
+#calAddL{position:static;max-height:220px}
 .picks{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .picks:empty{display:none}
 .picks .chip{cursor:default}.picks .chip button{border:0;background:none;cursor:pointer;padding:0 0 0 6px;font-weight:700;color:inherit}
@@ -588,7 +589,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 delivered';
+  var PAGE_BUILD = '2026-11-21 day-popup2';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2072,18 +2073,23 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           var dv = S.dashCalDay < todayS ? S.dashCalDay : todayS;
           return ' <span class="nowrap">· delivered on <input type="date" class="dlIn" data-k="' + esc(r.key) + '" value="' + dv + '" max="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm g dlGo" data-k="' + esc(r.key) + '">Mark delivered</button></span>';
         };
+        // An RO awaiting its appointment: enter it here (its dispatch day then follows the appointment).
+        var apptAdd = function (r) {
+          if (r.appt || !can('Planner')) return '';
+          return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Save</button></span>';
+        };
         var mv = function (r) {
           if (r.appt && !can('Planner')) return ' <span class="small muted">(from appointment ' + prettyDate(r.appt) + ')</span>';
           if (r.appt) return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" value="' + esc(r.appt) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Change</button></span>';
           if (!can('Planner')) return '';
-          return ' <span class="nowrap">· move to <input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button></span>';
+          return ' <span class="nowrap">· move to <input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button></span>' + apptAdd(r);
         };
         info = '<div class="calinfo"><b>' + dlab(S.dashCalDay) + '</b>' + (isWorkDay(S.dashCalDay) ? '' : ' <span class="small muted">(no dispatch day)</span>') +
           (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, mv(r)); }).join('') + '</ul>' : '') +
           (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul>' + x.pack.map(function (r) { return roLine(r, ' · dispatch ' + prettyDate(dispatchOf(r))); }).join('') + '</ul>' : '') +
-          (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, (r.appt ? '' : ' · expected') + delv(r)); }).join('') + '</ul>' : '') +
+          (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, (r.appt ? '' : ' · expected') + apptAdd(r) + delv(r)); }).join('') + '</ul>' : '') +
           (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
-          (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul>' + x.exp.map(function (r) { return roLine(r, ''); }).join('') + '</ul>' : '') +
+          (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul>' + x.exp.map(function (r) { return roLine(r, apptAdd(r)); }).join('') + '</ul>' : '') +
           (!(x.disp.length || x.pack.length || x.arr.length || x.out.length || x.exp.length) ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
       }
       $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
@@ -2098,20 +2104,49 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var lastInfo = '';
     /** Open ROs (no appointment) that are not on day k, to add to it: those without a dispatch day first. */
+    var addCand = [], addPick = '';
+    /** "Add an open RO" picker: click shows all; typing (any words/numbers) narrows; ↑/↓ + Enter or click picks. */
+    var initAddCombo = function () {
+      var inp = $('calAddQ'), lst = $('calAddL'); if (!inp) return;
+      var shown = [], hi = 0; addPick = '';
+      var draw = function () {
+        var words = inp.value.toLowerCase().split(/\s+/).filter(Boolean);
+        shown = addCand.filter(function (c) { var t = c.label.toLowerCase(); return words.every(function (w) { return t.indexOf(w) >= 0; }); });
+        if (hi >= shown.length) hi = 0;
+        lst.innerHTML = shown.length ? shown.map(function (c, i) { return '<div data-i="' + i + '" class="' + (i === hi ? 'on' : '') + '">' + esc(c.label) + '</div>'; }).join('') : '<div class="muted">No open RO matches.</div>';
+        lst.classList.remove('hidden');
+        var on = lst.querySelector('.on'); if (on) on.scrollIntoView({ block: 'nearest' });
+      };
+      var pick = function (c) { if (!c) return; addPick = c.key; inp.value = c.label; lst.classList.add('hidden'); };
+      inp.onfocus = draw; inp.onclick = draw;
+      inp.oninput = function () { addPick = ''; hi = 0; draw(); };
+      inp.onblur = function () { setTimeout(function () { lst.classList.add('hidden'); }, 150); };
+      inp.onkeydown = function (e) {
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault(); if (lst.classList.contains('hidden')) { draw(); return; }
+          if (shown.length) { hi = (hi + (e.key === 'ArrowDown' ? 1 : shown.length - 1)) % shown.length; draw(); }
+        } else if (e.key === 'Enter') { e.preventDefault(); if (!lst.classList.contains('hidden') && shown[hi]) pick(shown[hi]); else if (addPick) $('calAddGo').click(); }
+        else if (e.key === 'Escape') { e.stopPropagation(); lst.classList.add('hidden'); }
+      };
+      lst.onmousedown = function (e) { var r = e.target.closest('[data-i]'); if (!r) return; e.preventDefault(); pick(shown[Number(r.getAttribute('data-i'))]); };
+    };
     var addHtml = function (k) {
       if (!can('Planner') || !isWorkDay(k)) return '';
       var cand = roGroups(d.openROs).filter(function (x) { return inWh(x.wh) && !x.appt && (x.status === 'Created' || x.status === 'Planned') && dispatchOf(x) !== k; })
         .sort(function (a, b) { return (dispatchOf(a) || '0').localeCompare(dispatchOf(b) || '0') || a.wh.localeCompare(b.wh); });
+      addCand = cand.map(function (x) {
+        return { key: x.key, label: short(x.wh) + ' · ' + x.groups.join(' + ') + ' · ' + fmt(x.units) + ' units · ' + (dispatchOf(x) ? 'now ' + dlab(dispatchOf(x)) : 'no dispatch day') + (x.roNo ? ' · #' + x.roNo : '') };
+      });
       if (!cand.length) return '';
       return '<div class="small" style="margin-top:10px"><b>➕ Add an open RO to this day</b> <span class="muted">(ROs without an appointment)</span></div>' +
-        '<div class="row" style="margin-top:4px"><div style="flex:3 1 320px"><select id="calAddSel">' + cand.map(function (x) {
-          return '<option value="' + esc(x.key) + '">' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · ' + fmt(x.units) + ' units · ' + (dispatchOf(x) ? 'now ' + dlab(dispatchOf(x)) : 'no dispatch day') + (x.roNo ? ' · #' + esc(x.roNo) : '') + '</option>';
-        }).join('') + '</select></div><div style="flex:0 0 auto"><button class="btn sm p" id="calAddGo">Add to ' + dlab(k) + '</button></div></div>';
+        '<div class="row" style="margin-top:4px"><div class="srch" style="flex:3 1 320px"><input type="text" id="calAddQ" autocomplete="off" placeholder="Click to see all, or type warehouse, RO no., units…">' +
+        '<div class="sugg hidden" id="calAddL"></div></div><div style="flex:0 0 auto"><button class="btn sm p" id="calAddGo">Add to ' + dlab(k) + '</button></div></div>';
     };
     var openDay = function () {
       openModal('<div id="calPop">' + lastInfo + '</div><div class="row" style="margin-top:12px"><button class="btn p" id="calPopX">Close</button></div>');
       $('modalBox').style.maxWidth = '860px';
       $('calPopX').onclick = closeModal;
+      initAddCombo();
       $('modalBox').onclick = dayClick;
     };
     var popOpen = function () { return !$('modal').classList.contains('hidden') && !!$('calPop'); };
@@ -2153,7 +2188,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         return;
       }
       if (e.target.id === 'calAddGo') {
-        var g3 = grp($('calAddSel').value); if (!g3) return;
+        var g3 = grp(addPick); if (!g3) { toast('Pick an open RO from the list first.', 4000); $('calAddQ').focus(); return; }
         var dt = {}; g3.batches.forEach(function (b) { dt[b] = S.dashCalDay; });
         e.target.disabled = true; saveDays(dt, short(g3.wh) + ' added to ' + dlab(S.dashCalDay) + '.');
       }
