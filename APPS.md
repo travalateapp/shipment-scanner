@@ -8,6 +8,7 @@
 | 4 | Travalate Daily Task Sheet | `daily-task-app/` | Yes, once set up (`deploy-daily-task.yml`) |
 | 5 | PO Web App with Vendor Autofill | `po-app/` | Yes, once set up (`deploy-po.yml`) |
 | 6 | Machine Production App (Karigar Production) | `production-app/` (+ hosted copy `production/`) | Yes (`deploy-production-apps-script.yml`) |
+| 7 | Blinkit Shipment Planner | `blinkit-planner-app/` (+ hosted copy `planner/`, Android app `planner-android/`) | Yes, once set up (`deploy-blinkit-planner.yml`); Android APK: `planner-apk.yml` |
 
 How the apps talk to each other: Shipment Manager → Inventory (shipped stock), Production → Inventory
 (`productionIn`, `setInProduction`); both use the same shared secret (kept only in Apps Script, `XXXX` here).
