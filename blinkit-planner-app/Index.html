@@ -46,7 +46,7 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .stat{background:var(--chip);border-radius:10px;padding:10px}.stat .v{font-size:20px;font-weight:800}.stat .k{font-size:11px;color:var(--muted)}
 .grp{margin:14px 0 6px;font-weight:800;font-size:13px;display:flex;justify-content:space-between;gap:8px}
-.line{display:grid;grid-template-columns:minmax(200px,2.2fr) repeat(5,minmax(62px,.7fr)) 92px minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+.line{display:grid;grid-template-columns:minmax(200px,2.2fr) repeat(5,minmax(62px,.7fr)) 92px minmax(56px,.6fr) minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
 .line.head{font-size:11px;color:var(--muted);font-weight:700;border-bottom:2px solid var(--line)}
 /* Each warehouse block's title + column headings stay pinned under the top bar
    while scrolling through that block, and scroll away when the next block starts. */
@@ -103,6 +103,8 @@ table.t th{font-size:11px;color:var(--muted)}
 .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px}
 .modal .box{background:var(--card);border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px}
 .hidden{display:none!important}
+/* TI = Travalate Inventory stock; red when the plan sends more of the SKU (all warehouses) than TI has. */
+.ti-c b{font-weight:700}.ti-c.tiover b{color:var(--bad)}.ti-c .tiw{display:block;font-size:10px;color:var(--bad)}
 a.plk{color:var(--brand);font-weight:700;text-decoration:underline dotted;cursor:pointer}
 /* Dashboard: sortable headings and the calendar. */
 th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover{color:var(--ink)}th.sortable.on{color:var(--brand)}
@@ -568,7 +570,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 planned-why';
+  var PAGE_BUILD = '2026-11-21 ti-stock';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -939,7 +941,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div style="flex:0 0 auto"><button class="btn" id="bClr" title="Clear all filters">✕ Clear</button></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bXls">⬇ Plan (Excel)</button></div></div>' +
       '<div class="picks" id="fPicks"></div>' +
-      msgs(info, 'info') +
+      msgs(info, 'info') + tiInfoHtml() +
       (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
       (locked.length ? '<details class="msg warn" id="lockedBox"' + (S.lockedOpen ? ' open' : '') + '><summary style="cursor:pointer"><b>Needed but locked on Blinkit (' + locked.length + ')</b> <span class="small">— click to ' + (S.lockedOpen ? 'hide' : 'show') + '</span></summary><div style="margin-top:6px">' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div></details>' : '') +
       '</div><div class="card" style="padding:0 0 4px" id="lines"></div>';
@@ -956,6 +958,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('bClr').onclick = function () { S.filter = { wh: '', group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
     $('bXls').onclick = exportPlan;
     renderPicks();
+    if ($('tiRe')) $('tiRe').onclick = function (e) { e.preventDefault(); S.ti = null; renderPlanOut(); loadTi(true); };
+    loadTi(false);
     renderLines();
     renderBar();
   }
@@ -1045,6 +1049,48 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     return '<span class="pill ' + cls + '">' + esc(r.status) + '</span>';
   }
 
+  /* ---- TI: current stock in Travalate Inventory, per SKU (same for every warehouse) ---- */
+  function tiNorm(x) { return String(x || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function tiKey(item, sku) { var x = skuMap()[Number(item)]; return tiNorm((x && x.tiSku) || sku || (x && x.sku)); }
+  function tiQty(r) { if (!S.ti || !S.ti.ok) return null; var k = tiKey(r.item, r.sku); return k && S.ti.map[k] !== undefined ? S.ti.map[k] : null; }
+  function sendOfItem(item) { var t = 0; S.plan.forEach(function (x) { if (x.item === item) t += S.final[x.key] || 0; }); return t; }
+  function tiInner(r) {
+    var q = tiQty(r);
+    if (q == null) return '<b title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</b>';
+    var send = sendOfItem(r.item), over = send > q;
+    return '<b' + (over ? ' title="The plan sends ' + send + ' of this SKU (all warehouses) but TI has ' + q + '"' : '') + '>' + fmt(q) + '</b>' + (over ? '<span class="tiw">sending ' + fmt(send) + '</span>' : '');
+  }
+  function tiCell(r) {
+    var q = tiQty(r), over = q != null && sendOfItem(r.item) > q;
+    return '<div class="right ti-c' + (over ? ' tiover' : '') + '" data-it="' + r.item + '"><span class="lbl">TI</span>' + tiInner(r) + '</div>';
+  }
+  function refreshTiCells(item) {
+    var r = S.plan.filter(function (x) { return x.item === item; })[0]; if (!r) return;
+    var q = tiQty(r), over = q != null && sendOfItem(item) > q;
+    Array.prototype.forEach.call(document.querySelectorAll('.ti-c[data-it="' + item + '"]'), function (c) {
+      c.classList.toggle('tiover', over); c.innerHTML = '<span class="lbl">TI</span>' + tiInner(r);
+    });
+  }
+  /** Loads TI stock once per page (↻ reloads it); the plan works without it. */
+  function loadTi(force) {
+    if (S.tiLoading || (S.ti && !force)) return;
+    S.tiLoading = true;
+    api('getTiStock', S.token).then(function (res) {
+      var map = {};
+      (res.stocks || []).forEach(function (x) { map[tiNorm(x.sku)] = (map[tiNorm(x.sku)] || 0) + (Number(x.qty) || 0); });
+      S.ti = { ok: !!res.ok, map: map, updatedAt: res.updatedAt, monthLabel: res.monthLabel, error: res.error, setup: res.setup };
+    }, function (e) { S.ti = { ok: false, map: {}, error: e.message }; })
+      .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); });
+  }
+  function tiInfoHtml() {
+    if (!S.ti) return '<div class="msg info"><span class="spin"></span> Reading stock from Travalate Inventory (TI)…</div>';
+    if (!S.ti.ok) return '<div class="msg warn">TI column: ' + esc(S.ti.error || 'Travalate Inventory could not be read.') + (S.ti.setup ? '' : ' <a href="#" id="tiRe">Try again</a>') + '</div>';
+    var miss = [], seen = {};
+    S.plan.forEach(function (r) { if (!seen[r.item] && (S.final[r.key] || 0) > 0 && tiQty(r) == null) { seen[r.item] = 1; miss.push(skuText(r.sku, r.item)); } });
+    return '<div class="msg info">TI = stock in Travalate Inventory' + (S.ti.updatedAt ? ', read ' + new Date(S.ti.updatedAt).toLocaleString('en-IN') : '') + ' · <a href="#" id="tiRe">↻ refresh</a>' +
+      (miss.length ? '<br><b>' + miss.length + ' SKU(s) to send are not found in TI:</b> ' + esc(miss.slice(0, 8).join(', ')) + (miss.length > 8 ? '…' : '') + '. An admin sets their name in TI under Settings → SKUs → TI SKU.' : '') + '</div>';
+  }
+
   function renderLines() {
     saveDraftState(); // filters changed
     var rows = visibleRows(), box = $('lines'); if (!box) return;
@@ -1056,6 +1102,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right">Has now</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
         '<div class="sendH"><span>Send</span><span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
         '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
+        '<div class="right" title="Current stock in Travalate Inventory (all warehouses together)">TI</div>' +
         '<div class="right">Days after</div></div>';
     };
     var blocks = [];
@@ -1085,6 +1132,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
           '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
+          tiCell(r) +
           '<div class="right"><span class="lbl">Days after</span><span class="dAfter">' + fmtDays(after) + '</span></div></div>';
       });
       html += '</section>';
@@ -1143,6 +1191,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       e.target.classList.toggle('over', v > r.max);
       e.target.closest('.line').classList.toggle('send', v > 0);
       var da = e.target.closest('.line').querySelector('.dAfter'); if (da) da.textContent = fmtDays(daysAfter(r, v));
+      refreshTiCells(r.item);
       renderBar();
     };
   }
@@ -1320,7 +1369,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
         'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
-        Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, Note: r.note, Locked: r.locked ? r.remarks : '' };
+        Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, 'TI stock': tiQty(r) == null ? '' : tiQty(r), Note: r.note, Locked: r.locked ? r.remarks : '' };
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Plan');
@@ -1807,6 +1856,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">New-listing starters by default</label><select id="sStart"><option value="0">No</option><option value="1"' + (s.starters ? ' selected' : '') + '>Yes</option></select></div>' +
       '<div><label class="f">Company</label><input type="text" id="sCo" value="' + esc(s.company) + '"></div></div>' +
       '<div id="sOut"></div><div style="margin-top:10px"><button class="btn p" id="sSave">Save settings</button></div></div>' +
+      '<div class="card"><h2>Travalate Inventory (TI)</h2><div class="small muted">Gives New Plan its <b>TI</b> column: your current stock per SKU, read from the Travalate Inventory app (the same connection the Shipment Manager uses). ' +
+        'The shared secret is the Inventory app\'s <code>SHARED_SECRET</code>; it is kept only in this script\'s settings, never on GitHub.</div>' +
+        '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Inventory web-app link (/exec)</label><input type="text" id="tiUrl" placeholder="Loading…"></div>' +
+        '<div><label class="f">Shared secret</label><input type="password" id="tiSec" autocomplete="off" placeholder="…"></div>' +
+        '<div style="flex:0 0 auto"><button class="btn p" id="tiSave">Save &amp; test</button></div></div><div id="tiOut"></div></div>' +
       '<div class="card"><h2>Month tabs</h2><div class="small muted">Newest month tabs: ' + esc((S.boot.months || []).join(', ')) + '.<br>' +
       '<b>Start new month</b> creates the tab (copy of the newest month, columns D–H emptied, columns I onwards kept as they are) if it does not exist yet, then copies in open ROs from the last ' + s.carryDays + ' days of the old month. ' +
       'If you create the tab yourself, this only does the copying-in.</div>' +
@@ -1817,6 +1871,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="row" style="margin:8px 0"><div style="flex:0 0 auto"><button class="btn" id="kFromTab">Take groups &amp; tiers from the month tab</button></div><div class="small muted" style="align-self:center">Reads each item\'s block (group) and tier from the newest month tab, and lists SKUs that are in two groups of the same warehouse. Shows the changes before saving.</div></div><div id="kTabOut"></div>' +
       '<div class="row" style="margin:8px 0"><div><input type="text" id="kQ" placeholder="Search"></div><div style="flex:0 0 auto"><label class="small"><input type="checkbox" id="kNo"> only items with no group</label></div></div>' +
       '<div class="scroll"><table class="t" id="kTab"></table></div><div id="kOut"></div><div style="margin-top:10px"><button class="btn p" id="kSave">Save SKU changes</button></div></div>';
+    api('getTiLink', S.token).then(function (t) {
+      $('tiUrl').value = t.url; $('tiSec').placeholder = t.hasSecret ? 'saved — leave empty to keep it' : 'not set yet';
+    }, function (e) { $('tiOut').innerHTML = msgs([e.message], 'bad'); });
+    $('tiSave').onclick = function () {
+      var b = this; b.disabled = true; b.innerHTML = '<span class="spin"></span>';
+      api('saveTiLink', S.token, $('tiUrl').value.trim(), $('tiSec').value).then(function (r) {
+        b.disabled = false; b.textContent = 'Save & test'; $('tiSec').value = ''; $('tiSec').placeholder = 'saved — leave empty to keep it';
+        S.ti = null; $('tiOut').innerHTML = msgs(['Connected: ' + r.skus + ' SKUs in Travalate Inventory (' + r.monthLabel + ').'], 'ok');
+      }, function (e) { b.disabled = false; b.textContent = 'Save & test'; $('tiOut').innerHTML = msgs([e.message], 'bad'); });
+    };
     $('sSave').onclick = function () {
       api('saveSettings', S.token, { coverDays: Number($('sCover').value), minLine: Number($('sMin').value), roundTo: Number($('sRound').value),
         carryDays: Number($('sCarry').value), address: $('sAddr').value.trim(), starters: $('sStart').value === '1', company: $('sCo').value.trim() })
@@ -1837,12 +1901,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var draw = function () {
       var q = $('kQ').value.toLowerCase(), only = $('kNo').checked;
       var list = (S.boot.skus || []).filter(function (s) { return (!only || !s.group) && (!q || (s.item + ' ' + s.sku + ' ' + s.name).toLowerCase().indexOf(q) >= 0); });
-      $('kTab').innerHTML = '<tr><th>Item ID</th><th>SKU</th><th>Group</th><th>Tier</th><th>Active</th></tr>' + list.map(function (s) {
+      $('kTab').innerHTML = '<tr><th>Item ID</th><th>SKU</th><th>Group</th><th>Tier</th><th title="Name of this SKU in Travalate Inventory, only if it is different">TI SKU</th><th>Active</th></tr>' + list.map(function (s) {
         var e = edits[s.item] || s;
         return '<tr data-i="' + s.item + '"><td>' + s.item + '</td><td><input type="text" data-f="sku" value="' + esc(e.sku) + '" style="min-width:110px">' +
           (!s.sku && s.name ? '<div class="small muted">New on Blinkit — give it a SKU: ' + esc(s.name.replace(/^Travalate /, '')) + '</div>' : '') + '</td>' +
           '<td><select data-f="group"><option value="">—</option>' + groupList().map(function (g) { return '<option' + (e.group === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select></td>' +
           '<td><input type="text" data-f="tier" value="' + esc(e.tier) + '" style="width:70px"></td>' +
+          '<td><input type="text" data-f="tiSku" value="' + esc(e.tiSku || '') + '" placeholder="' + esc(e.sku || '') + '" style="min-width:110px"></td>' +
           '<td><input type="checkbox" data-f="active"' + (e.active ? ' checked' : '') + '></td></tr>';
       }).join('');
     };
