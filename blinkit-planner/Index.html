@@ -567,7 +567,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 dash-sort-cal';
+  var PAGE_BUILD = '2026-11-21 cal-38';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1672,7 +1672,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
-      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— last 7 days + next 23 (31 days): ROs, appointments, items running out' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
+      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— last 7 days + next 30 (38 days): ROs, appointments, items running out' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
       '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t" id="dTab"><tr>' +
         COLS.map(function (c) {
           var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
@@ -1694,13 +1694,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   /**
-   * Dashboard calendar: 31 days from 7 days ago. Each day shows the ROs dated that day, the appointments that day
+   * Dashboard calendar: 38 days from 7 days ago (the last 7 days, today and the next 30). Each day shows the ROs dated that day, the appointments that day
    * and the items whose days of cover run out that day (from the dashboard's plan). Click a day for the details.
    * Follows the warehouse picked on the dashboard.
    */
   function initDashCal(d, rows, el) {
     var det = $('dCal'); if (!det) return;
-    var DAYS = 31, start = addDays(today(), -7), todayS = today();
+    var DAYS = 38, start = addDays(today(), -7), todayS = today();
     var inWh = function (w) { return !S.dashWh || PlanCore.whNorm(w) === PlanCore.whNorm(S.dashWh); };
     var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
     var days = {};
