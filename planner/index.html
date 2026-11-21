@@ -617,10 +617,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 ro-file-rows';
+  var PAGE_BUILD = '2026-11-21 multi-wh';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
-    plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
+    plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
 
   /* ---------------- small helpers ---------------- */
   function $(id) { return document.getElementById(id); }
@@ -921,7 +921,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     store(DRAFT_FILES, null); store(DRAFT_STATE, null);
     S.inv = null; S.invBuf = null; S.invTried = false; S.invErr = ''; S.bulk = null; S.bulkBuf = null; S.bulkAt = null; S.bulkName = '';
     S.plan = null; S.final = {}; S.edited = {}; S.confirmed = {}; S.cover = null; S.starters = !!S.boot.settings.starters;
-    S.filter = { wh: '', group: '', only: true, q: '', picks: [] };
+    S.filter = { whs: [], group: '', only: true, q: '', picks: [] };
   }
   /** Puts back the uploaded files, typed quantities and filters saved before the page was refreshed. */
   function restoreDraft() {
@@ -935,7 +935,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (st && st.user === draftUser()) {
       S.edited = st.edited || {};
       S.confirmed = st.confirmed || {};
-      if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; }
+      if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; S.filter.whs = S.filter.whs || (S.filter.wh ? [S.filter.wh] : []); delete S.filter.wh; }
       if (st.cover) S.cover = st.cover;
       if (st.starters != null) S.starters = st.starters;
     }
@@ -1013,7 +1013,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function visibleRows() {
     var f = S.filter, q = f.q.toLowerCase(), picks = f.picks || [];
     return S.plan.filter(function (r) {
-      if (f.wh && r.wh !== f.wh) return false;
+      if (f.whs.length && f.whs.indexOf(r.wh) < 0) return false;
       if (f.group && (r.group || '?') !== f.group) return false;
       // Picked SKUs: show every line of just those SKUs (even ones with nothing to send);
       // the search text then only drives the suggestion list.
@@ -1057,9 +1057,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var gapAll = S.plan.reduce(function (a, r) { return a + (r.blinkitGap || 0); }, 0);
     if (gapAll) info.push('Of these, ' + fmt(gapAll) + ' units are from ROs created on Blinkit before this Bulk RO file (in the last 3 days, or with no appointment yet) that its Incoming does not show yet — counted so they are not sent twice.');
     var html = '<div class="card"><h2>2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines</h2>' +
-      '<div class="chips" id="whChips"><span class="chip' + (S.filter.wh ? '' : ' on') + '" data-wh="">All<b>' + fmt(t.units) + '</b></span>' +
-      whs.map(function (w) { var x = t.byWh[w]; return '<span class="chip' + (S.filter.wh === w ? ' on' : '') + '" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '<b>' + (x ? fmt(x.units) : 0) + '</b></span>'; }).join('') +
-      '</div><div class="row" style="margin-top:10px">' +
+      '<div class="chips" id="whChips"><span class="chip' + (S.filter.whs.length ? '' : ' on') + '" data-wh="" title="All warehouses">All<b>' + fmt(t.units) + '</b></span>' +
+      whs.map(function (w) { var x = t.byWh[w]; return '<span class="chip' + (S.filter.whs.indexOf(w) >= 0 ? ' on' : '') + '" title="Click to add or remove this warehouse" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '<b>' + (x ? fmt(x.units) : 0) + '</b></span>'; }).join('') +
+      '</div>' + (S.filter.whs.length ? '<div class="small muted" style="margin-top:4px">Showing ' + S.filter.whs.length + ' warehouse' + (S.filter.whs.length > 1 ? 's' : '') + ' · ' +
+        fmt(S.filter.whs.reduce(function (a, w) { return a + (t.byWh[w] ? t.byWh[w].units : 0); }, 0)) + ' units — click more to add, click a ticked one to remove, <b>All</b> to clear.</div>' : '<div class="small muted" style="margin-top:4px">Click warehouses to pick one or more.</div>') +
+      '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Group</label><select id="fGroup"><option value="">' + esc(groupList().join(' + ')) + '</option>' + groupList().map(function (g) { return '<option value="' + g + '"' + (S.filter.group === g ? ' selected' : '') + '>' + esc(groupName(g)) + '</option>'; }).join('') + '<option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
       '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (S.filter.only ? '' : ' selected') + '>All items</option></select></div>' +
       '<div class="srch"><label class="f">Search — pick one or more SKUs</label><input type="text" id="fQ" autocomplete="off" placeholder="SKU or item ID, Enter to add" value="' + esc(S.filter.q) + '"><div class="sugg hidden" id="fSugg"></div></div>' +
@@ -1076,11 +1078,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       S.lockedOpen = this.open;
       var t = this.querySelector('summary .small'); if (t) t.textContent = '— click to ' + (this.open ? 'hide' : 'show');
     });
-    $('whChips').onclick = function (e) { var c = e.target.closest('.chip'); if (!c) return; S.filter.wh = c.getAttribute('data-wh'); renderPlanOut(); };
+    $('whChips').onclick = function (e) {
+      var c = e.target.closest('.chip'); if (!c) return;
+      var w = c.getAttribute('data-wh'), list = S.filter.whs, i = list.indexOf(w);
+      if (!w) list.length = 0; else if (i >= 0) list.splice(i, 1); else list.push(w);
+      renderPlanOut();
+    };
     $('fGroup').onchange = function () { S.filter.group = this.value; renderLines(); };
     $('fOnly').onchange = function () { S.filter.only = this.value === '1'; renderLines(); };
     initSkuPicker();
-    $('bClr').onclick = function () { S.filter = { wh: '', group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
+    $('bClr').onclick = function () { S.filter = { whs: [], group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
     $('bXls').onclick = exportPlan;
     renderPicks();
     if ($('tiRe')) $('tiRe').onclick = function (e) { e.preventDefault(); S.ti = null; renderPlanOut(); loadTi(true); };
@@ -1401,12 +1408,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function openCreate() {
     var t = totals();
     var whs = Object.keys(t.byWh).sort();
-    // Only the warehouse picked on the plan is ticked; with "All" nothing is ticked, so you choose.
-    var pre = S.filter.wh;
+    // Only the warehouses picked on the plan are ticked; with "All" nothing is ticked, so you choose.
+    var pre = S.filter.whs;
     openModal('<h2>Create ROs</h2><div class="small muted">Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.</div>' +
       '<div class="small" style="margin-top:10px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
       '<div style="margin:6px 0 10px">' + whs.map(function (w) {
-        return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (w === pre ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span><b>' + fmt(t.byWh[w].units) + '</b><span class="small muted">' + t.byWh[w].lines + ' lines</span></label>';
+        return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (pre.indexOf(w) >= 0 ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span><b>' + fmt(t.byWh[w].units) + '</b><span class="small muted">' + t.byWh[w].lines + ' lines</span></label>';
       }).join('') + '</div>' +
       '<div class="row"><div><label class="f">RO date</label><input type="date" id="cDate" value="' + today() + '"></div>' +
       '<div><label class="f">Status</label><select id="cStatus"><option>Created</option><option>Planned</option></select></div></div>' +
