@@ -249,8 +249,9 @@ var PlanCore = (function () {
       var count = r.status === 'Planned' || (r.status === 'Created' && (!o.bulkAt || !at || at > o.bulkAt));
       var k = whNorm(r.wh) + '|' + num(r.item);
       if (count) extra[k] = (extra[k] || 0) + num(r.qty);
-      // Created on Blinkit in the 3 days before the Bulk RO file: it should be in Blinkit's Incoming already.
-      else if (r.status === 'Created' && o.bulkAt && at && at >= o.bulkAt - RECENT_MS) recent[k] = (recent[k] || 0) + num(r.qty);
+      // Created on Blinkit before the Bulk RO file but maybe not in its Incoming yet: from the last 3 days, or with no
+      // appointment yet (Blinkit may list an RO as Incoming only once it has one), up to 30 days old (ROs expire).
+      else if (r.status === 'Created' && o.bulkAt && at && (at >= o.bulkAt - RECENT_MS || (!r.appt && at >= o.bulkAt - LIVE_MS))) recent[k] = (recent[k] || 0) + num(r.qty);
       // Older Created ROs still on their way (under 30 days old, appointment not passed): Blinkit's Incoming is
       // matched to these first. One whose appointment has passed has most likely arrived.
       else if (r.status === 'Created' && o.bulkAt && at && at >= o.bulkAt - LIVE_MS && !(r.appt && bulkDay && String(r.appt) < bulkDay)) older[k] = (older[k] || 0) + num(r.qty);
@@ -947,7 +948,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var inApp = S.plan.reduce(function (a, r) { return a + r.appIncoming; }, 0);
     if (inApp) info.push('Counted ' + fmt(inApp) + ' units from the RO Log that Blinkit\'s file cannot show yet (Planned, or created after this file was downloaded).');
     var gapAll = S.plan.reduce(function (a, r) { return a + (r.blinkitGap || 0); }, 0);
-    if (gapAll) info.push('Of these, ' + fmt(gapAll) + ' units are from ROs created on Blinkit in the 3 days before this Bulk RO file that its Incoming does not show yet (counted so they are not sent twice).');
+    if (gapAll) info.push('Of these, ' + fmt(gapAll) + ' units are from ROs created on Blinkit before this Bulk RO file (in the last 3 days, or with no appointment yet) that its Incoming does not show yet — counted so they are not sent twice.');
     var html = '<div class="card"><h2>2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines</h2>' +
       '<div class="chips" id="whChips"><span class="chip' + (S.filter.wh ? '' : ' on') + '" data-wh="">All<b>' + fmt(t.units) + '</b></span>' +
       whs.map(function (w) { var x = t.byWh[w]; return '<span class="chip' + (S.filter.wh === w ? ' on' : '') + '" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '<b>' + (x ? fmt(x.units) : 0) + '</b></span>'; }).join('') +
@@ -1808,7 +1809,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // RO Log part beyond the lines counted by time = recent ROs Blinkit's Incoming did not show yet (safety rule).
     var byTime = ros.reduce(function (a, x) { return a + (counted(x) ? x.qty : 0); }, 0);
     var gapLeft = r.plLog != null ? Math.max(0, r.plLog - byTime) : 0;
-    var isRecent = function (x) { var at = x.blinkitAt || x.createdAt; return x.status === 'Created' && bulkAt && at && at <= bulkAt && at >= bulkAt - 3 * 864e5; };
+    var isRecent = function (x) { var at = x.blinkitAt || x.createdAt; return x.status === 'Created' && bulkAt && at && at <= bulkAt && (at >= bulkAt - 3 * 864e5 || (!x.appt && at >= bulkAt - 30 * 864e5)); };
     var split = r.plBlinkit != null && r.plLog != null;
     var html = '<h2>Planned ' + fmt(r.planned) + ' — ' + esc(skuText(skuOf(r.item), r.item)) + '</h2><div class="small muted">' + esc(r.wh) +
       ' · stock on its way to the warehouse, at the time of the plan (' + new Date(d.meta.at).toLocaleString('en-IN') + ')</div>' +
