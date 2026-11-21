@@ -584,7 +584,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 incoming-gap';
+  var PAGE_BUILD = '2026-11-21 appt-label';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -602,6 +602,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function role() { return S.boot ? S.boot.user.role : 'Viewer'; }
   function can(r) { var order = ['Admin', 'Planner', 'Viewer']; return order.indexOf(role()) <= order.indexOf(r); }
   /** Items are shown by SKU and Item ID only (no product names). */
+  /**
+   * Status as shown (display only; the saved status and the planning are unchanged): a Created RO shows whether
+   * its appointment is in — "Created · awaiting appointment" (yellow) or "Created · appt 24 Nov" (green).
+   */
+  function roStatusPill(status, appt) {
+    if (status === 'Created') return appt ? '<span class="pill ok">Created · appt ' + prettyDate(appt) + '</span>' : '<span class="pill warn">Created · awaiting appointment</span>';
+    var c = { Planned: 'info', Delivered: 'ok', Cancelled: 'bad' }[status] || '';
+    return '<span class="pill ' + c + '">' + esc(status) + '</span>';
+  }
   function skuText(sku, item) { return (sku ? String(sku) : 'No SKU') + ' · ' + item; }
   function skuOf(item) { var x = (S.boot.skus || []).filter(function (s) { return s.item === Number(item); })[0]; return x ? x.sku : ''; }
   // Always TBI, TBO, TBG first (the server's object can arrive in any key order), then any others.
@@ -1476,7 +1485,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var units = rs.reduce(function (a, r) { return a + (r.status === 'Cancelled' ? 0 : r.qty); }, 0);
       var edit = can('Planner'), multi = groups.length > 1;
       return '<div class="ro' + (open[c.key] ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
-        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span><span class="pill ' + pc[st] + '">' + st + '</span>' +
+        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : roStatusPill(st, r0.appt)) +
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
         (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
         (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
@@ -1820,7 +1829,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<h3 style="margin-top:12px">Open ROs for this item here (RO Log, now)</h3>' +
       (ros.length ? '<div class="scroll"><table class="t"><tr><th>RO date</th><th>RO No.</th><th>Status</th><th class="right">Qty</th><th>Appointment</th><th>In the RO Log part?</th></tr>' +
         ros.map(function (x) {
-          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + esc(x.status) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + (x.appt ? prettyDate(x.appt) : '—') + '</td>' +
+          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + roStatusPill(x.status, x.appt) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + (x.appt ? prettyDate(x.appt) : '—') + '</td>' +
             '<td class="small">' + (counted(x) ? 'Yes' : gapLeft > 0 && isRecent(x) ? 'Yes — Blinkit\'s Incoming did not show it yet' : 'No — Blinkit\'s file already shows it') + '</td></tr>';
         }).join('') + '</table></div>'
         : '<div class="small muted">No open ROs for this item at this warehouse in the RO Log. ' + (split && r.plBlinkit ? 'The ' + fmt(r.plBlinkit) + ' are ROs on Blinkit that are not in the RO Log (e.g. made on Blinkit directly).' : '') + '</div>') +
@@ -1847,7 +1856,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var key = r.merged ? 'M' + r.merged + r.wh : r.roNo ? 'N' + r.roNo + r.wh : 'B' + r.batch;
       [['roDate', 'ros'], ['appt', 'appts']].forEach(function (f) {
         var dt = r[f[0]]; if (!dt) return;
-        var x = day(dt)[f[1]], c = x[key] = x[key] || { wh: r.wh, groups: [], units: 0, roNo: r.roNo, status: r.status };
+        var x = day(dt)[f[1]], c = x[key] = x[key] || { wh: r.wh, groups: [], units: 0, roNo: r.roNo, status: r.status, appt: r.appt };
         if (c.groups.indexOf(r.group) < 0) c.groups.push(r.group);
         c.units += r.qty;
       });
@@ -1872,7 +1881,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       }
       var sel = S.dashCalDay && days[S.dashCalDay], info = '';
       if (S.dashCalDay) {
-        var lst = function (o) { return Object.keys(o).map(function (k2) { var c = o[k2]; return '<li>' + esc(short(c.wh)) + ' · ' + esc(c.groups.join(' + ')) + ' · <b>' + fmt(c.units) + '</b> units' + (c.roNo ? ' · #' + esc(c.roNo) : '') + ' <span class="small muted">' + esc(c.status) + '</span></li>'; }).join(''); };
+        var lst = function (o) { return Object.keys(o).map(function (k2) { var c = o[k2]; return '<li>' + esc(short(c.wh)) + ' · ' + esc(c.groups.join(' + ')) + ' · <b>' + fmt(c.units) + '</b> units' + (c.roNo ? ' · #' + esc(c.roNo) : '') + ' ' + roStatusPill(c.status, c.appt) + '</li>'; }).join(''); };
         info = '<div class="calinfo"><b>' + new Date(S.dashCalDay + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>' +
           (!sel ? '<div class="small muted">Nothing on this day.</div>' :
             (Object.keys(sel.ros).length ? '<div class="small" style="margin-top:6px"><b>ROs dated this day</b></div><ul>' + lst(sel.ros) + '</ul>' : '') +
