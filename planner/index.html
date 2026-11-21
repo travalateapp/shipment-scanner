@@ -1,0 +1,1936 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Blinkit Shipment Planner</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+:root{--bg:#f4f6fa;--card:#fff;--ink:#1a2233;--muted:#64748b;--line:#e2e8f0;--brand:#0f3460;--brand2:#16213e;--accent:#f8cb2e;
+--ok:#15803d;--okbg:#dcfce7;--warn:#a16207;--warnbg:#fef9c3;--bad:#b91c1c;--badbg:#fee2e2;--info:#1d4ed8;--infobg:#dbeafe;--chip:#eef2f7}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1320;--card:#182033;--ink:#e6ebf5;--muted:#94a3b8;--line:#2a3550;--brand:#3b82f6;--brand2:#0b1222;
+--okbg:#12361f;--ok:#4ade80;--warnbg:#3a3010;--warn:#facc15;--badbg:#3d1414;--bad:#f87171;--infobg:#132a4d;--info:#93c5fd;--chip:#232d45}}
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;background:var(--bg);color:var(--ink);font-size:14px}
+button,input,select,textarea{font:inherit;color:inherit}
+.top{background:linear-gradient(135deg,#1a1a2e,#16213e 50%,#0f3460);color:#fff;padding:10px 16px;display:flex;align-items:center;gap:12px;position:sticky;top:0;z-index:20}
+.top .t{font-weight:700;font-size:15px;white-space:nowrap}.top .t span{color:var(--accent)}
+.top .who{margin-left:auto;font-size:12px;opacity:.85;text-align:right}
+.nav{display:flex;gap:4px;overflow-x:auto;background:var(--brand2);padding:0 8px;position:sticky;top:44px;z-index:19;scrollbar-width:none}
+.nav button{background:none;border:0;color:#cbd5e1;padding:10px 12px;font-weight:600;white-space:nowrap;cursor:pointer;border-bottom:3px solid transparent}
+.nav button.on{color:#fff;border-bottom-color:var(--accent)}
+.wrap{max-width:1180px;margin:0 auto;padding:14px 16px 90px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px;margin-bottom:12px}
+h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:0 0 8px}
+.muted{color:var(--muted)}.small{font-size:12px}.right{text-align:right}.nowrap{white-space:nowrap}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.row>*{flex:1 1 160px}
+label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:600}
+input[type=text],input[type=number],input[type=date],input[type=month],input[type=password],select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+.btn{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:var(--chip);white-space:nowrap}
+.btn.p{background:var(--brand);color:#fff}.btn.g{background:#16a34a;color:#fff}.btn.r{background:var(--badbg);color:var(--bad)}
+.btn:disabled{opacity:.5;cursor:not-allowed}.btn.sm{padding:6px 10px;font-size:12px}
+.drop{border:2px dashed var(--line);border-radius:12px;padding:14px;text-align:center;cursor:pointer;display:block}
+/* The two upload boxes are always the same width and height. */
+.row.ups{align-items:stretch}.row.ups>.drop{flex:1 1 0;min-width:0;display:flex;flex-direction:column;justify-content:center}
+.drop.ok{border-color:#16a34a;background:var(--okbg)}
+.drop.stale{border-color:#ca8a04;background:var(--warnbg)}
+.drop input{display:none}.drop b{display:block;margin-bottom:2px}.drop span{overflow-wrap:anywhere}
+.pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:var(--chip);white-space:nowrap}
+.pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.bad{background:var(--badbg);color:var(--bad)}.pill.info{background:var(--infobg);color:var(--info)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 10px;cursor:pointer;font-size:12px}
+.chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
+.chip b{margin-left:4px}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
+.stat{background:var(--chip);border-radius:10px;padding:10px}.stat .v{font-size:20px;font-weight:800}.stat .k{font-size:11px;color:var(--muted)}
+.grp{margin:14px 0 6px;font-weight:800;font-size:13px;display:flex;justify-content:space-between;gap:8px}
+.line{display:grid;grid-template-columns:minmax(200px,2.2fr) repeat(5,minmax(62px,.7fr)) 92px minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+.line.head{font-size:11px;color:var(--muted);font-weight:700;border-bottom:2px solid var(--line)}
+/* Each warehouse block's title + column headings stay pinned under the top bar
+   while scrolling through that block, and scroll away when the next block starts. */
+.whsec{position:relative}
+/* Search: pick several SKUs (chips) from a suggestion list. */
+.srch{position:relative}
+.sugg{position:absolute;left:0;right:0;top:100%;margin-top:2px;background:var(--card);border:1px solid var(--line);border-radius:8px;box-shadow:0 6px 18px rgba(0,0,0,.12);z-index:25;max-height:280px;overflow:auto}
+.sugg div{padding:8px 10px;cursor:pointer;font-size:13px;border-bottom:1px solid var(--line)}
+.sugg div:last-child{border-bottom:0}
+.sugg div.on,.sugg div:hover{background:var(--chip)}
+.sugg small{color:var(--muted)}
+.picks{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.picks:empty{display:none}
+.picks .chip{cursor:default}.picks .chip button{border:0;background:none;cursor:pointer;padding:0 0 0 6px;font-weight:700;color:inherit}
+.whhead{position:sticky;top:var(--stickTop,86px);z-index:5;background:var(--card);box-shadow:0 2px 4px rgba(0,0,0,.06)}
+.whhead .grp{margin:0;padding:10px 10px 6px!important}
+/* Warehouse blocks collapse / expand by clicking their title. */
+.grp.tgl{cursor:pointer;user-select:none}.grp.tgl .chev{display:inline-block;width:14px;color:var(--muted)}
+.whsec.shut .line{display:none}.whsec.shut .whhead{position:static;box-shadow:none;border-bottom:1px solid var(--line)}
+.whsec.shut .whhead .grp{padding-bottom:10px!important}
+/* Send heading: "fill all" box + ↺ reset under the word Send. */
+.sendH{display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.fillW{display:flex;gap:3px;align-items:center}
+.line .fillQ{width:58px;padding:3px 5px;font-size:11px;font-weight:600;border:1px solid var(--line);border-radius:6px;text-align:right}
+.fillR{border:1px solid var(--line);background:var(--card);border-radius:6px;padding:2px 6px;font-size:12px;cursor:pointer;line-height:1.2}
+.fillR:hover{background:var(--chip)}
+.line .nm{font-weight:600}.line .nm small{display:block;font-weight:400;color:var(--muted);font-size:11px}
+.line input{padding:7px;text-align:right;font-weight:700}
+.line.send{background:color-mix(in srgb,var(--okbg) 45%,transparent)}
+.line.lock{opacity:.6}
+/* The row you are typing in (Tab / click) is highlighted. */
+.line:focus-within{box-shadow:inset 4px 0 0 var(--brand);background:color-mix(in srgb,var(--infobg) 70%,transparent)}
+.line input.q:focus{outline:2px solid var(--brand);outline-offset:1px}
+.line .over{border-color:var(--bad);background:var(--badbg)}
+.lbl{display:none;font-size:10px;color:var(--muted)}
+@media (max-width:760px){
+ .line{grid-template-columns:1fr 1fr 1fr 88px;gap:6px 8px}
+ .line.head{display:none}.line .nm{grid-column:1/-1}.lbl{display:block}
+ .line .c-days,.line .c-max{display:none}
+ .wrap{padding:10px 10px 90px}
+}
+.bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:10px;align-items:center;z-index:30;box-shadow:0 -4px 14px rgba(0,0,0,.08)}
+.bar .sum{flex:1;font-size:13px}.bar .sum b{font-size:16px}
+.msg{padding:9px 11px;border-radius:9px;margin:8px 0;font-size:13px}
+.msg.ok{background:var(--okbg);color:var(--ok)}.msg.warn{background:var(--warnbg);color:var(--warn)}.msg.bad{background:var(--badbg);color:var(--bad)}.msg.info{background:var(--infobg);color:var(--info)}
+table.t{width:100%;border-collapse:collapse;font-size:13px}
+table.t th,table.t td{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left;vertical-align:middle}
+table.t th{font-size:11px;color:var(--muted)}
+.scroll{overflow-x:auto}
+.ro{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
+.ro .h{padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;cursor:pointer;background:var(--chip)}
+.ro .h .w{font-weight:700;flex:1 1 220px}
+.ro .b{padding:10px 12px;display:none}.ro.open .b{display:block}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.45);display:flex;align-items:center;justify-content:center;z-index:50;padding:14px}
+.modal .box{background:var(--card);border-radius:14px;max-width:560px;width:100%;max-height:90vh;overflow:auto;padding:16px}
+.hidden{display:none!important}
+/* Dashboard: sortable headings and the calendar. */
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover{color:var(--ink)}th.sortable.on{color:var(--brand)}
+.cal{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:4px}
+.cw7{font-size:11px;color:var(--muted);text-align:center;font-weight:700;padding:2px 0}
+.cd{min-height:64px;border:1px solid var(--line);border-radius:8px;padding:4px;cursor:pointer;display:flex;flex-direction:column;gap:2px;background:var(--card);overflow:hidden}
+.cd.empty{border:0;background:none;cursor:default}
+.cd.past{background:var(--chip);opacity:.8}
+.cd.today{border:2px solid var(--brand)}
+.cd.sel{outline:2px solid var(--accent)}
+.cdn{font-size:11px;font-weight:700;color:var(--muted)}
+.cd.today .cdn{color:var(--brand)}
+.cb{font-size:10px;font-weight:700;border-radius:5px;padding:1px 4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cb.ro{background:var(--infobg);color:var(--info)}.cb.ap{background:var(--okbg);color:var(--ok)}.cb.out{background:var(--badbg);color:var(--bad)}
+.calinfo{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px}.calinfo ul{margin:4px 0 0;padding-left:18px;font-size:13px}
+@media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
+.toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;z-index:60;font-size:13px;max-width:90vw}
+.login{max-width:360px;margin:40px auto}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(127,127,127,.35);border-top-color:currentColor;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<div class="top"><div class="t">📦 Blinkit <span>Shipment Planner</span></div><div class="who" id="who"></div></div>
+<div class="nav hidden" id="nav"></div>
+<div class="wrap" id="app"><div class="card muted">Loading…</div></div>
+<div id="bar" class="bar hidden"></div>
+<div id="modal" class="modal hidden"><div class="box" id="modalBox"></div></div>
+
+<script>
+/* ======================= CORE-START (pure planning logic, no page code) ======================= */
+var PlanCore = (function () {
+  function num(v) { var n = Number(v); return isFinite(n) ? n : 0; }
+
+  /** Finds the header row (the one containing all names) and turns the rows below it into objects. */
+  function tableFrom(rows, must) {
+    for (var h = 0; h < Math.min(rows.length, 10); h++) {
+      var head = (rows[h] || []).map(function (x) { return String(x == null ? '' : x).trim(); });
+      if (must.every(function (m) { return head.indexOf(m) >= 0; })) {
+        var out = [];
+        for (var i = h + 1; i < rows.length; i++) {
+          var r = rows[i]; if (!r || !r.length) continue;
+          var o = { __row: i + 1 };
+          head.forEach(function (k, j) { if (k) o[k] = r[j]; });
+          out.push(o);
+        }
+        return { head: head, rows: out, headRow: h };
+      }
+    }
+    return null;
+  }
+
+  /** Blinkit "Stock On Hand" (Inventory) download. */
+  function parseInventory(sheetRows) {
+    var t = tableFrom(sheetRows, ['Item ID', 'Warehouse Facility ID', 'Total sellable', 'Last 7 days']);
+    if (!t) return null;
+    var first = String((sheetRows[0] || [])[0] || '');
+    var m = first.match(/generated at\s+(.+)$/i);
+    return {
+      generatedAt: m ? m[1].trim() : '',
+      rows: t.rows.filter(function (r) { return num(r['Item ID']); }).map(function (r) {
+        return {
+          item: num(r['Item ID']), name: String(r['Item Name'] || ''), whId: num(r['Warehouse Facility ID']),
+          whName: String(r['Warehouse Facility Name'] || ''), sellable: num(r['Total sellable']),
+          warehouse: num(r['Warehouse']), between: num(r['In-between']), darkstore: num(r['Darkstore']),
+          s7: num(r['Last 7 days']), s15: num(r['Last 15 days']), s30: num(r['Last 30 days'])
+        };
+      })
+    };
+  }
+
+  /** Blinkit "SELLER_BULK_SHIPMENT_INPUT" (Bulk RO) download. */
+  function parseBulk(sheetRows) {
+    var t = tableFrom(sheetRows, ['Warehouse ID', 'Item ID', 'Max Inventory', 'RO Quantity']);
+    if (!t) return null;
+    return {
+      head: t.head,
+      rows: t.rows.filter(function (r) { return num(r['Item ID']) && num(r['Warehouse ID']); }).map(function (r) {
+        return {
+          row: r.__row, whId: num(r['Warehouse ID']), whName: String(r['Warehouse Name'] || '').trim(), item: num(r['Item ID']),
+          name: String(r['Item Name'] || ''), sellable: num(r['Sellable Quantity']), incoming: num(r['Incoming Quantity']),
+          min: num(r['Suggested Min Inventory']), max: num(r['Max Inventory']),
+          locked: String(r['Lock Status'] || '').toUpperCase() === 'LOCKED', remarks: String(r['Remarks'] || '').trim()
+        };
+      })
+    };
+  }
+
+  /**
+   * Blinkit's Inventory "generated at 2026-10-29 09:58:28" counts the stock as of the day before (28 Oct).
+   * Returns { stockDate: 'yyyy-mm-dd', elapsed: whole days from the stock date to todayStr }, or null.
+   */
+  function stockInfo(generatedAt, todayStr) {
+    var m = String(generatedAt || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    var t = String(todayStr || '').match(/^(\d{4})-(\d{2})-(\d{2})/);
+    if (!m || !t) return null;
+    var stock = Date.UTC(+m[1], +m[2] - 1, +m[3] - 1), now = Date.UTC(+t[1], +t[2] - 1, +t[3]);
+    return { stockDate: new Date(stock).toISOString().slice(0, 10), elapsed: Math.max(0, Math.round((now - stock) / 864e5)) };
+  }
+
+  /** Warehouse names compared ignoring spaces and capitals ("Hyderabad H3 -  Feeder" = "hyderabad h3 - feeder"). */
+  function whNorm(s) { return String(s || '').toLowerCase().replace(/\s+/g, ''); }
+
+  function median(a) {
+    a = a.slice().sort(function (x, y) { return x - y; });
+    var n = a.length; if (!n) return 0;
+    return n % 2 ? a[(n - 1) / 2] : (a[n / 2 - 1] + a[n / 2]) / 2;
+  }
+
+  /**
+   * The plan for every warehouse × item row of the Bulk RO file.
+   * o = { coverDays, minLine, roundTo, skus: {item: {sku, group, tier}}, openROs: [...], bulkAt: ms, elapsed: days }
+   *  - elapsed = days from the stock date (Inventory generated-at date − 1) to today. Those days' sales are already
+   *    gone, so the target is rate × (cover days + elapsed) and "days now" counts from today.
+   *  - stock now = "Total sellable" of the Inventory file (warehouse + in-between + darkstore)
+   *  - incoming  = Blinkit "Incoming Quantity" + RO Log lines Blinkit cannot know yet
+   *                (Planned, or Created on Blinkit — R.O. PDF time, else app save time — after the Bulk file was downloaded)
+   *  - daily rate ("Per day") = the HIGHEST of the 7-, 15- and 30-day averages (sold ÷ days), rounded UP to a
+   *    whole unit — e.g. 37 in 7 days (5.29/day), 41 in 15 (2.73), 64 in 30 (2.13) → 6 a day.
+   */
+  function dailyRate(s7, s15, s30) { return s30 > 0 || s15 > 0 || s7 > 0 ? Math.ceil(Math.max(s7 / 7, s15 / 15, s30 / 30)) : 0; }
+
+  function computePlan(inv, bulk, o) {
+    var COVER = o.coverDays || 26, MIN = o.minLine || 10, RT = o.roundTo || 5, skus = o.skus || {};
+    var invAt = {};
+    inv.forEach(function (r) { invAt[r.whId + '|' + r.item] = r; });
+    var rates = {};
+    bulk.forEach(function (b) {
+      var x = invAt[b.whId + '|' + b.item];
+      if (x && x.s30 > 0) (rates[b.item] = rates[b.item] || []).push(dailyRate(x.s7, x.s15, x.s30));
+    });
+    var med = {};
+    Object.keys(rates).forEach(function (k) { med[k] = median(rates[k]); });
+    var extra = {};
+    (o.openROs || []).forEach(function (r) {
+      // A Created RO is in Blinkit's Incoming once Blinkit has it: from the R.O. time printed on its PDF when known,
+      // otherwise from when it was saved in the app.
+      var at = r.blinkitAt || r.createdAt;
+      var count = r.status === 'Planned' || (r.status === 'Created' && (!o.bulkAt || !at || at > o.bulkAt));
+      var k = whNorm(r.wh) + '|' + num(r.item);
+      if (count) extra[k] = (extra[k] || 0) + num(r.qty);
+    });
+
+    return bulk.map(function (b) {
+      var x = invAt[b.whId + '|' + b.item] || null;
+      var s7 = x ? x.s7 : 0, s15 = x ? x.s15 : 0, s30 = x ? x.s30 : 0;
+      var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming, app = extra[whNorm(b.whName) + '|' + b.item] || 0;
+      var pos = wh + ds + inc + app;
+      var drr = dailyRate(s7, s15, s30), status, kind;
+      if (s30 === 0) { drr = 0; status = pos === 0 ? 'Not live here' : 'In stock, no sales yet'; kind = pos === 0 ? 'notlive' : 'nosale'; }
+      else if (s7 === s30) { status = 'New listing (≤7 days)'; kind = 'new'; }
+      else if (s30 - s15 <= 0.1 * s30) { status = 'New listing (≤15 days)'; kind = 'new'; }
+      else { status = 'Established'; kind = 'est'; }
+      var EL = o.elapsed || 0;
+      var target = drr * (COVER + EL), need = Math.max(0, target - pos), rec = 0, note = '';
+      if (need >= MIN / 2) { rec = Math.ceil(need / RT) * RT; if (rec < MIN) rec = MIN; }
+      if (rec > b.max) { note = 'Capped at Blinkit max ' + b.max + ' (needed ' + rec + ')'; rec = b.max >= RT ? Math.floor(b.max / RT) * RT : b.max; }
+      var starter = 0;
+      if (kind === 'notlive' && !b.locked && b.min > 0 && med[b.item] >= 1) {
+        starter = Math.min(b.min, b.max, Math.max(MIN, Math.ceil(med[b.item] * COVER * 0.5 / RT) * RT));
+      }
+      if (b.locked) { if (rec > 0) note = 'Locked – needed ' + rec + ': ' + b.remarks; rec = 0; starter = 0; }
+      var s = skus[b.item] || {};
+      return {
+        key: b.whId + '|' + b.item, row: b.row, whId: b.whId, wh: b.whName, item: b.item, name: b.name,
+        sku: s.sku || '', group: s.group || '', tier: s.tier || '',
+        s7: s7, s15: s15, s30: s30, status: status, kind: kind, rate: drr,
+        whStock: wh, dsStock: ds, incoming: inc, appIncoming: app, position: pos,
+        daysAtStock: drr > 0 ? pos / drr : null, daysNow: drr > 0 ? pos / drr - EL : null, elapsed: EL,
+        target: target, min: b.min, max: b.max,
+        rec: rec, starter: starter, note: note, locked: b.locked, remarks: b.remarks
+      };
+    });
+  }
+
+  function colLetter(i) { var s = ''; i++; while (i > 0) { var m = (i - 1) % 26; s = String.fromCharCode(65 + m) + s; i = Math.floor((i - 1) / 26); } return s; }
+  function colIndex(s) { var n = 0; for (var i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64); return n; }
+  function xmlEsc(s) { return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;'); }
+
+  /**
+   * Fills RO Quantity and Shipping Address into the sheet XML of Blinkit's own file, so everything else
+   * in it (dropdowns, hidden sheets, instructions) stays exactly as Blinkit made it.
+   * fills = { rowNumber: qty }
+   */
+  function fillSheetXml(xml, fills, qtyCol, addrCol, address) {
+    var qi = colIndex(qtyCol), ai = colIndex(addrCol);
+    Object.keys(fills).forEach(function (rn) {
+      var cellQ = '<c r="' + qtyCol + rn + '"><v>' + Math.round(fills[rn]) + '</v></c>';
+      var cellA = '<c r="' + addrCol + rn + '" t="inlineStr"><is><t>' + xmlEsc(address) + '</t></is></c>';
+      var re = new RegExp('(<row r="' + rn + '"[^>]*?)(/>|>([\\s\\S]*?)</row>)');
+      var m = xml.match(re);
+      if (!m) return;
+      var cells = [];
+      if (m[3] !== undefined) {
+        var cre = /<c r="([A-Z]+)\d+"[^>]*?(?:\/>|>[\s\S]*?<\/c>)/g, c;
+        while ((c = cre.exec(m[3]))) {
+          var ci = colIndex(c[1]);
+          if (ci !== qi && ci !== ai) cells.push({ i: ci, x: c[0] });
+        }
+      }
+      cells.push({ i: qi, x: cellQ }, { i: ai, x: cellA });
+      cells.sort(function (a, b) { return a.i - b.i; });
+      var open = m[1].replace(/\s*\/$/, '');
+      xml = xml.replace(m[0], open + '>' + cells.map(function (c) { return c.x; }).join('') + '</row>');
+    });
+    return xml;
+  }
+
+
+  /* ---- Blinkit R.O. PDF ----
+   * parseBlinkitRoPdf_ and its helpers below are copied unchanged from the Shipment Manager (ShipmentManager.gs),
+   * so both apps read Blinkit R.O. PDFs the same way. Keep them in step when one changes. */
+  function parseBlinkitRoPdf_(rawText) {
+    try {
+      const text = rawText.replace(/\r\n/g,"\n").replace(/\r/g,"\n");
+      const poMatch = text.match(/R\.O\.?\s*Number\s*[:\-]\s*(\d{10,16})/i);
+      if (!poMatch) return { success:false, message:"Could not find the R.O. Number in the extracted text. Please check the file is the correct Blinkit PO PDF." };
+      const poNumber = poMatch[1].trim();
+      // "date" sometimes lands on a different line than "R.O. expiry" itself
+      // (column-header word-wrap artifacts), so don't require them adjacent —
+      // just look for the date value within a short window after "expiry".
+      const expiryMatch = text.match(/R\.O\.?\s*expiry\b[\s\S]{0,20}?:\s*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})/i);
+      const expiryDate = expiryMatch ? expiryMatch[1].trim() : "";
+
+      let rows = parseRoRowsByLine_(text);
+      if (!rows.length) rows = parseRoRowsByGluedAnchor_(text);
+
+      rows.sort((a,b)=>a.itemCode.localeCompare(b.itemCode));
+      if (!rows.length) return {success:false,message:"PDF text extracted but no item rows could be parsed. Raw text shown below.",poNumber,expiryDate,rawText:text.slice(0,3000)};
+      return {success:true,poNumber,expiryDate,rows};
+    } catch(err) {
+      return {success:false,message:"Parse error: "+err.message};
+    }
+  }
+
+  /** Primary strategy: one line per item, e.g.
+   *  " 1   10254670   42033 74217751 Travalate 2-  18.00 0.00 0. 39.66 260.00 100 1299.00 26000.00"
+   *  Item Code is anchored directly (serial + Item Code + HSN-first-chunk +
+   *  UPC-first-chunk), then Qty is read as the 3rd-from-last number on that
+   *  same line — Landing Rate, Qty, MRP, Total Amt is always the trailing
+   *  order, regardless of how much description text precedes the numbers. */
+  /** Some R.O. PDFs (observed on the Jaipur warehouse's layout) render the
+   *  Item Code column one character narrower than usual, so its LAST digit
+   *  wraps onto the row's continuation line instead of staying on the main
+   *  line — landing right in front of that line's other wrapped fragments
+   *  (HSN's last 3 digits, UPC's last 5 digits, description continuation).
+   *  Item Codes are always 8 digits (10 + 6 more), so a 7-digit capture on
+   *  the main line means this wrap happened; the continuation line's very
+   *  first token (a lone digit followed by non-digit content) is that
+   *  missing 8th digit. Every other field needed (Qty, Landing Rate, Total
+   *  Amt) already lives complete on the main line regardless, so nothing
+   *  else about the existing per-line strategy needs to change. */
+  function parseRoRowsByLine_(text) {
+    const lines = text.split('\n');
+    const lineRe = /^\s*\d{1,2}\s+(10\d{5,6})\s+\d{5}\s+\d{7,8}\s+(.*)$/;
+    const wrappedDigitRe = /^\s*(\d)(?=\D|$)/;
+    const rows = [];
+    lines.forEach((line, idx) => {
+      const m = line.match(lineRe);
+      if (!m) return;
+      let itemCode = m[1];
+      if (itemCode.length === 7) {
+        const cm = (lines[idx + 1] || '').match(wrappedDigitRe);
+        if (cm) itemCode += cm[1];
+      }
+      if (itemCode.length !== 8) return; // still incomplete — don't guess further
+      const nums = (m[2].match(/\d+\.\d+|\d+/g) || []).map(Number);
+      if (nums.length < 5) return;
+      const landingRate = nums[nums.length - 4];
+      const qty = Math.round(nums[nums.length - 3]);
+      const totalAmt = nums[nums.length - 1];
+      // Sanity-check against the invoice arithmetic (Total Amt = Landing
+      // Rate × Qty) so a row with unexpected extra numbers earlier in the
+      // description doesn't silently produce a wrong Qty.
+      const expected = landingRate * qty;
+      if (qty > 0 && landingRate > 0 && Math.abs(expected - totalAmt) < Math.max(1, totalAmt * 0.02)) {
+        if (!rows.find(r => r.itemCode === itemCode)) rows.push({ itemCode, qty });
+      }
+    });
+    return rows;
+  }
+
+  /** Fallback strategy for when PDF.js collapses whitespace entirely instead
+   *  of preserving line structure (columns glued into one run of characters
+   *  with zero separators). Anchors on Item Code + HSN + UPC glued together
+   *  with no leading serial number — deliberately NOT capturing the row's
+   *  serial digit(s), since when a row runs straight into the next with no
+   *  paragraph break, a leading serial capture can "steal" trailing digits
+   *  off the PREVIOUS row's Total Amt. Then recovers Qty from
+   *  Total Amt = Landing Rate × Qty using decimal points, which survive
+   *  extraction more reliably than spaces do. */
+  function parseRoRowsByGluedAnchor_(text) {
+    const startIdx = text.search(/#\s*Item\s*Code/i);
+    const endIdx = text.search(/Total\s*Quantity\s*:/i);
+    const tableText = (startIdx >= 0 ? text.slice(startIdx) : text)
+      .slice(0, endIdx >= 0 ? (endIdx - (startIdx >= 0 ? startIdx : 0)) : undefined);
+
+    const rowRe = /(10\d{6})\s*(\d{5}\s*\d{3})\s*(742177\d{1,2}\s*\d{3,4})/g;
+    const anchors = [];
+    let m;
+    while ((m = rowRe.exec(tableText)) !== null) {
+      anchors.push({ matchStart: m.index, matchEnd: m.index + m[0].length, itemCode: m[1] });
+    }
+
+    const rows = [];
+    for (let a = 0; a < anchors.length; a++) {
+      const cur = anchors[a];
+      const chunkEnd = a + 1 < anchors.length ? anchors[a+1].matchStart : tableText.length;
+      let chunk = tableText.slice(cur.matchEnd, chunkEnd);
+
+      // The NEXT row's serial number always leaks onto the tail of this
+      // chunk (glued on with zero separator, or just separated by a
+      // newline) since we stopped anchoring on it. We know its exact
+      // expected value (row a+2, 1-indexed) so we can strip it precisely
+      // instead of guessing.
+      if (a + 1 < anchors.length) {
+        const nextSerial = String(a + 2);
+        chunk = chunk.replace(new RegExp('\\s*' + nextSerial.replace(/\d/g, '\\$&') + '\\s*$'), '');
+      }
+
+      const qty = extractQtyFromRowChunk_(chunk);
+      if (cur.itemCode && qty > 0 && !rows.find(r => r.itemCode === cur.itemCode)) {
+        rows.push({ itemCode: cur.itemCode, qty });
+      }
+    }
+    return rows;
+  }
+
+  /** Recovers Qty from one row's trailing numeric block using
+   *  Total Amt = Landing Rate × Qty, reading Landing Rate and Total Amt off
+   *  their decimal points (the last 4 periods in the chunk: TaxAmt's,
+   *  LandingRate's, MRP's, TotalAmt's — in that fixed column order) rather
+   *  than trying to isolate Qty's digits directly, which is ambiguous when
+   *  Qty is glued straight onto MRP with no separator.
+   *  Tries both 1- and 2-decimal-digit interpretations at each boundary,
+   *  because Blinkit occasionally prints a trailing-zero-free amount like
+   *  "71.7" instead of "71.70", which would otherwise misalign every field
+   *  after it. Returns 0 if no interpretation resolves to a clean qty. */
+  function extractQtyFromRowChunk_(chunk) {
+    const dots = [];
+    for (let i = 0; i < chunk.length; i++) if (chunk[i] === '.') dots.push(i);
+    if (dots.length < 4) return 0;
+    const d = dots.slice(-4); // [TaxAmt, LandingRate, MRP, TotalAmt] dots, in order
+    const segBeforeLanding = chunk.slice(d[0]+1, d[1]).replace(/\s+/g,''); // TaxAmt's decimals + LandingRate's integer part
+    const segBeforeMrp     = chunk.slice(d[1]+1, d[2]).replace(/\s+/g,''); // LandingRate's decimals + (ambiguous Qty+MRP-integer, unused)
+    const segBeforeTotal   = chunk.slice(d[2]+1, d[3]).replace(/\s+/g,''); // MRP's decimals + TotalAmt's integer part
+    const afterTotal       = chunk.slice(d[3]+1).replace(/\s+/g,'');       // TotalAmt's decimals
+
+    let best = 0, bestIsStandard = false;
+    for (const skipTax of [2,1]) {
+      if (segBeforeLanding.length <= skipTax) continue;
+      const landingInt = segBeforeLanding.slice(skipTax);
+      for (const skipLanding of [2,1]) {
+        if (segBeforeMrp.length < skipLanding) continue;
+        const landingRate = parseFloat(landingInt + '.' + segBeforeMrp.slice(0, skipLanding));
+        if (!landingRate) continue;
+        for (const skipMrp of [2,1]) {
+          if (segBeforeTotal.length <= skipMrp) continue;
+          const totalInt = segBeforeTotal.slice(skipMrp);
+          for (const decLen of [2,1]) {
+            if (afterTotal.length < decLen) continue;
+            const totalAmt = parseFloat(totalInt + '.' + afterTotal.slice(0, decLen));
+            if (!totalAmt) continue;
+            const qtyRaw = totalAmt / landingRate;
+            const qty = Math.round(qtyRaw);
+            const isStandard = skipTax===2 && skipLanding===2 && skipMrp===2 && decLen===2;
+            if (qty > 0 && qty < 100000 && Math.abs(qtyRaw - qty) < 0.03) {
+              // Prefer the standard (both-decimals-are-2-digits) interpretation
+              // when it's valid; otherwise take the first valid fallback found.
+              if (isStandard) return qty;
+              if (!best) { best = qty; bestIsStandard = isStandard; }
+            }
+          }
+        }
+      }
+    }
+    return best;
+  }
+
+  var MONTHS3 = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+  /** "Oct. 28, 2026" / "June 24, 2026" → "2026-10-28" ('' when it cannot be read). */
+  /** "Oct. 28, 2026, 2:50 p.m." (India time) → epoch ms; also "noon" / "midnight". 0 when it cannot be read. */
+  function pdfDateTime(s) {
+    var m = String(s || '').match(/([A-Za-z]+)\.?\s+(\d{1,2}),?\s*(\d{4}),?\s*(?:(\d{1,2})(?::(\d{2}))?\s*([ap])\.?\s*m\.?|(noon|midnight))/i);
+    if (!m) return 0;
+    var mi = MONTHS3.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi < 0) return 0;
+    var h, mm = 0;
+    if (m[7]) h = m[7].toLowerCase() === 'noon' ? 12 : 0;
+    else { h = Number(m[4]) % 12 + (m[6].toLowerCase() === 'p' ? 12 : 0); mm = Number(m[5] || 0); }
+    return Date.UTC(Number(m[3]), mi, Number(m[2]), h, mm) - 330 * 60000; // IST = UTC+5:30
+  }
+  function pdfDate(s) {
+    var m = String(s || '').match(/([A-Za-z]+)\.?\s+(\d{1,2}),?\s*(\d{4})/);
+    if (!m) return '';
+    var mi = MONTHS3.indexOf(m[1].slice(0, 3).toLowerCase());
+    if (mi < 0) return '';
+    return m[3] + '-' + ('0' + (mi + 1)).slice(-2) + '-' + ('0' + m[2]).slice(-2);
+  }
+  function whKey(s) { return String(s || '').toLowerCase().replace(/^\s*bcpl\s*-\s*/, '').replace(/warehouse/g, '').replace(/[^a-z0-9]/g, ''); }
+  /** "BCPL - Jaipur J3 Feeder warehouse" → "Jaipur J3 - Feeder" (one of the sheet's warehouse names), or ''. */
+  function matchWarehouse(raw, names) {
+    var k = whKey(raw);
+    if (!k) return '';
+    return (names || []).filter(function (n) { return whKey(n) === k; })[0] || '';
+  }
+
+  /**
+   * Everything the RO PDF upload needs from the PDF's text (as Shipment Manager's extractPdfText_ makes it):
+   * the parser's R.O. number, expiry and item rows, plus the warehouse, the R.O. date and the PDF's own total.
+   */
+  function readRoPdf(text, warehouses) {
+    var p = parseBlinkitRoPdf_(text || '');
+    if (!p.success) return { ok: false, message: p.message || 'Could not read this PDF.' };
+    var whRaw = ((text.match(/BCPL\s*-\s*([^\n]+)/) || [])[1] || '').trim();
+    var total = Number((text.match(/Total\s*Quantity\s*:\s*(\d+)/i) || [])[1] || 0);
+    var lines = p.rows.map(function (r) { return { item: Number(r.itemCode), qty: r.qty }; });
+    var sum = lines.reduce(function (a, l) { return a + l.qty; }, 0);
+    return {
+      ok: true, roNo: p.poNumber, expiry: pdfDate(p.expiryDate),
+      roDate: pdfDate((text.match(/\bDate\s*:\s*([A-Za-z]+\.?\s+\d{1,2},?\s*\d{4})/) || [])[1]),
+      roAt: pdfDateTime((text.match(/\bDate\s*:\s*([^\n]+)/) || [])[1]),
+      whRaw: whRaw, wh: matchWarehouse(whRaw, warehouses), lines: lines, sum: sum, total: total,
+      totalOk: !total || total === sum
+    };
+  }
+
+  /**
+   * The planner's open RO this PDF is: same warehouse, no RO number yet, created on one day, and exactly the
+   * same items (quantities may differ — the PDF's win). Returns { batches, roDate, diffs } or null.
+   */
+  function matchPlannerRo(pdf, openROs) {
+    var byDay = {};
+    (openROs || []).forEach(function (r) {
+      if (whNorm(r.wh) !== whNorm(pdf.wh) || r.roNo || r.status === 'Cancelled') return;
+      (byDay[r.roDate] = byDay[r.roDate] || []).push(r);
+    });
+    var want = {};
+    pdf.lines.forEach(function (l) { want[l.item] = (want[l.item] || 0) + l.qty; });
+    var days = Object.keys(byDay).sort().reverse();
+    for (var i = 0; i < days.length; i++) {
+      var rs = byDay[days[i]], have = {};
+      rs.forEach(function (r) { have[r.item] = (have[r.item] || 0) + r.qty; });
+      var hk = Object.keys(have), wk = Object.keys(want);
+      if (hk.length !== wk.length || !wk.every(function (k) { return have[k] !== undefined; })) continue;
+      var batches = [];
+      rs.forEach(function (r) { if (batches.indexOf(r.batch) < 0) batches.push(r.batch); });
+      var diffs = wk.filter(function (k) { return have[k] !== want[k]; }).map(function (k) { return { item: Number(k), from: have[k], to: want[k] }; });
+      return { batches: batches, roDate: days[i], diffs: diffs };
+    }
+    return null;
+  }
+
+  return { parseInventory: parseInventory, parseBulk: parseBulk, computePlan: computePlan, fillSheetXml: fillSheetXml,
+    colLetter: colLetter, median: median, whNorm: whNorm, stockInfo: stockInfo, readRoPdf: readRoPdf, matchPlannerRo: matchPlannerRo, matchWarehouse: matchWarehouse };
+})();
+if (typeof module !== 'undefined') module.exports = PlanCore;
+/* ======================= CORE-END ======================= */
+</script>
+
+<script>
+(function () {
+  'use strict';
+  var API_URL = '';
+  // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
+  var PAGE_BUILD = '2026-11-21 cal-38';
+  var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
+  var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
+    plan: null, final: {}, filter: { wh: '', group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
+
+  /* ---------------- small helpers ---------------- */
+  function $(id) { return document.getElementById(id); }
+  function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
+  function fmt(n, d) { if (n == null || !isFinite(n)) return '–'; return Number(n).toLocaleString('en-IN', { maximumFractionDigits: d || 0, minimumFractionDigits: d || 0 }); }
+  function today() { var d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+  function addDays(s, n) { var d = new Date(s + 'T12:00:00'); d.setDate(d.getDate() + n); return d.toISOString().slice(0, 10); }
+  function prettyDate(s) { if (!s) return ''; var d = new Date(s + 'T12:00:00'); return d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }); }
+  function toast(msg, ms) { var t = document.createElement('div'); t.className = 'toast'; t.textContent = msg; document.body.appendChild(t); setTimeout(function () { t.remove(); }, ms || 3200); }
+  function role() { return S.boot ? S.boot.user.role : 'Viewer'; }
+  function can(r) { var order = ['Admin', 'Planner', 'Viewer']; return order.indexOf(role()) <= order.indexOf(r); }
+  /** Items are shown by SKU and Item ID only (no product names). */
+  function skuText(sku, item) { return (sku ? String(sku) : 'No SKU') + ' · ' + item; }
+  function skuOf(item) { var x = (S.boot.skus || []).filter(function (s) { return s.item === Number(item); })[0]; return x ? x.sku : ''; }
+  // Always TBI, TBO, TBG first (the server's object can arrive in any key order), then any others.
+  function groupList() {
+    var order = ['TBI', 'TBO', 'TBG'], g = S.boot && S.boot.groups ? Object.keys(S.boot.groups) : [];
+    return order.concat(g.filter(function (x) { return order.indexOf(x) < 0; }).sort());
+  }
+  function groupName(g) { return (S.boot && S.boot.groups && S.boot.groups[g]) || (g || 'No group'); }
+  function msgs(list, cls) { return (list || []).map(function (w) { return '<div class="msg ' + (cls || 'warn') + '">' + esc(w) + '</div>'; }).join(''); }
+
+  /* ---------------- server ---------------- */
+  function serverUrl() {
+    var id = null;
+    try { id = new URLSearchParams(location.search).get('id'); } catch (e) { /* old browser */ }
+    if (id) store('bp_api', id); else {
+      id = load('bp_api') || API_URL;
+      if (id && !IN_APPS_SCRIPT && history.replaceState) {
+        try { history.replaceState(null, '', location.pathname + '?id=' + encodeURIComponent(id) + location.hash); } catch (e) { /* ignore */ }
+      }
+    }
+    if (!id) return null;
+    return /^https?:/.test(id) ? id : 'https://script.google.com/macros/s/' + id + '/exec';
+  }
+
+  function api(fn) {
+    var args = Array.prototype.slice.call(arguments, 1);
+    var fail = function (err) {
+      var msg = String((err && err.message) || err).replace(/^Exception:\s*/, '');
+      if (msg.indexOf('SESSION_EXPIRED') >= 0) { store('bp_token', null); S.token = null; showLogin('Please log in again.'); }
+      return Promise.reject(new Error(msg));
+    };
+    if (IN_APPS_SCRIPT) {
+      return new Promise(function (res, rej) { google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn].apply(null, args); }).catch(fail);
+    }
+    var url = serverUrl();
+    if (!url) return fail(new Error('The app link is incomplete: it needs ?id=<Apps Script deployment ID>.'));
+    var body = JSON.stringify({ fn: fn, args: args, rid: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12) });
+    var attempt = function (n) {
+      return fetch(url, { method: 'POST', credentials: 'omit', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: body })
+        .then(function (r) {
+          if (!r.ok) throw Object.assign(new Error('The server is busy (' + r.status + '). Try again.'), { retry: true });
+          return r.text().then(function (t) { try { return JSON.parse(t); } catch (e) { throw Object.assign(new Error('The server is busy. Try again.'), { retry: true }); } });
+        }, function () { throw Object.assign(new Error('No internet connection, or the server could not be reached.'), { retry: true }); })
+        .catch(function (e) { if (!e.retry || n >= 3) throw e; return new Promise(function (r) { setTimeout(r, [700, 1500, 3000][n]); }).then(function () { return attempt(n + 1); }); });
+    };
+    return attempt(0).then(function (res) {
+      if (!res || !res.ok) throw new Error((res && res.error) || 'Something went wrong.');
+      return res.result;
+    }).catch(fail);
+  }
+
+  /* ---------------- modal ---------------- */
+  function openModal(html) { $('modalBox').innerHTML = html; $('modal').classList.remove('hidden'); }
+  function closeModal() { $('modal').classList.add('hidden'); $('modalBox').innerHTML = ''; }
+  $('modal').addEventListener('click', function (e) { if (e.target === $('modal')) closeModal(); });
+
+  /* ---------------- login ---------------- */
+  function showLogin(note) {
+    $('nav').classList.add('hidden'); $('bar').classList.add('hidden'); $('who').textContent = '';
+    $('app').innerHTML = '<div class="card login"><h2>Log in</h2>' + (note ? '<div class="msg info">' + esc(note) + '</div>' : '') +
+      '<label class="f">User ID</label><input type="text" id="lu" autocomplete="username" value="' + esc(load('bp_user') || '') + '">' +
+      '<div style="height:8px"></div><label class="f">PIN</label><input type="password" id="lp" inputmode="numeric" autocomplete="current-password">' +
+      '<div id="lerr"></div><div style="height:10px"></div><button class="btn p" id="lb" style="width:100%">Log in</button></div>';
+    var go = function () {
+      var u = $('lu').value.trim(), p = $('lp').value;
+      if (!u || !p) return;
+      $('lb').disabled = true; $('lb').innerHTML = '<span class="spin"></span> Logging in…';
+      api('login', u, p).then(function (r) {
+        store('bp_user', u); store('bp_token', r.token); S.token = r.token; S.boot = r.boot; startApp();
+      }, function (e) { $('lerr').innerHTML = msgs([e.message], 'bad'); $('lb').disabled = false; $('lb').textContent = 'Log in'; });
+    };
+    $('lb').onclick = go;
+    $('lp').addEventListener('keydown', function (e) { if (e.key === 'Enter') go(); });
+  }
+
+  function startApp() {
+    var b = S.boot;
+    if (S.starters === null) S.starters = !!b.settings.starters;
+    $('who').innerHTML = esc(b.user.name || b.user.id) + '<br>' + esc(b.user.role) + '<br><span style="font-size:10px;opacity:.7">build ' + PAGE_BUILD + '</span>';
+    var tabs = [['dash', 'Dashboard'], ['plan', 'New Plan'], ['log', 'RO Log'], ['add', 'RO PDF']]; // the app opens on the Dashboard
+    if (can('Admin')) tabs.push(['settings', 'Settings'], ['users', 'Users']);
+    tabs.push(['account', 'Account']);
+    if (!can('Planner')) tabs = tabs.filter(function (t) { return t[0] !== 'plan' && t[0] !== 'add'; });
+    if (!tabs.some(function (t) { return t[0] === S.tab; })) S.tab = tabs[0][0];
+    if (can('Planner') && !S.bulk && restoreDraft() && S.inv) { S.keepEditsOnce = false; freshPlan(true); }
+    $('nav').innerHTML = tabs.map(function (t) { return '<button data-t="' + t[0] + '" class="' + (S.tab === t[0] ? 'on' : '') + '">' + t[1] + '</button>'; }).join('');
+    $('nav').classList.remove('hidden');
+    setStickTop();
+    $('nav').onclick = function (e) { var t = e.target.getAttribute('data-t'); if (t) go(t); };
+    go(S.tab);
+  }
+
+  function go(tab) {
+    S.tab = tab;
+    Array.prototype.forEach.call($('nav').children, function (b) { b.classList.toggle('on', b.getAttribute('data-t') === tab); });
+    $('bar').classList.add('hidden');
+    ({ plan: renderPlan, log: renderLog, add: renderAdd, dash: renderDash, settings: renderSettings, users: renderUsers, account: renderAccount })[tab]();
+    window.scrollTo(0, 0);
+  }
+
+  function refreshBoot() { return api('getBoot', S.token).then(function (b) { S.boot = b; return b; }); }
+
+  /* ======================= New Plan ======================= */
+  function renderPlan() {
+    var s = S.boot.settings;
+    var html = '<div class="card"><h2>1. Upload today\'s Blinkit downloads</h2>' +
+      '<div class="row ups">' +
+      '<label class="drop' + (S.inv ? (invIsToday() ? ' ok' : ' stale') : '') + '" id="dInv"><input type="file" accept=".xlsx" id="fInv"><b>Inventory</b>' +
+      '<span class="small muted">' + (S.invLoading ? '<span class="spin"></span> Reading Formula Sheet…' : S.inv ? (S.inv.fromSheet ? 'From Formula Sheet' : esc(S.inv.fileName)) + ' · ' + S.inv.rows.length + ' rows' + (S.inv.generatedAt ? ' · generated ' + esc(S.inv.generatedAt) : '') : 'InventoryData.xlsx (Stock On Hand)') +
+      (S.invLoading ? '' : '<br>' + (S.inv && S.inv.fromSheet ? 'Tap to upload the file instead' : 'Tap to upload, or <a href="#" id="useSheet">use Formula Sheet</a>')) + '</span></label>' +
+      '<label class="drop' + (S.bulk ? ' ok' : '') + '" id="dBulk"><input type="file" accept=".xlsx" id="fBulk"><b>Bulk RO file</b>' +
+      '<span class="small muted">' + (S.bulk ? esc(S.bulkName) + ' · ' + S.bulk.rows.length + ' rows' : 'SELLER_BULK_SHIPMENT_INPUT….xlsx') + '</span></label>' +
+      '</div>' + (S.inv && !invIsToday() ? '<div class="msg warn">This inventory is from ' + esc(S.inv.generatedAt || 'an unknown date') + ', not today. Run 📦 Blinkit Inventory → Upload Today\'s Inventory in the sheet, then <a href="#" id="reloadSheet">read it again</a> — or upload today\'s Inventory file here.</div>' : '') +
+      (S.invErr ? msgs([S.invErr], 'warn') : '') +
+      ((S.bulk || S.inv) ? '<div class="row" style="margin-top:8px;align-items:center"><div class="small muted" style="flex:1 1 260px">' +
+        (S.restoredAt ? 'Restored the plan saved ' + new Date(S.restoredAt).toLocaleString('en-IN') + ' (files, typed quantities and filters). ' : '') +
+        (S.draftOk === false ? '<b>These files are too big to keep in this browser — a refresh will clear the plan.</b> ' : 'The plan stays after a refresh until you wipe it. ') +
+        '</div><div style="flex:0 0 auto"><button class="btn r" id="bWipe">🗑 Wipe plan</button></div></div>' : '') +
+      '<div class="small muted" style="margin-top:8px">The Inventory comes from the sheet\'s Formula Sheet, which the daily 📦 Blinkit Inventory upload fills. Download a fresh Bulk RO file each time — Blinkit\'s max limits and locks change during the day.</div>' +
+      '<div class="row" style="margin-top:10px">' +
+      '<div><label class="f">Days of cover</label><input type="number" id="pCover" min="1" max="120" value="' + (S.cover || s.coverDays) + '"></div>' +
+      '<div><label class="f">New-listing starters</label><select id="pStart"><option value="0">No — only where it already sells</option><option value="1"' + (S.starters ? ' selected' : '') + '>Yes — add a starter qty where not live</option></select></div>' +
+      '</div><div id="pErr"></div></div><div id="planOut"></div>';
+    $('app').innerHTML = html;
+    var pick = function (e) { var f = e.target.files[0]; if (f) readFile(f); e.target.value = ''; };
+    $('fInv').onchange = pick; $('fBulk').onchange = pick;
+    $('pCover').onchange = function () { S.cover = Math.max(1, Math.min(120, Number(this.value) || s.coverDays)); freshPlan(true); };
+    $('pStart').onchange = function () { S.starters = this.value === '1'; freshPlan(true); };
+    var sheetLink = function (e) { e.preventDefault(); e.stopPropagation(); loadSheetInventory(); };
+    if ($('useSheet')) $('useSheet').onclick = sheetLink;
+    if ($('reloadSheet')) $('reloadSheet').onclick = sheetLink;
+    if ($('bWipe')) $('bWipe').onclick = function () {
+      if (!confirm('Wipe the plan? This clears the uploaded files, the quantities you typed and the filters. ROs already created are not touched.')) return;
+      wipeDraft(); S.restoredAt = null; $('bar').classList.add('hidden'); renderPlan();
+    };
+    if (S.plan) renderPlanOut();
+    if (!S.inv && !S.invTried) loadSheetInventory();
+  }
+
+  /** "2026-10-29 09:58:28" (Blinkit's generated-at) is today. */
+  function stockInfoNow() { return S.inv ? PlanCore.stockInfo(S.inv.generatedAt, today()) : null; }
+  function invIsToday() { return !!(S.inv && String(S.inv.generatedAt || '').slice(0, 10) === today()); }
+
+  /** Reads the Inventory that the daily updater pasted into "Formula Sheet". */
+  function loadSheetInventory() {
+    S.invTried = true; S.invLoading = true; S.invErr = '';
+    renderPlan();
+    api('getSheetInventory', S.token).then(function (rows) {
+      var inv = PlanCore.parseInventory(rows);
+      if (!inv) throw new Error('Formula Sheet does not look like a Blinkit Inventory download.');
+      inv.fromSheet = true;
+      S.inv = inv; S.invLoading = false; S.final = {};
+      var keep = !!S.keepEditsOnce; S.keepEditsOnce = false;
+      renderPlan(); freshPlan(keep);
+    }, function (e) {
+      S.invLoading = false; S.invErr = 'Could not read the Formula Sheet: ' + e.message + ' Upload the Inventory file instead.';
+      renderPlan();
+    });
+  }
+
+  /** Reads a Blinkit Inventory or Bulk RO .xlsx. Returns 'bulk' or 'inv'; throws if it is neither. */
+  function readBuffer(buf, name, at) {
+    var wb = XLSX.read(new Uint8Array(buf), { type: 'array' });
+    var rowsOf = function (n) { return XLSX.utils.sheet_to_json(wb.Sheets[n], { header: 1, defval: '', raw: true }); };
+    if (wb.SheetNames.indexOf('Bulk RO') >= 0) {
+      var b = PlanCore.parseBulk(rowsOf('Bulk RO'));
+      if (b) { S.bulk = b; S.bulkBuf = buf; S.bulkAt = at || Date.now(); S.bulkName = name; return 'bulk'; }
+    }
+    for (var i = 0; i < wb.SheetNames.length; i++) {
+      var inv = PlanCore.parseInventory(rowsOf(wb.SheetNames[i]));
+      if (inv) { inv.fileName = name; S.inv = inv; S.invBuf = buf; S.invErr = ''; return 'inv'; }
+    }
+    throw new Error(name + ' is not a Blinkit Inventory or Bulk RO file.');
+  }
+
+  function readFile(f) {
+    var rd = new FileReader();
+    rd.onload = function () {
+      try {
+        readBuffer(rd.result, f.name, f.lastModified);
+        S.final = {};
+        saveDraftFiles();
+        renderPlan();
+        freshPlan(false);
+      } catch (e) { $('pErr').innerHTML = msgs([e.message], 'bad'); }
+    };
+    rd.readAsArrayBuffer(f);
+  }
+
+  /* ---- Draft: the plan survives a page refresh until "Wipe" (kept in this browser only) ---- */
+  var DRAFT_FILES = 'bp_draft_files', DRAFT_STATE = 'bp_draft_state';
+  function b64(buf) { var u = new Uint8Array(buf), s = '', CH = 0x8000; for (var i = 0; i < u.length; i += CH) s += String.fromCharCode.apply(null, u.subarray(i, i + CH)); return btoa(s); }
+  function unb64(t) { var s = atob(t), u = new Uint8Array(s.length); for (var i = 0; i < s.length; i++) u[i] = s.charCodeAt(i); return u.buffer; }
+  function draftUser() { return S.boot && S.boot.user ? S.boot.user.id : ''; }
+  function saveDraftFiles() {
+    var d = { user: draftUser(), savedAt: Date.now() };
+    if (S.bulkBuf) d.bulk = { b64: b64(S.bulkBuf), name: S.bulkName, at: S.bulkAt };
+    if (S.inv && !S.inv.fromSheet && S.invBuf) d.inv = { b64: b64(S.invBuf), name: S.inv.fileName };
+    try { localStorage.setItem(DRAFT_FILES, JSON.stringify(d)); S.draftOk = true; }
+    catch (e) { S.draftOk = false; try { localStorage.removeItem(DRAFT_FILES); } catch (e2) { /* ignore */ } }
+  }
+  var draftTimer = null;
+  function saveDraftState() {
+    clearTimeout(draftTimer);
+    draftTimer = setTimeout(function () {
+      if (!S.bulk && !S.inv) return;
+      store(DRAFT_STATE, JSON.stringify({ user: draftUser(), edited: S.edited || {}, filter: S.filter, cover: S.cover || null,
+        starters: S.starters, invFromSheet: !!(S.inv && S.inv.fromSheet) }));
+    }, 250);
+  }
+  function wipeDraft() {
+    store(DRAFT_FILES, null); store(DRAFT_STATE, null);
+    S.inv = null; S.invBuf = null; S.invTried = false; S.invErr = ''; S.bulk = null; S.bulkBuf = null; S.bulkAt = null; S.bulkName = '';
+    S.plan = null; S.final = {}; S.edited = {}; S.cover = null; S.starters = !!S.boot.settings.starters;
+    S.filter = { wh: '', group: '', only: true, q: '', picks: [] };
+  }
+  /** Puts back the uploaded files, typed quantities and filters saved before the page was refreshed. */
+  function restoreDraft() {
+    var f, st;
+    try { f = JSON.parse(load(DRAFT_FILES) || 'null'); st = JSON.parse(load(DRAFT_STATE) || 'null'); } catch (e) { return false; }
+    if (!f || f.user !== draftUser() || !f.bulk) return false;
+    try {
+      readBuffer(unb64(f.bulk.b64), f.bulk.name, f.bulk.at);
+      if (f.inv) readBuffer(unb64(f.inv.b64), f.inv.name);
+    } catch (e) { return false; }
+    if (st && st.user === draftUser()) {
+      S.edited = st.edited || {};
+      if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; }
+      if (st.cover) S.cover = st.cover;
+      if (st.starters != null) S.starters = st.starters;
+    }
+    S.draftOk = true; S.keepEditsOnce = true; S.restoredAt = f.savedAt;
+    return true;
+  }
+
+  /**
+   * Works out the plan with the RO Log as it is right now (not the copy read when the page was opened), so ROs
+   * added or changed elsewhere (another device, another person, the RO Log tab itself) are always counted.
+   */
+  function freshPlan(keepEdits) {
+    if (!S.inv || !S.bulk) { recompute(keepEdits); return; }
+    if ($('planOut') && !S.plan) $('planOut').innerHTML = '<div class="card muted"><span class="spin"></span> Reading the latest RO Log…</div>';
+    refreshBoot().then(function () { recompute(keepEdits); }, function (e) {
+      recompute(keepEdits);
+      toast('Could not read the latest RO Log (' + e.message + '). The plan uses the one read when the page was opened.', 7000);
+    });
+  }
+
+  function skuMap() { var m = {}; (S.boot.skus || []).forEach(function (s) { m[s.item] = s; }); return m; }
+
+  function recompute(keepEdits) {
+    if (!S.inv || !S.bulk) { S.plan = null; renderPlanOut(); return; }
+    var s = S.boot.settings;
+    var sm = skuMap();
+    S.plan = PlanCore.computePlan(S.inv.rows, S.bulk.rows, {
+      coverDays: S.cover || s.coverDays, minLine: s.minLine, roundTo: s.roundTo, skus: sm,
+      openROs: S.boot.openROs, bulkAt: S.bulkAt, elapsed: (stockInfoNow() || {}).elapsed || 0
+    }).filter(function (r) { return !(sm[r.item] && sm[r.item].active === false); }); // Settings → SKUs: Active unticked = left out
+    var old = keepEdits ? S.edited || {} : {};
+    S.edited = {}; S.final = {};
+    S.plan.forEach(function (r) {
+      var def = r.locked ? 0 : r.rec + (S.starters ? r.starter : 0);
+      S.final[r.key] = old[r.key] !== undefined ? old[r.key] : def;
+      if (old[r.key] !== undefined) S.edited[r.key] = old[r.key];
+    });
+    renderPlanOut();
+    if (!keepEdits) saveSnapshot();
+  }
+
+  /**
+   * After an RO is saved or changed anywhere (RO PDF, by hand, RO Log), the plan on New Plan is worked out again
+   * with the new RO Log, and the Dashboard's copy is saved again. Quantities typed on the plan are kept.
+   */
+  function refreshPlanAfterRoChange() {
+    if (!S.inv || !S.bulk) return;
+    var keep = Object.keys(S.edited || {}).length > 0;
+    recompute(keep);
+    if (keep) saveSnapshot();
+  }
+
+  function saveSnapshot() {
+    if (!can('Planner') || !S.plan) return;
+    var rows = S.plan.filter(function (r) { return r.rate > 0 || r.position > 0; }).map(function (r) {
+      return [r.wh, r.item, r.name, r.group, r.status, Math.round(r.rate * 10) / 10, r.position,
+        r.daysAtStock == null ? '' : Math.round(r.daysAtStock * 10) / 10, r.rec, r.locked ? 'Yes' : '',
+        r.whStock + r.dsStock, r.incoming + r.appIncoming];
+    });
+    var items = {}; S.plan.forEach(function (r) { items[r.item] = { item: r.item, name: r.name }; });
+    var units = 0, lines = 0; S.plan.forEach(function (r) { if (r.rec > 0) { units += r.rec; lines++; } });
+    api('saveSnapshot', S.token, rows, { inventoryAt: S.inv.generatedAt, bulkAt: S.bulkAt, units: units, lines: lines,
+      items: Object.keys(items).map(function (k) { return items[k]; }) })
+      .then(function () { return refreshBoot(); })
+      .then(function () {
+        // New items may have been added to the SKU list: show their group if an admin set one meanwhile.
+        var m = skuMap(); S.plan.forEach(function (r) { var x = m[r.item]; if (x) { r.sku = x.sku; r.group = x.group; r.tier = x.tier; } });
+        if (S.tab === 'plan') renderPlanOut();
+      }, function () { /* the plan works without it */ });
+  }
+
+  function visibleRows() {
+    var f = S.filter, q = f.q.toLowerCase(), picks = f.picks || [];
+    return S.plan.filter(function (r) {
+      if (f.wh && r.wh !== f.wh) return false;
+      if (f.group && (r.group || '?') !== f.group) return false;
+      // Picked SKUs: show every line of just those SKUs (even ones with nothing to send);
+      // the search text then only drives the suggestion list.
+      if (picks.length) return picks.indexOf(Number(r.item)) >= 0;
+      // "Lines to send": a line you changed yourself stays on screen even at 0, so a block filled or typed down to 0
+      // keeps its heading (and its ↺ reset) instead of disappearing.
+      if (f.only && !(S.final[r.key] > 0) && !(r.locked && r.note) && !(S.edited && r.key in S.edited)) return false;
+      if (q && (r.name + ' ' + r.sku + ' ' + r.item).toLowerCase().indexOf(q) < 0) return false;
+      return true;
+    });
+  }
+
+  function totals() {
+    var byWh = {}, units = 0, lines = 0, bad = 0;
+    S.plan.forEach(function (r) {
+      var q = S.final[r.key] || 0;
+      if (q > 0) { units += q; lines++; (byWh[r.wh] = byWh[r.wh] || { units: 0, lines: 0 }); byWh[r.wh].units += q; byWh[r.wh].lines++; }
+      if (q > r.max || (q > 0 && r.locked)) bad++;
+    });
+    return { byWh: byWh, units: units, lines: lines, bad: bad };
+  }
+
+  function renderPlanOut() {
+    var out = $('planOut'); if (!out) return;
+    if (!S.plan) {
+      out.innerHTML = (S.inv || S.bulk) ? '<div class="card muted">Now add the ' + (S.inv ? 'Bulk RO' : 'Inventory') + ' file.</div>' : '';
+      $('bar').classList.add('hidden'); return;
+    }
+    var t = totals(), whs = [];
+    S.plan.forEach(function (r) { if (whs.indexOf(r.wh) < 0) whs.push(r.wh); });
+    whs.sort();
+    var locked = S.plan.filter(function (r) { return r.locked && r.note; });
+    var noGroup = S.plan.filter(function (r) { return !r.group && (S.final[r.key] || 0) > 0; });
+    var info = [];
+    var si = stockInfoNow();
+    if (si) info.push('Stock as of ' + prettyDate(si.stockDate) + ' (Inventory generated ' + prettyDate(String(S.inv.generatedAt).slice(0, 10)) + '). ' +
+      (si.elapsed ? si.elapsed + ' day' + (si.elapsed > 1 ? 's' : '') + ' of sales since then are taken off: days count from today and the plan covers ' + (S.cover || S.boot.settings.coverDays) + ' days from today.' : ''));
+    else info.push('The Inventory has no "generated at" date, so its stock is taken as of today.');
+    var inApp = S.plan.reduce(function (a, r) { return a + r.appIncoming; }, 0);
+    if (inApp) info.push('Counted ' + fmt(inApp) + ' units from the RO Log that Blinkit\'s file cannot show yet (Planned, or created after this file was downloaded).');
+    var html = '<div class="card"><h2>2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines</h2>' +
+      '<div class="chips" id="whChips"><span class="chip' + (S.filter.wh ? '' : ' on') + '" data-wh="">All<b>' + fmt(t.units) + '</b></span>' +
+      whs.map(function (w) { var x = t.byWh[w]; return '<span class="chip' + (S.filter.wh === w ? ' on' : '') + '" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '<b>' + (x ? fmt(x.units) : 0) + '</b></span>'; }).join('') +
+      '</div><div class="row" style="margin-top:10px">' +
+      '<div><label class="f">Group</label><select id="fGroup"><option value="">' + esc(groupList().join(' + ')) + '</option>' + groupList().map(function (g) { return '<option value="' + g + '"' + (S.filter.group === g ? ' selected' : '') + '>' + esc(groupName(g)) + '</option>'; }).join('') + '<option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
+      '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (S.filter.only ? '' : ' selected') + '>All items</option></select></div>' +
+      '<div class="srch"><label class="f">Search — pick one or more SKUs</label><input type="text" id="fQ" autocomplete="off" placeholder="SKU or item ID, Enter to add" value="' + esc(S.filter.q) + '"><div class="sugg hidden" id="fSugg"></div></div>' +
+      '<div style="flex:0 0 auto"><button class="btn" id="bClr" title="Clear all filters">✕ Clear</button></div>' +
+      '<div style="flex:0 0 auto"><button class="btn" id="bXls">⬇ Plan (Excel)</button></div></div>' +
+      '<div class="picks" id="fPicks"></div>' +
+      msgs(info, 'info') +
+      (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
+      (locked.length ? '<details class="msg warn" id="lockedBox"' + (S.lockedOpen ? ' open' : '') + '><summary style="cursor:pointer"><b>Needed but locked on Blinkit (' + locked.length + ')</b> <span class="small">— click to ' + (S.lockedOpen ? 'hide' : 'show') + '</span></summary><div style="margin-top:6px">' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div></details>' : '') +
+      '</div><div class="card" style="padding:0 0 4px" id="lines"></div>';
+    out.innerHTML = html;
+    // "Needed but locked" starts collapsed; it opens on click and stays as you left it.
+    if ($('lockedBox')) $('lockedBox').addEventListener('toggle', function () {
+      S.lockedOpen = this.open;
+      var t = this.querySelector('summary .small'); if (t) t.textContent = '— click to ' + (this.open ? 'hide' : 'show');
+    });
+    $('whChips').onclick = function (e) { var c = e.target.closest('.chip'); if (!c) return; S.filter.wh = c.getAttribute('data-wh'); renderPlanOut(); };
+    $('fGroup').onchange = function () { S.filter.group = this.value; renderLines(); };
+    $('fOnly').onchange = function () { S.filter.only = this.value === '1'; renderLines(); };
+    initSkuPicker();
+    $('bClr').onclick = function () { S.filter = { wh: '', group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
+    $('bXls').onclick = exportPlan;
+    renderPicks();
+    renderLines();
+    renderBar();
+  }
+
+  // ---- Search: multi-SKU picker ----
+  function skuChoices() {
+    var seen = {}, out = [];
+    S.plan.forEach(function (r) {
+      var k = Number(r.item); if (seen[k]) return; seen[k] = 1;
+      out.push({ item: k, sku: r.sku || '', name: r.name || '' });
+    });
+    return out.sort(function (a, b) { return String(a.sku || a.item).localeCompare(String(b.sku || b.item), undefined, { numeric: true }); });
+  }
+  function skuMatches(q) {
+    q = String(q || '').trim().toLowerCase(); if (!q) return [];
+    var picks = S.filter.picks;
+    return skuChoices().filter(function (c) {
+      return picks.indexOf(c.item) < 0 && (c.sku + ' ' + c.item + ' ' + c.name).toLowerCase().indexOf(q) >= 0;
+    });
+  }
+  function addPicks(items) {
+    var changed = false;
+    items.forEach(function (it) { it = Number(it); if (it && S.filter.picks.indexOf(it) < 0) { S.filter.picks.push(it); changed = true; } });
+    if (changed) { S.filter.q = ''; $('fQ').value = ''; renderPicks(); renderLines(); }
+    return changed;
+  }
+  function renderPicks() {
+    var box = $('fPicks'); if (!box) return;
+    var all = skuChoices(), by = {}; all.forEach(function (c) { by[c.item] = c; });
+    box.innerHTML = S.filter.picks.map(function (it) {
+      var c = by[it] || { sku: '', item: it };
+      return '<span class="chip on">' + esc(skuText(c.sku, c.item)) + '<button data-it="' + it + '" title="Remove">×</button></span>';
+    }).join('') + (S.filter.picks.length ? '<span class="small muted" style="align-self:center">Showing all lines of ' + S.filter.picks.length + ' SKU' + (S.filter.picks.length > 1 ? 's' : '') + '</span>' : '');
+    box.onclick = function (e) {
+      var b = e.target.closest('button[data-it]'); if (!b) return;
+      var it = Number(b.getAttribute('data-it'));
+      S.filter.picks = S.filter.picks.filter(function (x) { return x !== it; });
+      renderPicks(); renderLines();
+    };
+  }
+  function initSkuPicker() {
+    var inp = $('fQ'), sg = $('fSugg'), list = [], hi = 0;
+    function draw() {
+      list = skuMatches(inp.value).slice(0, 30);
+      if (!list.length) { sg.classList.add('hidden'); return; }
+      if (hi >= list.length) hi = 0;
+      sg.innerHTML = list.map(function (c, i) {
+        return '<div data-i="' + i + '" class="' + (i === hi ? 'on' : '') + '"><b>' + esc(c.sku || 'No SKU') + '</b> · ' + c.item + (c.name ? ' <small>' + esc(c.name) + '</small>' : '') + '</div>';
+      }).join('');
+      sg.classList.remove('hidden');
+    }
+    inp.oninput = function () {
+      S.filter.q = this.value; hi = 0; draw();
+      if (!S.filter.picks.length) renderLines();
+    };
+    inp.onfocus = draw;
+    inp.onblur = function () { setTimeout(function () { sg.classList.add('hidden'); }, 150); };
+    inp.onkeydown = function (e) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        if (!list.length) return; e.preventDefault();
+        hi = (hi + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; draw();
+      } else if (e.key === 'Enter') {
+        e.preventDefault();
+        // Several SKUs pasted at once (comma / space / new line separated): add each exact match.
+        var parts = inp.value.split(/[\s,;]+/).filter(Boolean);
+        if (parts.length > 1) {
+          var all = skuChoices(), hits = [];
+          parts.forEach(function (p) { p = p.toLowerCase(); all.forEach(function (c) { if (String(c.sku).toLowerCase() === p || String(c.item) === p) hits.push(c.item); }); });
+          if (addPicks(hits)) { sg.classList.add('hidden'); return; }
+        }
+        if (list.length) { addPicks([list[hi].item]); hi = 0; draw(); }
+      } else if (e.key === 'Escape') { sg.classList.add('hidden'); }
+    };
+    sg.onmousedown = function (e) {
+      var d = e.target.closest('[data-i]'); if (!d) return;
+      e.preventDefault(); addPicks([list[Number(d.getAttribute('data-i'))].item]); draw();
+    };
+  }
+
+  // Days of cover after sending q more units (null when nothing sells).
+  function daysAfter(r, q) { return r.rate > 0 ? (r.position + (q || 0)) / r.rate - r.elapsed : null; }
+  // Days are always shown rounded DOWN to whole days (never below 0).
+  function fmtDays(d) { return d == null || !isFinite(d) ? '–' : fmt(Math.max(0, Math.floor(d))); }
+
+  function statusPill(r) {
+    var cls = { est: '', low: 'warn', new: 'info', nosale: '', notlive: '' }[r.kind] || '';
+    return '<span class="pill ' + cls + '">' + esc(r.status) + '</span>';
+  }
+
+  function renderLines() {
+    saveDraftState(); // filters changed
+    var rows = visibleRows(), box = $('lines'); if (!box) return;
+    if (!rows.length) { box.innerHTML = '<div class="muted" style="padding:16px">Nothing to show with these filters.</div>'; return; }
+    var groups = {};
+    rows.forEach(function (r) { var k = r.wh + '||' + (r.group || '?'); (groups[k] = groups[k] || []).push(r); });
+    // Send heading of each block: a small "fill all" box and a ↺ reset (both left out of the Tab order).
+    var head = function (gi) {
+      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right">Has now</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
+        '<div class="sendH"><span>Send</span><span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
+        '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
+        '<div class="right">Days after</div></div>';
+    };
+    var blocks = [];
+    var html = '';
+    Object.keys(groups).sort().forEach(function (k) {
+      var rs = groups[k], p = k.split('||');
+      // Sorted by the planner's suggestion (not by what you typed), so rows stay put while you edit, fill or reset.
+      var sug = function (r) { return r.locked ? 0 : r.rec + (S.starters ? r.starter : 0); };
+      rs.sort(function (a, b) { return sug(b) - sug(a) || (a.daysNow == null ? 999 : a.daysNow) - (b.daysNow == null ? 999 : b.daysNow) || a.item - b.item; });
+      var u = rs.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0);
+      var gi = blocks.push(rs.map(function (r) { return r.key; })) - 1;
+      var shut = !!(S.shut && S.shut[k]);
+      html += '<section class="whsec' + (shut ? ' shut' : '') + '" data-sk="' + esc(k) + '"><div class="whhead"><div class="grp tgl" style="padding:0 10px" title="Click to collapse / expand this block"><span><span class="chev">' + (shut ? '▸' : '▾') + '</span> ' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span>' + fmt(u) + ' units · ' + rs.length + (rs.length === 1 ? ' line' : ' lines') + '</span></div>' + head(gi) + '</div>';
+      rs.forEach(function (r) {
+        var q = S.final[r.key] || 0, after = daysAfter(r, q);
+        var over = q > r.max || (q > 0 && r.locked);
+        var inc = r.incoming + r.appIncoming;
+        html += '<div class="line' + (q > 0 ? ' send' : '') + (r.locked ? ' lock' : '') + '" data-k="' + esc(r.key) + '">' +
+          '<div class="nm">' + (r.sku ? esc(r.sku) : '<span class="pill warn">No SKU</span>') + ' <span class="muted" style="font-weight:400">· ' + r.item + '</span> ' + statusPill(r) +
+          '<small>' + (r.tier ? esc(r.tier) + ' · ' : '') + (r.daysNow != null && r.daysNow < 60 ? 'runs out ~' + prettyDate(addDays(today(), Math.max(0, Math.floor(r.daysNow)))) + ' · ' : '') +
+          'stock ' + fmt(r.whStock + r.dsStock) + (inc ? ' + incoming ' + fmt(inc) : '') +
+          (r.note ? ' · <b>' + esc(r.note) + '</b>' : (r.locked ? ' · Locked: ' + esc(r.remarks) : '')) +
+          (r.starter && !r.locked ? ' · starter ' + r.starter : '') + '</small></div>' +
+          '<div class="right"><span class="lbl">Sold 7d / 30d</span>' + fmt(r.s7) + ' / ' + fmt(r.s30) + '</div>' +
+          '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
+          '<div class="right"><span class="lbl">Has now</span>' + fmt(r.position) + '</div>' +
+          '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
+          '<div class="right c-max">' + fmt(r.max) + '</div>' +
+          '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
+          '<div class="right"><span class="lbl">Days after</span><span class="dAfter">' + fmtDays(after) + '</span></div></div>';
+      });
+      html += '</section>';
+    });
+    box.innerHTML = '<div class="small" style="padding:10px 10px 0;text-align:right"><a href="#" id="shutAll">Collapse all</a> · <a href="#" id="openAll">Expand all</a></div>' + html;
+    setStickTop();
+    var setShut = function (sec, on) {
+      S.shut = S.shut || {};
+      S.shut[sec.getAttribute('data-sk')] = on;
+      sec.classList.toggle('shut', on);
+      sec.querySelector('.chev').textContent = on ? '▸' : '▾';
+    };
+    $('shutAll').onclick = function (e) { e.preventDefault(); Array.prototype.forEach.call(box.querySelectorAll('.whsec'), function (x) { setShut(x, true); }); };
+    $('openAll').onclick = function (e) { e.preventDefault(); Array.prototype.forEach.call(box.querySelectorAll('.whsec'), function (x) { setShut(x, false); }); };
+    var byKey = {}; S.plan.forEach(function (r) { byKey[r.key] = r; });
+    var fillBlock = function (gi, v) {
+      blocks[gi].forEach(function (k) {
+        var r = byKey[k]; if (!r || r.locked) return;
+        var q = Math.min(v, r.max); // never above Blinkit's max for that line
+        S.final[k] = q; S.edited[k] = q;
+      });
+      renderLines(); renderBar(); toast('Filled ' + v + ' in every Send box of this block' + (blocks[gi].some(function (k) { return byKey[k] && v > byKey[k].max; }) ? ' (Blinkit max where lower)' : '') + '.');
+    };
+    var resetBlock = function (gi) {
+      blocks[gi].forEach(function (k) {
+        var r = byKey[k]; if (!r) return;
+        delete S.edited[k];
+        S.final[k] = r.locked ? 0 : r.rec + (S.starters ? r.starter : 0);
+      });
+      renderLines(); renderBar(); toast('Quantities of this block are back to the suggestion.');
+    };
+    box.onkeydown = function (e) {
+      if (!e.target.classList.contains('fillQ') || e.key !== 'Enter') return;
+      e.preventDefault();
+      if (e.target.value === '') return;
+      fillBlock(Number(e.target.getAttribute('data-g')), Math.max(0, Math.round(Number(e.target.value) || 0)));
+    };
+    box.onclick = function (e) {
+      var t = e.target.closest('.tgl');
+      if (t) {
+        var sec = t.closest('.whsec'), on = !sec.classList.contains('shut');
+        setShut(sec, on);
+        // Collapsing a block that is pinned at the top: bring its heading back into view.
+        if (on && sec.getBoundingClientRect().top < 0) sec.scrollIntoView({ block: 'start' });
+        return;
+      }
+      var b = e.target.closest('.fillR'); if (!b) return;
+      resetBlock(Number(b.getAttribute('data-g')));
+    };
+    box.oninput = function (e) {
+      if (!e.target.classList.contains('q')) return;
+      var k = e.target.closest('.line').getAttribute('data-k');
+      var v = Math.max(0, Math.round(Number(e.target.value) || 0));
+      S.final[k] = v; S.edited[k] = v;
+      var r = S.plan.filter(function (x) { return x.key === k; })[0];
+      e.target.classList.toggle('over', v > r.max);
+      e.target.closest('.line').classList.toggle('send', v > 0);
+      var da = e.target.closest('.line').querySelector('.dAfter'); if (da) da.textContent = fmtDays(daysAfter(r, v));
+      renderBar();
+    };
+  }
+
+  // Pinned warehouse headers sit just below the sticky top bar + tab row.
+  function setStickTop() {
+    var nav = document.querySelector('.nav'), top = document.querySelector('.top');
+    // On a phone the top bar is taller (name, role, build on 3 lines): the tab row sticks right below it.
+    if (nav && top) nav.style.top = top.offsetHeight + 'px';
+    var h = (top ? top.offsetHeight : 0) + (nav && nav.offsetParent ? nav.offsetHeight : 0);
+    if (h) document.documentElement.style.setProperty('--stickTop', h + 'px');
+  }
+  window.addEventListener('resize', setStickTop);
+
+  // Tabbing through the Send boxes: keep the focused box clear of the fixed bottom bar and of the
+  // pinned warehouse heading at the top, by scrolling just enough.
+  document.addEventListener('focusin', function (e) {
+    var el = e.target;
+    if (!el || !el.classList || !el.classList.contains('q')) return;
+    requestAnimationFrame(function () { keepVisible(el); }); // after the browser's own scroll-into-view
+  });
+  function keepVisible(el) {
+    var line = el.closest('.line') || el;
+    var r = line.getBoundingClientRect(), gap = 8;
+    var bar = $('bar'), barTop = bar && !bar.classList.contains('hidden') ? bar.getBoundingClientRect().top : window.innerHeight;
+    var sec = line.closest('.whsec'), head = sec && sec.querySelector('.whhead');
+    // Where the heading sits once pinned: just under the top bar, its own height tall (it may be mid-scroll now).
+    var stick = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--stickTop')) || 0;
+    var headBottom = stick + (head ? head.offsetHeight : 0);
+    // Keep the row in the middle part of the visible area: once it comes within ~2 rows of the bottom bar
+    // or the pinned heading, scroll so it sits in the middle again (the rows around it stay visible too).
+    var margin = Math.min(2 * r.height + gap, (barTop - headBottom) / 4);
+    if (r.bottom > barTop - margin || r.top < headBottom + margin) {
+      var mid = (headBottom + barTop) / 2;
+      window.scrollBy(0, (r.top + r.bottom) / 2 - mid);
+    }
+  }
+
+  function renderBar() {
+    saveDraftState();
+    if (!S.plan || !can('Planner')) { $('bar').classList.add('hidden'); return; }
+    var t = totals();
+    // Keep the warehouse chips' unit totals in step with every change (typing, fill, ↺).
+    Array.prototype.forEach.call(document.querySelectorAll('#whChips .chip'), function (c) {
+      var w = c.getAttribute('data-wh'), b = c.querySelector('b');
+      if (b) b.textContent = fmt(w ? (t.byWh[w] ? t.byWh[w].units : 0) : t.units);
+    });
+    var h2 = document.querySelector('#planOut h2');
+    if (h2) h2.textContent = '2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines';
+    $('bar').innerHTML = '<div class="sum"><b>' + fmt(t.units) + '</b> units · ' + t.lines + ' lines · ' + Object.keys(t.byWh).length + ' warehouses' +
+      (t.bad ? ' · <span style="color:var(--bad)">' + t.bad + ' above Blinkit max</span>' : '') + '</div>' +
+      '<button class="btn g" id="bCreate"' + (t.lines && !t.bad ? '' : ' disabled') + '>Create RO file</button>';
+    $('bar').classList.remove('hidden');
+    $('bCreate').onclick = openCreate;
+  }
+
+  function openCreate() {
+    var t = totals();
+    var whs = Object.keys(t.byWh).sort();
+    // Only the warehouse picked on the plan is ticked; with "All" nothing is ticked, so you choose.
+    var pre = S.filter.wh;
+    openModal('<h2>Create ROs</h2><div class="small muted">Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.</div>' +
+      '<div class="small" style="margin-top:10px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
+      '<div style="margin:6px 0 10px">' + whs.map(function (w) {
+        return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (w === pre ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span><b>' + fmt(t.byWh[w].units) + '</b><span class="small muted">' + t.byWh[w].lines + ' lines</span></label>';
+      }).join('') + '</div>' +
+      '<div class="row"><div><label class="f">RO date</label><input type="date" id="cDate" value="' + today() + '"></div>' +
+      '<div><label class="f">Status</label><select id="cStatus"><option>Created</option><option>Planned</option></select></div></div>' +
+      '<div class="small muted" style="margin-top:6px">Created = you will upload the file to Blinkit now. Planned = not on Blinkit yet (still counted in the next plan).</div>' +
+      '<div style="margin-top:10px"><label class="f">Excel file(s) to download</label><div class="chips" id="cFiles">' +
+        '<label class="chip"><input type="checkbox" class="cf" value="ALL" checked> Merged (all groups)</label>' +
+        groupList().map(function (g) { return '<label class="chip"><input type="checkbox" class="cf" value="' + g + '"> ' + g + ' only</label>'; }).join('') +
+      '</div><div class="small muted" style="margin-top:4px">Only the ticked warehouses are in the file(s). A group file is made only when that group has lines.</div></div>' +
+      '<div id="cOut"></div><div class="row" style="margin-top:12px"><button class="btn" id="cNo">Cancel</button><button class="btn g" id="cGo">Save &amp; download file</button></div>');
+    $('cNo').onclick = closeModal;
+    var tickAll = function (on) { return function (e) { e.preventDefault(); Array.prototype.forEach.call(document.querySelectorAll('.cw'), function (c) { c.checked = on; }); }; };
+    $('cAll').onclick = tickAll(true); $('cNone').onclick = tickAll(false);
+    $('cGo').onclick = function () {
+      var pick = Array.prototype.filter.call(document.querySelectorAll('.cw'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+      if (!pick.length) { $('cOut').innerHTML = msgs(['Tick at least one warehouse.'], 'warn'); return; }
+      var lines = S.plan.filter(function (r) { return (S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0; });
+      if (!lines.length) return;
+      var noGroup = lines.filter(function (r) { return !r.group; });
+      if (noGroup.length) { $('cOut').innerHTML = msgs([noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group. Set it in Settings → SKUs (admin), then try again.'], 'bad'); return; }
+      var fileKinds = Array.prototype.filter.call(document.querySelectorAll('.cf'), function (c) { return c.checked; }).map(function (c) { return c.value; });
+      if (!fileKinds.length) { $('cOut').innerHTML = msgs(['Tick at least one Excel file (Merged, or a group).'], 'warn'); return; }
+      var files = roFiles(lines, fileKinds, pick);
+      if (!files.length) { $('cOut').innerHTML = msgs(['None of the ticked groups has lines in the ticked warehouses.'], 'warn'); return; }
+      $('cGo').disabled = true; $('cGo').innerHTML = '<span class="spin"></span> Saving…';
+      api('createROs', S.token, {
+        lines: lines.map(function (r) { return { wh: r.wh, item: r.item, sku: r.sku, name: r.name, group: r.group, qty: S.final[r.key] }; }),
+        roDate: $('cDate').value || today(), status: $('cStatus').value, source: 'Plan',
+        merged: fileKinds.indexOf('ALL') >= 0 // one Blinkit file per warehouse = one RO in the RO Log
+      }).then(function (res) {
+        S.boot.openROs = res.openROs;
+        return downloadFiles(files).then(function () { return res; });
+      }).then(function (res) {
+        var ok = res.batches.map(function (b) { return b.wh + ' ' + b.group + ': ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); });
+        $('modalBox').innerHTML = '<h2>✅ Saved — ' + (files.length > 1 ? files.length + ' files' : 'file') + ' downloaded</h2>' + msgs(ok, 'ok') + msgs(res.warnings, 'warn') +
+          '<div class="msg info">Upload the downloaded file' + (files.length > 1 ? 's' : '') + ' on Blinkit (Bulk RO upload). Then add the RO number and appointment in the RO Log.' +
+          (files.length > 1 ? ' If the browser asked to allow several downloads and one is missing, download it again below.' : '') + '</div>' +
+          '<div style="margin-top:8px">' + files.map(function (f, i) { return '<button class="btn sm cAgain" data-i="' + i + '" style="margin:0 6px 6px 0">⬇ ' + esc(f.name) + ' (' + fmt(f.units) + ' units)</button>'; }).join('') + '</div>' +
+          '<div class="row" style="margin-top:6px"><button class="btn p" id="cDone">Done</button></div>';
+        Array.prototype.forEach.call(document.querySelectorAll('.cAgain'), function (b) { b.onclick = function () { var f = files[Number(b.getAttribute('data-i'))]; downloadBlinkitFile(f.lines, f.name); }; });
+        $('cDone').onclick = function () { closeModal(); freshPlan(false); };
+      }, function (e) {
+        $('cGo').disabled = false; $('cGo').textContent = 'Save & download file';
+        $('cOut').innerHTML = msgs([e.message], 'bad') + '<button class="btn sm" id="cOnly">Download the file without saving</button>';
+        $('cOnly').onclick = function () { downloadFiles(files); };
+      });
+    };
+  }
+
+  /**
+   * The Excel files to make: "ALL" = one merged file, a group (TBI / TBO / TBG) = a file with only that group's lines.
+   * The name says the group, and the warehouse when only one is ticked.
+   */
+  function roFiles(lines, kinds, whs) {
+    var wh = whs.length === 1 ? '_' + whs[0].replace(/ - Feeder( Warehouse)?| Feeder$/, '').replace(/[^A-Za-z0-9]+/g, '') : '';
+    var out = [];
+    kinds.forEach(function (k) {
+      var ls = k === 'ALL' ? lines : lines.filter(function (r) { return r.group === k; });
+      if (!ls.length) return;
+      out.push({ name: 'Blinkit_Bulk_RO_' + today() + wh + (k === 'ALL' ? '' : '_' + k) + '.xlsx', lines: ls,
+        units: ls.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0) });
+    });
+    return out;
+  }
+  /** Downloads the files one after another (a short pause so the browser takes each one). */
+  function downloadFiles(files) {
+    return files.reduce(function (p, f, i) {
+      return p.then(function () { return downloadBlinkitFile(f.lines, f.name); })
+        .then(function () { return i < files.length - 1 ? new Promise(function (r) { setTimeout(r, 700); }) : null; });
+    }, Promise.resolve());
+  }
+
+  /** Blinkit's own Bulk RO file with RO Quantity and Shipping Address filled in for these lines. */
+  function downloadBlinkitFile(lines, name) {
+    var head = S.bulk.head;
+    var qCol = PlanCore.colLetter(head.indexOf('RO Quantity')), aCol = PlanCore.colLetter(head.indexOf('Shipping Address'));
+    var fills = {}; lines.forEach(function (r) { fills[r.row] = S.final[r.key]; });
+    return JSZip.loadAsync(S.bulkBuf).then(function (zip) {
+      return zip.file('xl/workbook.xml').async('string').then(function (wbx) {
+        var m = wbx.match(/<sheet [^>]*name="Bulk RO"[^>]*r:id="([^"]+)"/) || wbx.match(/<sheet [^>]*r:id="([^"]+)"[^>]*name="Bulk RO"/);
+        if (!m) throw new Error('The Bulk RO file looks different from usual (no "Bulk RO" sheet).');
+        return zip.file('xl/_rels/workbook.xml.rels').async('string').then(function (rels) {
+          var re = new RegExp('<Relationship [^>]*Id="' + m[1] + '"[^>]*>|<Relationship [^>]*Target="[^"]*"[^>]*Id="' + m[1] + '"[^>]*>');
+          var rel = (rels.match(re) || [''])[0], tg = (rel.match(/Target="([^"]+)"/) || [])[1];
+          if (!tg) throw new Error('Could not find the Bulk RO sheet inside the file.');
+          var path = tg.charAt(0) === '/' ? tg.slice(1) : 'xl/' + tg.replace(/^\.\//, '');
+          return zip.file(path).async('string').then(function (xml) {
+            zip.file(path, PlanCore.fillSheetXml(xml, fills, qCol, aCol, S.boot.settings.address));
+            return zip.generateAsync({ type: 'blob', mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', compression: 'DEFLATE' });
+          });
+        });
+      });
+    }).then(function (blob) { saveBlob(blob, name || 'Blinkit_Bulk_RO_' + today() + '.xlsx'); });
+  }
+
+  function saveBlob(blob, name) {
+    // Inside the Android app the in-app browser cannot save downloads: hand the file to the app (→ Downloads).
+    if (window.PlannerApp && window.PlannerApp.saveFile) {
+      var rd = new FileReader();
+      rd.onload = function () { window.PlannerApp.saveFile(String(rd.result).split(',')[1], name, blob.type || 'application/octet-stream'); };
+      rd.readAsDataURL(blob);
+      return;
+    }
+    var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 1500);
+  }
+
+  function exportPlan() {
+    var rows = S.plan.map(function (r) {
+      return { Warehouse: r.wh, Group: r.group, SKU: r.sku, 'Item ID': r.item, Status: r.status,
+        'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
+        'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
+        'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
+        Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, Note: r.note, Locked: r.locked ? r.remarks : '' };
+    });
+    var wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Plan');
+    var out = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+    saveBlob(new Blob([out], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), 'Blinkit_Plan_' + today() + '.xlsx');
+  }
+
+  /* ======================= RO Log ======================= */
+  function renderLog() {
+    var f = S.logFilter = S.logFilter || { from: addDays(today(), -45), to: '', wh: '', status: 'Created' }; // opens on Created ROs
+    var whs = S.boot.warehouses || [];
+    $('app').innerHTML = '<div class="card"><h2>RO Log</h2><div class="row">' +
+      '<div><label class="f">From</label><input type="date" id="gFrom" value="' + f.from + '"></div>' +
+      '<div><label class="f">To</label><input type="date" id="gTo" value="' + f.to + '"></div>' +
+      '<div><label class="f">Warehouse</label><select id="gWh"><option value="">All</option>' + whs.map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
+      '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ['Planned', 'Created', 'Cancelled'].concat(f.status === 'Delivered' ? ['Delivered'] : []).map(function (s) { return '<option' + (f.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
+      '</div><div class="small muted" style="margin-top:8px"><b>From / To</b> = RO date. <b>Status:</b> ' +
+        '<b>Planned</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
+        '<b>Created</b> = uploaded to Blinkit (counted until Blinkit\'s own Bulk RO file shows it as incoming) · ' +
+        '<b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
+      '</div><div id="logOut" class="muted card">Loading…</div>';
+    ['gFrom', 'gTo', 'gWh', 'gSt'].forEach(function (id) {
+      $(id).onchange = function () { f.from = $('gFrom').value; f.to = $('gTo').value; f.wh = $('gWh').value; f.status = $('gSt').value; loadLog(); };
+    });
+    loadLog();
+  }
+
+  function loadLog() {
+    var f = S.logFilter;
+    api('listROs', S.token, f).then(function (rows) { S.logRows = rows; drawLog(); }, function (e) { $('logOut').innerHTML = msgs([e.message], 'bad'); });
+  }
+
+  /**
+   * One card per RO as it is on Blinkit. The app keeps one batch per group (each goes into its own TBI / TBO / TBG
+   * block of the month tab), but batches created together with the Merged file, or carrying the same Blinkit RO
+   * number for one warehouse, are one RO and are shown — and saved — together.
+   */
+  function cardsOf(rows) {
+    var b = {}, cards = {};
+    rows.forEach(function (r) { (b[r.batch] = b[r.batch] || []).push(r); });
+    Object.keys(b).forEach(function (id) {
+      var r0 = b[id][0];
+      var key = r0.merged ? 'M|' + r0.merged + '|' + r0.wh : r0.roNo ? 'N|' + PlanCore.whNorm(r0.wh) + '|' + r0.roNo : 'B|' + id;
+      (cards[key] = cards[key] || { key: key, batches: [], rows: [] }).batches.push(id);
+      cards[key].rows = cards[key].rows.concat(b[id]);
+    });
+    return Object.keys(cards).map(function (k) { return cards[k]; }).sort(function (x, y) {
+      return (y.rows[0].roDate + y.rows[0].batch).localeCompare(x.rows[0].roDate + x.rows[0].batch);
+    });
+  }
+
+  function batchStatus(rs) {
+    var st = {}; rs.forEach(function (r) { st[r.status] = 1; });
+    var k = Object.keys(st); return k.length === 1 ? k[0] : 'Mixed';
+  }
+
+  function drawLog() {
+    var box = $('logOut'); if (!box) return;
+    var cs = cardsOf(S.logRows || []);
+    if (!cs.length) { box.className = 'card muted'; box.innerHTML = 'No ROs for these filters.'; return; }
+    box.className = '';
+    var open = S.openBatch || {};
+    var pc = { Planned: 'info', Created: 'warn', Delivered: 'ok', Cancelled: 'bad', Mixed: '' };
+    var gOrder = groupList();
+    box.innerHTML = cs.map(function (c, ci) {
+      var rs = c.rows.slice().sort(function (a, b) { return gOrder.indexOf(a.group) - gOrder.indexOf(b.group); });
+      var r0 = rs[0], st = batchStatus(rs);
+      var groups = []; rs.forEach(function (r) { if (groups.indexOf(r.group) < 0) groups.push(r.group); });
+      var tabs = []; rs.forEach(function (r) { if (r.tabs && tabs.indexOf(r.tabs) < 0) tabs.push(r.tabs); });
+      var units = rs.reduce(function (a, r) { return a + (r.status === 'Cancelled' ? 0 : r.qty); }, 0);
+      var edit = can('Planner'), multi = groups.length > 1;
+      return '<div class="ro' + (open[c.key] ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
+        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span><span class="pill ' + pc[st] + '">' + st + '</span>' +
+        '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
+        (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
+        (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
+        (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ['Planned', 'Created', 'Cancelled'].map(function (s) { return '<option>' + s + '</option>'; }).join('') + '</select></div>' +
+          '<div><label class="f">Appointment</label><input type="date" class="bAp" value="' + esc(r0.appt) + '"></div>' +
+          '<div><label class="f">Blinkit RO No.</label><input type="text" class="bNo" value="' + esc(r0.roNo) + '"></div>' +
+          '<div style="flex:0 0 auto"><button class="btn p bSave">Save RO</button></div></div>' : '') +
+        '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th>' + (multi ? '<th>Group</th>' : '') + '<th class="right">Qty</th><th>Status</th>' + (edit ? '<th></th>' : '') + '</tr>' +
+        rs.map(function (r) {
+          return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.sku || 'No SKU') + '<div class="small muted">by ' + esc(r.createdBy) + (r.source && r.source !== 'Plan' ? ' · ' + esc(r.source === 'PDF' ? 'from PDF' : 'manual') : '') + '</div></td><td>' + r.item + '</td>' +
+            (multi ? '<td>' + esc(r.group) + '</td>' : '') +
+            '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) + '</td>' +
+            '<td><span class="pill ' + pc[r.status] + '">' + r.status + '</span></td>' +
+            (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
+        }).join('') + '</table></div><div class="bmsg"></div></div></div>';
+    }).join('');
+    box.onclick = function (e) {
+      var ro = e.target.closest('.ro'); if (!ro) return;
+      var c = cs[Number(ro.getAttribute('data-c'))];
+      if (e.target.closest('.h')) { ro.classList.toggle('open'); (S.openBatch = S.openBatch || {})[c.key] = ro.classList.contains('open'); return; }
+      var out = ro.querySelector('.bmsg');
+      var done = function (r) { out.innerHTML = msgs(r && r.warnings, 'warn'); toast('Saved'); refreshBoot().then(refreshPlanAfterRoChange, function () {}); loadLog(); };
+      var err = function (er) { out.innerHTML = msgs([er.message], 'bad'); };
+      if (e.target.classList.contains('bSave')) {
+        var ch = { appt: ro.querySelector('.bAp').value, roNo: ro.querySelector('.bNo').value.trim() };
+        var st = ro.querySelector('.bSt').value; if (st) ch.status = st;
+        if (st === 'Cancelled' && !confirm('Cancel the whole RO? Its quantities are taken out of the month tab.')) return;
+        e.target.disabled = true;
+        // A merged RO is several batches (one per group): save each, then report all warnings together.
+        var warns = [];
+        c.batches.reduce(function (p, id) {
+          return p.then(function () { return api('updateBatch', S.token, id, ch).then(function (r) { warns = warns.concat((r && r.warnings) || []); }); });
+        }, Promise.resolve()).then(function () { done({ warnings: warns }); }, err);
+      }
+      var tr = e.target.closest('tr'); if (!tr) return;
+      var k = tr.getAttribute('data-k');
+      if (e.target.classList.contains('lSave')) { e.target.disabled = true; api('updateROLine', S.token, k, { qty: Number(tr.querySelector('.lQ').value) }).then(done, err); }
+      if (e.target.classList.contains('lCan')) { if (!confirm('Cancel this line? Its quantity is taken out of the month tab.')) return; e.target.disabled = true; api('updateROLine', S.token, k, { status: 'Cancelled' }).then(done, err); }
+    };
+  }
+
+  /* ======================= Upload Blinkit R.O. PDFs ======================= */
+  /** PDF text the way the Shipment Manager's extractPdfText_ builds it (text items grouped into lines by y). */
+  function extractPdfText(buf) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise.then(function (pdf) {
+      var raw = '', p = 0;
+      var next = function () {
+        if (++p > pdf.numPages) return raw;
+        return pdf.getPage(p).then(function (page) { return page.getTextContent(); }).then(function (content) {
+          var lineMap = {};
+          content.items.forEach(function (item) {
+            var y = item.transform ? Math.round(item.transform[5] * 10) / 10 : 0;
+            (lineMap[y] = lineMap[y] || []).push(item.str);
+          });
+          Object.keys(lineMap).map(Number).sort(function (a, b) { return b - a; }).forEach(function (y) { raw += lineMap[y].join(' ') + '\n'; });
+          raw += '\n';
+          return next();
+        });
+      };
+      return next();
+    });
+  }
+
+  function addPdfFiles(files) {
+    Array.prototype.forEach.call(files, function (f) {
+      var e = { name: f.name, state: 'reading' };
+      S.pdfs.push(e);
+      var rd = new FileReader();
+      rd.onload = function () {
+        extractPdfText(rd.result).then(function (text) {
+          var d = PlanCore.readRoPdf(text, S.boot.warehouses);
+          if (!d.ok) { e.state = 'err'; e.msg = d.message; }
+          else {
+            e.state = 'ready'; e.d = d;
+            if (S.pdfs.some(function (x) { return x !== e && x.d && x.d.roNo === d.roNo; })) { e.state = 'err'; e.msg = 'RO ' + d.roNo + ' is already in this list.'; }
+          }
+          drawPdfs();
+        }, function (err) { e.state = 'err'; e.msg = 'Could not read the PDF: ' + (err && err.message || err); drawPdfs(); });
+      };
+      rd.readAsArrayBuffer(f);
+    });
+    drawPdfs();
+  }
+
+  function pdfMatch(e) { return e.d && e.d.wh ? PlanCore.matchPlannerRo(e.d, S.boot.openROs) : null; }
+
+  function drawPdfs() {
+    var box = $('pdfList'); if (!box) return;
+    var m = skuMap();
+    var ready = S.pdfs.filter(function (e) { return e.state === 'ready'; });
+    $('pdfAll').classList.toggle('hidden', ready.length < 2);
+    box.innerHTML = S.pdfs.map(function (e, i) {
+      if (e.state === 'reading') return '<div class="ro"><div class="h"><span class="spin"></span> Reading ' + esc(e.name) + '…</div></div>';
+      if (e.state === 'err') return '<div class="ro"><div class="h"><span class="w">' + esc(e.name) + '</span><button class="btn sm pX" data-i="' + i + '">Remove</button></div><div class="b" style="display:block">' + msgs([e.msg], 'bad') + '</div></div>';
+      var d = e.d, mt = pdfMatch(e);
+      var noGroup = d.lines.filter(function (l) { return !(m[l.item] && m[l.item].group); });
+      var notes = [];
+      if (!d.totalOk) notes.push(['bad', 'The items add up to ' + d.sum + ' but the PDF says Total Quantity ' + d.total + '. Check the PDF before saving.']);
+      if (!d.wh) notes.push(['warn', 'Warehouse "' + d.whRaw + '" is not one of the sheet\'s warehouses — choose it below.']);
+      if (noGroup.length) notes.push(['bad', 'No ' + groupList().join('/') + ' group yet for ' + noGroup.map(function (l) { return skuText((m[l.item] || {}).sku, l.item); }).join(', ') + '. An admin sets it in Settings → SKUs, then save.']);
+      if (mt) notes.push(['info', 'This is the planner\'s RO of ' + prettyDate(mt.roDate) + ' for this warehouse: the RO number is added to it, no new RO.' +
+        (mt.diffs.length ? ' Quantities change to the PDF\'s: ' + mt.diffs.map(function (x) { return skuText((m[x.item] || {}).sku, x.item) + ' ' + x.from + ' → ' + x.to; }).join(', ') + '.' : '')]);
+      else if (d.wh && e.state === 'ready') notes.push(['info', 'Saved as a new RO (Created) dated ' + prettyDate(d.roDate) + (S.pdfLogOnly ? ' — RO Log only (Log only is ticked).' : ' — into the RO Log and the month tab.')]);
+      var done = e.state === 'saved' || e.state === 'skipped';
+      return '<div class="ro open"><div class="h"><span class="w">RO ' + esc(d.roNo) + '</span>' +
+        '<span class="small">' + esc(d.whRaw) + '</span><span class="small">RO ' + prettyDate(d.roDate) + (d.expiry ? ' · expires ' + prettyDate(d.expiry) : '') + '</span>' +
+        '<span class="small"><b>' + fmt(d.sum) + '</b> units · ' + d.lines.length + ' items ' + (d.totalOk ? '✓' : '⚠') + '</span>' +
+        (done ? '<span class="pill ' + (e.state === 'saved' ? 'ok' : 'warn') + '">' + (e.state === 'saved' ? 'Saved' : 'Skipped') + '</span>' : '') + '</div><div class="b">' +
+        (done ? msgs([e.msg], e.state === 'saved' ? 'ok' : 'warn') + msgs(e.warnings, 'warn') :
+          '<div class="row"><div><label class="f">Warehouse</label><select class="pWh" data-i="' + i + '"><option value="">Choose…</option>' + (S.boot.warehouses || []).map(function (w) { return '<option' + (d.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
+          '<div style="flex:0 0 auto"><button class="btn g pSave" data-i="' + i + '"' + (d.wh && !noGroup.length && e.state === 'ready' ? '' : ' disabled') + '>' + (e.state === 'saving' ? '<span class="spin"></span>' : 'Save') + '</button> <button class="btn pX" data-i="' + i + '">Remove</button></div></div>' +
+          notes.map(function (n) { return '<div class="msg ' + n[0] + '">' + esc(n[1]) + '</div>'; }).join('')) +
+        '<div class="scroll"><table class="t"><tr><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Qty</th></tr>' + d.lines.map(function (l) {
+          var x = m[l.item] || {};
+          return '<tr><td>' + esc(x.sku || 'No SKU') + '</td><td>' + l.item + '</td><td>' + esc(x.group || '—') + '</td><td class="right">' + fmt(l.qty) + '</td></tr>';
+        }).join('') + '</table></div></div></div>';
+    }).join('');
+  }
+
+  function savePdf(i) {
+    var e = S.pdfs[i]; if (!e || e.state !== 'ready' || !e.d.wh) return Promise.resolve();
+    var mt = pdfMatch(e);
+    e.state = 'saving'; drawPdfs();
+    return api('importPdfRO', S.token, { roNo: e.d.roNo, roDate: e.d.roDate, roAt: e.d.roAt, expiry: e.d.expiry, wh: e.d.wh, lines: e.d.lines }, mt ? mt.batches : [], !!S.pdfLogOnly)
+      .then(function (r) {
+        if (r.skipped) { e.state = 'skipped'; e.msg = r.message; drawPdfs(); return; }
+        S.boot.openROs = r.openROs;
+        refreshPlanAfterRoChange();
+        e.state = 'saved'; e.warnings = r.warnings;
+        e.msg = r.matched ? 'RO number added to the planner\'s RO' + (r.changes.length ? '; quantities updated: ' + r.changes.join(', ') : '') + '.'
+          : 'Saved: ' + r.batches.map(function (b) { return b.group + ' ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); }).join(', ') + '.';
+        drawPdfs();
+      }, function (err) { e.state = 'ready'; e.err = err.message; drawPdfs(); toast(err.message, 6000); });
+  }
+
+  function renderAdd() {
+    var whs = S.boot.warehouses || [];
+    var skus = (S.boot.skus || []).filter(function (s) { return s.active; });
+    if (!S.manual.length) S.manual = [{ item: '', qty: '' }];
+    S.pdfs = S.pdfs || [];
+    $('app').innerHTML = '<div class="card"><h2>Upload Blinkit R.O. PDFs</h2>' +
+      '<div class="small muted">Read the same way as in the Shipment Manager. Each RO goes into the RO Log and the month tab as <b>Created</b>. A planner RO without an RO number gets the number instead of a second RO. An RO number already in the log is skipped.</div>' +
+      '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="pdfIn"><b>Choose R.O. PDFs</b><span class="small muted">one or more</span></label>' +
+      '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="pdfLogOnly"' + (S.pdfLogOnly ? ' checked' : '') + '> <b>Log only</b> — these ROs are already typed into the month tab by hand (don\'t write them there again)</label>' +
+      '<div style="margin:10px 0"><button class="btn g hidden" id="pdfAll">Save all</button></div><div id="pdfList"></div></div>' +
+      '<details class="card"><summary style="cursor:pointer;font-weight:700">Add an RO by hand instead</summary><div style="margin-top:10px">' +
+      '<div class="small muted">It goes into the RO Log and the month tab like the planner\'s ROs. Items of different groups (' + groupList().join(' / ') + ') split into one RO per group automatically.</div>' +
+      '<div class="row" style="margin-top:10px">' +
+      '<div><label class="f">Warehouse</label><select id="mWh"><option value="">Choose…</option>' + whs.map(function (w) { return '<option>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
+      '<div><label class="f">RO date</label><input type="date" id="mDate" value="' + today() + '"></div>' +
+      '<div><label class="f">Status</label><select id="mSt"><option>Created</option><option>Planned</option></select></div></div>' +
+      '<div class="row" style="margin-top:8px"><div><label class="f">Appointment (optional)</label><input type="date" id="mAp"></div>' +
+      '<div><label class="f">Blinkit RO No. (optional)</label><input type="text" id="mNo"></div>' +
+      '<div><label class="f">Notes</label><input type="text" id="mNote"></div></div>' +
+      '<datalist id="skuList">' + skus.map(function (s) { return '<option value="' + s.item + '">' + esc(skuText(s.sku, s.item) + ' (' + (s.group || 'no group') + ')') + '</option>'; }).join('') + '</datalist>' +
+      '<h3 style="margin-top:14px">Items</h3><div id="mLines"></div><button class="btn sm" id="mAdd">+ Add item</button>' +
+      '<div id="mOut"></div><div style="margin-top:12px"><button class="btn g" id="mSave">Save RO</button></div></div></details>';
+    if (typeof pdfjsLib === 'undefined') $('pdfList').innerHTML = msgs(['The PDF reader did not load (no internet?). Reload the page.'], 'bad');
+    $('pdfIn').onchange = function () { addPdfFiles(this.files); this.value = ''; };
+    $('pdfLogOnly').onchange = function () { S.pdfLogOnly = this.checked; drawPdfs(); };
+    $('pdfAll').onclick = function () {
+      var idx = S.pdfs.map(function (e, i) { return e.state === 'ready' && e.d.wh ? i : -1; }).filter(function (i) { return i >= 0; });
+      idx.reduce(function (p, i) { return p.then(function () { return savePdf(i); }); }, Promise.resolve());
+    };
+    $('pdfList').onclick = function (ev) {
+      var i = Number(ev.target.getAttribute('data-i'));
+      if (ev.target.classList.contains('pSave')) savePdf(i);
+      if (ev.target.classList.contains('pX')) { S.pdfs.splice(i, 1); drawPdfs(); }
+    };
+    $('pdfList').onchange = function (ev) {
+      if (!ev.target.classList.contains('pWh')) return;
+      var e = S.pdfs[Number(ev.target.getAttribute('data-i'))]; e.d.wh = ev.target.value; drawPdfs();
+    };
+    drawPdfs();
+    var hint = function (item) {
+      var s = skuMap()[Number(item)];
+      return s ? esc(skuText(s.sku, s.item) + ' · ' + (s.group ? groupName(s.group) : 'no group — set it in Settings')) : (item ? 'Not in the SKU list' : '');
+    };
+    var draw = function () {
+      $('mLines').innerHTML = S.manual.map(function (l, i) {
+        return '<div class="row" style="margin-bottom:6px" data-i="' + i + '"><div style="flex:3 1 220px"><input type="text" class="mi" list="skuList" placeholder="Item ID or pick from the list" value="' + esc(l.item) + '">' +
+          '<div class="small muted mh">' + hint(l.item) + '</div></div>' +
+          '<div style="flex:1 1 90px"><input type="number" class="mq" min="1" placeholder="Qty" value="' + esc(l.qty) + '"></div>' +
+          '<div style="flex:0 0 auto"><button class="btn sm r mx">✕</button></div></div>';
+      }).join('');
+    };
+    draw();
+    $('mLines').oninput = function (e) {
+      var i = Number(e.target.closest('[data-i]').getAttribute('data-i'));
+      if (e.target.classList.contains('mi')) S.manual[i].item = e.target.value.trim();
+      if (e.target.classList.contains('mq')) S.manual[i].qty = e.target.value;
+    };
+    $('mLines').onchange = function (e) {
+      if (e.target.classList.contains('mi')) e.target.closest('[data-i]').querySelector('.mh').innerHTML = hint(e.target.value.trim());
+    };
+    $('mLines').onclick = function (e) {
+      if (!e.target.classList.contains('mx')) return;
+      S.manual.splice(Number(e.target.closest('[data-i]').getAttribute('data-i')), 1);
+      if (!S.manual.length) S.manual.push({ item: '', qty: '' }); draw();
+    };
+    $('mAdd').onclick = function () { S.manual.push({ item: '', qty: '' }); draw(); };
+    $('mSave').onclick = function () {
+      var m = skuMap(), wh = $('mWh').value;
+      var lines = S.manual.filter(function (l) { return Number(l.item) && Number(l.qty) > 0; });
+      var err = [];
+      if (!wh) err.push('Choose the warehouse.');
+      if (!lines.length) err.push('Add at least one item with a quantity.');
+      lines.forEach(function (l) { var s = m[Number(l.item)]; if (!s) err.push('Item ' + l.item + ' is not in the SKU list.'); else if (!s.group) err.push('Item ' + l.item + ' has no ' + groupList().join('/') + ' group.'); });
+      if (err.length) { $('mOut').innerHTML = msgs(err, 'bad'); return; }
+      $('mSave').disabled = true;
+      api('createROs', S.token, {
+        lines: lines.map(function (l) { var s = m[Number(l.item)]; return { wh: wh, item: Number(l.item), sku: s.sku, name: s.name, group: s.group, qty: Number(l.qty) }; }),
+        roDate: $('mDate').value || today(), status: $('mSt').value, source: 'Manual', appt: $('mAp').value, roNo: $('mNo').value.trim(), notes: $('mNote').value
+      }).then(function (res) {
+        S.boot.openROs = res.openROs; S.manual = [];
+        refreshPlanAfterRoChange();
+        $('mSave').disabled = false;
+        $('mOut').innerHTML = msgs(res.batches.map(function (b) { return 'Saved ' + b.wh + ' ' + b.group + ': ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); }), 'ok') + msgs(res.warnings, 'warn');
+        draw();
+      }, function (e) { $('mSave').disabled = false; $('mOut').innerHTML = msgs([e.message], 'bad'); });
+    };
+  }
+
+  /* ======================= Dashboard ======================= */
+  function renderDash() {
+    $('app').innerHTML = '<div id="dashOut" class="card muted">Loading…</div>';
+    api('getDashboard', S.token).then(function (d) {
+      S.dash = d; S.dashWh = S.dashWh || ''; drawDash();
+    }, function (e) { $('dashOut').innerHTML = msgs([e.message], 'bad'); });
+  }
+
+  function drawDash() {
+    var d = S.dash, box = $('dashOut'); box.className = '';
+    if (!d.meta || !d.rows.length) { box.className = 'card muted'; box.innerHTML = 'No data yet. Make a plan once (New Plan → upload the two files) and the dashboard fills from it.'; return; }
+    var rows = d.rows.map(function (r) { return { wh: r[0], item: r[1], name: r[2], group: r[3], status: r[4], rate: Number(r[5]) || 0, pos: Number(r[6]) || 0, days: r[7] === '' ? null : Number(r[7]), rec: Number(r[8]) || 0, locked: r[9] === 'Yes',
+      // Has = stock (Total sellable); Planned = on ROs not received yet. A snapshot from before the split has only the sum.
+      has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]) }; });
+    var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
+    // "Days" counts down every day from the stock date of the plan the dashboard was made from.
+    var dsi = PlanCore.stockInfo(d.meta.inventoryAt, today()), el = dsi ? dsi.elapsed : 0;
+    rows.forEach(function (r) { if (r.days != null) r.days = r.days - el; });
+    var byWh = {};
+    rows.forEach(function (r) {
+      var w = byWh[r.wh] = byWh[r.wh] || { red: 0, amber: 0, items: 0, open: 0 };
+      if (r.rate > 0) { w.items++; if (r.days < 7) w.red++; else if (r.days < 15) w.amber++; }
+    });
+    var whByNorm = {};
+    Object.keys(byWh).forEach(function (w) { whByNorm[PlanCore.whNorm(w)] = w; });
+    d.openROs.forEach(function (r) { var w = whByNorm[PlanCore.whNorm(r.wh)]; if (w) byWh[w].open += r.qty; });
+    var whs = Object.keys(byWh).sort();
+    // Sortable columns: click a heading for A→Z / lowest first, click again for Z→A / highest first.
+    // Default: Per day, highest first (then fewest days). Empty values always go last.
+    var COLS = [['wh', 'Warehouse', 't'], ['sku', 'SKU', 't'], ['item', 'Item ID', 'n'], ['group', 'Group', 't'], ['rate', 'Per day', 'n'],
+      ['has', 'Has', 'n'], ['planned', 'Planned', 'n'], ['days', 'Days', 'n'], ['rec', 'Suggested', 'n']];
+    var srt = S.dashSort = S.dashSort || { col: 'rate', dir: -1 };
+    var val = function (r, c) {
+      if (c === 'sku') return skuOf(r.item) || '';
+      if (c === 'has') return r.has == null ? r.pos : r.has;
+      return r[c];
+    };
+    var isText = COLS.filter(function (c) { return c[0] === srt.col; })[0][2] === 't';
+    var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) {
+      var x = val(a, srt.col), y = val(b, srt.col);
+      var ex = x == null || x === '', ey = y == null || y === '';
+      if (ex || ey) return ex && ey ? 0 : ex ? 1 : -1;
+      var c = isText ? String(x).localeCompare(String(y), undefined, { numeric: true, sensitivity: 'base' }) : x - y;
+      return c * srt.dir || b.rate - a.rate || (a.days == null ? 1e9 : a.days) - (b.days == null ? 1e9 : b.days);
+    });
+    var sortHint = COLS.filter(function (c) { return c[0] === srt.col; })[0][1] + ', ' + (isText ? (srt.dir > 0 ? 'A → Z' : 'Z → A') : (srt.dir > 0 ? 'lowest first' : 'highest first'));
+    box.innerHTML = '<div class="card"><h2>Days of cover</h2><div class="small muted">From the plan made ' + new Date(d.meta.at).toLocaleString('en-IN') + ' by ' + esc(d.meta.by) +
+      (d.meta.inventoryAt ? ' · Blinkit inventory of ' + esc(d.meta.inventoryAt) : '') + (dsi ? ' · stock as of ' + prettyDate(dsi.stockDate) + ', so Days count from today (' + el + ' day' + (el === 1 ? '' : 's') + ' of sales taken off)' : '') + '. ROs created since then are not counted here.</div>' +
+      (ageDays >= 2 ? '<div class="msg warn">This is ' + ageDays + ' days old — upload fresh files in New Plan.</div>' : '') +
+      '<div class="stats" style="margin-top:10px">' + whs.map(function (w) {
+        var x = byWh[w];
+        return '<div class="stat" style="cursor:pointer;' + (S.dashWh === w ? 'outline:2px solid var(--brand)' : '') + '" data-wh="' + esc(w) + '"><div class="k">' + esc(w) + '</div>' +
+          '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
+          '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
+      }).join('') + '</div></div>' +
+      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— last 7 days + next 30 (38 days): ROs, appointments, items running out' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
+      '<div class="card"><h3>' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3><div class="scroll"><table class="t" id="dTab"><tr>' +
+        COLS.map(function (c) {
+          var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
+          return '<th class="sortable' + (c[2] === 'n' && c[0] !== 'item' ? ' right' : '') + (on ? ' on' : '') + '" data-c="' + c[0] + '" title="Sort by ' + c[1] + '">' + c[1] + arrow + '</th>';
+        }).join('') + '</tr>' +
+      list.slice(0, 300).map(function (r) {
+        var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? fmt(r.planned) : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+      }).join('') + '</table></div></div>';
+    box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
+    $('dTab').querySelector('tr').onclick = function (e) {
+      var th = e.target.closest('th[data-c]'); if (!th) return;
+      var c = th.getAttribute('data-c');
+      S.dashSort = srt.col === c ? { col: c, dir: -srt.dir } : { col: c, dir: 1 };
+      drawDash();
+    };
+    initDashCal(d, rows, el);
+    if ($('dAll')) $('dAll').onclick = function (e) { e.preventDefault(); S.dashWh = ''; drawDash(); };
+  }
+
+  /**
+   * Dashboard calendar: 38 days from 7 days ago (the last 7 days, today and the next 30). Each day shows the ROs dated that day, the appointments that day
+   * and the items whose days of cover run out that day (from the dashboard's plan). Click a day for the details.
+   * Follows the warehouse picked on the dashboard.
+   */
+  function initDashCal(d, rows, el) {
+    var det = $('dCal'); if (!det) return;
+    var DAYS = 38, start = addDays(today(), -7), todayS = today();
+    var inWh = function (w) { return !S.dashWh || PlanCore.whNorm(w) === PlanCore.whNorm(S.dashWh); };
+    var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
+    var days = {};
+    var day = function (k) { return days[k] = days[k] || { ros: {}, appts: {}, out: [] }; };
+    (d.openROs || []).forEach(function (r) {
+      if (!inWh(r.wh)) return;
+      var key = r.merged ? 'M' + r.merged + r.wh : r.roNo ? 'N' + r.roNo + r.wh : 'B' + r.batch;
+      [['roDate', 'ros'], ['appt', 'appts']].forEach(function (f) {
+        var dt = r[f[0]]; if (!dt) return;
+        var x = day(dt)[f[1]], c = x[key] = x[key] || { wh: r.wh, groups: [], units: 0, roNo: r.roNo, status: r.status };
+        if (c.groups.indexOf(r.group) < 0) c.groups.push(r.group);
+        c.units += r.qty;
+      });
+    });
+    rows.forEach(function (r) {
+      if (!(r.rate > 0) || r.days == null || !inWh(r.wh)) return;
+      day(addDays(todayS, Math.max(0, Math.floor(r.days)))).out.push(r);
+    });
+    var draw = function () {
+      var first = new Date(start + 'T12:00:00'), lead = (first.getDay() + 6) % 7; // weeks start on Monday
+      var cells = '';
+      for (var i = 0; i < lead; i++) cells += '<div class="cd empty"></div>';
+      for (var j = 0; j < DAYS; j++) {
+        var k = addDays(start, j), x = days[k] || { ros: {}, appts: {}, out: [] };
+        var nR = Object.keys(x.ros).length, nA = Object.keys(x.appts).length, nO = x.out.length;
+        var dd = new Date(k + 'T12:00:00');
+        cells += '<div class="cd' + (k < todayS ? ' past' : '') + (k === todayS ? ' today' : '') + (S.dashCalDay === k ? ' sel' : '') + ((nR || nA || nO) ? ' has' : '') + '" data-d="' + k + '">' +
+          '<div class="cdn">' + dd.getDate() + (dd.getDate() === 1 || j === 0 ? ' ' + dd.toLocaleDateString('en-IN', { month: 'short' }) : '') + '</div>' +
+          (nR ? '<span class="cb ro" title="ROs dated this day">RO ' + nR + '</span>' : '') +
+          (nA ? '<span class="cb ap" title="Appointments">📅 ' + nA + '</span>' : '') +
+          (nO ? '<span class="cb out" title="Items running out">⚠ ' + nO + '</span>' : '') + '</div>';
+      }
+      var sel = S.dashCalDay && days[S.dashCalDay], info = '';
+      if (S.dashCalDay) {
+        var lst = function (o) { return Object.keys(o).map(function (k2) { var c = o[k2]; return '<li>' + esc(short(c.wh)) + ' · ' + esc(c.groups.join(' + ')) + ' · <b>' + fmt(c.units) + '</b> units' + (c.roNo ? ' · #' + esc(c.roNo) : '') + ' <span class="small muted">' + esc(c.status) + '</span></li>'; }).join(''); };
+        info = '<div class="calinfo"><b>' + new Date(S.dashCalDay + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>' +
+          (!sel ? '<div class="small muted">Nothing on this day.</div>' :
+            (Object.keys(sel.ros).length ? '<div class="small" style="margin-top:6px"><b>ROs dated this day</b></div><ul>' + lst(sel.ros) + '</ul>' : '') +
+            (Object.keys(sel.appts).length ? '<div class="small" style="margin-top:6px"><b>Appointments</b></div><ul>' + lst(sel.appts) + '</ul>' : '') +
+            (sel.out.length ? '<div class="small" style="margin-top:6px"><b>Running out (days of cover end)</b></div><ul>' + sel.out.sort(function (a, b) { return b.rate - a.rate; }).map(function (r) { return '<li>' + esc(short(r.wh)) + ' · ' + esc(skuText(skuOf(r.item), r.item)) + ' <span class="small muted">· ' + fmt(r.rate, 1) + '/day' + (r.rec ? ' · suggested ' + fmt(r.rec) : '') + '</span></li>'; }).join('') + '</ul>' : '')) + '</div>';
+      }
+      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only (Planned / Created). "Running out" uses the plan the dashboard was made from. Click a day for details.</div>' +
+        '<div class="cal">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>' + info;
+    };
+    det.addEventListener('toggle', function () { S.dashCalOpen = det.open; if (det.open) draw(); });
+    $('dCalBody').onclick = function (e) {
+      var c = e.target.closest('.cd[data-d]'); if (!c) return;
+      var k = c.getAttribute('data-d'); S.dashCalDay = S.dashCalDay === k ? '' : k; draw();
+    };
+    if (det.open) draw();
+  }
+
+  /* ======================= Settings (admin) ======================= */
+  function renderSettings() {
+    var s = S.boot.settings;
+    var nm = new Date(); nm.setMonth(nm.getMonth() + 1);
+    var nextMonth = nm.getFullYear() + '-' + ('0' + (nm.getMonth() + 1)).slice(-2);
+    $('app').innerHTML = '<div class="card"><h2>Planning settings</h2><div class="row">' +
+      '<div><label class="f">Days of cover</label><input type="number" id="sCover" value="' + s.coverDays + '"></div>' +
+      '<div><label class="f">Min line qty</label><input type="number" id="sMin" value="' + s.minLine + '"></div>' +
+      '<div><label class="f">Round to</label><input type="number" id="sRound" value="' + s.roundTo + '"></div>' +
+      '<div><label class="f">Carry-over days</label><input type="number" id="sCarry" value="' + s.carryDays + '"></div></div>' +
+      '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipping address (as in Blinkit\'s dropdown)</label><input type="text" id="sAddr" value="' + esc(s.address) + '"></div>' +
+      '<div><label class="f">New-listing starters by default</label><select id="sStart"><option value="0">No</option><option value="1"' + (s.starters ? ' selected' : '') + '>Yes</option></select></div>' +
+      '<div><label class="f">Company</label><input type="text" id="sCo" value="' + esc(s.company) + '"></div></div>' +
+      '<div id="sOut"></div><div style="margin-top:10px"><button class="btn p" id="sSave">Save settings</button></div></div>' +
+      '<div class="card"><h2>Month tabs</h2><div class="small muted">Newest month tabs: ' + esc((S.boot.months || []).join(', ')) + '.<br>' +
+      '<b>Start new month</b> creates the tab (copy of the newest month, columns D–H emptied, columns I onwards kept as they are) if it does not exist yet, then copies in open ROs from the last ' + s.carryDays + ' days of the old month. ' +
+      'If you create the tab yourself, this only does the copying-in.</div>' +
+      '<div class="row" style="margin-top:10px"><div><label class="f">Month</label><input type="month" id="sMonth" value="' + nextMonth + '"></div>' +
+      '<div style="flex:0 0 auto"><button class="btn p" id="sStartM">Start new month</button></div>' +
+      '<div style="flex:0 0 auto"><button class="btn" id="sSync">Sync month tabs</button></div></div><div id="mOut2"></div></div>' +
+      '<div class="card"><h2>SKUs</h2><div class="small muted">Group decides the ' + esc(groupList().join(' / ')) + ' block an item goes into. New items from Blinkit are added here automatically with no group.</div>' +
+      '<div class="row" style="margin:8px 0"><div style="flex:0 0 auto"><button class="btn" id="kFromTab">Take groups &amp; tiers from the month tab</button></div><div class="small muted" style="align-self:center">Reads each item\'s block (group) and tier from the newest month tab, and lists SKUs that are in two groups of the same warehouse. Shows the changes before saving.</div></div><div id="kTabOut"></div>' +
+      '<div class="row" style="margin:8px 0"><div><input type="text" id="kQ" placeholder="Search"></div><div style="flex:0 0 auto"><label class="small"><input type="checkbox" id="kNo"> only items with no group</label></div></div>' +
+      '<div class="scroll"><table class="t" id="kTab"></table></div><div id="kOut"></div><div style="margin-top:10px"><button class="btn p" id="kSave">Save SKU changes</button></div></div>';
+    $('sSave').onclick = function () {
+      api('saveSettings', S.token, { coverDays: Number($('sCover').value), minLine: Number($('sMin').value), roundTo: Number($('sRound').value),
+        carryDays: Number($('sCarry').value), address: $('sAddr').value.trim(), starters: $('sStart').value === '1', company: $('sCo').value.trim() })
+        .then(function (st) { S.boot.settings = st; S.starters = st.starters; S.cover = null; $('sOut').innerHTML = msgs(['Saved.'], 'ok'); }, function (e) { $('sOut').innerHTML = msgs([e.message], 'bad'); });
+    };
+    $('sStartM').onclick = function () {
+      var b = this; b.disabled = true; b.innerHTML = '<span class="spin"></span>';
+      api('startMonth', S.token, $('sMonth').value).then(function (r) {
+        b.disabled = false; b.textContent = 'Start new month';
+        $('mOut2').innerHTML = msgs([(r.created ? 'Created tab ' : 'Tab ') + r.tab + '. Copied in ' + r.carried + ' open RO line(s) from the old month, wrote ' + r.written + ' line(s) of this month.'], 'ok') + msgs(r.warnings, 'warn');
+        refreshBoot();
+      }, function (e) { b.disabled = false; b.textContent = 'Start new month'; $('mOut2').innerHTML = msgs([e.message], 'bad'); });
+    };
+    $('sSync').onclick = function () {
+      api('syncMonthTabs', S.token).then(function (r) { $('mOut2').innerHTML = msgs([r.ros ? 'Wrote ' + r.ros + ' RO(s) into their month tab.' : 'Everything is already in its month tab.'], 'ok') + msgs(r.warnings, 'warn'); }, function (e) { $('mOut2').innerHTML = msgs([e.message], 'bad'); });
+    };
+    var edits = {};
+    var draw = function () {
+      var q = $('kQ').value.toLowerCase(), only = $('kNo').checked;
+      var list = (S.boot.skus || []).filter(function (s) { return (!only || !s.group) && (!q || (s.item + ' ' + s.sku + ' ' + s.name).toLowerCase().indexOf(q) >= 0); });
+      $('kTab').innerHTML = '<tr><th>Item ID</th><th>SKU</th><th>Group</th><th>Tier</th><th>Active</th></tr>' + list.map(function (s) {
+        var e = edits[s.item] || s;
+        return '<tr data-i="' + s.item + '"><td>' + s.item + '</td><td><input type="text" data-f="sku" value="' + esc(e.sku) + '" style="min-width:110px">' +
+          (!s.sku && s.name ? '<div class="small muted">New on Blinkit — give it a SKU: ' + esc(s.name.replace(/^Travalate /, '')) + '</div>' : '') + '</td>' +
+          '<td><select data-f="group"><option value="">—</option>' + groupList().map(function (g) { return '<option' + (e.group === g ? ' selected' : '') + '>' + g + '</option>'; }).join('') + '</select></td>' +
+          '<td><input type="text" data-f="tier" value="' + esc(e.tier) + '" style="width:70px"></td>' +
+          '<td><input type="checkbox" data-f="active"' + (e.active ? ' checked' : '') + '></td></tr>';
+      }).join('');
+    };
+    draw();
+    $('kQ').oninput = draw; $('kNo').onchange = draw;
+    $('kTab').onchange = function (e) {
+      var tr = e.target.closest('tr[data-i]'); if (!tr) return;
+      var id = Number(tr.getAttribute('data-i'));
+      var base = edits[id] || Object.assign({}, (S.boot.skus || []).filter(function (s) { return s.item === id; })[0]);
+      var f = e.target.getAttribute('data-f');
+      base[f] = f === 'active' ? e.target.checked : e.target.value;
+      edits[id] = base;
+    };
+    var afterSkus = function (skus) {
+      S.boot.skus = skus; edits = {}; draw();
+      if (S.plan) recompute(true); // new groups/tiers, and SKUs set inactive drop out of the plan
+    };
+    var clashHtml = function (r) {
+      if (!r.clashes || !r.clashes.length) return msgs(['No SKU is listed in two groups of the same warehouse in ' + r.tab + '.'], 'ok');
+      return '<div class="msg warn"><b>' + r.clashes.length + ' SKU(s) are listed in two groups of the same warehouse in ' + esc(r.tab) + '.</b> Remove the extra row in the sheet, or the RO quantity can land in the wrong block.</div>' +
+        '<div class="scroll"><table class="t"><tr><th>Warehouse</th><th>SKU · Item ID</th><th>Listed in</th></tr>' +
+        r.clashes.map(function (c) { return '<tr><td>' + esc(c.wh) + '</td><td>' + esc(skuText(c.sku, c.item)) + '</td><td><b>' + esc(c.groups) + '</b></td></tr>'; }).join('') + '</table></div>';
+    };
+    var chg = function (a, b) { return a === b ? esc(b || '—') : '<span class="muted">' + esc(a || '—') + ' →</span> <b>' + esc(b || '—') + '</b>'; };
+    $('kFromTab').onclick = function () {
+      var b = this; b.disabled = true;
+      api('groupsFromMonthTab', S.token, false).then(function (r) {
+        b.disabled = false;
+        if (!r.tab) { $('kTabOut').innerHTML = msgs(['No month tab with items found.'], 'warn'); return; }
+        var html = '';
+        if (!r.changes.length) html += msgs(['Every SKU already has the same group and tier as in ' + r.tab + '.'], 'ok');
+        else {
+          html += '<div class="msg info">' + r.changes.length + ' SKU(s) have a different group or tier in <b>' + esc(r.tab) + '</b>:</div>' +
+            '<div class="scroll"><table class="t"><tr><th>SKU · Item ID</th><th>Group</th><th>Tier</th><th>In the tab</th></tr>' +
+            r.changes.map(function (c) { return '<tr><td>' + esc(skuText(c.sku, c.item)) + '</td><td>' + chg(c.from, c.to) + '</td><td>' + chg(c.fromTier, c.toTier) + '</td><td class="small muted">' + esc(c.where) + '</td></tr>'; }).join('') +
+            '</table></div><div style="margin:8px 0"><button class="btn p" id="kFromTabOk">Save these ' + r.changes.length + ' change(s)</button></div>';
+        }
+        $('kTabOut').innerHTML = html + clashHtml(r);
+        if (!r.changes.length) return;
+        $('kFromTabOk').onclick = function () {
+          this.disabled = true;
+          api('groupsFromMonthTab', S.token, true).then(function (r2) {
+            afterSkus(r2.skus); $('kTabOut').innerHTML = msgs(['Saved ' + r2.changes.length + ' group / tier change(s) from ' + r2.tab + '.'], 'ok') + clashHtml(r2);
+          }, function (e) { $('kTabOut').innerHTML = msgs([e.message], 'bad'); });
+        };
+      }, function (e) { b.disabled = false; $('kTabOut').innerHTML = msgs([e.message], 'bad'); });
+    };
+    $('kSave').onclick = function () {
+      var rows = Object.keys(edits).map(function (k) { return edits[k]; });
+      if (!rows.length) { $('kOut').innerHTML = msgs(['No changes.'], 'info'); return; }
+      api('saveSkus', S.token, rows).then(function (skus) {
+        afterSkus(skus); $('kOut').innerHTML = msgs(['Saved ' + rows.length + ' SKU(s).'], 'ok');
+      }, function (e) { $('kOut').innerHTML = msgs([e.message], 'bad'); });
+    };
+  }
+
+  /* ======================= Users (admin) ======================= */
+  function renderUsers() {
+    $('app').innerHTML = '<div class="card"><h2>Users</h2><div class="small muted">Admin: everything. Planner: plans, creates and edits ROs. Viewer: dashboard and RO Log only.</div><div class="scroll"><table class="t" id="uTab"><tr><td class="muted">Loading…</td></tr></table></div><div id="uOut"></div></div>' +
+      '<div class="card"><h2>Add a user</h2><div class="row"><div><label class="f">User ID</label><input type="text" id="nId"></div><div><label class="f">Name</label><input type="text" id="nName"></div>' +
+      '<div><label class="f">Role</label><select id="nRole"><option>Planner</option><option>Viewer</option><option>Admin</option></select></div><div><label class="f">PIN (4–8 digits)</label><input type="text" id="nPin" inputmode="numeric"></div>' +
+      '<div style="flex:0 0 auto"><button class="btn p" id="nAdd">Add</button></div></div><div id="nOut"></div></div>';
+    var load_ = function () {
+      api('listUsers', S.token).then(function (us) {
+        $('uTab').innerHTML = '<tr><th>User ID</th><th>Name</th><th>Role</th><th>Active</th><th></th></tr>' + us.map(function (u) {
+          return '<tr data-u="' + esc(u.id) + '"><td>' + esc(u.id) + '</td><td><input type="text" class="uN" value="' + esc(u.name) + '"></td><td><select class="uR">' + ['Admin', 'Planner', 'Viewer'].map(function (r) { return '<option' + (u.role === r ? ' selected' : '') + '>' + r + '</option>'; }).join('') + '</select></td>' +
+            '<td><input type="checkbox" class="uA"' + (u.active ? ' checked' : '') + '></td><td class="nowrap"><button class="btn sm uS">Save</button> <button class="btn sm uP">New PIN</button></td></tr>';
+        }).join('');
+      }, function (e) { $('uOut').innerHTML = msgs([e.message], 'bad'); });
+    };
+    load_();
+    $('uTab').onclick = function (e) {
+      var tr = e.target.closest('tr[data-u]'); if (!tr) return;
+      var id = tr.getAttribute('data-u');
+      if (e.target.classList.contains('uS')) api('saveUser', S.token, { id: id, name: tr.querySelector('.uN').value, role: tr.querySelector('.uR').value, active: tr.querySelector('.uA').checked }).then(function () { toast('Saved'); load_(); }, function (er) { $('uOut').innerHTML = msgs([er.message], 'bad'); });
+      if (e.target.classList.contains('uP')) { var p = prompt('New PIN for ' + id + ' (4–8 digits):'); if (p) api('resetUserPin', S.token, id, p).then(function () { toast('PIN changed'); }, function (er) { $('uOut').innerHTML = msgs([er.message], 'bad'); }); }
+    };
+    $('nAdd').onclick = function () {
+      api('saveUser', S.token, { id: $('nId').value.trim(), name: $('nName').value.trim(), role: $('nRole').value, pin: $('nPin').value.trim() })
+        .then(function () { $('nOut').innerHTML = msgs(['User added.'], 'ok'); ['nId', 'nName', 'nPin'].forEach(function (i) { $(i).value = ''; }); load_(); }, function (e) { $('nOut').innerHTML = msgs([e.message], 'bad'); });
+    };
+  }
+
+  /* ======================= Account ======================= */
+  function renderAccount() {
+    $('app').innerHTML = '<div class="card" style="max-width:420px"><h2>' + esc(S.boot.user.name || S.boot.user.id) + '</h2><div class="small muted">' + esc(S.boot.user.id) + ' · ' + esc(S.boot.user.role) + '</div>' +
+      '<h3 style="margin-top:14px">Change PIN</h3><label class="f">Current PIN</label><input type="password" id="aOld" inputmode="numeric"><div style="height:6px"></div>' +
+      '<label class="f">New PIN (4–8 digits)</label><input type="password" id="aNew" inputmode="numeric"><div id="aOut"></div>' +
+      '<div class="row" style="margin-top:10px"><button class="btn p" id="aSave">Change PIN</button><button class="btn r" id="aOut2">Log out</button></div></div>';
+    $('aSave').onclick = function () { api('changePin', S.token, $('aOld').value, $('aNew').value).then(function () { $('aOut').innerHTML = msgs(['PIN changed.'], 'ok'); }, function (e) { $('aOut').innerHTML = msgs([e.message], 'bad'); }); };
+    $('aOut2').onclick = function () { api('logout', S.token).catch(function () {}); store('bp_token', null); S.token = null; S.boot = null; showLogin(); };
+  }
+
+  window.addEventListener('beforeunload', function (e) {
+    if (S.plan && S.draftOk === false && Object.keys(S.edited || {}).length) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  // Android app's Back button: close a pop-up, else go back to the Dashboard; '' = nothing left (app may exit).
+  window.appBack = function () {
+    if (!$('modal').classList.contains('hidden')) { closeModal(); return 'handled'; }
+    if (S.boot && S.tab !== 'dash' && $('nav') && !$('nav').classList.contains('hidden')) { go('dash'); return 'handled'; }
+    return '';
+  };
+
+  /** Outside Apps Script (GitHub Pages copy, Android app) the page needs the planner's link once. */
+  function showSetup(note) {
+    $('app').innerHTML = '<div class="card login"><h2>Connect the planner</h2>' + (note ? msgs([note], 'warn') : '') +
+      '<div class="small muted">Paste the planner\'s web-app link (Apps Script → Deploy → Manage deployments → Web app URL, ending in /exec) or just its Deployment ID (AKfycb…). Asked only once.</div>' +
+      '<div style="height:8px"></div><input type="text" id="setupId" placeholder="https://script.google.com/macros/s/AKfycb…/exec" autocomplete="off">' +
+      '<div style="height:10px"></div><button class="btn p" id="setupGo" style="width:100%">Continue</button></div>';
+    $('setupGo').onclick = function () {
+      var v = $('setupId').value.trim(), m = v.match(/\/macros\/s\/([A-Za-z0-9_-]+)/), id = m ? m[1] : v;
+      if (!/^[A-Za-z0-9_-]{40,}$/.test(id)) { showSetup('That does not look like the planner link or a Deployment ID.'); return; }
+      store('bp_api', id); showLogin();
+    };
+  }
+
+  /* ---------------- start ---------------- */
+  if (typeof XLSX === 'undefined' || typeof JSZip === 'undefined') {
+    $('app').innerHTML = '<div class="card msg bad">Could not load the Excel tools (no internet?). Reload the page.</div>';
+  } else if (!IN_APPS_SCRIPT && !serverUrl()) {
+    showSetup();
+  } else if (S.token) {
+    refreshBoot().then(startApp, function (e) { if (S.token) $('app').innerHTML = msgs([e.message + ' — reload the page to try again.'], 'bad'); });
+  } else {
+    showLogin();
+  }
+})();
+</script>
+</body>
+</html>

@@ -18,6 +18,9 @@ with all the code already here, so there is no need to re-upload `Code.gs` / `.h
 | `shipment-app/` | Travalate Shipment Manager (Apps Script side) | `Code.gs` + `Index.html` |
 | `daily-task-app/` | Travalate Daily Task Sheet | `Code.gs` + `Index.html` |
 | `po-app/` | PO Web App with Vendor Autofill | `Code.gs` + `Index.html` |
+| `blinkit-planner-app/` | Blinkit Shipment Planner (lives in the Blinkit sheet's script, next to its inventory updater) | `Planner.gs` + `Index.html`; auto-deploy: `.github/workflows/deploy-blinkit-planner.yml` (replaces only `Planner` and `Index`) |
+| `planner/` | Hosted copy of `blinkit-planner-app/Index.html` (GitHub Pages) | Keep identical to `blinkit-planner-app/Index.html` |
+| `planner-android/` | Android app for the planner (APK built by `.github/workflows/planner-apk.yml`, release `planner-apk`) | Bundles `blinkit-planner-app/Index.html` at build time |
 | `_new-app-template/` | How to add another app | |
 
 The full list with links is in `APPS.md`. Keep it up to date when an app is added.
