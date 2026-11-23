@@ -743,7 +743,7 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
 /**
  * Heading written above an RO column (centred), e.g.
  *   RO 21 NOV
- *   612345          ← last 6 digits of the Blinkit RO number
+ *   4999612345      ← the Blinkit RO number (font size 7)
  *   23/11 - 30/11   ← dispatch day - appointment ("23/11 -" until there is an appointment)
  * The dispatch day comes from the appointment (appointment − shipping days, on a dispatch day), else the day set
  * for the RO (RO Log "Dispatch Date"). A line is left out while its value is not known yet.
@@ -751,7 +751,7 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
 function roLabel_(roDate, roNo, appt, wh, dispatch) {
   let s = 'RO ' + Utilities.formatDate(roDate, tz_(), 'd MMM').toUpperCase();
   const no = String(roNo || '').replace(/\s+/g, '');
-  if (no) s += '\n' + no.slice(-6);
+  if (no) s += '\n' + no;
   const ap = appt instanceof Date ? ymd_(appt) : '';
   const disp = dispatchDay_(wh, ap, dispatch instanceof Date ? ymd_(dispatch) : '');
   if (disp) s += '\n' + dm_(disp) + ' -' + (ap ? ' ' + dm_(ap) : '');
@@ -818,9 +818,15 @@ function refreshHeadings_(records) {
   return n;
 }
 
-/** An RO heading cell: the text, centred across and down. */
+/** An RO heading cell: the text, centred across and down; the RO number line (2nd line, digits only) in font size 7. */
 function writeLabel_(range, label) {
   range.setValue(label).setHorizontalAlignment('center').setVerticalAlignment('middle');
+  const parts = String(label).split('\n');
+  if (parts.length > 1 && /^\d{5,}$/.test(parts[1])) {
+    const start = parts[0].length + 1;
+    range.setRichTextValue(SpreadsheetApp.newRichTextValue().setText(label)
+      .setTextStyle(start, start + parts[1].length, SpreadsheetApp.newTextStyle().setFontSize(7).build()).build());
+  }
 }
 
 /**
