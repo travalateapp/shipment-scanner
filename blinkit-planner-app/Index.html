@@ -128,6 +128,8 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .calw{margin:4px 0;font-size:13px}.calw summary{cursor:pointer}.calw ul{margin:4px 0 6px;padding-left:20px}
 .calinfo{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px}.calinfo ul{margin:4px 0 0;padding-left:18px;font-size:13px}
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
+#busy{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);cursor:progress}
+#busy .bx{background:var(--card);color:var(--ink);padding:14px 22px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-weight:600;font-size:15px;display:flex;gap:10px;align-items:center}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;z-index:60;font-size:13px;max-width:90vw}
 .login{max-width:360px;margin:40px auto}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(127,127,127,.35);border-top-color:currentColor;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
@@ -140,6 +142,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 <div class="wrap" id="app"><div class="card muted">Loading…</div></div>
 <div id="bar" class="bar hidden"></div>
 <div id="modal" class="modal hidden"><div class="box" id="modalBox"></div></div>
+<div id="busy" class="hidden" role="status" aria-live="polite"><div class="bx"><span class="spin"></span><span id="busyT">Saving…</span></div></div>
 
 <script>
 /* ======================= CORE-START (pure planning logic, no page code) ======================= */
@@ -617,7 +620,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-23 ro-headings';
+  var PAGE_BUILD = '2026-11-23 fast';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -731,11 +734,31 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     return /^https?:/.test(id) ? id : 'https://script.google.com/macros/s/' + id + '/exec';
   }
 
+  /*
+   * Every save blurs the screen with "Saving…" until it is done, so it is clear the app is working and nothing is
+   * clicked twice meanwhile. (Background saves such as the Dashboard copy of the plan do not.)
+   */
+  var SAVES = { login: 'Logging in…', changePin: 1, createROs: 1, updateROLine: 1, updateBatch: 1, importPdfRO: 1, saveSettings: 1, saveSkus: 1,
+    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', saveTiLink: 1, setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
+  var busyN = 0;
+  function busy(on, text) {
+    busyN = Math.max(0, busyN + (on ? 1 : -1));
+    if (on && text) $('busyT').textContent = text;
+    $('busy').classList.toggle('hidden', busyN === 0);
+  }
   function api(fn) {
     var args = Array.prototype.slice.call(arguments, 1);
+    if (SAVES[fn]) {
+      busy(true, typeof SAVES[fn] === 'string' ? SAVES[fn] : 'Saving…');
+      var off = function () { busy(false); };
+      return apiCall(fn, args).then(function (r) { off(); return r; }, function (e) { off(); throw e; });
+    }
+    return apiCall(fn, args);
+  }
+  function apiCall(fn, args) {
     var fail = function (err) {
       var msg = String((err && err.message) || err).replace(/^Exception:\s*/, '');
-      if (msg.indexOf('SESSION_EXPIRED') >= 0) { store('bp_token', null); S.token = null; showLogin('Please log in again.'); }
+      if (msg.indexOf('SESSION_EXPIRED') >= 0) { clearCaches(); store('bp_token', null); S.token = null; showLogin('Please log in again.'); }
       return Promise.reject(new Error(msg));
     };
     if (IN_APPS_SCRIPT) {
@@ -775,7 +798,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (!u || !p) return;
       $('lb').disabled = true; $('lb').innerHTML = '<span class="spin"></span> Logging in…';
       api('login', u, p).then(function (r) {
-        store('bp_user', u); store('bp_token', r.token); S.token = r.token; S.boot = r.boot; startApp();
+        store('bp_user', u); store('bp_token', r.token); S.token = r.token; S.boot = r.boot; cachePut(CACHE_BOOT, r.boot); startApp();
       }, function (e) { $('lerr').innerHTML = msgs([e.message], 'bad'); $('lb').disabled = false; $('lb').textContent = 'Log in'; });
     };
     $('lb').onclick = go;
@@ -807,7 +830,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     window.scrollTo(0, 0);
   }
 
-  function refreshBoot() { return api('getBoot', S.token).then(function (b) { S.boot = b; return b; }); }
+  /*
+   * The last boot data and Dashboard are kept on this device, so the app opens at once with them and then updates
+   * itself in the background (they are tied to the login and removed on log out).
+   */
+  var CACHE_BOOT = 'bp_cache_boot', CACHE_DASH = 'bp_cache_dash';
+  function cacheGet(k) { try { var v = JSON.parse(load(k) || 'null'); return v && v.t === S.token ? v.d : null; } catch (e) { return null; } }
+  function cachePut(k, d) { store(k, JSON.stringify({ t: S.token, d: d })); }
+  function clearCaches() { store(CACHE_BOOT, null); store(CACHE_DASH, null); S.dash = null; S.logRows = null; S.logKey = null; }
+  function refreshBoot() { return api('getBoot', S.token).then(function (b) { S.boot = b; cachePut(CACHE_BOOT, b); return b; }); }
 
   /* ======================= New Plan ======================= */
   function renderPlan() {
@@ -985,6 +1016,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * with the new RO Log, and the Dashboard's copy is saved again. Quantities typed on the plan are kept.
    */
   function refreshPlanAfterRoChange() {
+    if (S.dash && S.boot && S.boot.openROs) S.dash.openROs = S.boot.openROs; // the Dashboard's calendar / Planned too
     if (!S.inv || !S.bulk) return;
     var keep = Object.keys(S.edited || {}).length > 0;
     recompute(keep);
@@ -1583,8 +1615,26 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   function loadLog() {
-    var f = S.logFilter;
-    api('listROs', S.token, f).then(function (rows) { S.logRows = rows; drawLog(); }, function (e) { $('logOut').innerHTML = msgs([e.message], 'bad'); });
+    var f = S.logFilter, fk = JSON.stringify(f);
+    // Shown at once from the last read for these filters; the fresh list replaces it as soon as it arrives.
+    if (S.logRows && S.logKey === fk) drawLog();
+    api('listROs', S.token, f).then(function (rows) {
+      if (JSON.stringify(S.logFilter) !== fk) return; // the filters changed meanwhile
+      S.logRows = rows; S.logKey = fk; drawLog();
+    }, function (e) { if (!S.logRows || S.logKey !== fk) $('logOut').innerHTML = msgs([e.message], 'bad'); else toast(e.message, 5000); });
+  }
+  /** Saved lines back into the RO Log list (a line that no longer matches the filters drops out, as on a reload). */
+  function mergeLogRows(rows) {
+    var f = S.logFilter || {}, keys = {};
+    rows.forEach(function (r) { keys[r.key] = 1; });
+    var fits = function (r) {
+      return (!f.from || !r.roDate || r.roDate >= f.from) && (!f.to || !r.roDate || r.roDate <= f.to) && (!f.wh || r.wh === f.wh) && (!f.status || r.status === f.status);
+    };
+    var at = {};
+    (S.logRows || []).forEach(function (r, i) { at[r.key] = i; });
+    var out = (S.logRows || []).slice();
+    rows.forEach(function (r) { if (at[r.key] !== undefined) out[at[r.key]] = r; else out.push(r); });
+    S.logRows = out.filter(function (r) { return !keys[r.key] || fits(r); });
   }
 
   /**
@@ -1626,7 +1676,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var tabs = []; rs.forEach(function (r) { if (r.tabs && tabs.indexOf(r.tabs) < 0) tabs.push(r.tabs); });
       var units = rs.reduce(function (a, r) { return a + (r.status === 'Cancelled' ? 0 : r.qty); }, 0);
       var edit = can('Planner'), multi = groups.length > 1;
-      return '<div class="ro' + (open[c.key] ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
+      return '<div class="ro' + (c.batches.some(function (b) { return open[b]; }) ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
         '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : st === 'Delivered' ? deliveredPill(r0) : roStatusPill(st, r0.appt)) +
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
         (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (dispatchOf(cg) ? '<span class="small">🚚 ' + prettyDate(dispatchOf(cg)) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
@@ -1653,9 +1703,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     box.onclick = function (e) {
       var ro = e.target.closest('.ro'); if (!ro) return;
       var c = cs[Number(ro.getAttribute('data-c'))];
-      if (e.target.closest('.h')) { ro.classList.toggle('open'); (S.openBatch = S.openBatch || {})[c.key] = ro.classList.contains('open'); return; }
+      if (e.target.closest('.h')) { ro.classList.toggle('open'); S.openBatch = S.openBatch || {}; c.batches.forEach(function (b) { S.openBatch[b] = ro.classList.contains('open'); }); return; }
       var out = ro.querySelector('.bmsg');
-      var done = function (r) { out.innerHTML = msgs(r && r.warnings, 'warn'); toast('Saved'); refreshBoot().then(refreshPlanAfterRoChange, function () {}); loadLog(); };
+      // The answer carries the changed lines and the open ROs: the page updates from it, without reading again.
+      var done = function (r) {
+        if (r && r.openROs) S.boot.openROs = r.openROs;
+        if (r && r.rows) mergeLogRows(r.rows);
+        drawLog();
+        var w = (r && r.warnings) || [];
+        toast(w.length ? 'Saved — ' + w.join(' ') : 'Saved', w.length ? 7000 : 2500);
+        refreshPlanAfterRoChange();
+      };
       var err = function (er) { out.innerHTML = msgs([er.message], 'bad'); };
       if (e.target.classList.contains('bSave')) {
         var ch = { appt: ro.querySelector('.bAp').value, roNo: ro.querySelector('.bNo').value.trim() };
@@ -1665,23 +1723,20 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           ch.deliveredOn = ro.querySelector('.bDel').value;
           if (!ch.deliveredOn) { ro.querySelector('.bmsg').innerHTML = msgs(['Enter the delivery date.'], 'bad'); return; }
         }
+        var ds = ro.querySelector('.bDs');
+        if (ds && !ds.disabled && ds.value !== (c.rows[0].dispatch || '')) {
+          if (ds.value && !isWorkDay(ds.value)) { out.innerHTML = msgs([prettyDate(ds.value) + ' is not a dispatch day (Settings → Dispatch).'], 'bad'); return; }
+          ch.dispatch = ds.value;
+        }
         e.target.disabled = true;
-        // A merged RO is several batches (one per group): save each, then report all warnings together.
-        var warns = [];
-        c.batches.reduce(function (p, id) {
-          return p.then(function () { return api('updateBatch', S.token, id, ch).then(function (r) { warns = warns.concat((r && r.warnings) || []); }); });
-        }, Promise.resolve()).then(function () {
-          var ds = ro.querySelector('.bDs');
-          if (!ds || ds.disabled || ds.value === (c.rows[0].dispatch || '')) return;
-          if (ds.value && !isWorkDay(ds.value)) { warns.push(prettyDate(ds.value) + ' is not a dispatch day; the dispatch day was not changed.'); return; }
-          var dates = {}; c.batches.forEach(function (id) { dates[id] = ds.value; });
-          return api('setDispatchDates', S.token, dates);
-        }).then(function () { done({ warnings: warns }); }, err);
+        // One request for the whole RO, also when it is merged (one batch per group) and the dispatch day changed.
+        api('updateBatch', S.token, c.batches, ch).then(done, function (er) { e.target.disabled = false; err(er); });
       }
       var tr = e.target.closest('tr'); if (!tr) return;
       var k = tr.getAttribute('data-k');
-      if (e.target.classList.contains('lSave')) { e.target.disabled = true; api('updateROLine', S.token, k, { qty: Number(tr.querySelector('.lQ').value) }).then(done, err); }
-      if (e.target.classList.contains('lCan')) { if (!confirm('Cancel this line? Its quantity is taken out of the month tab.')) return; e.target.disabled = true; api('updateROLine', S.token, k, { status: 'Cancelled' }).then(done, err); }
+      var btn = e.target, fail = function (er) { btn.disabled = false; err(er); };
+      if (btn.classList.contains('lSave')) { btn.disabled = true; api('updateROLine', S.token, k, { qty: Number(tr.querySelector('.lQ').value) }).then(done, fail); }
+      if (btn.classList.contains('lCan')) { if (!confirm('Cancel this line? Its quantity is taken out of the month tab.')) return; btn.disabled = true; api('updateROLine', S.token, k, { status: 'Cancelled' }).then(done, fail); }
     };
   }
 
@@ -1881,9 +1936,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /* ======================= Dashboard ======================= */
   function renderDash() {
     $('app').innerHTML = '<div id="dashOut" class="card muted">Loading…</div>';
+    S.dashWh = S.dashWh || '';
+    var last = S.dash || cacheGet(CACHE_DASH), shown = '';
+    if (last) { S.dash = last; shown = JSON.stringify(last); drawDash(); }
     api('getDashboard', S.token).then(function (d) {
-      S.dash = d; S.dashWh = S.dashWh || ''; drawDash();
-    }, function (e) { $('dashOut').innerHTML = msgs([e.message], 'bad'); });
+      var js = JSON.stringify(d);
+      cachePut(CACHE_DASH, d);
+      if (S.tab !== 'dash' || !$('dashOut')) { S.dash = d; return; }
+      if (js === shown) return; // nothing changed: keep the screen as it is
+      S.dash = d; drawDash();
+    }, function (e) { if (!last) $('dashOut').innerHTML = msgs([e.message], 'bad'); else toast('Could not refresh the Dashboard: ' + e.message, 5000); });
   }
 
   function drawDash() {
@@ -2025,14 +2087,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var same = function (y) { return PlanCore.whNorm(y.wh) === PlanCore.whNorm(x.wh) && (x.merged ? y.merged === x.merged : x.roNo ? y.roNo === x.roNo : y.batch === x.batch); };
       var batches = []; (d.openROs || []).forEach(function (y) { if (same(y) && batches.indexOf(y.batch) < 0) batches.push(y.batch); });
       b.disabled = true; b.innerHTML = '<span class="spin"></span>';
-      var warns = [];
-      batches.reduce(function (pr, id) { return pr.then(function () { return api('updateBatch', S.token, id, { appt: val }).then(function (res) { warns = warns.concat((res && res.warnings) || []); }); }); }, Promise.resolve())
-        .then(function () {
+      api('updateBatch', S.token, batches, { appt: val })
+        .then(function (res) {
           (d.openROs || []).forEach(function (y) { if (same(y)) y.appt = val; });
-          refreshBoot().then(refreshPlanAfterRoChange, function () {});
+          S.boot.openROs = res.openROs;
+          refreshPlanAfterRoChange();
           showPlanned(d, r);
-          toast(val ? 'Appointment ' + prettyDate(val) + ' saved for RO ' + (x.roNo || '') : 'Appointment removed');
-          if (warns.length) toast(warns.join(' '), 6000);
+          var warns = res.warnings || [];
+          toast(warns.length ? warns.join(' ') : val ? 'Appointment ' + prettyDate(val) + ' saved for RO ' + (x.roNo || '') : 'Appointment removed', warns.length ? 6000 : 3200);
         }, function (er) { b.disabled = false; b.textContent = 'Save'; toast(er.message, 6000); });
     };
     function apptCell(x) {
@@ -2201,7 +2263,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var popOpen = function () { return !$('modal').classList.contains('hidden') && !!$('calPop'); };
     var refreshAfter = function (okMsg) { draw(); if (popOpen()) openDay(); toast(okMsg); };
     var saveDays = function (dates, okMsg) {
-      api('setDispatchDates', S.token, dates).then(function (r) { d.openROs = r.openROs; S.boot.openROs = r.openROs; refreshAfter(okMsg); }, function (e) { toast(e.message, 6000); draw(); });
+      api('setDispatchDates', S.token, dates).then(function (r) { d.openROs = r.openROs; S.boot.openROs = r.openROs; refreshPlanAfterRoChange(); refreshAfter(okMsg); }, function (e) { toast(e.message, 6000); draw(); });
     };
     /** Clicks inside the day pop-up: move a dispatch, change an appointment, add an open RO. */
     var dayClick = function (e) {
@@ -2219,9 +2281,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (apb) {
         var k2 = apb.getAttribute('data-k'), ai = q('apIn2', k2), g2 = grp(k2); if (!g2 || !ai.value) return;
         apb.disabled = true;
-        g2.batches.reduce(function (pr, id) { return pr.then(function () { return api('updateBatch', S.token, id, { appt: ai.value }); }); }, Promise.resolve())
-          .then(function () { return refreshBoot(); })
-          .then(function () { d.openROs = S.boot.openROs; refreshAfter('Appointment ' + dlab(ai.value) + ' saved; dispatch ' + dlab(dispatchOf({ appt: ai.value, wh: g2.wh })) + '.'); },
+        api('updateBatch', S.token, g2.batches, { appt: ai.value })
+          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; refreshPlanAfterRoChange(); refreshAfter('Appointment ' + dlab(ai.value) + ' saved; dispatch ' + dlab(dispatchOf({ appt: ai.value, wh: g2.wh })) + '.'); },
             function (er) { apb.disabled = false; toast(er.message, 6000); });
         return;
       }
@@ -2230,9 +2291,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var k4 = dlb.getAttribute('data-k'), di = q('dlIn', k4), g4 = grp(k4); if (!g4 || !di.value) { toast('Enter the delivery date.', 4000); return; }
         if (!confirm('Mark ' + short(g4.wh) + ' · ' + g4.groups.join(' + ') + ' (' + fmt(g4.units) + ' units) as delivered on ' + dlab(di.value) + '? Its quantities leave the month tab on ' + dlab(addDays(di.value, 2)) + '.')) return;
         dlb.disabled = true;
-        g4.batches.reduce(function (pr, id) { return pr.then(function () { return api('updateBatch', S.token, id, { status: 'Delivered', deliveredOn: di.value }); }); }, Promise.resolve())
-          .then(function () { return refreshBoot(); })
-          .then(function () { d.openROs = S.boot.openROs; refreshPlanAfterRoChange(); refreshAfter(short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.'); },
+        api('updateBatch', S.token, g4.batches, { status: 'Delivered', deliveredOn: di.value })
+          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; refreshPlanAfterRoChange(); refreshAfter(short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.'); },
             function (er) { dlb.disabled = false; toast(er.message, 6000); });
         return;
       }
@@ -2431,7 +2491,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<label class="f">New PIN (4–8 digits)</label><input type="password" id="aNew" inputmode="numeric"><div id="aOut"></div>' +
       '<div class="row" style="margin-top:10px"><button class="btn p" id="aSave">Change PIN</button><button class="btn r" id="aOut2">Log out</button></div></div>';
     $('aSave').onclick = function () { api('changePin', S.token, $('aOld').value, $('aNew').value).then(function () { $('aOut').innerHTML = msgs(['PIN changed.'], 'ok'); }, function (e) { $('aOut').innerHTML = msgs([e.message], 'bad'); }); };
-    $('aOut2').onclick = function () { api('logout', S.token).catch(function () {}); store('bp_token', null); S.token = null; S.boot = null; showLogin(); };
+    $('aOut2').onclick = function () { api('logout', S.token).catch(function () {}); clearCaches(); store('bp_token', null); S.token = null; S.boot = null; showLogin(); };
   }
 
   // Leaving or reloading the page: save the draft at once (typing is saved with a short delay).
@@ -2471,6 +2531,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('app').innerHTML = '<div class="card msg bad">Could not load the Excel tools (no internet?). Reload the page.</div>';
   } else if (!IN_APPS_SCRIPT && !serverUrl()) {
     showSetup();
+  } else if (S.token && cacheGet(CACHE_BOOT)) {
+    // Opens at once with the last data; the fresh copy follows (the screens read it as soon as it is there).
+    S.boot = cacheGet(CACHE_BOOT);
+    startApp();
+    var role0 = S.boot.user.role;
+    refreshBoot().then(function (b) { if (b.user.role !== role0) startApp(); }, function () { /* keeps the last data; a save reports any problem */ });
   } else if (S.token) {
     refreshBoot().then(startApp, function (e) { if (S.token) $('app').innerHTML = msgs([e.message + ' — reload the page to try again.'], 'bad'); });
   } else {
