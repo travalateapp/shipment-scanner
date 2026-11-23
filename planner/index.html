@@ -100,6 +100,10 @@ table.t th{font-size:11px;color:var(--muted)}
 .proj td:first-child,.proj th:first-child{position:sticky;left:0;background:var(--card);z-index:1}
 .proj tr.tot td{font-weight:700;border-top:2px solid var(--line)}
 .proj td.z{color:var(--muted)}
+.pwh tr.pm td{border-bottom:0;padding-bottom:2px}
+.pwh tr.ps td{border-bottom:0;padding-top:1px;padding-bottom:1px;color:var(--muted)}
+.pwh tr.ps.pl td{border-bottom:1px solid var(--line);padding-bottom:7px;color:var(--info)}
+.pwh tr.tot2 td{font-weight:600}
 .proj th.right,.proj td.right{text-align:right}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:8px 14px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer}
@@ -628,7 +632,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-23 proj-ti';
+  var PAGE_BUILD = '2026-11-23 proj-30d';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1641,6 +1645,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   /** The table's data: rows per SKU with quantities per warehouse, its total, and the monthly sale. */
+  var PROJ_X = 1.2; // next 30 days = monthly sale × 1.2
+  /** Warehouse names compared loosely: "Pune P3 - Feeder Warehouse" = "Pune P3 Feeder" = "pune p3". */
+  function whLoose(s) { return String(s || '').toLowerCase().replace(/feeder|warehouse/g, '').replace(/[^a-z0-9]/g, ''); }
+  function monthlyOf(t) { return t ? Math.round(Math.max(t.s7 / 7 * 30, t.s15 / 15 * 30, t.s30)) : null; }
   function projData() {
     var P = S.proj, td = today(), sm = skuMap();
     var lines = (S.boot.openROs || []).filter(function (r) {
@@ -1650,12 +1658,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var d = dispatchOf(r);
       return !d || d >= td; // not shipped yet: dispatch day today or later, or none yet
     });
-    var inv = S.inv || S.projInv, sale = {};
+    var inv = S.inv || S.projInv, sale = {}, saleWh = {};
+    // The Inventory names a warehouse by its facility; with the Bulk RO file on New Plan the exact names are known.
+    var bulkName = {}; if (S.bulk) S.bulk.rows.forEach(function (b) { bulkName[b.whId] = b.whName; });
     if (inv) inv.rows.forEach(function (x) {
       var t = sale[x.item] = sale[x.item] || { s7: 0, s15: 0, s30: 0, stock: 0, name: '' };
       t.s7 += x.s7 || 0; t.s15 += x.s15 || 0; t.s30 += x.s30 || 0; t.stock += x.sellable || 0; if (!t.name) t.name = x.name;
+      var wk = whLoose(bulkName[x.whId] || x.whName), m = saleWh[x.item] = saleWh[x.item] || {};
+      var u = m[wk] = m[wk] || { s7: 0, s15: 0, s30: 0 };
+      u.s7 += x.s7 || 0; u.s15 += x.s15 || 0; u.s30 += x.s30 || 0;
     });
-    var monthly = function (it) { var t = sale[it]; return t ? Math.round(Math.max(t.s7 / 7 * 30, t.s15 / 15 * 30, t.s30)) : null; };
     var by = {}, whs = [], ros = {};
     lines.forEach(function (r) {
       var s = sm[r.item] || {};
@@ -1667,17 +1679,28 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (whs.indexOf(r.wh) < 0) whs.push(r.wh);
       ros[r.merged ? 'M' + r.merged + r.wh : r.roNo ? r.roNo : r.batch] = 1;
     });
+    whs.sort();
     var q = String(P.q || '').trim().toLowerCase();
     var rows = Object.keys(by).map(function (k) {
-      var x = by[k]; x.sale = monthly(x.item); x.nRo = Object.keys(x.ros).length;
+      var x = by[k]; x.sale = monthlyOf(sale[x.item]); x.nRo = Object.keys(x.ros).length;
+      x.proj = x.sale == null ? null : Math.round(x.sale * PROJ_X);
       x.blinkit = sale[x.item] ? sale[x.item].stock : (inv ? 0 : null); // Total sellable today, all warehouses
       x.ti = tiQty({ item: x.item, sku: x.sku });                          // Travalate Inventory stock
+      // Per warehouse (warehouse-wise view): that warehouse's monthly sale and its next-30-days projection.
+      x.saleWh = {}; x.projWh = {};
+      whs.forEach(function (w) {
+        var t = (saleWh[x.item] || {})[whLoose(w)];
+        x.saleWh[w] = t ? monthlyOf(t) : (inv ? 0 : null);
+        x.projWh[w] = x.saleWh[w] == null ? null : Math.round(x.saleWh[w] * PROJ_X);
+      });
       return x;
     })
       .filter(function (x) { return !q || (x.sku + ' ' + x.item + ' ' + x.name).toLowerCase().indexOf(q) >= 0; })
       .sort(function (a, b) { return b.total - a.total || String(a.sku).localeCompare(String(b.sku)); });
-    whs.sort();
-    return { rows: rows, whs: whs, nRo: Object.keys(ros).length, hasSale: !!inv, invAt: inv ? inv.generatedAt : '' };
+    // Warehouses with open ROs that the Inventory does not name the same way (their sale cannot be shown).
+    var invWh = {}; if (inv) inv.rows.forEach(function (x) { invWh[whLoose(bulkName[x.whId] || x.whName)] = 1; });
+    var unmatched = inv ? whs.filter(function (w) { return !invWh[whLoose(w)]; }) : [];
+    return { rows: rows, whs: whs, nRo: Object.keys(ros).length, hasSale: !!inv, invAt: inv ? inv.generatedAt : '', unmatched: unmatched };
   }
 
   function drawProj() {
@@ -1687,44 +1710,66 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('pNote').innerHTML = (P.scope === 'createdAll' ? 'All Created ROs that are not delivered' : P.scope === 'open' ? 'Created and Planned ROs whose dispatch day is today or later (or not set yet)' : 'Created ROs whose dispatch day is today or later (or not set yet)') +
       ' · ' + d.nRo + ' RO' + (d.nRo === 1 ? '' : 's') + '. <b>TI stock</b> = Travalate Inventory now' +
       (S.ti ? (S.ti.ok ? '' : ' (' + esc(S.ti.error || 'could not be read') + ')') : ' (reading…)') + '; red when it is less than the total quantity. ' +
-      '<b>On Blinkit</b> = Total sellable on Blinkit today, all warehouses. <b>Monthly sale</b> = highest of 7-day sale ÷ 7 × 30, 15-day sale ÷ 15 × 30 and 30-day sale, all warehouses' +
-      (d.hasSale ? ' (Inventory ' + esc(d.invAt || '') + ').' : S.projInvErr ? ' — could not read the Inventory: ' + esc(S.projInvErr) : ' — reading the Inventory…');
+      '<b>On Blinkit</b> = Total sellable on Blinkit today, all warehouses. <b>Monthly sale</b> = highest of 7-day sale ÷ 7 × 30, 15-day sale ÷ 15 × 30 and 30-day sale' +
+      (wv ? ' (all warehouses in its column; per warehouse in the row under each SKU)' : ', all warehouses') + '. <b>Projection 30 days</b> = monthly sale × ' + PROJ_X + '.' +
+      (d.hasSale ? ' Inventory ' + esc(d.invAt || '') + '.' : S.projInvErr ? ' Could not read the Inventory: ' + esc(S.projInvErr) : ' Reading the Inventory…') +
+      (wv && d.unmatched.length ? ' <span style="color:var(--warn)">No sales found in the Inventory for ' + esc(d.unmatched.map(short).join(', ')) + ' (named differently there).</span>' : '');
     if (!d.rows.length) { box.innerHTML = '<div class="muted" style="padding:14px">No open RO quantities for these choices.</div>'; return; }
-    var tot = { total: 0, sale: 0, ti: 0, blinkit: 0, wh: {} };
-    d.rows.forEach(function (x) { tot.total += x.total; tot.sale += x.sale || 0; tot.ti += x.ti || 0; tot.blinkit += x.blinkit || 0; d.whs.forEach(function (w) { tot.wh[w] = (tot.wh[w] || 0) + (x.wh[w] || 0); }); });
-    var saleCell = function (v) { return '<td class="right">' + (v == null ? '<span class="muted">' + (d.hasSale ? '0' : '…') + '</span>' : fmt(v)) + '</td>'; };
-    var html = '<div class="scroll"><table class="t proj"><tr><th>SKU · Item ID</th>' + (wv ? '' : '<th>Name</th>') + '<th>Group</th>' +
+    var tot = { total: 0, sale: 0, proj: 0, ti: 0, blinkit: 0, wh: {}, saleWh: {}, projWh: {} };
+    d.rows.forEach(function (x) {
+      tot.total += x.total; tot.sale += x.sale || 0; tot.proj += x.proj || 0; tot.ti += x.ti || 0; tot.blinkit += x.blinkit || 0;
+      d.whs.forEach(function (w) { tot.wh[w] = (tot.wh[w] || 0) + (x.wh[w] || 0); tot.saleWh[w] = (tot.saleWh[w] || 0) + (x.saleWh[w] || 0); tot.projWh[w] = (tot.projWh[w] || 0) + (x.projWh[w] || 0); });
+    });
+    var num = function (v, bold) { return '<td class="right">' + (v == null ? '<span class="muted">' + (d.hasSale ? '0' : '…') + '</span>' : bold ? '<b>' + fmt(v) + '</b>' : fmt(v)) + '</td>'; };
+    var tiCellP = function (x) {
+      return x.ti == null ? '<td class="right z" title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</td>'
+        : '<td class="right"' + (x.ti < x.total ? ' style="color:var(--bad);font-weight:700" title="TI has ' + x.ti + ', the open ROs need ' + x.total + '"' : '') + '>' + fmt(x.ti) + '</td>';
+    };
+    var html = '<div class="scroll"><table class="t proj' + (wv ? ' pwh' : '') + '"><tr><th>SKU · Item ID</th>' + (wv ? '' : '<th>Name</th>') + '<th>Group</th>' +
       (wv ? d.whs.map(function (w) { return '<th class="right" title="' + esc(w) + '">' + esc(short(w)) + '</th>'; }).join('') : '<th class="right">ROs</th>') +
-      '<th class="right">Total qty</th><th class="right">TI stock</th><th class="right">On Blinkit</th><th class="right">Monthly sale</th></tr>' +
+      '<th class="right">Total qty</th><th class="right">TI stock</th><th class="right">On Blinkit</th><th class="right">Monthly sale</th><th class="right">Projection 30 days</th></tr>' +
       d.rows.map(function (x) {
-        return '<tr><td><b>' + esc(x.sku || '—') + '</b> <span class="small muted">' + x.item + '</span>' + (wv && x.name ? '<div class="small muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</div>' : '') + '</td>' +
+        var main = '<tr class="' + (wv ? 'pm' : '') + '"><td><b>' + esc(x.sku || '—') + '</b> <span class="small muted">' + x.item + '</span>' + (wv && x.name ? '<div class="small muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</div>' : '') + '</td>' +
           (wv ? '' : '<td class="small" style="max-width:280px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</td>') + '<td>' + esc(x.group || '—') + '</td>' +
           (wv ? d.whs.map(function (w) { return x.wh[w] ? '<td class="right">' + fmt(x.wh[w]) + '</td>' : '<td class="right z">–</td>'; }).join('') : '<td class="right">' + x.nRo + '</td>') +
-          '<td class="right"><b>' + fmt(x.total) + '</b></td>' +
-          (x.ti == null ? '<td class="right z" title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</td>'
-            : '<td class="right"' + (x.ti < x.total ? ' style="color:var(--bad);font-weight:700" title="TI has ' + x.ti + ', the open ROs need ' + x.total + '"' : '') + '>' + fmt(x.ti) + '</td>') +
-          saleCell(x.blinkit) + saleCell(x.sale) + '</tr>';
+          '<td class="right"><b>' + fmt(x.total) + '</b></td>' + tiCellP(x) + num(x.blinkit) + num(x.sale) + num(x.proj, true) + '</tr>';
+        if (!wv) return main;
+        // Under each SKU: that warehouse's monthly sale, and its projection for the next 30 days.
+        var sub = function (label, vals, cls) {
+          return '<tr class="ps ' + cls + '"><td class="small">↳ ' + label + '</td><td></td>' +
+            d.whs.map(function (w) { var v = vals[w]; return '<td class="right small">' + (v == null ? '<span class="muted">…</span>' : v ? fmt(v) : '<span class="muted">0</span>') + '</td>'; }).join('') +
+            '<td colspan="5"></td></tr>';
+        };
+        return main + sub('Monthly sale', x.saleWh, '') + sub('Projection 30 days (× ' + PROJ_X + ')', x.projWh, 'pl');
       }).join('') +
       '<tr class="tot"><td>Total · ' + d.rows.length + ' SKU' + (d.rows.length === 1 ? '' : 's') + '</td>' + (wv ? '' : '<td></td>') + '<td></td>' +
       (wv ? d.whs.map(function (w) { return '<td class="right">' + fmt(tot.wh[w]) + '</td>'; }).join('') : '<td class="right">' + d.nRo + '</td>') +
       '<td class="right">' + fmt(tot.total) + '</td><td class="right">' + (S.ti && S.ti.ok ? fmt(tot.ti) : '') + '</td><td class="right">' + (d.hasSale ? fmt(tot.blinkit) : '') + '</td>' +
-      '<td class="right">' + (d.hasSale ? fmt(tot.sale) : '') + '</td></tr></table></div>';
+      '<td class="right">' + (d.hasSale ? fmt(tot.sale) : '') + '</td><td class="right">' + (d.hasSale ? fmt(tot.proj) : '') + '</td></tr>' +
+      (wv && d.hasSale ? '<tr class="ps tot2"><td class="small">↳ Monthly sale</td><td></td>' + d.whs.map(function (w) { return '<td class="right small">' + fmt(tot.saleWh[w]) + '</td>'; }).join('') + '<td colspan="5"></td></tr>' +
+        '<tr class="ps pl tot2"><td class="small">↳ Projection 30 days (× ' + PROJ_X + ')</td><td></td>' + d.whs.map(function (w) { return '<td class="right small">' + fmt(tot.projWh[w]) + '</td>'; }).join('') + '<td colspan="5"></td></tr>' : '') +
+      '</table></div>';
     box.innerHTML = html;
   }
 
   function exportProj() {
-    var P = S.proj, d = projData();
-    var rows = d.rows.map(function (x) {
+    var P = S.proj, d = projData(), wv = P.view === 'wh', rows = [];
+    d.rows.forEach(function (x) {
       var o = { SKU: x.sku, 'Item ID': x.item, Name: x.name, Group: x.group };
-      if (P.view === 'wh') d.whs.forEach(function (w) { o[w] = x.wh[w] || 0; }); else o.ROs = x.nRo;
+      if (wv) { o.Row = 'RO qty'; d.whs.forEach(function (w) { o[w] = x.wh[w] || 0; }); } else o.ROs = x.nRo;
       o['Total qty'] = x.total; o['TI stock'] = x.ti == null ? '' : x.ti; o['On Blinkit'] = x.blinkit == null ? '' : x.blinkit;
-      o['Monthly sale'] = x.sale == null ? '' : x.sale;
-      return o;
+      o['Monthly sale'] = x.sale == null ? '' : x.sale; o['Projection 30 days'] = x.proj == null ? '' : x.proj;
+      rows.push(o);
+      if (wv) [['Monthly sale', x.saleWh], ['Projection 30 days', x.projWh]].forEach(function (p) {
+        var o2 = { SKU: x.sku, 'Item ID': x.item, Name: x.name, Group: x.group, Row: p[0] };
+        d.whs.forEach(function (w) { o2[w] = p[1][w] == null ? '' : p[1][w]; });
+        rows.push(o2);
+      });
     });
     var wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), P.view === 'wh' ? 'Warehouse-wise' : 'Total');
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), wv ? 'Warehouse-wise' : 'Total');
     saveBlob(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-      'Projections_' + (P.view === 'wh' ? 'warehouse_' : '') + today() + '.xlsx');
+      'Projections_' + (wv ? 'warehouse_' : '') + today() + '.xlsx');
   }
 
   /* ======================= RO Log ======================= */
