@@ -105,6 +105,7 @@ table.t th{font-size:11px;color:var(--muted)}
 .pwh tr.ps.pl td{border-bottom:1px solid var(--line);padding-bottom:7px;color:var(--info)}
 .pwh tr.tot2 td{font-weight:600}
 .proj th.right,.proj td.right{text-align:right}
+.rmD{padding:2px 8px!important;color:var(--bad);font-weight:700;line-height:1.2}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:8px 14px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer}
 .seg button.on{background:var(--brand);color:#fff}
@@ -632,7 +633,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-23 proj-30d';
+  var PAGE_BUILD = '2026-11-23 cal-remove';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2367,6 +2368,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           if (r.appt || !can('Planner')) return '';
           return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Save</button></span>';
         };
+        // ✕ = take the RO off this day: its dispatch day (and appointment, if it has one) is cleared in the RO Log and the
+        // month-tab heading.
+        var rmBtn = function (r) {
+          if (!can('Planner')) return '';
+          return ' <button class="btn sm rmD" data-k="' + esc(r.key) + '" title="Remove from this day (clears its ' + (r.appt ? 'appointment and ' : '') + 'dispatch day in the sheet)">✕</button>';
+        };
         var mv = function (r) {
           if (r.appt && !can('Planner')) return ' <span class="small muted">(from appointment ' + prettyDate(r.appt) + ')</span>';
           if (r.appt) return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" value="' + esc(r.appt) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Change</button></span>';
@@ -2374,7 +2381,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           return ' <span class="nowrap">· move to <input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button></span>' + apptAdd(r);
         };
         info = '<div class="calinfo"><b>' + dlab(S.dashCalDay) + '</b>' + (isWorkDay(S.dashCalDay) ? '' : ' <span class="small muted">(no dispatch day)</span>') +
-          (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, mv(r)); }).join('') + '</ul>' : '') +
+          (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, rmBtn(r) + mv(r)); }).join('') + '</ul>' : '') +
           (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul>' + x.pack.map(function (r) { return roLine(r, ' · dispatch ' + prettyDate(dispatchOf(r))); }).join('') + '</ul>' : '') +
           (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, (r.appt ? '' : ' · expected') + apptAdd(r) + delv(r)); }).join('') + '</ul>' : '') +
           (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
@@ -2453,6 +2460,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         if (!isWorkDay(inp.value)) { toast(dlab(inp.value) + ' is not a dispatch day (Settings → Dispatch).', 5000); return; }
         var dates = {}; g.batches.forEach(function (b) { dates[b] = inp.value; });
         mvb.disabled = true; saveDays(dates, 'Moved to ' + dlab(inp.value) + '.');
+        return;
+      }
+      var rmb = e.target.closest('.rmD');
+      if (rmb) {
+        var k5 = rmb.getAttribute('data-k'), g5 = grp(k5); if (!g5) return;
+        var lbl = short(g5.wh) + ' · ' + g5.groups.join(' + ') + ' (' + fmt(g5.units) + ' units)';
+        if (g5.appt && !confirm(lbl + ' has its appointment on ' + dlab(g5.appt) + '. Remove it from this day? This clears its appointment and dispatch day (RO Log and month tab).')) return;
+        rmb.disabled = true;
+        api('updateBatch', S.token, g5.batches, g5.appt ? { appt: '', dispatch: '' } : { dispatch: '' })
+          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; refreshPlanAfterRoChange(); refreshAfter(lbl + ' removed from ' + dlab(S.dashCalDay) + '; it has no dispatch day now.'); },
+            function (er) { rmb.disabled = false; toast(er.message, 6000); });
         return;
       }
       var apb = e.target.closest('.apGo2');
