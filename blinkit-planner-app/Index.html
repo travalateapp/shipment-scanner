@@ -639,7 +639,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-23 cal-tidy';
+  var PAGE_BUILD = '2026-11-23 starters-filter';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1071,7 +1071,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (picks.length) return picks.indexOf(Number(r.item)) >= 0;
       // "Lines to send": a line you changed yourself stays on screen even at 0, so a block filled or typed down to 0
       // keeps its heading (and its ↺ reset) instead of disappearing.
-      if (f.only && !(S.final[r.key] > 0) && !(r.locked && r.note) && !(S.edited && r.key in S.edited)) return false;
+      // "New-listing starters only": the lines where the SKU is not live yet and gets a starter quantity.
+      if (f.startersOnly) { if (!(r.starter > 0) || r.locked) return false; }
+      else if (f.only && !(S.final[r.key] > 0) && !(r.locked && r.note) && !(S.edited && r.key in S.edited)) return false;
       if (q && (r.name + ' ' + r.sku + ' ' + r.item).toLowerCase().indexOf(q) < 0) return false;
       return true;
     });
@@ -1114,11 +1116,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         fmt(S.filter.whs.reduce(function (a, w) { return a + (t.byWh[w] ? t.byWh[w].units : 0); }, 0)) + '</span> units — click more to add, click a ticked one to remove, <b>All</b> to clear.</div>' : '<div class="small muted" style="margin-top:4px">Click warehouses to pick one or more.</div>') +
       '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Group</label><select id="fGroup"><option value="">' + esc(groupList().join(' + ')) + '</option>' + groupList().map(function (g) { return '<option value="' + g + '"' + (S.filter.group === g ? ' selected' : '') + '>' + esc(groupName(g)) + '</option>'; }).join('') + '<option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
-      '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (S.filter.only ? '' : ' selected') + '>All items</option></select></div>' +
+      '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (!S.filter.only && !S.filter.startersOnly ? ' selected' : '') + '>All items</option>' +
+        '<option value="s"' + (S.filter.startersOnly ? ' selected' : '') + '>New-listing starters only</option></select></div>' +
       '<div class="srch"><label class="f">Search — pick one or more SKUs</label><input type="text" id="fQ" autocomplete="off" placeholder="SKU or item ID, Enter to add" value="' + esc(S.filter.q) + '"><div class="sugg hidden" id="fSugg"></div></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bClr" title="Clear all filters">✕ Clear</button></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bXls">⬇ Plan (Excel)</button></div></div>' +
       '<div class="picks" id="fPicks"></div>' +
+      (S.filter.startersOnly ? '<div class="msg info">Showing only the <b>new-listing starter</b> lines: SKUs not live yet at that warehouse that sell 1+ a day elsewhere.' +
+        (S.starters ? '' : ' <b>New-listing starters is set to No</b>, so their Send is 0 — set it to Yes above to add the starter quantities.') + '</div>' : '') +
       tiInfoHtml() + // (the stock-date and RO Log counting notes are no longer shown, on request)
       (noGroup.length ? '<div class="msg warn">' + noGroup.length + ' line(s) have no ' + groupList().join('/') + ' group, so they cannot be logged: ' + esc(noGroup.slice(0, 6).map(function (r) { return skuText(r.sku, r.item); }).join(', ')) + (noGroup.length > 6 ? '…' : '') + '. An admin sets it in Settings → SKUs.</div>' : '') +
       (locked.length ? '<details class="msg warn" id="lockedBox"' + (S.lockedOpen ? ' open' : '') + '><summary style="cursor:pointer"><b>Needed but locked on Blinkit (' + locked.length + ')</b> <span class="small">— click to ' + (S.lockedOpen ? 'hide' : 'show') + '</span></summary><div style="margin-top:6px">' + esc(locked.map(function (r) { return r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '') + ' – ' + skuText(r.sku, r.item) + ' (' + r.note.match(/needed (\d+)/)[1] + ')'; }).join('; ')) + '</div></details>' : '') +
@@ -1136,7 +1141,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       renderPlanOut();
     };
     $('fGroup').onchange = function () { S.filter.group = this.value; renderLines(); };
-    $('fOnly').onchange = function () { S.filter.only = this.value === '1'; renderLines(); };
+    $('fOnly').onchange = function () { S.filter.only = this.value === '1'; S.filter.startersOnly = this.value === 's'; renderPlanOut(); };
     initSkuPicker();
     $('bClr').onclick = function () { S.filter = { whs: [], group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
     $('bXls').onclick = exportPlan;
