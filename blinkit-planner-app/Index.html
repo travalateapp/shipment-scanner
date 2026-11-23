@@ -628,7 +628,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-23 projections';
+  var PAGE_BUILD = '2026-11-23 proj-ti';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1257,7 +1257,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       (res.stocks || []).forEach(function (x) { map[tiNorm(x.sku)] = (map[tiNorm(x.sku)] || 0) + (Number(x.qty) || 0); });
       S.ti = { ok: !!res.ok, map: map, updatedAt: res.updatedAt, monthLabel: res.monthLabel, error: res.error, setup: res.setup };
     }, function (e) { S.ti = { ok: false, map: {}, error: e.message }; })
-      .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); });
+      .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); if (S.tab === 'proj') drawProj(); });
   }
   function tiInfoHtml() {
     if (!S.ti) return '<div class="msg info"><span class="spin"></span> Reading stock from Travalate Inventory (TI)…</div>';
@@ -1631,6 +1631,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     drawProj();
     // The latest open ROs and the Inventory's sales, then drawn again.
     refreshBoot().then(function () { if (S.tab === 'proj') drawProj(); }, function () {});
+    loadTi(false);
     if (!S.inv && !S.projInv && !S.projInvLoading) {
       S.projInvLoading = true;
       api('getSheetInventory', S.token).then(function (rows) {
@@ -1651,8 +1652,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     });
     var inv = S.inv || S.projInv, sale = {};
     if (inv) inv.rows.forEach(function (x) {
-      var t = sale[x.item] = sale[x.item] || { s7: 0, s15: 0, s30: 0, name: '' };
-      t.s7 += x.s7 || 0; t.s15 += x.s15 || 0; t.s30 += x.s30 || 0; if (!t.name) t.name = x.name;
+      var t = sale[x.item] = sale[x.item] || { s7: 0, s15: 0, s30: 0, stock: 0, name: '' };
+      t.s7 += x.s7 || 0; t.s15 += x.s15 || 0; t.s30 += x.s30 || 0; t.stock += x.sellable || 0; if (!t.name) t.name = x.name;
     });
     var monthly = function (it) { var t = sale[it]; return t ? Math.round(Math.max(t.s7 / 7 * 30, t.s15 / 15 * 30, t.s30)) : null; };
     var by = {}, whs = [], ros = {};
@@ -1667,7 +1668,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       ros[r.merged ? 'M' + r.merged + r.wh : r.roNo ? r.roNo : r.batch] = 1;
     });
     var q = String(P.q || '').trim().toLowerCase();
-    var rows = Object.keys(by).map(function (k) { var x = by[k]; x.sale = monthly(x.item); x.nRo = Object.keys(x.ros).length; return x; })
+    var rows = Object.keys(by).map(function (k) {
+      var x = by[k]; x.sale = monthly(x.item); x.nRo = Object.keys(x.ros).length;
+      x.blinkit = sale[x.item] ? sale[x.item].stock : (inv ? 0 : null); // Total sellable today, all warehouses
+      x.ti = tiQty({ item: x.item, sku: x.sku });                          // Travalate Inventory stock
+      return x;
+    })
       .filter(function (x) { return !q || (x.sku + ' ' + x.item + ' ' + x.name).toLowerCase().indexOf(q) >= 0; })
       .sort(function (a, b) { return b.total - a.total || String(a.sku).localeCompare(String(b.sku)); });
     whs.sort();
@@ -1679,24 +1685,30 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var P = S.proj, d = projData(), wv = P.view === 'wh';
     var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
     $('pNote').innerHTML = (P.scope === 'createdAll' ? 'All Created ROs that are not delivered' : P.scope === 'open' ? 'Created and Planned ROs whose dispatch day is today or later (or not set yet)' : 'Created ROs whose dispatch day is today or later (or not set yet)') +
-      ' · ' + d.nRo + ' RO' + (d.nRo === 1 ? '' : 's') + '. <b>Monthly sale</b> = highest of 7-day sale ÷ 7 × 30, 15-day sale ÷ 15 × 30 and 30-day sale, all warehouses' +
+      ' · ' + d.nRo + ' RO' + (d.nRo === 1 ? '' : 's') + '. <b>TI stock</b> = Travalate Inventory now' +
+      (S.ti ? (S.ti.ok ? '' : ' (' + esc(S.ti.error || 'could not be read') + ')') : ' (reading…)') + '; red when it is less than the total quantity. ' +
+      '<b>On Blinkit</b> = Total sellable on Blinkit today, all warehouses. <b>Monthly sale</b> = highest of 7-day sale ÷ 7 × 30, 15-day sale ÷ 15 × 30 and 30-day sale, all warehouses' +
       (d.hasSale ? ' (Inventory ' + esc(d.invAt || '') + ').' : S.projInvErr ? ' — could not read the Inventory: ' + esc(S.projInvErr) : ' — reading the Inventory…');
     if (!d.rows.length) { box.innerHTML = '<div class="muted" style="padding:14px">No open RO quantities for these choices.</div>'; return; }
-    var tot = { total: 0, sale: 0, wh: {} };
-    d.rows.forEach(function (x) { tot.total += x.total; tot.sale += x.sale || 0; d.whs.forEach(function (w) { tot.wh[w] = (tot.wh[w] || 0) + (x.wh[w] || 0); }); });
+    var tot = { total: 0, sale: 0, ti: 0, blinkit: 0, wh: {} };
+    d.rows.forEach(function (x) { tot.total += x.total; tot.sale += x.sale || 0; tot.ti += x.ti || 0; tot.blinkit += x.blinkit || 0; d.whs.forEach(function (w) { tot.wh[w] = (tot.wh[w] || 0) + (x.wh[w] || 0); }); });
     var saleCell = function (v) { return '<td class="right">' + (v == null ? '<span class="muted">' + (d.hasSale ? '0' : '…') + '</span>' : fmt(v)) + '</td>'; };
     var html = '<div class="scroll"><table class="t proj"><tr><th>SKU · Item ID</th>' + (wv ? '' : '<th>Name</th>') + '<th>Group</th>' +
       (wv ? d.whs.map(function (w) { return '<th class="right" title="' + esc(w) + '">' + esc(short(w)) + '</th>'; }).join('') : '<th class="right">ROs</th>') +
-      '<th class="right">Total qty</th><th class="right">Monthly sale</th></tr>' +
+      '<th class="right">Total qty</th><th class="right">TI stock</th><th class="right">On Blinkit</th><th class="right">Monthly sale</th></tr>' +
       d.rows.map(function (x) {
         return '<tr><td><b>' + esc(x.sku || '—') + '</b> <span class="small muted">' + x.item + '</span>' + (wv && x.name ? '<div class="small muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</div>' : '') + '</td>' +
           (wv ? '' : '<td class="small" style="max-width:280px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</td>') + '<td>' + esc(x.group || '—') + '</td>' +
           (wv ? d.whs.map(function (w) { return x.wh[w] ? '<td class="right">' + fmt(x.wh[w]) + '</td>' : '<td class="right z">–</td>'; }).join('') : '<td class="right">' + x.nRo + '</td>') +
-          '<td class="right"><b>' + fmt(x.total) + '</b></td>' + saleCell(x.sale) + '</tr>';
+          '<td class="right"><b>' + fmt(x.total) + '</b></td>' +
+          (x.ti == null ? '<td class="right z" title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</td>'
+            : '<td class="right"' + (x.ti < x.total ? ' style="color:var(--bad);font-weight:700" title="TI has ' + x.ti + ', the open ROs need ' + x.total + '"' : '') + '>' + fmt(x.ti) + '</td>') +
+          saleCell(x.blinkit) + saleCell(x.sale) + '</tr>';
       }).join('') +
       '<tr class="tot"><td>Total · ' + d.rows.length + ' SKU' + (d.rows.length === 1 ? '' : 's') + '</td>' + (wv ? '' : '<td></td>') + '<td></td>' +
       (wv ? d.whs.map(function (w) { return '<td class="right">' + fmt(tot.wh[w]) + '</td>'; }).join('') : '<td class="right">' + d.nRo + '</td>') +
-      '<td class="right">' + fmt(tot.total) + '</td><td class="right">' + (d.hasSale ? fmt(tot.sale) : '') + '</td></tr></table></div>';
+      '<td class="right">' + fmt(tot.total) + '</td><td class="right">' + (S.ti && S.ti.ok ? fmt(tot.ti) : '') + '</td><td class="right">' + (d.hasSale ? fmt(tot.blinkit) : '') + '</td>' +
+      '<td class="right">' + (d.hasSale ? fmt(tot.sale) : '') + '</td></tr></table></div>';
     box.innerHTML = html;
   }
 
@@ -1705,7 +1717,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var rows = d.rows.map(function (x) {
       var o = { SKU: x.sku, 'Item ID': x.item, Name: x.name, Group: x.group };
       if (P.view === 'wh') d.whs.forEach(function (w) { o[w] = x.wh[w] || 0; }); else o.ROs = x.nRo;
-      o['Total qty'] = x.total; o['Monthly sale'] = x.sale == null ? '' : x.sale;
+      o['Total qty'] = x.total; o['TI stock'] = x.ti == null ? '' : x.ti; o['On Blinkit'] = x.blinkit == null ? '' : x.blinkit;
+      o['Monthly sale'] = x.sale == null ? '' : x.sale;
       return o;
     });
     var wb = XLSX.utils.book_new();
