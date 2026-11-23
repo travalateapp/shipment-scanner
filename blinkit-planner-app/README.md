@@ -28,6 +28,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
 - **Dashboard:** days of cover per warehouse and item from the last plan (red under 7 days, amber 7–15). Handy on a phone.
 - **Settings (admin):** days of cover, rounding, address, the SKU list with TBI / TBO / TBG group (or **Take groups & tiers from the month tab**, which also lists SKUs that sit in two groups of one warehouse), and **Start new month**.
 - **Users (admin):** User ID + PIN logins with the roles Admin, Planner (plans and ROs) and Viewer (dashboard and log only).
+- **Speed:** every save is one request (a merged RO with its dispatch day included); the month tab is read once per save and written in one go, and the answer carries the changed lines and open ROs, so nothing is read again afterwards. The app opens at once with the last data kept on the device (Dashboard, RO Log) and refreshes it in the background. While a save runs the screen is blurred with **Saving…**, so nobody clicks twice.
 
 The app only writes to **columns D–H** of a month tab and the RO heading above them. Columns **I onwards are never changed.**
 

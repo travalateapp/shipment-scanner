@@ -192,6 +192,15 @@ function seedSkus_() {
 
 /* ---------------- Helpers ---------------- */
 
+/** The RO Log tab, with any heading a newer version needs (checked at most every 6 hours, not on every save). */
+function ensureLog_() {
+  const cache = CacheService.getScriptCache(), key = 'loghead_' + LOG_HEAD.length;
+  if (cache.get(key)) return sheet_(TAB.LOG);
+  const sh = ensureSheet_(TAB.LOG, LOG_HEAD);
+  cache.put(key, '1', 21600);
+  return sh;
+}
+
 function sheet_(name) {
   const sh = SpreadsheetApp.getActive().getSheetByName(name);
   if (!sh) throw new Error('The tab "' + name + '" is missing. Run setup in Apps Script once.');
@@ -201,7 +210,8 @@ function sheet_(name) {
 /** Warehouse names compared ignoring spaces and capitals. */
 function whNorm_(s) { return String(s || '').toLowerCase().replace(/\s+/g, ''); }
 
-function tz_() { return SpreadsheetApp.getActive().getSpreadsheetTimeZone() || Session.getScriptTimeZone(); }
+let TZ_ = '';
+function tz_() { return TZ_ || (TZ_ = SpreadsheetApp.getActive().getSpreadsheetTimeZone() || Session.getScriptTimeZone()); }
 function fmtDate_(d) { return d instanceof Date && !isNaN(d) ? Utilities.formatDate(d, tz_(), 'yyyy-MM-dd') : ''; }
 function fmtStamp_(d) { return d instanceof Date && !isNaN(d) ? d.getTime() : null; }
 function parseDate_(s) {
@@ -311,7 +321,12 @@ function auth_(token, minRole) {
     id = v.u;
     cache.put('tok_' + token, id, 21600);
   }
-  const u = findUser_(id);
+  let u = null;
+  try { u = JSON.parse(cache.get('usr_' + String(id).toLowerCase()) || 'null'); } catch (e) { u = null; }
+  if (!u) {
+    u = findUser_(id);
+    if (u) cache.put('usr_' + String(id).toLowerCase(), JSON.stringify({ row: u.row, id: u.id, name: u.name, role: u.role, active: u.active }), 300);
+  }
   if (!u || !u.active) throw new Error('SESSION_EXPIRED');
   if (minRole && ROLES.indexOf(u.role) > ROLES.indexOf(minRole)) {
     throw new Error('You do not have permission for this. Ask an admin.');
@@ -320,7 +335,7 @@ function auth_(token, minRole) {
 }
 
 function changePin(token, oldPin, newPin) {
-  const u = auth_(token);
+  const u = findUser_(auth_(token).id); // with its PIN
   if (!verifyPin_(u.pin, oldPin)) throw new Error('The current PIN is wrong.');
   if (!/^\d{4,8}$/.test(String(newPin))) throw new Error('The new PIN must be 4 to 8 digits.');
   sheet_(TAB.USERS).getRange(u.row, 3).setValue(hashPin_(String(newPin)));
@@ -343,6 +358,7 @@ function saveUser(token, data) {
     if (existing.id === me.id && (role !== 'Admin' || data.active === false)) throw new Error('You cannot remove your own admin access.');
     sh.getRange(existing.row, 2).setValue(String(data.name || ''));
     sh.getRange(existing.row, 4, 1, 2).setValues([[role, data.active === false ? 'No' : 'Yes']]);
+    CacheService.getScriptCache().remove('usr_' + existing.id.toLowerCase());
     return { created: false };
   }
   const pin = String(data.pin || '');
@@ -373,7 +389,7 @@ function cleanupDelivered_() {
   const due = readLog_().filter(r => r.status === 'Delivered' && r.deliveredOn instanceof Date && !r.removedAt && r.refs.length &&
     today.getTime() >= r.deliveredOn.getTime() + DELIVERED_KEEP_DAYS * 864e5);
   if (!due.length) return 0;
-  const log = ensureSheet_(TAB.LOG, LOG_HEAD), now = new Date(), cols = {};
+  const log = ensureLog_(), now = new Date(), cols = {};
   due.forEach(r => {
     r.refs.forEach(ref => {
       const sh = SpreadsheetApp.getActive().getSheetByName(ref.t);
@@ -385,11 +401,11 @@ function cleanupDelivered_() {
   });
   // A column left without quantities in its block also loses its RO heading.
   Object.keys(cols).forEach(k => {
-    const x = cols[k], ci = RO_COLS.indexOf(x.c), b = blockFor_(readBlockValues_(x.sh), x.wh, x.group);
+    const x = cols[k], ci = RO_COLS.indexOf(x.c), v = tabValues_(x.sh), b = blockFor_(v, x.wh, x.group);
     if (!b || ci < 0) return;
-    const v = x.sh.getRange(b.start + 1, FIRST_RO_COL + ci, b.end - b.start + 1, 1).getValues();
-    const empty = Object.keys(b.items).every(it => { const val = v[b.items[it] - b.start][0]; return val === '' || val === null || Number(val) === 0; });
-    if (empty) x.sh.getRange(b.headRow + 1, FIRST_RO_COL + ci).clearContent();
+    const c = FIRST_RO_COL - 1 + ci;
+    const empty = Object.keys(b.items).every(it => { const val = v[b.items[it]][c]; return val === '' || val === null || Number(val) === 0; });
+    if (empty) { x.sh.getRange(b.headRow + 1, c + 1).clearContent(); v[b.headRow][c] = ''; }
   });
   return due.length;
 }
@@ -408,7 +424,7 @@ function getBoot(token) {
     cache.put('deliv_clean', '1', 1800);
     try { cleanupDeliveredROs(); } catch (e) { /* never blocks opening the planner */ }
   }
-  const latest = monthTabs_()[0];
+  const tabs = monthTabs_(), latest = tabs[0];
   return {
     user: { id: u.id, name: u.name, role: u.role },
     version: SERVER_VERSION,
@@ -416,8 +432,8 @@ function getBoot(token) {
     skus: getSkus_(),
     groups: GROUP_NAMES,
     warehouses: latest ? blockWarehouses_(latest.sheet) : [],
-    months: monthTabs_().slice(0, 6).map(t => t.name),
-    openROs: readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_),
+    months: tabs.slice(0, 6).map(t => t.name),
+    openROs: openROsOf_(readLog_()),
     snapshot: snapshotMeta_(),
   };
 }
@@ -499,7 +515,7 @@ function getDashboard(token) {
   return {
     meta: snapshotMeta_(),
     rows: rows.map(r => r.map(v => (v instanceof Date ? fmtDate_(v) : v))),
-    openROs: readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_),
+    openROs: openROsOf_(readLog_()),
   };
 }
 
@@ -643,9 +659,9 @@ function createROs_(u, data) {
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
         lines: b.lines.length, tab: ref ? ref.t + ' (' + ref.c + ')' : '' });
     });
-    const log = ensureSheet_(TAB.LOG, LOG_HEAD); // adds a column a newer version needs (e.g. "Merged RO") by itself
+    const log = ensureLog_(); // adds a column a newer version needs (e.g. "Merged RO") by itself
     log.getRange(log.getLastRow() + 1, 1, rows.length, LOG_HEAD.length).setValues(rows);
-    out.openROs = readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_);
+    out.openROs = openROsOf_(readLog_());
     return out;
   }
 }
@@ -677,7 +693,7 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    ensureSheet_(TAB.LOG, LOG_HEAD);
+    ensureLog_();
     const log = readLog_();
     if (log.some(r => r.roNo === roNo && r.status !== 'Cancelled')) {
       return { skipped: true, message: 'RO ' + roNo + ' is already in the RO Log.' };
@@ -711,16 +727,8 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
         sh.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, u.name || u.id]]);
       });
       // The RO heading in the month tab gets the RO number.
-      const seen = {};
-      rows.forEach(r => {
-        if (seen[r.batch]) return;
-        seen[r.batch] = 1;
-        const appt = r.appt instanceof Date ? r.appt : null;
-        r.refs.forEach(ref => {
-          const tsh = SpreadsheetApp.getActive().getSheetByName(ref.t);
-          if (tsh) setBatchLabel_(tsh, r.wh, r.group, ref.c, roLabel_(r.roDate instanceof Date ? r.roDate : now, roNo, appt, r.wh, r.dispatch));
-        });
-      });
+      rows.forEach(r => { r.roNo = roNo; });
+      refreshHeadings_(rows);
       out.matched = true;
     } else {
       const skuMap = {};
@@ -732,8 +740,10 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
       });
       out.batches = res.batches;
       out.warnings = res.warnings;
+      out.openROs = res.openROs;
+      return out;
     }
-    out.openROs = readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_);
+    out.openROs = openROsOf_(readLog_());
     return out;
   } finally {
     lock.releaseLock();
@@ -807,11 +817,11 @@ function refreshHeadings_(records) {
   Object.keys(byTab).forEach(t => {
     const sh = SpreadsheetApp.getActive().getSheetByName(t);
     if (!sh) return;
-    const v = readBlockValues_(sh);
+    const v = tabValues_(sh);
     byTab[t].forEach(x => {
       const ci = RO_COLS.indexOf(x.c), b = blockFor_(v, x.r.wh, x.r.group);
       if (ci < 0 || !b) return;
-      writeLabel_(sh.getRange(b.headRow + 1, FIRST_RO_COL + ci), roLabelOf_(x.r));
+      setTabLabel_(sh, b.headRow, FIRST_RO_COL - 1 + ci, roLabelOf_(x.r));
       n++;
     });
   });
@@ -839,30 +849,42 @@ function setDispatchDates(token, dates) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const log = ensureSheet_(TAB.LOG, LOG_HEAD); // adds the "Dispatch Date" heading to an older RO Log
+    const log = ensureLog_(); // adds the "Dispatch Date" heading to an older RO Log
+    const all = readLog_();
     // Rows to change, written run by run (a batch's lines sit on consecutive rows), not cell by cell.
-    const rows = [];
-    readLog_().forEach(r => {
+    const rows = [], changed = [];
+    all.forEach(r => {
       if (!Object.prototype.hasOwnProperty.call(dates, r.batch)) return;
       const d = dates[r.batch] ? parseDate_(dates[r.batch]) : null;
       if (dates[r.batch] && !d) throw new Error('Bad date: ' + dates[r.batch]);
       rows.push({ row: r.row, v: d || '' });
+      r.dispatch = d || '';
+      if (r.status !== 'Cancelled') changed.push(r);
     });
-    rows.sort((a, b) => a.row - b.row);
-    for (let i = 0; i < rows.length;) {
-      let j = i;
-      while (j + 1 < rows.length && rows[j + 1].row === rows[j].row + 1) j++;
-      log.getRange(rows[i].row, L['Dispatch Date'] + 1, j - i + 1, 1).setValues(rows.slice(i, j + 1).map(x => [x.v]));
-      i = j + 1;
-    }
-    const n = rows.length;
-    const all = readLog_();
-    // The month-tab headings show the dispatch day: rewrite those of the ROs that changed.
-    try { refreshHeadings_(all.filter(r => Object.prototype.hasOwnProperty.call(dates, r.batch) && r.status !== 'Cancelled')); } catch (e) { /* the dates are saved either way */ }
-    return { lines: n, openROs: all.filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_) };
+    // The month-tab headings show the dispatch day: rewrite those of the ROs that changed (tabs are read first,
+    // then everything is written in one go).
+    try { refreshHeadings_(changed); } catch (e) { /* the dates are saved either way */ }
+    writeRuns_(log, rows, L['Dispatch Date']);
+    return { lines: rows.length, openROs: openROsOf_(all) };
   } finally {
     lock.releaseLock();
   }
+}
+
+/** Writes one column for many rows ({ row, v }), one setValues per run of consecutive rows. */
+function writeRuns_(sh, rows, colIdx) {
+  rows.sort((a, b) => a.row - b.row);
+  for (let i = 0; i < rows.length;) {
+    let j = i;
+    while (j + 1 < rows.length && rows[j + 1].row === rows[j].row + 1) j++;
+    sh.getRange(rows[i].row, colIdx + 1, j - i + 1, 1).setValues(rows.slice(i, j + 1).map(x => [x.v]));
+    i = j + 1;
+  }
+}
+
+/** Open ROs (Planned / Created) for the page, from RO Log records already read. */
+function openROsOf_(all) {
+  return all.filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_);
 }
 
 /** Changes one line: qty, status or notes. The month tab follows (a cancelled line is taken out of it). */
@@ -872,7 +894,8 @@ function updateROLine(token, key, changes) {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const r = readLog_().filter(x => x.key === key)[0];
+    const all = readLog_();
+    const r = all.filter(x => x.key === key)[0];
     if (!r) throw new Error('This RO line was not found. Reload the RO Log.');
     const log = sheet_(TAB.LOG);
     const warnings = [];
@@ -899,62 +922,79 @@ function updateROLine(token, key, changes) {
     log.getRange(r.row, L['Status'] + 1).setValue(status);
     if (changes.notes !== undefined) log.getRange(r.row, L['Notes'] + 1).setValue(String(changes.notes));
     log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[new Date(), u.name || u.id]]);
-    return { warnings: warnings };
+    r.qty = qty; r.status = status;
+    if (changes.notes !== undefined) r.notes = String(changes.notes);
+    return { warnings: warnings, rows: [publicRo_(r)], openROs: openROsOf_(all) };
   } finally {
     lock.releaseLock();
   }
 }
 
 /**
- * Changes a whole RO (all lines of a batch): status, appointment date, Blinkit RO number.
- * The RO heading in the month tab is updated with the RO number and appointment.
+ * Changes a whole RO: all lines of one batch, or of several (batch = an id or a list of ids — a merged RO is one
+ * batch per group): status, appointment date, Blinkit RO number, dispatch day. The month tab follows, and the RO
+ * heading is rewritten. One request does it all; the answer carries the changed lines and the open ROs, so the
+ * page does not have to read everything again.
  */
 function updateBatch(token, batch, changes) {
   const u = auth_(token, 'Planner');
   changes = changes || {};
+  const ids = Array.isArray(batch) ? batch.map(String) : [String(batch)];
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
-    const lines = readLog_().filter(x => x.batch === batch);
+    const all = readLog_();
+    const lines = all.filter(x => ids.indexOf(x.batch) >= 0);
     if (!lines.length) throw new Error('This RO was not found. Reload the RO Log.');
-    const log = sheet_(TAB.LOG);
+    const log = changes.status !== undefined || changes.dispatch !== undefined ? ensureLog_() : sheet_(TAB.LOG);
     const warnings = [];
     const now = new Date();
-    const appt = changes.appt !== undefined ? parseDate_(changes.appt) : (lines[0].appt instanceof Date ? lines[0].appt : null);
-    const roNo = changes.roNo !== undefined ? String(changes.roNo) : lines[0].roNo;
     if (changes.status !== undefined && STATUSES.indexOf(changes.status) < 0) throw new Error('Unknown status.');
     const delivered = changes.status === 'Delivered' ? parseDate_(changes.deliveredOn) : null;
     if (changes.status === 'Delivered' && !delivered) throw new Error('Enter the delivery date.');
-    if (changes.status !== undefined) ensureSheet_(TAB.LOG, LOG_HEAD); // "Delivered On" / "Removed From Tab" headings
+    const dispatch = changes.dispatch !== undefined ? (changes.dispatch ? parseDate_(changes.dispatch) : '') : undefined;
+    if (changes.dispatch && !dispatch) throw new Error('Bad date: ' + changes.dispatch);
+    const first = {}; // per batch: its first line (appointment / RO number when not changed)
+    lines.forEach(r => { if (!first[r.batch]) first[r.batch] = r; });
+
+    // 1. The month tab (read once per tab, written in one go).
     lines.forEach(r => {
+      if (changes.status === undefined || changes.status === r.status) return;
+      const oldEff = r.status === 'Cancelled' ? 0 : r.qty, newEff = changes.status === 'Cancelled' ? 0 : r.qty;
+      if (newEff === oldEff) return;
+      r.refs.forEach(ref => {
+        const sh = SpreadsheetApp.getActive().getSheetByName(ref.t);
+        const w = sh ? adjustCell_(sh, r.wh, r.group, r.item, r.sku, ref.c, newEff - oldEff) : 'Tab ' + ref.t + ' no longer exists.';
+        if (w) warnings.push(w);
+      });
+    });
+
+    // 2. The RO Log lines.
+    lines.forEach(r => {
+      const f = first[r.batch];
+      const appt = changes.appt !== undefined ? parseDate_(changes.appt) : (f.appt instanceof Date ? f.appt : null);
+      const roNo = changes.roNo !== undefined ? String(changes.roNo) : f.roNo;
       if (changes.status !== undefined && (changes.status === 'Delivered' || r.status === 'Delivered')) {
         // Delivered: keep the date (the quantities leave the month tab 2 days later); un-delivered: clear it.
         log.getRange(r.row, L['Delivered On'] + 1).setValue(changes.status === 'Delivered' ? delivered : '');
         if (changes.status !== 'Delivered' && r.removedAt) warnings.push('RO ' + (r.roNo || r.batch) + ' was already removed from the month tab; its quantities are not put back.');
+        r.deliveredOn = changes.status === 'Delivered' ? delivered : '';
       }
       if (changes.status !== undefined && changes.status !== r.status) {
-        const oldEff = r.status === 'Cancelled' ? 0 : r.qty, newEff = changes.status === 'Cancelled' ? 0 : r.qty;
-        if (newEff !== oldEff) {
-          r.refs.forEach(ref => {
-            const sh = SpreadsheetApp.getActive().getSheetByName(ref.t);
-            const w = sh ? adjustCell_(sh, r.wh, r.group, r.item, r.sku, ref.c, newEff - oldEff) : 'Tab ' + ref.t + ' no longer exists.';
-            if (w) warnings.push(w);
-          });
-        }
         log.getRange(r.row, L['Status'] + 1).setValue(changes.status);
+        r.status = changes.status;
       }
+      if (dispatch !== undefined) { log.getRange(r.row, L['Dispatch Date'] + 1).setValue(dispatch); r.dispatch = dispatch; }
       log.getRange(r.row, L['Appointment Date'] + 1, 1, 2).setValues([[appt || '', roNo]]);
       log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, u.name || u.id]]);
+      r.appt = appt || ''; r.roNo = roNo;
     });
-    if (changes.appt !== undefined || changes.roNo !== undefined) {
-      const r0 = lines[0];
-      const roDate = r0.roDate instanceof Date ? r0.roDate : now;
-      r0.refs.forEach(ref => {
-        const sh = SpreadsheetApp.getActive().getSheetByName(ref.t);
-        if (sh) setBatchLabel_(sh, r0.wh, r0.group, ref.c, roLabel_(roDate, roNo, appt, r0.wh, r0.dispatch));
-      });
+
+    // 3. The RO headings (RO number, dispatch day - appointment).
+    if (changes.appt !== undefined || changes.roNo !== undefined || changes.dispatch !== undefined) {
+      try { refreshHeadings_(lines.filter(r => r.status !== 'Cancelled')); } catch (e) { warnings.push('The RO heading in the month tab could not be updated: ' + e.message); }
     }
-    return { warnings: warnings };
+    return { warnings: warnings, rows: lines.map(publicRo_), openROs: openROsOf_(all) };
   } finally {
     lock.releaseLock();
   }
@@ -963,7 +1003,9 @@ function updateBatch(token, batch, changes) {
 /* ---------------- Month tabs ---------------- */
 
 /** Month tabs such as "Oct 2026", "Sept 2026", "January 2026", newest first. */
+let MONTH_TABS_ = null;
 function monthTabs_() {
+  if (MONTH_TABS_) return MONTH_TABS_;
   const out = [];
   SpreadsheetApp.getActive().getSheets().forEach(sh => {
     const m = sh.getName().trim().match(/^([A-Za-z]+)[\s-]*(\d{4})$/);
@@ -973,7 +1015,8 @@ function monthTabs_() {
     if (mi < 0) return;
     out.push({ name: sh.getName(), sheet: sh, key: Number(m[2]) * 12 + mi });
   });
-  return out.sort((a, b) => b.key - a.key);
+  MONTH_TABS_ = out.sort((a, b) => b.key - a.key);
+  return MONTH_TABS_;
 }
 
 function monthTabFor_(d) {
@@ -1023,6 +1066,28 @@ function readBlockValues_(sh) {
   return sh.getRange(1, 1, Math.max(1, sh.getLastRow()), 8).getValues();
 }
 
+/*
+ * Columns A–H of a month tab, read once per request and kept in step with what this request writes, so many RO
+ * changes in one save cost one read of the tab (a read in between writes makes Sheets apply them one by one).
+ */
+let TABV_ = {};
+function tabValues_(sh) {
+  const k = sh.getName();
+  return TABV_[k] || (TABV_[k] = readBlockValues_(sh));
+}
+/** Writes a value into the tab (row i, column c, both 0-based as in tabValues_) and into the copy. */
+function setTabValue_(sh, i, c, v) {
+  sh.getRange(i + 1, c + 1).setValue(v);
+  const vals = TABV_[sh.getName()];
+  if (vals && vals[i]) vals[i][c] = v;
+}
+/** An RO heading into the tab (centred, RO number small) and into the copy. */
+function setTabLabel_(sh, i, c, label) {
+  writeLabel_(sh.getRange(i + 1, c + 1), label);
+  const vals = TABV_[sh.getName()];
+  if (vals && vals[i]) vals[i][c] = label;
+}
+
 /**
  * Writes one RO (several items) into the next free column D–H of the warehouse block.
  * A column is free when no item row of the block has a quantity in it. A missing item gets its own row,
@@ -1030,14 +1095,14 @@ function readBlockValues_(sh) {
  */
 function writeBatch_(sh, wh, group, lines, label) {
   const warnings = [];
-  let v = readBlockValues_(sh);
+  let v = tabValues_(sh);
   let b = blockFor_(v, wh, group);
   if (!b) return { col: '', warnings: ['No block "' + wh + '-' + group + '" in tab ' + sh.getName() + '. Saved in the RO Log only.'] };
   if (b.group !== group) warnings.push('No "' + wh + '-' + group + '" block in ' + sh.getName() + ', so it went into the ' + b.group + ' block.');
 
   const missing = lines.filter(l => b.items[l.item] === undefined);
   if (missing.length) {
-    missing.forEach(l => { insertItemRow_(sh, b, l.item, l.sku); v = readBlockValues_(sh); b = blockFor_(v, wh, group); });
+    missing.forEach(l => { insertItemRow_(sh, b, l.item, l.sku); v = tabValues_(sh); b = blockFor_(v, wh, group); });
     warnings.push('Added a row for ' + missing.map(l => l.sku || l.item).join(', ') + ' (it was not in this block).');
   }
 
@@ -1055,13 +1120,14 @@ function writeBatch_(sh, wh, group, lines, label) {
     return { col: '', warnings: warnings.concat(['Columns D–H are all used in this block. Saved in the RO Log only; ' +
       'free a column (or start the new month) and use Settings → Sync month tabs.']) };
   }
-  const colNo = FIRST_RO_COL + col;
-  lines.forEach(l => { sh.getRange(b.items[l.item] + 1, colNo).setValue(l.qty); });
-  writeLabel_(sh.getRange(b.headRow + 1, colNo), label);
+  const ci = FIRST_RO_COL - 1 + col;
+  lines.forEach(l => { setTabValue_(sh, b.items[l.item], ci, l.qty); });
+  setTabLabel_(sh, b.headRow, ci, label);
   return { col: RO_COLS[col], warnings: warnings };
 }
 
 function insertItemRow_(sh, b, item, sku) {
+  delete TABV_[sh.getName()]; // rows move: read the tab again next time
   const after = (b.lastItem >= 0 ? b.lastItem : b.headRow) + 1; // 1-based row to insert after
   sh.insertRowAfter(after);
   if (b.lastItem >= 0) {
@@ -1080,26 +1146,25 @@ function insertItemRow_(sh, b, item, sku) {
 function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
   const ci = RO_COLS.indexOf(colLetter);
   if (ci < 0 || !delta) return '';
-  let v = readBlockValues_(sh);
+  let v = tabValues_(sh);
   let b = blockFor_(v, wh, group);
   if (!b) return 'Block ' + wh + '-' + group + ' not found in ' + sh.getName() + '.';
   if (b.items[item] === undefined) {
     if (delta < 0) return '';
     insertItemRow_(sh, b, item, sku);
-    v = readBlockValues_(sh); b = blockFor_(v, wh, group);
+    v = tabValues_(sh); b = blockFor_(v, wh, group);
   }
-  const cell = sh.getRange(b.items[item] + 1, FIRST_RO_COL + ci);
-  const cur = Number(cell.getValue()) || 0;
-  const next = cur + delta;
-  if (next > 0) cell.setValue(next); else cell.clearContent();
+  const i = b.items[item], c = FIRST_RO_COL - 1 + ci;
+  const next = (Number(v[i][c]) || 0) + delta;
+  setTabValue_(sh, i, c, next > 0 ? next : '');
   return '';
 }
 
 function setBatchLabel_(sh, wh, group, colLetter, label) {
   const ci = RO_COLS.indexOf(colLetter);
   if (ci < 0) return;
-  const b = blockFor_(readBlockValues_(sh), wh, group);
-  if (b) writeLabel_(sh.getRange(b.headRow + 1, FIRST_RO_COL + ci), label);
+  const b = blockFor_(tabValues_(sh), wh, group);
+  if (b) setTabLabel_(sh, b.headRow, FIRST_RO_COL - 1 + ci, label);
 }
 
 /**
@@ -1127,6 +1192,7 @@ function startMonth(token, month) {
       ss.setActiveSheet(copy);
       ss.moveActiveSheet(src.sheet.getIndex() + 1);
       clearRoColumns_(copy);
+      MONTH_TABS_ = null;
       tab = { name: name, sheet: copy };
       out.created = true;
       out.warnings.push('Created "' + name + '" from "' + src.name + '" with columns D–H emptied. ' +
@@ -1183,6 +1249,7 @@ function writeBatchesToTab_(tab, todo) {
       const refs = r.refs.concat([{ t: tab.name, c: w.col }]);
       log.getRange(r.row, L['Month Tab'] + 1).setValue(refs.map(x => x.t + ' (' + x.c + ')').join(', '));
       log.getRange(r.row, L['Tab Refs'] + 1).setValue(JSON.stringify(refs));
+      r.refs = refs;
     });
   });
   return warnings;
@@ -1194,8 +1261,8 @@ function syncMonthTabs(token) {
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
   try {
-    const byTab = {};
-    readLog_().forEach(r => {
+    const byTab = {}, all = readLog_();
+    all.forEach(r => {
       if (OPEN_STATUSES.indexOf(r.status) < 0 || !(r.roDate instanceof Date) || r.logOnly) return;
       const tab = monthTabFor_(r.roDate);
       if (!tab || r.refs.some(x => x.t === tab.name)) return;
@@ -1208,7 +1275,7 @@ function syncMonthTabs(token) {
       warnings = warnings.concat(writeBatchesToTab_(byTab[k].tab, byTab[k].todo));
     });
     // Every open RO's heading in the current layout (RO date / last 6 digits / dispatch - appointment).
-    const heads = refreshHeadings_(readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0 && !r.logOnly));
+    const heads = refreshHeadings_(all.filter(r => OPEN_STATUSES.indexOf(r.status) >= 0 && !r.logOnly));
     return { ros: n, headings: heads, warnings: warnings };
   } finally {
     lock.releaseLock();
