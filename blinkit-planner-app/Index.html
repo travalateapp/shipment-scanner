@@ -140,6 +140,12 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .cd.off{background:repeating-linear-gradient(45deg,var(--card),var(--card) 6px,var(--chip) 6px,var(--chip) 12px)}
 .calw{margin:4px 0;font-size:13px}.calw summary{cursor:pointer}.calw ul{margin:4px 0 6px;padding-left:20px}
 .calinfo{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px}.calinfo ul{margin:4px 0 0;padding-left:18px;font-size:13px}
+.calinfo ul.rls{list-style:none;padding-left:0;margin-bottom:6px}
+.rls li{padding:8px 0;border-bottom:1px solid var(--line)}.rls li:last-child{border-bottom:0}
+.rl1{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap}.rl1 .rlx{margin-left:auto}
+.rl2{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-top:6px}
+.ag{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.ag .agl{font-size:12px;color:var(--muted)}
+.ag input[type=date]{width:140px;padding:4px 6px}
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 #busy{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);cursor:progress}
 #busy .bx{background:var(--card);color:var(--ink);padding:14px 22px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-weight:600;font-size:15px;display:flex;gap:10px;align-items:center}
@@ -633,7 +639,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-23 cal-remove';
+  var PAGE_BUILD = '2026-11-23 cal-tidy';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2357,35 +2363,41 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var sel = S.dashCalDay && days[S.dashCalDay], info = '';
       if (S.dashCalDay) {
         var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 };
+        // One RO in the pop-up, on two lines: what it is (✕ at the right end), then its date boxes and buttons.
+        var roRow = function (r, infoExtra, right, actions) {
+          return '<li><div class="rl1"><span>' + esc(short(r.wh)) + ' · ' + esc(r.groups.join(' + ')) + ' · <b>' + fmt(r.units) + '</b> units' + (r.roNo ? ' · #' + esc(r.roNo) : '') + '</span>' +
+            roStatusPill(r.status, r.appt) + (infoExtra ? '<span class="small muted">' + infoExtra + '</span>' : '') + (right ? '<span class="rlx">' + right + '</span>' : '') + '</div>' +
+            (actions ? '<div class="rl2">' + actions + '</div>' : '') + '</li>';
+        };
+        var ag = function (label, inner) { return '<span class="ag"><span class="agl">' + label + '</span>' + inner + '</span>'; };
         // Mark an arriving RO as delivered (asks the date; 2 days later it leaves the month tab).
         var delv = function (r) {
           if (!can('Planner')) return '';
           var dv = S.dashCalDay < todayS ? S.dashCalDay : todayS;
-          return ' <span class="nowrap">· delivered on <input type="date" class="dlIn" data-k="' + esc(r.key) + '" value="' + dv + '" max="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm g dlGo" data-k="' + esc(r.key) + '">Mark delivered</button></span>';
+          return ag('Delivered on', '<input type="date" class="dlIn" data-k="' + esc(r.key) + '" value="' + dv + '" max="' + todayS + '"> <button class="btn sm g dlGo" data-k="' + esc(r.key) + '">Mark delivered</button>');
         };
         // An RO awaiting its appointment: enter it here (its dispatch day then follows the appointment).
         var apptAdd = function (r) {
           if (r.appt || !can('Planner')) return '';
-          return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Save</button></span>';
+          return ag('Appointment', '<input type="date" class="apIn2" data-k="' + esc(r.key) + '" min="' + todayS + '"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Save</button>');
         };
         // ✕ = take the RO off this day: its dispatch day (and appointment, if it has one) is cleared in the RO Log and the
         // month-tab heading.
         var rmBtn = function (r) {
           if (!can('Planner')) return '';
-          return ' <button class="btn sm rmD" data-k="' + esc(r.key) + '" title="Remove from this day (clears its ' + (r.appt ? 'appointment and ' : '') + 'dispatch day in the sheet)">✕</button>';
+          return '<button class="btn sm rmD" data-k="' + esc(r.key) + '" title="Remove from this day (clears its ' + (r.appt ? 'appointment and ' : '') + 'dispatch day in the sheet)">✕</button>';
         };
         var mv = function (r) {
-          if (r.appt && !can('Planner')) return ' <span class="small muted">(from appointment ' + prettyDate(r.appt) + ')</span>';
-          if (r.appt) return ' <span class="nowrap">· appointment <input type="date" class="apIn2" data-k="' + esc(r.key) + '" value="' + esc(r.appt) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Change</button></span>';
           if (!can('Planner')) return '';
-          return ' <span class="nowrap">· move to <input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" min="' + todayS + '" style="width:140px;padding:4px 6px"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button></span>' + apptAdd(r);
+          if (r.appt) return ag('Appointment', '<input type="date" class="apIn2" data-k="' + esc(r.key) + '" value="' + esc(r.appt) + '" min="' + todayS + '"> <button class="btn sm apGo2" data-k="' + esc(r.key) + '">Change</button>');
+          return ag('Move to', '<input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" min="' + todayS + '"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button>') + apptAdd(r);
         };
         info = '<div class="calinfo"><b>' + dlab(S.dashCalDay) + '</b>' + (isWorkDay(S.dashCalDay) ? '' : ' <span class="small muted">(no dispatch day)</span>') +
-          (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul>' + x.disp.map(function (r) { return roLine(r, rmBtn(r) + mv(r)); }).join('') + '</ul>' : '') +
-          (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul>' + x.pack.map(function (r) { return roLine(r, ' · dispatch ' + prettyDate(dispatchOf(r))); }).join('') + '</ul>' : '') +
-          (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul>' + x.arr.map(function (r) { return roLine(r, (r.appt ? '' : ' · expected') + apptAdd(r) + delv(r)); }).join('') + '</ul>' : '') +
+          (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul class="rls">' + x.disp.map(function (r) { return roRow(r, r.appt && !can('Planner') ? 'dispatch from appointment' : '', rmBtn(r), mv(r)); }).join('') + '</ul>' : '') +
+          (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul class="rls">' + x.pack.map(function (r) { return roRow(r, 'dispatch ' + prettyDate(dispatchOf(r)), '', ''); }).join('') + '</ul>' : '') +
+          (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul class="rls">' + x.arr.map(function (r) { return roRow(r, r.appt ? '' : 'expected', '', apptAdd(r) + delv(r)); }).join('') + '</ul>' : '') +
           (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
-          (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul>' + x.exp.map(function (r) { return roLine(r, apptAdd(r)); }).join('') + '</ul>' : '') +
+          (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul class="rls">' + x.exp.map(function (r) { return roRow(r, '', '', apptAdd(r)); }).join('') + '</ul>' : '') +
           (!(x.disp.length || x.pack.length || x.arr.length || x.out.length || x.exp.length) ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
       }
       $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
