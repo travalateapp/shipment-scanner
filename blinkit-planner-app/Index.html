@@ -46,7 +46,7 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .stat{background:var(--chip);border-radius:10px;padding:10px}.stat .v{font-size:20px;font-weight:800}.stat .k{font-size:11px;color:var(--muted)}
 .grp{margin:14px 0 6px;font-weight:800;font-size:13px;display:flex;justify-content:space-between;gap:8px}
-.line{display:grid;grid-template-columns:minmax(200px,2.2fr) repeat(5,minmax(62px,.7fr)) 92px minmax(56px,.6fr) minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+.line{display:grid;grid-template-columns:minmax(200px,2.2fr) repeat(6,minmax(58px,.65fr)) 92px minmax(56px,.6fr) minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
 .line.head{font-size:11px;color:var(--muted);font-weight:700;border-bottom:2px solid var(--line)}
 /* Each warehouse block's title + column headings stay pinned under the top bar
    while scrolling through that block, and scroll away when the next block starts. */
@@ -639,7 +639,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-23 starters-filter';
+  var PAGE_BUILD = '2026-11-23 stock-planned';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1299,7 +1299,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     rows.forEach(function (r) { var k = r.wh + '||' + (r.group || '?'); (groups[k] = groups[k] || []).push(r); });
     // Send heading of each block: a small "fill all" box and a ↺ reset (both left out of the Tab order).
     var head = function (gi) {
-      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right">Has now</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
+      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right" title="Stock on Blinkit now: warehouse + in-between + darkstore">Stock</div><div class="right" title="Planned / on its way: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet">Planned</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
         '<div class="sendH"><span>Send</span><span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
         '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
         '<div class="right" title="Current stock in Travalate Inventory (all warehouses together)">TI</div>' +
@@ -1321,13 +1321,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var inc = r.incoming + r.appIncoming;
         html += '<div class="line' + (q > 0 ? ' send' : '') + (r.locked ? ' lock' : '') + '" data-k="' + esc(r.key) + '">' +
           '<div class="nm">' + (r.sku ? esc(r.sku) : '<span class="pill warn">No SKU</span>') + ' <span class="muted" style="font-weight:400">· ' + r.item + '</span> ' + statusPill(r) +
-          '<small>' + (r.tier ? esc(r.tier) + ' · ' : '') + (r.daysNow != null && r.daysNow < 60 ? 'runs out ~' + prettyDate(addDays(today(), Math.max(0, Math.floor(r.daysNow)))) + ' · ' : '') +
-          'stock ' + fmt(r.whStock + r.dsStock) + (inc ? ' + incoming ' + fmt(inc) : '') +
-          (r.note ? ' · <b>' + esc(r.note) + '</b>' : (r.locked ? ' · Locked: ' + esc(r.remarks) : '')) +
-          (r.starter && !r.locked ? ' · starter ' + r.starter : '') + '</small></div>' +
+          '<small>' + [r.tier ? esc(r.tier) : '', r.daysNow != null && r.daysNow < 60 ? 'runs out ~' + prettyDate(addDays(today(), Math.max(0, Math.floor(r.daysNow)))) : '',
+            r.note ? '<b>' + esc(r.note) + '</b>' : r.locked ? 'Locked: ' + esc(r.remarks) : '', r.starter && !r.locked ? 'starter ' + r.starter : '']
+            .filter(Boolean).join(' · ') + '</small></div>' +
           '<div class="right"><span class="lbl">Sold 7d / 30d</span>' + fmt(r.s7) + ' / ' + fmt(r.s30) + '</div>' +
           '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
-          '<div class="right"><span class="lbl">Has now</span>' + fmt(r.position) + '</div>' +
+          '<div class="right"><span class="lbl">Stock</span>' + fmt(r.whStock + r.dsStock) + '</div>' +
+          '<div class="right" title="Blinkit incoming ' + fmt(r.incoming) + (r.appIncoming ? ' + RO Log ' + fmt(r.appIncoming) + ' (not on Blinkit\'s Incoming yet)' : '') + '"><span class="lbl">Planned</span>' + (inc ? fmt(inc) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
           '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + (isConfirmed(r.key) ? '' : ' pend') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
@@ -1609,7 +1609,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return { Warehouse: r.wh, Group: r.group, SKU: r.sku, 'Item ID': r.item, Status: r.status,
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
-        'Has now': r.position, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
+        'Stock': r.whStock + r.dsStock, 'Planned': r.incoming + r.appIncoming, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
         Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, 'TI stock': tiQty(r) == null ? '' : tiQty(r), Note: r.note, Locked: r.locked ? r.remarks : '' };
     });
     var wb = XLSX.utils.book_new();
