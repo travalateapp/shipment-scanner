@@ -7,9 +7,10 @@
  * The page (Index.html) reads the two Blinkit downloads in the browser, works out the plan and calls the
  * functions below to keep the RO Log and the month tabs (columns D–H) of this sheet up to date.
  *
- * It only ever writes to columns D–H (and the RO heading cell above them) of a month tab, inserts a row for an
- * item that is missing from a warehouse block, and creates a new month tab by copying the last one.
- * Columns I onwards are never changed.
+ * It only ever writes to the RO columns (D–H, plus any it added when they were full) and the RO heading cell above
+ * them of a month tab, inserts a row for an item that is missing from a warehouse block, inserts an RO column when
+ * all are used, and creates a new month tab by copying the last one. The columns after the RO columns are never
+ * written to.
  */
 const SERVER_VERSION = 2;
 
@@ -63,8 +64,11 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
   'November', 'December'];
 const MONTH_TAB_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'June', 'July', 'Aug', 'Sept', 'Oct', 'Nov', 'Dec'];
 const BLOCK_RE = /^(.+)-(TBI|TBO|TBG)$/;
-const RO_COLS = ['D', 'E', 'F', 'G', 'H'];
 const FIRST_RO_COL = 4; // D
+const BASE_RO_COLS = 5;  // D–H
+// When D–H (and any added ones) are full, the planner inserts one more RO column and marks it with this note in row 1;
+// a tab's RO columns are D plus 5 + the number of marked columns (a marked column deleted by hand is simply not counted).
+const RO_COL_NOTE = 'Blinkit Planner: RO column added (D–H were full)';
 const SESSION_DAYS = 30;
 // "Month Tab" of an RO that was already typed into the month tab by hand: never written there by the app.
 const LOG_ONLY = 'Log only';
@@ -401,7 +405,7 @@ function cleanupDelivered_() {
   });
   // A column left without quantities in its block also loses its RO heading.
   Object.keys(cols).forEach(k => {
-    const x = cols[k], ci = RO_COLS.indexOf(x.c), v = tabValues_(x.sh), b = blockFor_(v, x.wh, x.group);
+    const x = cols[k], ci = roCols_(x.sh).indexOf(x.c), v = tabValues_(x.sh), b = blockFor_(v, x.wh, x.group);
     if (!b || ci < 0) return;
     const c = FIRST_RO_COL - 1 + ci;
     const empty = Object.keys(b.items).every(it => { const val = v[b.items[it]][c]; return val === '' || val === null || Number(val) === 0; });
@@ -538,7 +542,7 @@ function readLog_() {
 }
 
 function parseRefs_(s) {
-  try { const v = JSON.parse(String(s || '[]')); return Array.isArray(v) ? v : []; } catch (e) { return []; }
+  try { const v = JSON.parse(String(s || '[]')); return Array.isArray(v) ? v.map(x => mkRef_(x.t, x.c)) : []; } catch (e) { return []; }
 }
 
 function publicRo_(r) {
@@ -621,7 +625,7 @@ function createROs_(u, data) {
         // Already typed into the month tab by hand: only logged.
       } else if (tab) {
         const w = writeBatch_(tab.sheet, b.wh, b.group, b.lines, roLabel_(roDate, data.roNo, appt, b.wh, null));
-        if (w.col) ref = { t: tab.name, c: w.col };
+        if (w.col) ref = mkRef_(tab.name, w.col);
         w.warnings.forEach(x => out.warnings.push(b.wh + ' ' + b.group + ': ' + x));
       } else {
         out.warnings.push('No month tab for ' + MONTHS[roDate.getMonth()] + ' ' + roDate.getFullYear() +
@@ -644,11 +648,11 @@ function createROs_(u, data) {
         r[L['Appointment Date']] = appt || '';
         r[L['Blinkit RO No.']] = String(data.roNo || '');
         r[L['Source']] = ['Manual', 'PDF'].indexOf(data.source) >= 0 ? data.source : 'Plan';
-        r[L['Month Tab']] = ref ? ref.t + ' (' + ref.c + ')' : (data.logOnly ? LOG_ONLY : '');
+        r[L['Month Tab']] = ref; // filled in below (a column added for a later batch can move this one)
         r[L['Notes']] = String(data.notes || '');
         r[L['Updated At']] = now;
         r[L['Updated By']] = u.name || u.id;
-        r[L['Tab Refs']] = JSON.stringify(ref ? [ref] : []);
+        r[L['Tab Refs']] = ref;
         r[L['Blinkit Created At']] = data.blinkitAt instanceof Date ? data.blinkitAt : '';
         r[L['Merged RO']] = mergedId;
         r[L['Dispatch Date']] = ''; // set right after by the planner (spread over the next working days)
@@ -657,8 +661,14 @@ function createROs_(u, data) {
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
-        lines: b.lines.length, tab: ref ? ref.t + ' (' + ref.c + ')' : '' });
+        lines: b.lines.length, ref: ref });
     });
+    rows.forEach(r => {
+      const ref = r[L['Tab Refs']];
+      r[L['Month Tab']] = ref ? refsText_([ref]) : (data.logOnly ? LOG_ONLY : '');
+      r[L['Tab Refs']] = JSON.stringify(ref ? [ref] : []);
+    });
+    out.batches.forEach(b => { b.tab = b.ref ? refsText_([b.ref]) : ''; delete b.ref; });
     const log = ensureLog_(); // adds a column a newer version needs (e.g. "Merged RO") by itself
     log.getRange(log.getLastRow() + 1, 1, rows.length, LOG_HEAD.length).setValues(rows);
     out.openROs = openROsOf_(readLog_());
@@ -819,7 +829,7 @@ function refreshHeadings_(records) {
     if (!sh) return;
     const v = tabValues_(sh);
     byTab[t].forEach(x => {
-      const ci = RO_COLS.indexOf(x.c), b = blockFor_(v, x.r.wh, x.r.group);
+      const ci = roCols_(sh).indexOf(x.c), b = blockFor_(v, x.r.wh, x.r.group);
       if (ci < 0 || !b) return;
       setTabLabel_(sh, b.headRow, FIRST_RO_COL - 1 + ci, roLabelOf_(x.r));
       n++;
@@ -1047,7 +1057,8 @@ function findBlock_(values, wh, group) {
   }
   // The RO headings sit on the title row in some blocks and on the rows below it in others.
   let headRow = start;
-  const titleHasHeads = [3, 4, 5, 6, 7].some(c => String(values[start][c] || '') !== '');
+  let titleHasHeads = false;
+  for (let c = FIRST_RO_COL - 1; c < values[start].length; c++) if (String(values[start][c] || '') !== '') titleHasHeads = true;
   if (!titleHasHeads) headRow = firstItem > start + 1 ? firstItem - 1 : start;
   return { start: start, end: end, items: items, firstItem: firstItem, lastItem: lastItem, headRow: headRow };
 }
@@ -1063,7 +1074,64 @@ function blockFor_(values, wh, group) {
 }
 
 function readBlockValues_(sh) {
-  return sh.getRange(1, 1, Math.max(1, sh.getLastRow()), 8).getValues();
+  return sh.getRange(1, 1, Math.max(1, sh.getLastRow()), FIRST_RO_COL - 1 + roColCount_(sh)).getValues();
+}
+
+/** Column letter of a 1-based column number (4 → D, 27 → AA). */
+function colLetter_(n) { let s = ''; while (n > 0) { const m = (n - 1) % 26; s = String.fromCharCode(65 + m) + s; n = Math.floor((n - 1) / 26); } return s; }
+function colNumber_(letters) { let n = 0; String(letters).toUpperCase().split('').forEach(ch => { n = n * 26 + ch.charCodeAt(0) - 64; }); return n; }
+
+/** How many RO columns a month tab has: D–H, plus every column the planner added (marked in row 1). */
+let RO_N_ = {};
+function roColCount_(sh) {
+  const k = sh.getName();
+  if (RO_N_[k]) return RO_N_[k];
+  const width = Math.max(0, Math.min(80, sh.getMaxColumns() - FIRST_RO_COL + 1));
+  const notes = width ? sh.getRange(1, FIRST_RO_COL, 1, width).getNotes()[0] : [];
+  return (RO_N_[k] = BASE_RO_COLS + notes.filter(n => String(n || '').indexOf(RO_COL_NOTE) === 0).length);
+}
+/** The tab's RO column letters: D, E, F, G, H (+ added ones). */
+function roCols_(sh) {
+  const out = [];
+  for (let i = 0; i < roColCount_(sh); i++) out.push(colLetter_(FIRST_RO_COL + i));
+  return out;
+}
+
+/*
+ * Tab references ({ t: tab, c: column letter }) of RO Log lines read or made in this request. When a column is
+ * inserted, the ones at or right of it move one column right, in memory and in the RO Log.
+ */
+let REF_OBJS_ = [];
+function mkRef_(t, c) { const r = { t: t, c: c }; REF_OBJS_.push(r); return r; }
+function refsText_(refs) { return refs.map(x => x.t + ' (' + x.c + ')').join(', '); }
+
+/**
+ * Every RO column of the tab is used in a block: insert one more. It goes in just before the last RO column (so a
+ * formula over D:H grows to take it in), formatted like it and marked in row 1; the RO in the old last column moves
+ * one column right (the RO Log follows). Returns the new column's 0-based index among the RO columns.
+ */
+function addRoColumn_(sh) {
+  const n = roColCount_(sh), last = FIRST_RO_COL + n - 1, name = sh.getName();
+  const fromLetter = colLetter_(last);
+  sh.insertColumnBefore(last);              // new empty column at `last`; the old last RO column moves to last + 1
+  const rows = sh.getMaxRows();
+  sh.getRange(1, last + 1, rows, 1).copyTo(sh.getRange(1, last, rows, 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+  sh.setColumnWidth(last, sh.getColumnWidth(last + 1));
+  sh.getRange(1, last).setNote(RO_COL_NOTE);
+  RO_N_[name] = n + 1;
+  delete TABV_[name];
+  // References to columns at or right of the insert move one column right:
+  const log = sheet_(TAB.LOG), fresh = readLog_(); // (its references join REF_OBJS_)
+  const moved = new Set();
+  REF_OBJS_.forEach(ref => {                         // …everything read or made in this request…
+    if (!moved.has(ref) && ref.t === name && colNumber_(ref.c) >= last) { ref.c = colLetter_(colNumber_(ref.c) + 1); moved.add(ref); }
+  });
+  fresh.forEach(r => {                               // …and the RO Log as saved.
+    if (!r.refs.some(x => moved.has(x))) return;
+    log.getRange(r.row, L['Month Tab'] + 1).setValue(refsText_(r.refs));
+    log.getRange(r.row, L['Tab Refs'] + 1).setValue(JSON.stringify(r.refs));
+  });
+  return n - 1;
 }
 
 /*
@@ -1089,7 +1157,8 @@ function setTabLabel_(sh, i, c, label) {
 }
 
 /**
- * Writes one RO (several items) into the next free column D–H of the warehouse block.
+ * Writes one RO (several items) into the next free RO column (D–H, plus added ones) of the warehouse block; when all
+ * are used, a new RO column is added to the tab (addRoColumn_).
  * A column is free when no item row of the block has a quantity in it. A missing item gets its own row,
  * copied from the item row above so the formulas in columns I onwards keep working.
  */
@@ -1107,7 +1176,8 @@ function writeBatch_(sh, wh, group, lines, label) {
   }
 
   let col = -1;
-  for (let c = 0; c < RO_COLS.length; c++) {
+  const nCols = roColCount_(sh);
+  for (let c = 0; c < nCols; c++) {
     const ci = FIRST_RO_COL - 1 + c;
     let used = false;
     for (let i = b.start + 1; i <= b.end; i++) {
@@ -1117,13 +1187,16 @@ function writeBatch_(sh, wh, group, lines, label) {
     if (!used) { col = c; break; }
   }
   if (col < 0) {
-    return { col: '', warnings: warnings.concat(['Columns D–H are all used in this block. Saved in the RO Log only; ' +
-      'free a column (or start the new month) and use Settings → Sync month tabs.']) };
+    // Every RO column of this block is used: the tab gets one more (for every block), and the RO goes in it.
+    col = addRoColumn_(sh);
+    v = tabValues_(sh); b = blockFor_(v, wh, group);
+    warnings.push('Columns ' + colLetter_(FIRST_RO_COL) + '–' + colLetter_(FIRST_RO_COL + col) + ' were full, so a new RO column ' +
+      colLetter_(FIRST_RO_COL + col) + ' was added to ' + sh.getName() + ' (the RO that was in ' + colLetter_(FIRST_RO_COL + col) + ' is now in ' + colLetter_(FIRST_RO_COL + col + 1) + ').');
   }
   const ci = FIRST_RO_COL - 1 + col;
   lines.forEach(l => { setTabValue_(sh, b.items[l.item], ci, l.qty); });
   setTabLabel_(sh, b.headRow, ci, label);
-  return { col: RO_COLS[col], warnings: warnings };
+  return { col: colLetter_(FIRST_RO_COL + col), warnings: warnings };
 }
 
 function insertItemRow_(sh, b, item, sku) {
@@ -1139,12 +1212,12 @@ function insertItemRow_(sh, b, item, sku) {
     dst.setFormulasR1C1(src.getFormulasR1C1());
   }
   sh.getRange(after + 1, 1, 1, 2).setValues([[item, sku || '']]);
-  sh.getRange(after + 1, FIRST_RO_COL, 1, RO_COLS.length).clearContent();
+  sh.getRange(after + 1, FIRST_RO_COL, 1, roColCount_(sh)).clearContent();
 }
 
 /** Adds delta to an item's cell in an RO column (to change or cancel a line). Returns a warning or ''. */
 function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
-  const ci = RO_COLS.indexOf(colLetter);
+  const ci = roCols_(sh).indexOf(colLetter);
   if (ci < 0 || !delta) return '';
   let v = tabValues_(sh);
   let b = blockFor_(v, wh, group);
@@ -1161,7 +1234,7 @@ function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
 }
 
 function setBatchLabel_(sh, wh, group, colLetter, label) {
-  const ci = RO_COLS.indexOf(colLetter);
+  const ci = roCols_(sh).indexOf(colLetter);
   if (ci < 0) return;
   const b = blockFor_(tabValues_(sh), wh, group);
   if (b) setTabLabel_(sh, b.headRow, FIRST_RO_COL - 1 + ci, label);
@@ -1228,8 +1301,8 @@ function clearRoColumns_(sh) {
     const a = v[i][0];
     if (typeof a === 'string' && BLOCK_RE.test(a.trim())) inBlock = true;
     if (!inBlock) continue;
-    if ([3, 4, 5, 6, 7].some(c => v[i][c] !== '' && v[i][c] !== null)) {
-      sh.getRange(i + 1, FIRST_RO_COL, 1, RO_COLS.length).clearContent();
+    if (v[i].slice(FIRST_RO_COL - 1).some(x => x !== '' && x !== null)) {
+      sh.getRange(i + 1, FIRST_RO_COL, 1, roColCount_(sh)).clearContent();
     }
   }
 }
@@ -1246,8 +1319,8 @@ function writeBatchesToTab_(tab, todo) {
     w.warnings.forEach(x => warnings.push(r0.wh + ' ' + r0.group + ': ' + x));
     if (!w.col) return;
     rs.forEach(r => {
-      const refs = r.refs.concat([{ t: tab.name, c: w.col }]);
-      log.getRange(r.row, L['Month Tab'] + 1).setValue(refs.map(x => x.t + ' (' + x.c + ')').join(', '));
+      const refs = r.refs.concat([mkRef_(tab.name, w.col)]);
+      log.getRange(r.row, L['Month Tab'] + 1).setValue(refsText_(refs));
       log.getRange(r.row, L['Tab Refs'] + 1).setValue(JSON.stringify(refs));
       r.refs = refs;
     });
