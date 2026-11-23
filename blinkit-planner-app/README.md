@@ -32,7 +32,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
 - **Plan columns:** **Stock** (on Blinkit now: warehouse + in-between + darkstore) and **Planned** (on its way: Blinkit's Incoming + RO Log ROs Blinkit does not show yet; hover for the split) are separate columns; Days now / Days after count both.
 - **Speed:** every save is one request (a merged RO with its dispatch day included); the month tab is read once per save and written in one go, and the answer carries the changed lines and open ROs, so nothing is read again afterwards. The app opens at once with the last data kept on the device (Dashboard, RO Log) and refreshes it in the background. While a save runs the screen is blurred with **Saving…**, so nobody clicks twice.
 
-The app only writes to **columns D–H** of a month tab and the RO heading above them. Columns **I onwards are never changed.**
+The app only writes to the **RO columns** of a month tab (D–H, plus any it added when they were full) and the RO heading above them. It never changes the columns after them; when it adds an RO column they move one column right, formulas included.
 
 ---
 
@@ -112,7 +112,7 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 - An RO goes into the tab of the month of its **RO date**: a tab named like `Oct 2026`, `Sept 2026` or `January 2026`.
 - In the warehouse block (`<Warehouse>-TBI`, `<Warehouse>-TBO` or `<Warehouse>-TBG`; a warehouse with no TBG block gets its TBG items in the TBO block), the app uses the first column D–H in which **no item row has a quantity**. It writes each item's quantity on its row and the RO heading above it.
 - An item that isn't in the block gets a new row at the end of the block. The formulas and formatting of the row above are copied; the numbers aren't.
-- If D–H are all used, the RO stays in the RO Log only and you get a warning. Free a column, then use **Settings → Sync month tabs**.
+- If D–H are all used in that block, the app **adds a new RO column** to the tab. It is inserted just before the last RO column, inside the D–H range, so any formula over D:H, such as a sum, grows to include it. It is formatted like the column next to it and marked with a note in row 1 (*Blinkit Planner: RO column added*). The RO that was in the last column moves one column right, and the RO Log follows. Columns I onwards move one column right too, with their formulas adjusted by Sheets. Later ROs use the added columns like D–H. If you delete an added column by hand, the app simply stops counting it.
 
 ### Starting a new month
 
