@@ -604,7 +604,7 @@ function createROs_(u, data) {
       if (data.logOnly) {
         // Already typed into the month tab by hand: only logged.
       } else if (tab) {
-        const w = writeBatch_(tab.sheet, b.wh, b.group, b.lines, roLabel_(roDate, data.roNo, appt));
+        const w = writeBatch_(tab.sheet, b.wh, b.group, b.lines, roLabel_(roDate, data.roNo, appt, b.wh, null));
         if (w.col) ref = { t: tab.name, c: w.col };
         w.warnings.forEach(x => out.warnings.push(b.wh + ' ' + b.group + ': ' + x));
       } else {
@@ -718,7 +718,7 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
         const appt = r.appt instanceof Date ? r.appt : null;
         r.refs.forEach(ref => {
           const tsh = SpreadsheetApp.getActive().getSheetByName(ref.t);
-          if (tsh) setBatchLabel_(tsh, r.wh, r.group, ref.c, roLabel_(r.roDate instanceof Date ? r.roDate : now, roNo, appt));
+          if (tsh) setBatchLabel_(tsh, r.wh, r.group, ref.c, roLabel_(r.roDate instanceof Date ? r.roDate : now, roNo, appt, r.wh, r.dispatch));
         });
       });
       out.matched = true;
@@ -740,12 +740,87 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
   }
 }
 
-/** Heading written above an RO column, in the style of the sheet: "RO 29 Oct", then RO number and appointment. */
-function roLabel_(roDate, roNo, appt) {
-  let s = 'RO ' + shortDate_(roDate);
-  if (roNo) s += '\n' + roNo;
-  if (appt) s += '\napp ' + shortDate_(appt);
+/**
+ * Heading written above an RO column (centred), e.g.
+ *   RO 21 NOV
+ *   612345          ← last 6 digits of the Blinkit RO number
+ *   23/11 - 30/11   ← dispatch day - appointment ("23/11 -" until there is an appointment)
+ * The dispatch day comes from the appointment (appointment − shipping days, on a dispatch day), else the day set
+ * for the RO (RO Log "Dispatch Date"). A line is left out while its value is not known yet.
+ */
+function roLabel_(roDate, roNo, appt, wh, dispatch) {
+  let s = 'RO ' + Utilities.formatDate(roDate, tz_(), 'd MMM').toUpperCase();
+  const no = String(roNo || '').replace(/\s+/g, '');
+  if (no) s += '\n' + no.slice(-6);
+  const ap = appt instanceof Date ? ymd_(appt) : '';
+  const disp = dispatchDay_(wh, ap, dispatch instanceof Date ? ymd_(dispatch) : '');
+  if (disp) s += '\n' + dm_(disp) + ' -' + (ap ? ' ' + dm_(ap) : '');
   return s;
+}
+
+/** The heading of an RO Log line's RO. */
+function roLabelOf_(r) {
+  return roLabel_(r.roDate instanceof Date ? r.roDate : new Date(), r.roNo, r.appt instanceof Date ? r.appt : null, r.wh, r.dispatch);
+}
+
+/* Dispatch days on the server, the same way the page works them out (Settings → Dispatch). Dates as 'yyyy-MM-dd'. */
+function ymd_(d) { return Utilities.formatDate(d, tz_(), 'yyyy-MM-dd'); }
+function dm_(s) { const p = s.split('-'); return p[2] + '/' + p[1]; }
+function addDaysYmd_(s, n) { const p = s.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10); }
+let DISPATCH_CONF_CACHE_ = null;
+function dispatchConfOf_() {
+  if (!DISPATCH_CONF_CACHE_) DISPATCH_CONF_CACHE_ = getSettings_();
+  return DISPATCH_CONF_CACHE_;
+}
+function isDispatchDay_(s) {
+  const p = s.split('-');
+  const dow = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(Date.UTC(+p[0], +p[1] - 1, +p[2])).getUTCDay()];
+  return String(dispatchConfOf_().dispatchDays).toLowerCase().indexOf(dow.toLowerCase()) >= 0;
+}
+function transitDays_(wh) {
+  const c = dispatchConfOf_(), k = String(wh || '').toLowerCase().replace(/\s+/g, '');
+  const isShort = String(c.shortLeadWh || '').split(',').map(x => x.trim().toLowerCase().replace(/\s+/g, '')).filter(Boolean).some(x => k.indexOf(x) >= 0);
+  return Math.max(0, (isShort ? c.shortLeadDays : c.leadDays) - c.packDays);
+}
+function dispatchDay_(wh, appt, dispatch) {
+  if (!appt) return dispatch || '';
+  let d = addDaysYmd_(appt, -transitDays_(wh));
+  for (let i = 0; i < 14 && !isDispatchDay_(d); i++) d = addDaysYmd_(d, -1);
+  return d;
+}
+
+/**
+ * Rewrites the month-tab headings of these RO Log lines' ROs (one per batch and tab), reading each tab once.
+ * Returns how many headings were written.
+ */
+function refreshHeadings_(records) {
+  const byTab = {}, seen = {};
+  records.forEach(r => {
+    r.refs.forEach(ref => {
+      const id = r.batch + '|' + ref.t + '|' + ref.c;
+      if (seen[id]) return;
+      seen[id] = 1;
+      (byTab[ref.t] = byTab[ref.t] || []).push({ r: r, c: ref.c });
+    });
+  });
+  let n = 0;
+  Object.keys(byTab).forEach(t => {
+    const sh = SpreadsheetApp.getActive().getSheetByName(t);
+    if (!sh) return;
+    const v = readBlockValues_(sh);
+    byTab[t].forEach(x => {
+      const ci = RO_COLS.indexOf(x.c), b = blockFor_(v, x.r.wh, x.r.group);
+      if (ci < 0 || !b) return;
+      writeLabel_(sh.getRange(b.headRow + 1, FIRST_RO_COL + ci), roLabelOf_(x.r));
+      n++;
+    });
+  });
+  return n;
+}
+
+/** An RO heading cell: the text, centred across and down. */
+function writeLabel_(range, label) {
+  range.setValue(label).setHorizontalAlignment('center').setVerticalAlignment('middle');
 }
 
 /**
@@ -775,7 +850,10 @@ function setDispatchDates(token, dates) {
       i = j + 1;
     }
     const n = rows.length;
-    return { lines: n, openROs: readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_) };
+    const all = readLog_();
+    // The month-tab headings show the dispatch day: rewrite those of the ROs that changed.
+    try { refreshHeadings_(all.filter(r => Object.prototype.hasOwnProperty.call(dates, r.batch) && r.status !== 'Cancelled')); } catch (e) { /* the dates are saved either way */ }
+    return { lines: n, openROs: all.filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_) };
   } finally {
     lock.releaseLock();
   }
@@ -867,7 +945,7 @@ function updateBatch(token, batch, changes) {
       const roDate = r0.roDate instanceof Date ? r0.roDate : now;
       r0.refs.forEach(ref => {
         const sh = SpreadsheetApp.getActive().getSheetByName(ref.t);
-        if (sh) setBatchLabel_(sh, r0.wh, r0.group, ref.c, roLabel_(roDate, roNo, appt));
+        if (sh) setBatchLabel_(sh, r0.wh, r0.group, ref.c, roLabel_(roDate, roNo, appt, r0.wh, r0.dispatch));
       });
     }
     return { warnings: warnings };
@@ -973,7 +1051,7 @@ function writeBatch_(sh, wh, group, lines, label) {
   }
   const colNo = FIRST_RO_COL + col;
   lines.forEach(l => { sh.getRange(b.items[l.item] + 1, colNo).setValue(l.qty); });
-  sh.getRange(b.headRow + 1, colNo).setValue(label);
+  writeLabel_(sh.getRange(b.headRow + 1, colNo), label);
   return { col: RO_COLS[col], warnings: warnings };
 }
 
@@ -1015,7 +1093,7 @@ function setBatchLabel_(sh, wh, group, colLetter, label) {
   const ci = RO_COLS.indexOf(colLetter);
   if (ci < 0) return;
   const b = blockFor_(readBlockValues_(sh), wh, group);
-  if (b) sh.getRange(b.headRow + 1, FIRST_RO_COL + ci).setValue(label);
+  if (b) writeLabel_(sh.getRange(b.headRow + 1, FIRST_RO_COL + ci), label);
 }
 
 /**
@@ -1092,7 +1170,7 @@ function writeBatchesToTab_(tab, todo) {
     const rs = todo[batch], r0 = rs[0];
     const appt = r0.appt instanceof Date ? r0.appt : null;
     const w = writeBatch_(tab.sheet, r0.wh, r0.group,
-      rs.map(r => ({ item: r.item, sku: r.sku, qty: r.qty })), roLabel_(r0.roDate, r0.roNo, appt));
+      rs.map(r => ({ item: r.item, sku: r.sku, qty: r.qty })), roLabel_(r0.roDate, r0.roNo, appt, r0.wh, r0.dispatch));
     w.warnings.forEach(x => warnings.push(r0.wh + ' ' + r0.group + ': ' + x));
     if (!w.col) return;
     rs.forEach(r => {
@@ -1123,7 +1201,9 @@ function syncMonthTabs(token) {
       n += Object.keys(byTab[k].todo).length;
       warnings = warnings.concat(writeBatchesToTab_(byTab[k].tab, byTab[k].todo));
     });
-    return { ros: n, warnings: warnings };
+    // Every open RO's heading in the current layout (RO date / last 6 digits / dispatch - appointment).
+    const heads = refreshHeadings_(readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0 && !r.logOnly));
+    return { ros: n, headings: heads, warnings: warnings };
   } finally {
     lock.releaseLock();
   }
@@ -1219,6 +1299,11 @@ function saveSettings(token, s) {
     if (i >= 0) sh.getRange(i + 2, 2).setValue(val);
     else sh.appendRow([k, val, '']);
   });
+  // Lead / packing / dispatch days move the dispatch day shown in the month-tab RO headings: rewrite them.
+  if (['Dispatch Days', 'Lead Days', 'Short Lead Days', 'Short Lead Warehouses', 'Packing Days'].some(k => map[k] !== undefined)) {
+    DISPATCH_CONF_CACHE_ = null;
+    try { refreshHeadings_(readLog_().filter(r => OPEN_STATUSES.indexOf(r.status) >= 0 && !r.logOnly)); } catch (e) { /* settings are saved either way */ }
+  }
   return getSettings_();
 }
 
