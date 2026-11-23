@@ -102,7 +102,7 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 | Daily sales (Per day) | The **highest** of: last 7 days ÷ 7, last 15 days ÷ 15, last 30 days ÷ 30, **rounded up** to a whole unit. E.g. 37 / 41 / 64 sold → 5.29, 2.73, 2.13 → **6 a day**. |
 | Recently listed | Shown as *New listing (≤7 / ≤15 days)*. Taking the highest average already keeps the days before the listing from pulling the rate down. |
 | Limits | Rounded up to multiples of 5, at least 10 units per line, never above Blinkit's max. Locked rows get 0 and are listed with Blinkit's reason. |
-| Not live yet | Not sent unless **New-listing starters** is on. Then a small starter qty is suggested (half a typical warehouse's need, up to Blinkit's suggested min) for items that sell 1+ a day elsewhere. |
+| Not live yet | Not sent unless **New-listing starters** is on. Then a small starter qty is suggested (half a typical warehouse's need, up to Blinkit's suggested min) for items that sell 1+ a day elsewhere. On the plan, **Show → New-listing starters only** lists just those lines. |
 
 ---
 
