@@ -617,7 +617,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-21 block-sums';
+  var PAGE_BUILD = '2026-11-23 ro-headings';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2328,7 +2328,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       }, function (e) { b.disabled = false; b.textContent = 'Start new month'; $('mOut2').innerHTML = msgs([e.message], 'bad'); });
     };
     $('sSync').onclick = function () {
-      api('syncMonthTabs', S.token).then(function (r) { $('mOut2').innerHTML = msgs([r.ros ? 'Wrote ' + r.ros + ' RO(s) into their month tab.' : 'Everything is already in its month tab.'], 'ok') + msgs(r.warnings, 'warn'); }, function (e) { $('mOut2').innerHTML = msgs([e.message], 'bad'); });
+      api('syncMonthTabs', S.token).then(function (r) { $('mOut2').innerHTML = msgs([(r.ros ? 'Wrote ' + r.ros + ' RO(s) into their month tab.' : 'Everything is already in its month tab.') + (r.headings ? ' Updated ' + r.headings + ' RO heading(s).' : '')], 'ok') + msgs(r.warnings, 'warn'); }, function (e) { $('mOut2').innerHTML = msgs([e.message], 'bad'); });
     };
     var edits = {};
     var draw = function () {
