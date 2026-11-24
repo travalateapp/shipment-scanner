@@ -711,7 +711,7 @@ function countForm(id, which) {
   S.data.countWos = wos; S.data.countItems = null; S.data.completeWo = null;
   S.data.photo = null;
   var none = !wos.length;
-  modal('Count ' + which + ' · ' + id + ' · ' + (b.karigar || ''),
+  modal((which === 1 && !c2On() ? 'Count' : 'Count ' + which) + (/^NEW-/.test(id) ? '' : ' · ' + id) + ' · ' + (b.karigar || ''),
     (which === 2 ? '<div class="blind">Final count: you do not see count 1. Count every piece yourself. Your count is the one that is paid and added to the inventory.</div>' : b.claim.length ? '<div class="msg info">Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
     (none ? '<div class="msg err">' + esc(b.karigar || 'This karigar') + ' has no running work order to count (or it is already being counted in another batch). Add a work order first (Work orders).</div>' :
     '<div class="lines"><div class="ln hdr"><div>Work order <span class="muted" style="font-weight:400">(this karigar\'s)</span></div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add work order</button>' +
@@ -778,6 +778,11 @@ function saveCountNow(id, which, btn, repeatOk) {
   var seen = {}, dup = lines.filter(function (l) { if (seen[l.wo]) return true; seen[l.wo] = 1; return false; })[0];
   if (dup) return toast(dup.wo + ' is entered twice: put its whole count on one line.');
   if (which === 1 && !S.data.photo) return toast('Take a photo of the received goods.');
+  if (/^NEW-/.test(id)) { // opened at once from the Machine Dashboard: the batch is still being made on the server
+    busy(btn, true);
+    var cw = S.data.completeWo;
+    return S.data.batchP.then(function (rid) { busy(btn, false); S.data.completeWo = cw; saveCountNow(rid, which, btn, repeatOk); }).catch(function (e) { fail(e, btn); });
+  }
   busy(btn, true);
   var complete = which === 1 && S.data.completeWo ? [S.data.completeWo] : null, back = S.view === 'machines';
   apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null, repeatOk: !!repeatOk, complete: complete }).then(function (r) {
@@ -879,7 +884,7 @@ VIEWS.machines = function (f) {
           '<div class="mk">' + esc(j.karigar) + '</div><div class="mj">' + esc(j.id) + ' · ' + esc(j.item) + ' × ' + j.qty + '</div>' +
           (m.job ? '<div class="ms">Started ' + d(j.date) + (j.target ? ' · ' + (j.late ? '<b style="color:var(--err)">due ' + d(j.target) + '</b>' : 'due ' + d(j.target)) : '') + (j.received ? ' · received ' + j.received : '') + '</div>' +
             '<div class="mbar"><i style="width:' + pct + '%"></i></div>' : '') +
-          (ms ? '<div class="mshortl">⚠ Material short: ' + m.job.matShort.map(function (x) { return esc(x.name) + ' ' + num(x.short) + ' ' + esc(x.unit); }).join(', ') + '</div>' : '') +
+          (ms ? '<div class="mshortl">⚠ Material pending: ' + m.job.matShort.map(function (x) { return esc(x.name) + ' ' + num(x.short) + ' ' + esc(x.unit); }).join(', ') + '</div>' : '') +
           m.pending.map(function (p) { return '<div class="ms" style="color:#b45309">' + esc(p.id) + ': ' + (p.batch ? 'count 1 done, waiting for count 2' : 'count again (count 1 was removed)') + '</div>'; }).join('') + nx + '</div>';
       }).join('') || '<div class="muted">No machine here.</div>') + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -895,6 +900,8 @@ function machRateHtml(pre, val) {
 function machRateVals(pre) { return { lotRate: $(pre + 'R') ? val(pre + 'R') : '', futureToo: $(pre + 'F') ? $(pre + 'F').checked : false, note: $(pre + 'N') ? val(pre + 'N') : '' }; }
 function machCountBtn(wo, karigarId, remaining, label) {
   if (!S.data.mv.canCount) return '';
+  var jb = null; (S.data.mv.list || []).forEach(function (m) { [m.job].concat(m.pending).forEach(function (x) { if (x && x.id === wo) jb = x; }); });
+  if (jb && jb.matShort && jb.matShort.length) return '<span class="pill err" style="white-space:nowrap" title="All raw material must be given before the count">Give all material first</span>';
   return isMobile() ? '<button class="btn sm ok" onclick="machComplete(\'' + wo + '\',\'' + karigarId + '\',' + remaining + ')">' + (label || 'Start count') + '</button>'
     : '<span class="pill" style="white-space:nowrap" title="Count 1 needs the phone camera">Open app on phone</span>';
 }
@@ -915,10 +922,10 @@ function machWin(id) {
     h += '<div class="kv"><div>Karigar</div><div><b>' + esc(j.karigar) + '</b></div><div>Job</div><div><b>' + esc(j.id) + '</b> · ' + esc(j.item) + ' × ' + j.qty + (j.rate !== null && j.rate !== undefined ? ' · ' + money(j.rate) + ' / piece' : '') + '</div>' +
       '<div>Started</div><div>' + d(j.date) + '</div><div>Target date</div><div>' + (j.target ? (j.late ? '<b style="color:var(--err)">' + d(j.target) + ' · late</b>' : d(j.target)) : '<span class="muted">none</span>') + ' <a class="lnk" onclick="machTarget(\'' + j.id + '\',\'' + (j.target || '') + '\',\'' + m.id + '\')">change</a></div>' +
       '<div>Received so far</div><div>' + j.received + ' of ' + j.qty + (j.extra ? ' <span class="pill warn">+' + j.extra + ' extra</span>' : '') + ' <a class="lnk" onclick="machMore(\'' + m.id + '\')">+ more pieces given</a></div></div>' +
-      (j.matShort && j.matShort.length ? '<div class="msg err" style="margin-top:12px"><b>⚠ Material short for ' + esc(j.id) + '</b>: give it when it is at hand.' +
-        '<table class="tbl" style="margin-top:6px"><tr><th>Material</th><th class="r">Needed</th><th class="r">Given</th><th class="r">Give now</th></tr>' + j.matShort.map(function (x) {
-          return '<tr><td>' + esc(x.name) + '</td><td class="r">' + num(x.need) + ' ' + esc(x.unit) + '</td><td class="r">' + num(x.given) + '</td><td class="r"><input class="msq" data-code="' + esc(x.code) + '" type="number" step="any" inputmode="decimal" style="width:100px;display:inline-block" value="' + x.short + '"> ' + esc(x.unit) + '</td></tr>';
-        }).join('') + '</table><button class="btn ok" onclick="machGiveShort(\'' + j.id + '\',this)">✔ Give &amp; confirm</button></div>' : '') +
+      (j.matShort && j.matShort.length ? '<div class="msg err" style="margin-top:12px"><b>⚠ Raw material pending for ' + esc(j.id) + '</b>: give it before the count.' +
+        '<div class="scroll"><table class="tbl" style="margin-top:6px"><tr><th>Raw material</th><th></th><th class="r">Given now</th></tr>' + j.matShort.slice().sort(function (a, b) { return (a.cr ? 1 : 0) - (b.cr ? 1 : 0); }).map(function (x) {
+          return matRowHtml(x, x.short, (r.store || {})[x.code], 'mir').replace('<div class="muted" style="font-size:12px">', '<div class="muted" style="font-size:12px">' + (x.given ? '<b>partial</b>: ' + num(x.given) + ' of ' + num(x.need) + ' given · ' : '<b>pending</b> · ') + 'still ');
+        }).join('') + '</table></div><div id="miNote" class="muted"></div><button class="btn ok" onclick="machGiveShort(\'' + j.id + '\',this)">✔ Save given material</button></div>' : '') +
       '<h2 style="margin-top:14px">Goods ready? Complete the job</h2>' +
       '<div class="mstep"><div class="n">1</div><div class="grow"><b>' + (c2On() ? 'Count 1' : 'Count') + '</b> <span class="muted">(photo with the phone camera)</span><div class="muted">Opens the count with ' + esc(j.id) + ' chosen and ' + j.remaining + ' filled in.' +
       (c2On() ? '' : ' It is the final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came. ' + 'Then the next job starts by itself; with no next job the machine is idle and the karigar is free.') + '</div></div>' +
@@ -960,26 +967,49 @@ function machWin(id) {
     (!j && !m.pending.length && !m.next ? ' · <a class="lnk" onclick="machRemove(\'' + m.id + '\')">Remove machine</a>' : '') + '</div>';
   modal(m.name + (j ? ' · ' + j.karigar : ''), h);
   var sh = document.querySelector('#modal .sheet'); if (sh) sh.classList.add('wide');
+  if ($('miNote')) matIssueNote();
 }
 function machReload(r) { if (r && r.list) preload('machineView', r); closeModal(); go('machines', S.arg); }
-/* Raw material to give with a job: needed (BOM × pieces), in the store, and "give now" (can be changed; less = short). */
+/*
+ * Raw material to give with a job. Each material: Given or Pending. Not CR-tagged (first): Given = type the quantity (less
+ * than needed = partial). CR-tagged (cut in the Cutting Room, at the bottom): no quantity, Given = all that is needed.
+ * Pending / partial material can be given later from the machine window; all of it must be given before the job's count.
+ */
+function matRowHtml(x, need, store, cls) {
+  var st = store === undefined ? '<span class="muted">–</span>' : '<span class="' + (store < need ? 'neg' : '') + '">' + num(store) + '</span>';
+  return '<tr class="' + cls + '" data-code="' + esc(x.code) + '" data-need="' + need + '" data-cr="' + (x.cr ? 1 : '') + '"><td>' + esc(x.name) + (x.cr ? ' <span class="crtag on" style="font-size:10px;padding:0 4px">CR</span>' : '') +
+    '<div class="muted" style="font-size:12px">needed ' + num(need) + ' ' + esc(x.unit) + ' · in store ' + st + '</div></td>' +
+    '<td><select class="mis" onchange="matRowSel(this)" style="width:auto"><option value="G">Given</option><option value="P">Pending</option></select></td>' +
+    '<td class="r" style="white-space:nowrap">' + (x.cr ? '<span class="muted mia">all ' + num(need) + ' ' + esc(x.unit) + '</span>' :
+      '<input class="miq" type="number" step="any" min="0" inputmode="decimal" style="width:96px;display:inline-block" value="' + need + '" oninput="matIssueNote()"> ' + esc(x.unit)) + '</td></tr>';
+}
 function matIssueHtml(item, pieces) {
-  var r = S.data.mv, bom = (r.bom || {})[item] || [];
+  var r = S.data.mv, bom = ((r.bom || {})[item] || []).slice().sort(function (a, b) { return (a.cr ? 1 : 0) - (b.cr ? 1 : 0); });
   if (!bom.length) return '<div class="msg warn">' + esc(item) + ' has no material per piece (BOM): nothing to give.</div>';
-  return '<table class="tbl"><tr><th>Raw material</th><th class="r">Needed</th><th class="r">In store</th><th class="r">Give now</th></tr>' + bom.map(function (x) {
-    var need = Math.round(x.perPiece * pieces * 1000) / 1000, st = (r.store || {})[x.code];
-    return '<tr><td>' + esc(x.name) + '</td><td class="r">' + num(need) + ' ' + esc(x.unit) + '</td><td class="r' + (st !== undefined && st < need ? ' neg' : '') + '">' + (st === undefined ? '<span class="muted">–</span>' : num(st)) + '</td>' +
-      '<td class="r"><input class="miq" data-code="' + esc(x.code) + '" data-need="' + need + '" type="number" step="any" min="0" inputmode="decimal" style="width:100px;display:inline-block" value="' + need + '" oninput="matIssueNote()"> ' + esc(x.unit) + '</td></tr>';
-  }).join('') + '</table><div id="miNote" class="muted" style="margin-top:4px">Less than needed = short: the machine is marked and the rest can be given later.</div>';
+  return '<div class="scroll"><table class="tbl"><tr><th>Raw material</th><th></th><th class="r">Given now</th></tr>' + bom.map(function (x) {
+    return matRowHtml(x, Math.round(x.perPiece * pieces * 1000) / 1000, (r.store || {})[x.code], 'mir');
+  }).join('') + '</table></div><div id="miNote" class="muted" style="margin-top:4px"></div>';
+}
+function matRowSel(sel) {
+  var tr = sel.closest('tr'), g = sel.value === 'G', i = tr.querySelector('.miq'), a = tr.querySelector('.mia');
+  if (i) { i.disabled = !g; i.style.opacity = g ? '' : '.35'; if (g && !(Number(i.value) > 0)) i.value = tr.dataset.need; }
+  if (a) a.style.visibility = g ? '' : 'hidden';
+  matIssueNote();
+}
+function matRowVal(tr) {
+  if (tr.querySelector('.mis').value !== 'G') return 0;
+  var i = tr.querySelector('.miq');
+  return i ? (i.value === '' ? 0 : Number(i.value)) : Number(tr.dataset.need);
 }
 function matIssueVals(box) {
   var out = {};
-  Array.prototype.forEach.call((box || document).querySelectorAll('.miq'), function (i) { out[i.dataset.code] = i.value === '' ? 0 : Number(i.value); });
+  Array.prototype.forEach.call((box || document).querySelectorAll('.mir'), function (tr) { out[tr.dataset.code] = matRowVal(tr); });
   return out;
 }
 function matIssueNote() {
-  var short = Array.prototype.filter.call(document.querySelectorAll('.miq'), function (i) { return (Number(i.value) || 0) < Number(i.dataset.need) - 1e-9; }).length;
-  if ($('miNote')) $('miNote').innerHTML = short ? '<b style="color:var(--err)">' + short + ' material(s) short</b>: the machine is marked and the rest can be given later.' : 'Everything needed is given.';
+  var pend = 0, part = 0;
+  Array.prototype.forEach.call(document.querySelectorAll('.mir'), function (tr) { var v = matRowVal(tr), n = Number(tr.dataset.need); if (v <= 0) pend++; else if (v < n - 1e-9) part++; });
+  if ($('miNote')) $('miNote').innerHTML = pend || part ? '<b style="color:var(--err)">' + [pend ? pend + ' pending' : '', part ? part + ' partial' : ''].filter(String).join(' · ') + '</b>: the machine is marked; give the rest from the machine window before the count.' : 'All marked as Given.';
 }
 function machStart(id, btn) {
   if (!val('mwK')) return toast('Choose the karigar.');
@@ -1020,9 +1050,9 @@ function machMoreGo(id, btn) {
   api('addOrderQty', S.token, j.id, n, matIssueVals($('mmM'))).then(function (r) { toast(j.id + ': now ' + (j.qty + n) + ' pieces'); machReload(r); }).catch(function (e) { fail(e, btn); });
 }
 function machGiveShort(wo, btn) {
-  var lines = {};
-  Array.prototype.forEach.call(document.querySelectorAll('#modal .msq'), function (i) { if (Number(i.value) > 0) lines[i.dataset.code] = Number(i.value); });
-  if (!Object.keys(lines).length) return toast('Enter the quantity given.');
+  var lines = {}, all = matIssueVals($('modal'));
+  Object.keys(all).forEach(function (c) { if (all[c] > 0) lines[c] = all[c]; });
+  if (!Object.keys(lines).length) return toast('Mark at least one material as Given.');
   busy(btn, true);
   api('giveOrderMaterial', S.token, wo, lines).then(function (r) { toast('Material given for ' + wo); machReload(r); }).catch(function (e) { fail(e, btn); });
 }
@@ -1077,21 +1107,23 @@ function saveTarget(wo, btn) {
   busy(btn, true);
   api('setOrderTarget', S.token, wo, val('tdD')).then(function () { toast('Target date saved'); closeModal(); go(S.view, S.arg); }).catch(function (e) { fail(e, btn); });
 }
-/* Complete job = count 1 of that work order (the usual count 1: phone camera photo), with the job marked. */
+/*
+ * Complete job = count 1 of that work order (the usual count 1: phone camera photo), with the job marked. Opens at once
+ * from what the Machine Dashboard already has; the batch is made on the server meanwhile (Save waits for it if needed).
+ */
 function machComplete(wo, karigarId, remaining) {
-  api('countQueue', S.token).then(function (cq) {
-    S.data.cq = cq;
-    return api('startBatch', S.token, karigarId);
-  }).then(function (b) {
-    var k = (S.data.cq.karigars || []).filter(function (x) { return x.id === karigarId; })[0];
-    if (!b.existing) S.data.cq.list.push({ id: b.id, karigarId: karigarId, karigar: k ? k.name : karigarId, claim: [], status: 'COUNT1', items: [] });
-    countForm(b.id, 1);
-    if (!$('cLines')) return;
-    if (!(S.data.countWos || []).some(function (o) { return o.id === wo; })) return toast(wo + ' is already in a count waiting for count 2.');
-    $('cLines').innerHTML = ''; addCountLine(wo);
-    var ln = $('cLines').lastChild; ln.children[1].value = remaining; countHint(ln.children[1]);
-    S.data.completeWo = wo;
-  }).catch(function (e) { toast(e.message); });
+  var j = null; (S.data.mv.list || []).forEach(function (m) { [m.job].concat(m.pending).forEach(function (x) { if (x && x.id === wo) j = x; }); });
+  if (!j) return toast('Job not found: refresh the screen.');
+  var tmp = 'NEW-' + karigarId;
+  S.data.cq = S.data.cq || {}; S.data.cq.wos = S.data.cq.wos || {};
+  S.data.cq.wos[karigarId] = [{ id: wo, item: j.item, qty: j.qty, received: j.received, remaining: j.remaining, inBatch: '' }];
+  S.data.cq.list = (S.data.cq.list || []).filter(function (x) { return x.id !== tmp; }).concat([{ id: tmp, karigarId: karigarId, karigar: j.karigar, claim: [], status: 'COUNT1', items: [] }]);
+  var p = S.data.batchP = api('startBatch', S.token, karigarId).then(function (b) { return b.id; });
+  p.catch(function (e) { if (S.data.batchP === p && $('modal')) { toast(e.message); } });
+  countForm(tmp, 1);
+  if (!$('cLines')) return;
+  var ln = $('cLines').lastChild; ln.children[1].value = remaining; countHint(ln.children[1]);
+  S.data.completeWo = wo;
 }
 function machCount2(batchId) {
   api('countQueue', S.token).then(function (cq) { S.data.cq = cq; countForm(batchId, 2); }).catch(function (e) { toast(e.message); });
