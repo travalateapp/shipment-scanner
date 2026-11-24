@@ -24,7 +24,7 @@ const TAB = {
 
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
-  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date', 'Delivered On', 'Removed From Tab'];
+  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date', 'Delivered On', 'Removed From Tab', 'Dispatch Fixed'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 // 'TI SKU' = the SKU's name in the Travalate Inventory (TI) app, when it differs from 'SKU' (blank = same as SKU).
@@ -538,6 +538,7 @@ function readLog_() {
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
     blinkitAt: r[L['Blinkit Created At']], merged: String(r[L['Merged RO']] == null ? '' : r[L['Merged RO']]),
     dispatch: r[L['Dispatch Date']], deliveredOn: r[L['Delivered On']], removedAt: r[L['Removed From Tab']],
+    dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', // a dispatch day set by hand: used even with an appointment
   })).filter(r => r.key);
 }
 
@@ -549,7 +550,7 @@ function publicRo_(r) {
   return {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
-    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch),
+    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch), dispatchFixed: !!r.dispatchFixed,
     deliveredOn: fmtDate_(r.deliveredOn), removedAt: fmtDate_(r.removedAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
@@ -658,6 +659,7 @@ function createROs_(u, data) {
         r[L['Dispatch Date']] = ''; // set right after by the planner (spread over the next working days)
         r[L['Delivered On']] = '';
         r[L['Removed From Tab']] = '';
+        r[L['Dispatch Fixed']] = '';
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
@@ -765,22 +767,22 @@ function importPdfRO(token, pdf, matchBatches, logOnly) {
  *   RO 21 NOV
  *   4999612345      ← the Blinkit RO number (font size 7)
  *   23/11 - 30/11   ← dispatch day - appointment ("23/11 -" until there is an appointment)
- * The dispatch day comes from the appointment (appointment − shipping days, on a dispatch day), else the day set
- * for the RO (RO Log "Dispatch Date"). A line is left out while its value is not known yet.
+ * The dispatch day is the one set by hand ("Dispatch Fixed"), else it comes from the appointment (appointment −
+ * shipping days, on a dispatch day), else the day set for the RO (RO Log "Dispatch Date"). A line is left out while its value is not known yet.
  */
-function roLabel_(roDate, roNo, appt, wh, dispatch) {
+function roLabel_(roDate, roNo, appt, wh, dispatch, fixed) {
   let s = 'RO ' + Utilities.formatDate(roDate, tz_(), 'd MMM').toUpperCase();
   const no = String(roNo || '').replace(/\s+/g, '');
   if (no) s += '\n' + no;
   const ap = appt instanceof Date ? ymd_(appt) : '';
-  const disp = dispatchDay_(wh, ap, dispatch instanceof Date ? ymd_(dispatch) : '');
+  const disp = dispatchDay_(wh, ap, dispatch instanceof Date ? ymd_(dispatch) : '', fixed);
   if (disp) s += '\n' + dm_(disp) + ' -' + (ap ? ' ' + dm_(ap) : '');
   return s;
 }
 
 /** The heading of an RO Log line's RO. */
 function roLabelOf_(r) {
-  return roLabel_(r.roDate instanceof Date ? r.roDate : new Date(), r.roNo, r.appt instanceof Date ? r.appt : null, r.wh, r.dispatch);
+  return roLabel_(r.roDate instanceof Date ? r.roDate : new Date(), r.roNo, r.appt instanceof Date ? r.appt : null, r.wh, r.dispatch, r.dispatchFixed);
 }
 
 /* Dispatch days on the server, the same way the page works them out (Settings → Dispatch). Dates as 'yyyy-MM-dd'. */
@@ -802,7 +804,8 @@ function transitDays_(wh) {
   const isShort = String(c.shortLeadWh || '').split(',').map(x => x.trim().toLowerCase().replace(/\s+/g, '')).filter(Boolean).some(x => k.indexOf(x) >= 0);
   return Math.max(0, (isShort ? c.shortLeadDays : c.leadDays) - c.packDays);
 }
-function dispatchDay_(wh, appt, dispatch) {
+function dispatchDay_(wh, appt, dispatch, fixed) {
+  if (fixed && dispatch) return dispatch; // set by hand: wins over the appointment
   if (!appt) return dispatch || '';
   let d = addDaysYmd_(appt, -transitDays_(wh));
   for (let i = 0; i < 14 && !isDispatchDay_(d); i++) d = addDaysYmd_(d, -1);
@@ -862,19 +865,23 @@ function setDispatchDates(token, dates) {
     const log = ensureLog_(); // adds the "Dispatch Date" heading to an older RO Log
     const all = readLog_();
     // Rows to change, written run by run (a batch's lines sit on consecutive rows), not cell by cell.
-    const rows = [], changed = [];
+    const rows = [], changed = [], fixedRows = [];
     all.forEach(r => {
       if (!Object.prototype.hasOwnProperty.call(dates, r.batch)) return;
       const d = dates[r.batch] ? parseDate_(dates[r.batch]) : null;
       if (dates[r.batch] && !d) throw new Error('Bad date: ' + dates[r.batch]);
       rows.push({ row: r.row, v: d || '' });
       r.dispatch = d || '';
+      // With an appointment, a day given here is set by hand: it is kept instead of the one from the appointment.
+      r.dispatchFixed = !!(d && r.appt instanceof Date);
+      fixedRows.push({ row: r.row, v: r.dispatchFixed ? 'Yes' : '' });
       if (r.status !== 'Cancelled') changed.push(r);
     });
     // The month-tab headings show the dispatch day: rewrite those of the ROs that changed (tabs are read first,
     // then everything is written in one go).
     try { refreshHeadings_(changed); } catch (e) { /* the dates are saved either way */ }
     writeRuns_(log, rows, L['Dispatch Date']);
+    writeRuns_(log, fixedRows, L['Dispatch Fixed']);
     return { lines: rows.length, openROs: openROsOf_(all) };
   } finally {
     lock.releaseLock();
@@ -956,7 +963,7 @@ function updateBatch(token, batch, changes) {
     const all = readLog_();
     const lines = all.filter(x => ids.indexOf(x.batch) >= 0);
     if (!lines.length) throw new Error('This RO was not found. Reload the RO Log.');
-    const log = changes.status !== undefined || changes.dispatch !== undefined ? ensureLog_() : sheet_(TAB.LOG);
+    const log = changes.status !== undefined || changes.dispatch !== undefined || changes.appt !== undefined ? ensureLog_() : sheet_(TAB.LOG);
     const warnings = [];
     const now = new Date();
     if (changes.status !== undefined && STATUSES.indexOf(changes.status) < 0) throw new Error('Unknown status.');
@@ -994,7 +1001,18 @@ function updateBatch(token, batch, changes) {
         log.getRange(r.row, L['Status'] + 1).setValue(changes.status);
         r.status = changes.status;
       }
-      if (dispatch !== undefined) { log.getRange(r.row, L['Dispatch Date'] + 1).setValue(dispatch); r.dispatch = dispatch; }
+      const apptChanged = changes.appt !== undefined && fmtDate_(appt) !== fmtDate_(r.appt);
+      if (dispatch !== undefined) {
+        // A dispatch day given for an RO with an appointment is set by hand (kept instead of the appointment's);
+        // an empty one follows the appointment again.
+        r.dispatch = dispatch; r.dispatchFixed = !!(dispatch && appt);
+        log.getRange(r.row, L['Dispatch Date'] + 1).setValue(dispatch);
+        log.getRange(r.row, L['Dispatch Fixed'] + 1).setValue(r.dispatchFixed ? 'Yes' : '');
+      } else if (apptChanged && r.dispatchFixed) {
+        // A new appointment: the dispatch day follows it again.
+        r.dispatchFixed = false;
+        log.getRange(r.row, L['Dispatch Fixed'] + 1).setValue('');
+      }
       log.getRange(r.row, L['Appointment Date'] + 1, 1, 2).setValues([[appt || '', roNo]]);
       log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, u.name || u.id]]);
       r.appt = appt || ''; r.roNo = roNo;
@@ -1315,7 +1333,7 @@ function writeBatchesToTab_(tab, todo) {
     const rs = todo[batch], r0 = rs[0];
     const appt = r0.appt instanceof Date ? r0.appt : null;
     const w = writeBatch_(tab.sheet, r0.wh, r0.group,
-      rs.map(r => ({ item: r.item, sku: r.sku, qty: r.qty })), roLabel_(r0.roDate, r0.roNo, appt, r0.wh, r0.dispatch));
+      rs.map(r => ({ item: r.item, sku: r.sku, qty: r.qty })), roLabel_(r0.roDate, r0.roNo, appt, r0.wh, r0.dispatch, r0.dispatchFixed));
     w.warnings.forEach(x => warnings.push(r0.wh + ' ' + r0.group + ': ' + x));
     if (!w.col) return;
     rs.forEach(r => {
