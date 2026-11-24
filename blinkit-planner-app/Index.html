@@ -639,7 +639,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-24 dispatch-fixed';
+  var PAGE_BUILD = '2026-11-24 delivered-view';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1035,6 +1035,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * After an RO is saved or changed anywhere (RO PDF, by hand, RO Log), the plan on New Plan is worked out again
    * with the new RO Log, and the Dashboard's copy is saved again. Quantities typed on the plan are kept.
    */
+  /** Lines just saved (answer of a save): the Dashboard's list of delivered ROs follows. */
+  function syncDelivered(rows) {
+    if (!S.dash || !rows) return;
+    var keys = {}; rows.forEach(function (r) { keys[r.key] = 1; });
+    S.dash.delivered = (S.dash.delivered || []).filter(function (r) { return !keys[r.key]; }).concat(rows.filter(function (r) { return r.status === 'Delivered'; }));
+  }
   function refreshPlanAfterRoChange() {
     if (S.dash && S.boot && S.boot.openROs) S.dash.openROs = S.boot.openROs; // the Dashboard's calendar / Planned too
     if (!S.inv || !S.bulk) return;
@@ -1926,7 +1932,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       // The answer carries the changed lines and the open ROs: the page updates from it, without reading again.
       var done = function (r) {
         if (r && r.openROs) S.boot.openROs = r.openROs;
-        if (r && r.rows) mergeLogRows(r.rows);
+        if (r && r.rows) { mergeLogRows(r.rows); syncDelivered(r.rows); }
         drawLog();
         var w = (r && r.warnings) || [];
         toast(w.length ? 'Saved — ' + w.join(' ') : 'Saved', w.length ? 7000 : 2500);
@@ -2175,6 +2181,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]),
       // Planned's two parts (snapshots from before 21 Nov 2026 don't have them).
       plBlinkit: r[12] === '' || r[12] === undefined ? null : Number(r[12]), plLog: r[13] === '' || r[13] === undefined ? null : Number(r[13]) }; });
+    // ROs marked Delivered after this plan was made were still counted in its Planned (Blinkit's file / the RO Log
+    // had them on their way). They are now at the warehouse: shown under Has instead, until the next plan.
+    var dlv = {};
+    (d.delivered || []).forEach(function (x) { if (x.updatedAt && x.updatedAt > d.meta.at) { var k = PlanCore.whNorm(x.wh) + '|' + Number(x.item); dlv[k] = (dlv[k] || 0) + x.qty; } });
+    rows.forEach(function (r) {
+      var q = dlv[PlanCore.whNorm(r.wh) + '|' + Number(r.item)];
+      if (!q || r.planned == null || !(r.planned > 0)) return;
+      var a = Math.min(q, r.planned);
+      r.planned -= a; r.has = (r.has || 0) + a; r.delivAdj = a;
+      if (r.plBlinkit != null) { var b = Math.min(a, r.plBlinkit); r.plBlinkit -= b; if (r.plLog != null) r.plLog = Math.max(0, r.plLog - (a - b)); }
+    });
     var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
     // "Days" counts down every day from the stock date of the plan the dashboard was made from.
     var dsi = PlanCore.stockInfo(d.meta.inventoryAt, today()), el = dsi ? dsi.elapsed : 0;
@@ -2221,7 +2238,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units marked Delivered after the plan: moved from Planned to Has until the next plan">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     var dashRows = function () { var m = list.filter(dashMatch); return m.length ? m.slice(0, 300).map(rowHtml).join('') : '<tr><td colspan="9" class="muted">No item matches the search.</td></tr>'; };
     var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
@@ -2341,7 +2358,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var expiryOf = function (x) { var m = String(x.notes || '').match(/R\.O\. expiry (\d{1,2} [A-Za-z]{3} \d{4})/); if (!m) return ''; var t = new Date(m[1] + ' 12:00'); return isNaN(t) ? '' : t.getFullYear() + '-' + ('0' + (t.getMonth() + 1)).slice(-2) + '-' + ('0' + t.getDate()).slice(-2); };
     var build = function () {
       var days = {}, warn = { gap: [], waiting: [], expiring: [], unsched: [] };
-      var day = function (k) { return days[k] = days[k] || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 }; };
+      var day = function (k) { return days[k] = days[k] || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], dlv: [], load: 0 }; };
+      // ✅ ROs marked Delivered: on their delivery day.
+      roGroups(d.delivered || []).filter(function (x) { return inWh(x.wh) && x.lines[0] && x.lines[0].deliveredOn; }).forEach(function (x) { day(x.lines[0].deliveredOn).dlv.push(x); });
       var groups = roGroups(d.openROs).filter(function (x) { return inWh(x.wh); });
       groups.forEach(function (x) {
         var dd = dispatchOf(x), ar = arrivalOf(x), ex = expiryOf(x);
@@ -2378,13 +2397,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var cells = '';
       for (var i = 0; i < lead; i++) cells += '<div class="cd empty"></div>';
       for (var j = 0; j < DAYS; j++) {
-        var k = addDays(start, j), x = days[k] || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 };
+        var k = addDays(start, j), x = days[k] || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], dlv: [], load: 0 };
         var dd = new Date(k + 'T12:00:00'), off = !isWorkDay(k), over = x.load > c.cap;
         cells += '<div class="cd' + (k < todayS ? ' past' : '') + (k === todayS ? ' today' : '') + (off ? ' off' : '') + (S.dashCalDay === k ? ' sel' : '') + '" data-d="' + k + '">' +
           '<div class="cdn">' + dd.getDate() + (dd.getDate() === 1 || j === 0 ? ' ' + dd.toLocaleDateString('en-IN', { month: 'short' }) : '') + '</div>' +
           (x.load ? '<div class="ld' + (over ? ' over' : '') + '" title="Dispatch ' + fmt(x.load) + ' of ' + fmt(c.cap) + ' units"><span style="width:' + Math.min(100, Math.round(x.load / c.cap * 100)) + '%"></span></div><span class="cb ds' + (over ? ' over' : '') + '">🚚 ' + fmt(x.load) + '</span>' : '') +
           (x.pack.length ? '<span class="cb pk" title="Packing">📦 ' + x.pack.length + '</span>' : '') +
           (x.arr.length ? '<span class="cb ap" title="Arrivals">📍 ' + x.arr.length + '</span>' : '') +
+          (x.dlv.length ? '<span class="cb ap" title="Delivered">✅ ' + x.dlv.length + '</span>' : '') +
           (x.out.length ? '<span class="cb out" title="Run out before the next arrival">⚠ ' + x.out.length + '</span>' : '') +
           (x.exp.length ? '<span class="cb out" title="RO expires without appointment">⏳ ' + x.exp.length + '</span>' : '') + '</div>';
       }
@@ -2396,7 +2416,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         (W.unsched.length && can('Planner') ? '<button class="btn sm" id="calSched">Give them dispatch days</button>' : '');
       var sel = S.dashCalDay && days[S.dashCalDay], info = '';
       if (S.dashCalDay) {
-        var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], load: 0 };
+        var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], dlv: [], load: 0 };
         // One RO in the pop-up, on two lines: what it is (✕ at the right end), then its date boxes and buttons.
         var roRow = function (r, infoExtra, right, actions) {
           return '<li><div class="rl1"><span>' + esc(short(r.wh)) + ' · ' + esc(r.groups.join(' + ')) + ' · <b>' + fmt(r.units) + '</b> units' + (r.roNo ? ' · #' + esc(r.roNo) : '') + '</span>' +
@@ -2434,7 +2454,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul class="rls">' + x.arr.map(function (r) { return roRow(r, r.appt ? '' : 'expected', '', apptAdd(r) + delv(r)); }).join('') + '</ul>' : '') +
           (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
           (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul class="rls">' + x.exp.map(function (r) { return roRow(r, '', '', apptAdd(r)); }).join('') + '</ul>' : '') +
-          (!(x.disp.length || x.pack.length || x.arr.length || x.out.length || x.exp.length) ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
+          (x.dlv.length ? '<div class="small" style="margin-top:6px"><b>✅ Delivered</b></div><ul class="rls">' + x.dlv.map(function (r) {
+            var rm = r.lines[0].removedAt;
+            return roRow(r, rm ? 'removed from the month tab ' + prettyDate(rm) : 'leaves the month tab ' + prettyDate(addDays(r.lines[0].deliveredOn, 2)), '', '');
+          }).join('') + '</ul>' : '') +
+          (!(x.disp.length || x.pack.length || x.arr.length || x.out.length || x.exp.length || x.dlv.length) ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
       }
       $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
         warns + '<div class="cal" style="margin-top:8px">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>';
@@ -2545,7 +2569,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         if (!confirm('Mark ' + short(g4.wh) + ' · ' + g4.groups.join(' + ') + ' (' + fmt(g4.units) + ' units) as delivered on ' + dlab(di.value) + '? Its quantities leave the month tab on ' + dlab(addDays(di.value, 2)) + '.')) return;
         dlb.disabled = true;
         api('updateBatch', S.token, g4.batches, { status: 'Delivered', deliveredOn: di.value })
-          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; refreshPlanAfterRoChange(); refreshAfter(short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.'); },
+          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; syncDelivered(res.rows); refreshPlanAfterRoChange(); refreshAfter(short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.'); },
             function (er) { dlb.disabled = false; toast(er.message, 6000); });
         return;
       }
