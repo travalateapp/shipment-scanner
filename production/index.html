@@ -1148,6 +1148,9 @@ function cutStockTable(rows) {
 /* A cutting's status: On table (default) · Planned (date) · Completed (date) · Remove (asks first). */
 var CUT_ST = [['TODO', 'On table'], ['PLANNED', 'Planned'], ['DONE', 'Completed'], ['CANCELLED', 'Remove']];
 function cutStatusCell(c, canCut) {
+  if (c.status === 'DONE') return '<span class="pill ok">✔ Completed</span> <b style="white-space:nowrap">' + d(String(c.doneAt || '').slice(0, 10)) + '</b>' +
+    (c.doneByName ? '<div class="muted" style="font-size:12px">' + esc(c.doneByName) + '</div>' : '') +
+    (canCut ? '<div><a class="lnk" style="font-size:12.5px" onclick="cutUndo(\'' + esc(c.id) + '\',this)">undo</a></div>' : '');
   var dt = c.status === 'PLANNED' ? c.planned : c.status === 'DONE' ? String(c.doneAt || '').slice(0, 10) : '';
   if (!canCut) return '<span class="pill' + (c.status === 'DONE' ? ' ok' : c.status === 'PLANNED' ? ' info' : '') + '">' + (CUT_ST.filter(function (x) { return x[0] === c.status; })[0] || ['', c.status])[1] + '</span>' + (dt ? ' ' + d(dt) : '');
   return '<div class="cst" data-id="' + esc(c.id) + '" data-st="' + c.status + '"><select onchange="cutSel(this)">' + CUT_ST.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === c.status ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' +
@@ -1237,6 +1240,10 @@ function cutSave(btn) {
   if (!(Number(val('cuQ')) > 0)) return toast('Enter the quantity (pieces).');
   busy(btn, true);
   api('saveCutting', S.token, { item: val('cuI'), qty: val('cuQ'), date: val('cuD'), note: val('cuN'), rolls: S.data.cuRolls || {} }).then(function (r) { toast('Cutting added'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
+}
+function cutUndo(id, a) {
+  if (!confirm('Undo: ' + id + ' goes back to "On table"?')) return;
+  cutStatus(id, 'TODO', '', a);
 }
 function cutSel(sel) {
   var box = sel.closest('.cst'), v = sel.value, inp = box.querySelector('input'), btn = box.querySelector('button'), c = (S.data.cv.list || []).filter(function (x) { return x.id === box.dataset.id; })[0] || {};
