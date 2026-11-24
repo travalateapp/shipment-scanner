@@ -31,6 +31,23 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
     at **count 1** (setting "Next Job Starts At", on the Machine Dashboard); "Start now" starts it at once, and it
     can be edited or removed. Its material is given and its rate is set when it starts.
   - Work Orders columns added: Machine, Target Date, Off Machine (when Complete job freed the machine).
+- **Count 2 can be paused** (super admins: Staff & permissions → **⏸ Pause count 2 / ▶ Resume count 2**; setting
+  "Count 2", default **Paused**). While paused, **count 1 is the final count**: the batch is locked, pay and inventory
+  are updated and a machine job is marked completed at count 1. Batches already waiting for count 2 can still be finished.
+- **Esc** closes any pop-up (like ×), after first closing an open dropdown.
+- **Starting a job** (Machine Dashboard) shows the **raw material to give** (needed, in store, "give now": can be
+  changed) with **Confirm & start job**; also for "Start now" of a next job. Material given short marks the machine
+  **red (⚠ Material short)**; its window lists what is short and **Give & confirm** gives the rest later.
+- **+ more pieces given** (machine window): the running job's quantity goes up and the material for the extra pieces is
+  given (shown first, can be changed). The "Gone home" marks are no longer on the Machine Dashboard and no longer hold
+  back machine jobs.
+- **Cutting Room · To cut** columns: Cutting (SKU + ID), Pieces, CR material, **Calculation** (material per piece ×
+  pieces), **Actual cut** (rolls × roll size), **Difference** (red when more than 2%), and a status picker instead of
+  "Cutting completed": **On table** (default), **Planned** (+ date), **Completed** (+ date), **Remove** (asks first; not
+  getting cut). Sheet Cuttings gets the column **Planned Date**. **Next jobs & cuttings**: SKU with its CR fabric lines,
+  Available, **Planned date** (or "Unplanned"), Next jobs, Status. **Available Cuttings** (block in the Cutting Room and
+  its own menu entry): Base stock, Allocated (given to karigars with running jobs), Available (Base − Allocated),
+  Reserved (Next jobs), Status (OK / Low / Short N).
 - **Cutting Room** (permission "cutting" to enter; staff with reports / machines can see it). In Materials, tap
   **CR** next to a material that is cut in the cutting room (filter "CR"; column Tags). A cutting = an SKU and a
   quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). For a CR material bought

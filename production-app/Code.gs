@@ -60,7 +60,8 @@ HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status
   'Machine', 'Target Date', 'Off Machine', 'Cut Used'];
 // Cutting Room: cuttings of an SKU in pieces; its CR-tagged materials (BOM × pieces) are listed. Status TODO → DONE
 // (cutting completed) or CANCELLED. Completed cutting is used up when a job of that SKU starts ('Cut Used').
-HEADERS[SHEET.CUTTINGS] = ['ID', 'Date', 'Item Code', 'Qty', 'Materials', 'Status', 'Note', 'By', 'At', 'Done By', 'Done At'];
+// Status: TODO (on the table) → PLANNED (Planned Date) → DONE (completed on 'Done At'), or CANCELLED (removed: not cut).
+HEADERS[SHEET.CUTTINGS] = ['ID', 'Date', 'Item Code', 'Qty', 'Materials', 'Status', 'Note', 'By', 'At', 'Done By', 'Done At', 'Planned Date'];
 // Machines (M1, M2 …): a work order on a machine has its ID in 'Machine'. 'Off Machine' = when 'Complete job' (count 1)
 // freed the machine; the work order is then marked completed at its final count, even with fewer pieces.
 HEADERS[SHEET.MACHINES] = ['ID', 'Name', 'Active', 'Added By', 'At'];
@@ -97,6 +98,7 @@ const DEFAULT_SETTINGS = [
   ['Large Advance Alert', 10000, 'An alert is sent when one advance (or a top-up) is this amount or more'],
   ['Low Margin %', 20, 'Items whose profit margin is below this are marked'],
   ['Next Job Starts At', 'Count 2', 'Machine Dashboard: a machine\'s next job starts at Count 2 (default) or Count 1 of the job before'],
+  ['Count 2', 'Paused', 'Paused = count 1 is the final count (the job is completed at count 1). On = a second, blind count. Super admins switch it in Staff & permissions'],
 ];
 
 /* Permissions a super admin can give to staff. */
@@ -139,6 +141,7 @@ const API_FUNCTIONS = {
   countQueue, startBatch, cancelBatch, saveCount, batchList, batchDetail, batchPhoto, retryInventory,
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
+  addOrderQty, giveOrderMaterial, setCount2,
   cuttingView, saveCutting, setCuttingStatus, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
@@ -259,7 +262,7 @@ function changePin(token, oldPin, newPin) {
 function profile_(u) {
   return {
     id: u.id, name: u.name, kind: u.kind, role: u.role || '', perms: u.kind === 'S' ? permsOf_(u) : [],
-    company: getSettings_().company, currency: getSettings_().currency, permNames: PERMS,
+    company: getSettings_().company, currency: getSettings_().currency, permNames: PERMS, count2: getSettings_().count2,
   };
 }
 
@@ -434,6 +437,7 @@ function adminDashboard(token) {
     machines: can_(u, 'machines') ? machineSummary_() : null,
     lateOrders: ordersWithProgress_().filter(o => o.late).length,
     nextBlock: nextJobsBlock_(),
+    count2: getSettings_().count2,
   };
 }
 
@@ -461,7 +465,7 @@ function countQueue(token) {
   ordersWithProgress_().filter(o => o.open).forEach(o => { (making[o.karigarId] = making[o.karigarId] || []).indexOf(o.item) < 0 && making[o.karigarId].push(o.item); });
   list.forEach(b => { b.noOrder = !(making[b.karigarId] || []).length; });
   return { list: list, karigars: readKarigars_().filter(k => k.active && (making[k.id] || []).length).map(k => ({ id: k.id, name: k.name })),
-    items: activeItems_(), making: making, wos: wos, canCount: can_(u, 'count'), me: u.id };
+    items: activeItems_(), making: making, wos: wos, canCount: can_(u, 'count'), me: u.id, count2: getSettings_().count2 };
 }
 
 /** Count 1: staff start the batch for a karigar (karigars do not enter hand-overs in the app). */
@@ -551,27 +555,16 @@ function saveCount(token, batchId, data) {
           .forEach(o => { osh.getRange(o.row, 15).setValue("'" + nowStr_()); log_(u, 'JOB_COMPLETE', o.id, 'Count 1 in ' + b.id + ': ' + o.machine + ' is free'); });
         forget_('orders');
       }
+      // Count 2 paused (Staff & permissions): count 1 is the final count, the batch is locked now.
+      if (!getSettings_().count2) {
+        const b1 = Object.assign({}, b, { count1By: u.id, count1: lines });
+        return Object.assign(lockBatch_(u, b1, lines, true), { machines: done.length > 0 });
+      }
       return { status: 'COUNT2', machines: done.length > 0 };
     }
     if (b.status !== 'COUNT2') throw new Error('This batch is not waiting for a count.');
     if (b.count1By === u.id) throw new Error('Count 2 must be done by a different person.');
-    const balancesBefore = materialBalances_().filter(x => x.karigarId === b.karigarId);
-    sh.getRange(b.row, 10, 1, 3).setValues([[u.id, nowStr_(), JSON.stringify(lines)]]);
-    const differs = mismatchItems_(Object.assign({}, b, { count2: lines }));
-    const today = todayStr_();
-    sh.getRange(b.row, 3).setValue('LOCKED');
-    sh.getRange(b.row, 13).setValue("'" + today);
-    forget_('batches');
-    writeLines_(Object.assign({}, b, { finalDate: today }), lines);
-    // A machine job counted with 'Complete job' is completed now, even with fewer pieces than ordered.
-    const counted = lines.map(l => l.wo).filter(String), osh = sheet_(SHEET.ORDERS);
-    readOrders_().filter(o => counted.indexOf(o.id) >= 0 && o.offMachine && o.status === 'OPEN')
-      .forEach(o => { osh.getRange(o.row, 6).setValue('DONE'); osh.getRange(o.row, 12).setValue("'" + today); log_(u, 'ORDER_DONE', o.id, 'Completed at the final count of ' + b.id); });
-    forget_('orders');
-    log_(u, 'COUNT_2_FINAL', b.id, linesText_(lines) + (differs.length ? ' | count 1 was different on: ' + differs.join(', ') + ' (count 1: ' + linesText_(b.count1) + ')' : ''));
-    if (differs.length) alert_('COUNT_DIFFERS', b.id + ' (' + (karigarNames_()[b.karigarId] || b.karigarId) + '): count 1 ≠ final count on ' + differs.join(', ') +
-      '. Count 1 by ' + staffName_(b.count1By) + ': ' + linesText_(b.count1) + ' · final by ' + u.name + ': ' + linesText_(lines), b.id);
-    return { status: 'LOCKED', differs: differs, karigarId: b.karigarId, balancesBefore: balancesBefore };
+    return lockBatch_(u, b, lines, false);
   });
   if (res.status === 'LOCKED' || res.machines) machineAdvance_(u);
   if (res.status === 'LOCKED') {
@@ -582,6 +575,38 @@ function saveCount(token, batchId, data) {
     pushInProduction_();
   }
   return res;
+}
+
+/** The final count: the batch is locked with these lines (count 2, or count 1 while count 2 is paused). */
+function lockBatch_(u, b, lines, onlyCount1) {
+  const sh = sheet_(SHEET.BATCHES);
+  const balancesBefore = materialBalances_().filter(x => x.karigarId === b.karigarId);
+  sh.getRange(b.row, 10, 1, 3).setValues([[u.id, nowStr_(), JSON.stringify(lines)]]);
+  const differs = onlyCount1 ? [] : mismatchItems_(Object.assign({}, b, { count2: lines }));
+  const today = todayStr_();
+  sh.getRange(b.row, 3).setValue('LOCKED');
+  sh.getRange(b.row, 13).setValue("'" + today);
+  forget_('batches');
+  writeLines_(Object.assign({}, b, { finalDate: today }), lines);
+  // A machine job counted with 'Complete job' is completed now, even with fewer pieces than ordered.
+  const counted = lines.map(l => l.wo).filter(String), osh = sheet_(SHEET.ORDERS);
+  readOrders_().filter(o => counted.indexOf(o.id) >= 0 && o.offMachine && o.status === 'OPEN')
+    .forEach(o => { osh.getRange(o.row, 6).setValue('DONE'); osh.getRange(o.row, 12).setValue("'" + today); log_(u, 'ORDER_DONE', o.id, 'Completed at the final count of ' + b.id); });
+  forget_('orders');
+  log_(u, onlyCount1 ? 'COUNT_1_FINAL' : 'COUNT_2_FINAL', b.id, linesText_(lines) + (onlyCount1 ? ' (count 2 paused: count 1 is final)' : '') +
+    (differs.length ? ' | count 1 was different on: ' + differs.join(', ') + ' (count 1: ' + linesText_(b.count1) + ')' : ''));
+  if (differs.length) alert_('COUNT_DIFFERS', b.id + ' (' + (karigarNames_()[b.karigarId] || b.karigarId) + '): count 1 ≠ final count on ' + differs.join(', ') +
+    '. Count 1 by ' + staffName_(b.count1By) + ': ' + linesText_(b.count1) + ' · final by ' + u.name + ': ' + linesText_(lines), b.id);
+  return { status: 'LOCKED', differs: differs, karigarId: b.karigarId, balancesBefore: balancesBefore };
+}
+
+/** Super admin: pause count 2 (count 1 is final) or resume it. Batches already waiting for count 2 still get it. */
+function setCount2(token, on) {
+  const u = authStaff_(token, 'super');
+  if (u.role !== 'SUPER') throw new Error('Only a super admin can pause or resume count 2.');
+  setSetting_('Count 2', on ? 'On' : 'Paused');
+  log_(u, 'SETTING', 'Count 2', on ? 'Resumed: a second, blind count is the final count' : 'Paused: count 1 is the final count');
+  return staffList(token);
 }
 
 /**
@@ -1040,7 +1065,7 @@ function machineState_() {
     readBatches_().filter(b => b.status === 'COUNT2').forEach(b => b.count1.forEach(l => { if (l.wo) waiting[l.wo] = b; }));
     const view = o => {
       const w = waiting[o.id];
-      return { id: o.id, karigarId: o.karigarId, karigar: names[o.karigarId] || o.karigarId, item: o.item, qty: o.qty, received: o.received,
+      return { id: o.id, matShort: o.open ? orderMaterial_(o).filter(x => x.short > 0) : [], karigarId: o.karigarId, karigar: names[o.karigarId] || o.karigarId, item: o.item, qty: o.qty, received: o.received,
         remaining: o.remaining, extra: o.extra, date: o.date, target: o.target, late: o.late, rate: o.rate, offMachine: o.offMachine,
         batch: w ? w.id : '', count1By: w ? w.count1By : '', count1ByName: w ? staffName_(w.count1By) : '', count1At: w ? w.count1At : '' };
     };
@@ -1051,6 +1076,74 @@ function machineState_() {
         pending: mine.filter(o => o.open && o.offMachine).map(view), next: next ? view(next) : null };
     });
   });
+}
+
+/**
+ * A work order's material: needed (BOM × qty), given (issued for it) and short. Material can be given short when a
+ * job starts (not enough at hand); the rest is given later from the machine window.
+ */
+function orderMaterial_(o) {
+  const given = memo_('givenbywo', () => {
+    const g = {};
+    readMoves_().forEach(m => { if (m.workOrder && m.type === 'ISSUE' && m.status !== 'REJECTED') { const k = m.workOrder + '|' + m.materialCode; g[k] = (g[k] || 0) + m.qty; } });
+    return g;
+  });
+  const mats = materialMap_();
+  return (bomMap_()[o.item] || []).map(x => {
+    const need = round3_(x.qty * o.qty), got = round3_(given[o.id + '|' + x.material] || 0);
+    return { code: x.material, name: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '', need: need, given: got,
+      short: round3_(Math.max(0, need - got)) };
+  });
+}
+
+/** issue = { materialCode: qty } typed in the confirmation window; missing codes get the full BOM quantity. */
+function issueLines_(item, pieces, issue) {
+  return (bomMap_()[item] || []).map(x => {
+    const full = round3_(x.qty * pieces);
+    const v = issue && Object.prototype.hasOwnProperty.call(issue, x.material) && issue[x.material] !== '' && issue[x.material] !== null ? Number(issue[x.material]) : full;
+    if (!(v >= 0)) throw new Error('Enter a valid quantity for ' + x.material + '.');
+    return { material: x.material, qty: round3_(v) };
+  }).filter(l => l.qty > 0);
+}
+
+/** More pieces given to the karigar on a running job: the work order's quantity goes up and the extra material is given. */
+function addOrderQty(token, id, extra, issue) {
+  const u = authStaff_(token, 'machines|orders');
+  const n = Number(extra);
+  if (!(n > 0) || n % 1) throw new Error('Enter how many more pieces.');
+  const o = ordersWithProgress_().filter(x => x.id === id)[0];
+  if (!o || o.status !== 'OPEN' || o.offMachine) throw new Error('Only a running job can get more pieces.');
+  const k = readKarigars_().filter(x => x.id === o.karigarId)[0] || { id: o.karigarId, name: o.karigarId };
+  const lines = issueLines_(o.item, n, issue);
+  const before = storeStockMap_();
+  sheet_(SHEET.ORDERS).getRange(o.row, 5).setValue(o.qty + n);
+  forget_('orders');
+  addMoves_(u, k, lines, 'Work order ' + id + ': +' + n + ' pieces', id, todayStr_());
+  forget_('givenbywo');
+  takeCutting_(id);
+  log_(u, 'ORDER_QTY', id, o.item + ': ' + o.qty + ' → ' + (o.qty + n) + ' (+' + n + ' given to ' + k.name + ')');
+  lowStockAlerts_(before);
+  pushInProduction_();
+  return machineView(token);
+}
+
+/** Material still short on a running job, given now: lines = { materialCode: qty }. */
+function giveOrderMaterial(token, id, lines) {
+  const u = authStaff_(token, 'machines|orders');
+  const o = readOrders_().filter(x => x.id === id)[0];
+  if (!o || o.status !== 'OPEN') throw new Error('Work order not found or not running.');
+  const k = readKarigars_().filter(x => x.id === o.karigarId)[0] || { id: o.karigarId, name: o.karigarId };
+  const bom = (bomMap_()[o.item] || []).map(x => x.material);
+  const give = Object.keys(lines || {}).filter(c => Number(lines[c]) > 0).map(c => {
+    if (bom.indexOf(c) < 0) throw new Error(c + ' is not in the BOM of ' + o.item + '.');
+    return { material: c, qty: round3_(Number(lines[c])) };
+  });
+  if (!give.length) throw new Error('Enter the quantity given.');
+  const before = storeStockMap_();
+  addMoves_(u, k, give, 'Work order ' + id + ': short material given', id, todayStr_());
+  forget_('givenbywo');
+  lowStockAlerts_(before);
+  return machineView(token);
 }
 
 /** The machine a karigar is working on now ('' if none). */
@@ -1072,13 +1165,12 @@ function machineAdvance_(u) {
     if (mode === 'COUNT2' && m.pending.length) return;
     const on = karigarMachine_(m.next.karigarId);
     if (on && on !== m.id) return; // the karigar is still on another machine
-    if ((readKarigars_().filter(k => k.id === m.next.karigarId)[0] || {}).away) return; // gone home: waits
     startOrder_(u, m.next.id);
   });
 }
 
 /** A planned (NEXT) work order starts: today's date and rate, its material is given to the karigar. */
-function startOrder_(u, id) {
+function startOrder_(u, id, issueIn) {
   const o = readOrders_().filter(x => x.id === id)[0];
   if (!o || o.status !== 'NEXT') throw new Error('This job has already started or was removed.');
   const k = readKarigars_().filter(x => x.id === o.karigarId)[0] || { id: o.karigarId, name: o.karigarId };
@@ -1091,8 +1183,7 @@ function startOrder_(u, id) {
   sh.getRange(o.row, 6).setValue('OPEN');
   sh.getRange(o.row, 10, 1, 2).setValues([[rate === null ? '' : rate, source]]);
   forget_('orders');
-  const issue = (bomMap_()[o.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * o.qty) }));
-  addMoves_(u, k, issue, 'Work order ' + id, id, today);
+  addMoves_(u, k, issueLines_(o.item, o.qty, issueIn), 'Work order ' + id, id, today);
   takeCutting_(id);
   log_(u, 'START_ORDER', id, k.id + ' ' + k.name + ': ' + o.item + ' × ' + o.qty + (o.machine ? ' on ' + o.machine : '') + ' started at ' + (rate === null ? 'no rate' : rate));
   pushInProduction_();
@@ -1105,7 +1196,10 @@ function machineView(token) {
   st.forEach(m => { if (m.job) on[m.job.karigarId] = m.name; });
   return { list: st.filter(m => m.active), karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name, on: on[k.id] || '', away: k.away })),
     items: activeItems_(), nextAt: getSettings_().nextAt, canSetup: can_(u, 'machinesetup'), canCount: can_(u, 'count'), canRate: can_(u, 'masters'),
-    me: u.id, today: todayStr_() };
+    me: u.id, today: todayStr_(), count2: getSettings_().count2,
+    bom: (() => { const b = bomMap_(), mats = materialMap_(), out = {}; Object.keys(b).forEach(i => { out[i] = b[i].map(x => ({ code: x.material,
+      name: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '', perPiece: x.qty })); }); return out; })(),
+    store: (() => { const st = storeStockMap_(), out = {}; Object.keys(st).forEach(c => { if (st[c].tracked) out[c] = round3_(st[c].inStore); }); return out; })() };
 }
 
 /** Changes a planned (NEXT) job: data = { karigarId, item, qty, target }. */
@@ -1134,7 +1228,7 @@ function saveNextOrder(token, id, data) {
 }
 
 /** Starts a planned job now (its machine must be free). */
-function startNextOrder(token, id) {
+function startNextOrder(token, id, issue) {
   const u = authStaff_(token, 'machines|orders');
   const o = readOrders_().filter(x => x.id === id)[0];
   if (!o || o.status !== 'NEXT') throw new Error('This job has already started or was removed.');
@@ -1143,10 +1237,8 @@ function startNextOrder(token, id) {
     if (m && m.job) throw new Error((m.name) + ' is still running ' + m.job.id + '. Complete it first.');
     const on = karigarMachine_(o.karigarId);
     if (on && on !== o.machine) throw new Error((karigarNames_()[o.karigarId] || o.karigarId) + ' is working on ' + (machineNames_()[on] || on) + '. One karigar, one machine.');
-    const kk = readKarigars_().filter(k => k.id === o.karigarId)[0];
-    if (kk && kk.away) throw new Error(kk.name + ' has gone home. Mark them present first.');
   }
-  startOrder_(u, id);
+  startOrder_(u, id, issue);
   return true;
 }
 
@@ -1239,8 +1331,9 @@ function machineSetting(token, at) {
 
 function readCuttings_() {
   return memo_('cuttings', () => rows_(SHEET.CUTTINGS).map((r, i) => ({ row: i + 2, id: String(r[0]), date: toDateStr_(r[1]), item: String(r[2]).trim(),
-    qty: Number(r[3]) || 0, materials: parseJson_(r[4], []), status: (x => (['DONE', 'CANCELLED'].indexOf(x) >= 0 ? x : 'TODO'))(String(r[5]).trim().toUpperCase()),
-    note: String(r[6] || ''), by: String(r[7] || ''), at: String(r[8] || ''), doneBy: String(r[9] || ''), doneAt: String(r[10] || '') })).filter(c => c.id && c.item));
+    qty: Number(r[3]) || 0, materials: parseJson_(r[4], []), status: (x => (['DONE', 'CANCELLED', 'PLANNED'].indexOf(x) >= 0 ? x : 'TODO'))(String(r[5]).trim().toUpperCase()),
+    note: String(r[6] || ''), by: String(r[7] || ''), at: String(r[8] || ''), doneBy: String(r[9] || ''), doneAt: String(r[10] || ''),
+    planned: toDateStr_(r[11]) })).filter(c => c.id && c.item));
 }
 
 /** The CR-tagged materials of an item's BOM (per piece). */
@@ -1269,37 +1362,79 @@ function cutAvailable_() {
 /** A job (work order) starts: it takes completed cutting of its item, up to its quantity. */
 function takeCutting_(id) {
   const o = readOrders_().filter(x => x.id === id)[0];
-  if (!o || o.cutUsed) return;
-  const take = Math.min(o.qty, Math.max(0, cutAvailable_()[o.item] || 0));
+  if (!o || o.cutUsed >= o.qty) return;
+  const take = Math.min(o.qty - o.cutUsed, Math.max(0, cutAvailable_()[o.item] || 0));
   if (!take) return;
   const sh = sheet_(SHEET.ORDERS);
   if (String(sh.getRange(1, 16).getValues()[0][0] || '') === '') sh.getRange(1, 16).setValue('Cut Used').setFontWeight('bold').setBackground('#e8eefc');
-  sh.getRange(o.row, 16).setValue(take);
+  sh.getRange(o.row, 16).setValue(o.cutUsed + take);
   forget_('orders');
 }
 
-/** Per SKU: completed cutting available, running jobs (still to make) and Next jobs; OK / SHORT against the Next jobs. */
+/**
+ * Per SKU: its CR materials, completed cutting available, the planned cutting dates (Cutting Room) and Next jobs;
+ * OK / SHORT against the Next jobs.
+ */
 function nextJobsBlock_() {
   const avail = cutAvailable_(), prog = ordersWithProgress_(), names = karigarNames_(), mn = machineNames_(), by = {};
-  const row = item => (by[item] = by[item] || { item: item, available: Math.max(0, avail[item] || 0), running: 0, runningJobs: 0, next: 0, nextJobs: [] });
-  prog.filter(o => o.open).forEach(o => { const r = row(o.item); r.running += o.remaining; r.runningJobs++; });
+  const row = item => (by[item] = by[item] || { item: item, available: Math.max(0, avail[item] || 0), next: 0, nextJobs: [], planned: [] });
+  prog.filter(o => o.open).forEach(o => row(o.item));
   prog.filter(o => o.next).forEach(o => { const r = row(o.item); r.next += o.qty; r.nextJobs.push({ id: o.id, qty: o.qty, karigar: names[o.karigarId] || o.karigarId, machine: o.machine ? mn[o.machine] || o.machine : '' }); });
   Object.keys(avail).forEach(i => { if (avail[i] > 0) row(i); });
+  readCuttings_().filter(c => c.status === 'PLANNED' || c.status === 'TODO').forEach(c => {
+    const r = row(c.item);
+    if (c.status === 'PLANNED' && c.planned) r.planned.push({ id: c.id, date: c.planned, qty: c.qty });
+  });
   return Object.keys(by).filter(i => crMaterials_(i).length).sort().map(i => { // only SKUs cut in the cutting room
     const r = by[i];
+    r.cr = crMaterials_(i).map(x => x.name);
+    r.planned.sort((a, b) => a.date.localeCompare(b.date));
     r.status = r.next ? (r.available >= r.next ? 'OK' : 'SHORT') : '';
     r.short = r.next > r.available ? r.next - r.available : 0;
     return r;
   }).sort((a, b) => (b.next ? 1 : 0) - (a.next ? 1 : 0) || a.item.localeCompare(b.item));
 }
 
+/**
+ * Available cuttings per SKU (like the material stock): Base = cutting not made into goods yet; Allocated = given to
+ * karigars with their running jobs (still to make); Available = Base − Allocated; Reserved = Next jobs (not started).
+ */
+function cutStockBlock_() {
+  const avail = cutAvailable_(), prog = ordersWithProgress_(), by = {};
+  const items = activeItems_().filter(i => crMaterials_(i.code).length);
+  items.forEach(i => { by[i.code] = { item: i.code, name: i.name || '', base: 0, allocated: 0, available: Math.max(0, avail[i.code] || 0), reserved: 0 }; });
+  prog.forEach(o => {
+    const r = by[o.item]; if (!r) return;
+    if (o.open && o.cutUsed) r.allocated += Math.min(o.cutUsed, o.remaining);
+    if (o.next) r.reserved += o.qty;
+  });
+  return items.map(i => {
+    const r = by[i.code];
+    r.base = r.available + r.allocated;
+    r.status = r.reserved > r.available ? 'SHORT' : r.available > 0 ? 'OK' : 'LOW';
+    r.short = Math.max(0, r.reserved - r.available);
+    return r;
+  }).sort((a, b) => a.item.localeCompare(b.item));
+}
+
+/** Cut material from the rolls: rolls × roll size (the roll size saved with the cutting, else the usual one now). */
+function cutActual_(c) {
+  const mats = materialMap_();
+  return c.materials.map(m => {
+    const per = m.perRoll || (mats[m.code] ? perRoll_(mats[m.code]) : 0);
+    const actual = m.rolls && per ? round3_(m.rolls * per) : null;
+    return Object.assign({}, m, { perRoll: per, actual: actual, diff: actual === null ? null : round3_(actual - m.qty),
+      diffPct: actual === null || !m.qty ? null : round2_(100 * (actual - m.qty) / m.qty) });
+  });
+}
+
 function cuttingView(token) {
   const u = authStaff_(token, 'cutting|reports|machines');
   const items = activeItems_().map(i => Object.assign({}, i, { cr: crMaterials_(i.code) })).filter(i => i.cr.length);
   const since = Utilities.formatDate(new Date(Date.now() - 30 * 864e5), tz_(), 'yyyy-MM-dd');
-  const list = readCuttings_().filter(c => c.status === 'TODO' || (c.status === 'DONE' && c.date >= since)).reverse()
-    .map(c => Object.assign({}, c, { byName: staffName_(c.by), doneByName: c.doneBy ? staffName_(c.doneBy) : '' }));
-  return { items: items, list: list, block: nextJobsBlock_(), canCut: can_(u, 'cutting'), today: todayStr_(),
+  const list = readCuttings_().filter(c => c.status === 'TODO' || c.status === 'PLANNED' || (c.status === 'DONE' && String(c.doneAt || c.date).slice(0, 10) >= since)).reverse()
+    .map(c => Object.assign({}, c, { materials: cutActual_(c), byName: staffName_(c.by), doneByName: c.doneBy ? staffName_(c.doneBy) : '' }));
+  return { items: items, list: list, block: nextJobsBlock_(), stock: cutStockBlock_(), canCut: can_(u, 'cutting'), today: todayStr_(),
     crCount: readMaterials_().filter(m => m.active && m.tags.indexOf('CR') >= 0).length };
 }
 
@@ -1316,10 +1451,10 @@ function saveCutting(token, data) {
   const date = data.date ? toDateStr_(data.date) : todayStr_();
   const rolls = data.rolls || {};
   const mats = cr.map(x => Object.assign({ code: x.code, name: x.name, unit: x.unit, qty: round3_(x.perPiece * q) },
-    Number(rolls[x.code]) > 0 ? { rolls: Number(rolls[x.code]) } : {}));
+    Number(rolls[x.code]) > 0 ? { rolls: Number(rolls[x.code]), perRoll: x.perRoll } : {}));
   const id = withLock_(() => {
     const id = nextId_(SHEET.CUTTINGS, 'C-');
-    sheet_(SHEET.CUTTINGS).appendRow([id, "'" + date, item, q, JSON.stringify(mats), 'TODO', String(data.note || '').slice(0, 200), u.id, nowStr_(), '', '']);
+    sheet_(SHEET.CUTTINGS).appendRow([id, "'" + date, item, q, JSON.stringify(mats), 'TODO', String(data.note || '').slice(0, 200), u.id, nowStr_(), '', '', '']);
     forget_('cuttings');
     return id;
   });
@@ -1327,23 +1462,29 @@ function saveCutting(token, data) {
   return cuttingView(token);
 }
 
-/** 'DONE' = cutting completed, 'TODO' = undo (only if that cutting is not used yet), 'CANCELLED' = remove (not done). */
-function setCuttingStatus(token, id, status) {
+/**
+ * TODO = on the table, PLANNED (date = planned date), DONE = completed (date = completed on), CANCELLED = removed (not
+ * getting cut). A completed cutting can only change back while it is not used by a job.
+ */
+function setCuttingStatus(token, id, status, date) {
   const u = authStaff_(token, 'cutting');
   const c = readCuttings_().filter(x => x.id === id)[0];
   if (!c) throw new Error('Cutting not found.');
   status = String(status || '').toUpperCase();
-  if (status === 'DONE' && c.status !== 'TODO') throw new Error('This cutting is not waiting.');
-  if (status === 'CANCELLED' && c.status !== 'TODO') throw new Error('Only a cutting that is not done can be removed.');
-  if (status === 'TODO') {
-    if (c.status !== 'DONE') throw new Error('This cutting is not completed.');
-    if ((cutAvailable_()[c.item] || 0) < c.qty) throw new Error('This cutting is already used by a job; it cannot be undone.');
-  }
+  if (['TODO', 'PLANNED', 'DONE', 'CANCELLED'].indexOf(status) < 0) throw new Error('Choose the status.');
+  if (c.status === 'CANCELLED') throw new Error('This cutting was removed.');
+  const day = date ? toDateStr_(date) : '';
+  if (date && !day) throw new Error('Enter a valid date.');
+  if (status === 'PLANNED' && !day) throw new Error('Choose the planned date.');
+  if (c.status === 'DONE' && status !== 'DONE' && (cutAvailable_()[c.item] || 0) < c.qty) throw new Error('This cutting is already used by a job; it cannot be changed.');
   const sh = sheet_(SHEET.CUTTINGS);
+  if (String(sh.getRange(1, 12).getValues()[0][0] || '') === '') sh.getRange(1, 12).setValue('Planned Date').setFontWeight('bold').setBackground('#e8eefc');
+  const doneDay = day || todayStr_();
   sh.getRange(c.row, 6).setValue(status);
-  sh.getRange(c.row, 10, 1, 2).setValues([status === 'DONE' ? [u.id, nowStr_()] : ['', '']]);
+  sh.getRange(c.row, 10, 1, 3).setValues([[status === 'DONE' ? u.id : '', status === 'DONE' ? "'" + (doneDay === todayStr_() ? nowStr_() : doneDay) : '',
+    status === 'PLANNED' ? "'" + day : status === 'DONE' || status === 'CANCELLED' ? (c.planned ? "'" + c.planned : '') : '']]);
   forget_('cuttings');
-  log_(u, 'CUTTING_' + status, id, c.item + ' × ' + c.qty);
+  log_(u, 'CUTTING_' + status, id, c.item + ' × ' + c.qty + (status === 'PLANNED' ? ' planned for ' + day : status === 'DONE' ? ' completed on ' + doneDay : '') + ' (was ' + c.status + ')');
   return cuttingView(token);
 }
 
@@ -1481,7 +1622,6 @@ function saveOrders(token, data) {
       if (st.job) throw new Error(st.name + ' is already running ' + st.job.id + '.');
       const on = karigarMachine_(k.id);
       if (on && on !== machine) throw new Error(k.name + ' is already working on ' + (machineNames_()[on] || on) + '. One karigar, one machine.');
-      if (k.away) throw new Error(k.name + ' has gone home (since ' + k.away + '). Mark them present first.');
     }
   }
   if (data.next) { // a planned job: no rate, no material and not "in production" until it starts
@@ -1490,7 +1630,7 @@ function saveOrders(token, data) {
     return machine ? machineView(token) : orderList(token, 'NEXT');
   }
   const storeBefore = storeStockMap_();
-  const added = lines.map(l => createOrder_(u, k, l, data.note, day, { machine: machine, target: target }));
+  const added = lines.map(l => createOrder_(u, k, l, data.note, day, { machine: machine, target: target, issue: machine ? data.issue : null }));
   // Store: what each lot needs against what is in the store (before these lots took it).
   const need = {};
   added.forEach(a => a.issueCodes.forEach(x => { need[x.material] = (need[x.material] || 0) + x.qty; }));
@@ -1535,7 +1675,7 @@ function createOrder_(u, k, l, note, date, opt) {
   if (special && l.futureToo) addKarigarRate_(u, k, l.item, Number(l.lotRate), today, 'From lot ' + id);
   takeCutting_(id);
   // The lot's material (quantity × material per piece) is issued with it; a different person confirms the hand-over.
-  const issue = (bomMap_()[l.item] || []).map(x => ({ material: x.material, qty: round3_(x.qty * qty) }));
+  const issue = issueLines_(l.item, qty, opt.issue);
   addMoves_(u, k, issue, 'Work order ' + id, id, today);
   log_(u, 'NEW_ORDER', id, k.id + ' ' + k.name + ': ' + l.item + ' × ' + qty + (opt.machine ? ' on ' + opt.machine : '') + (opt.target ? ', target ' + opt.target : '') + (today !== todayStr_() ? ' (dated ' + today + ')' : '') + ' at ' + (rate === null ? 'no rate' : rate) +
     (source ? ' (' + source.toLowerCase() + ')' : '') + (special && l.futureToo ? ', also for future lots' : ''));
@@ -2199,7 +2339,8 @@ function saveBom(token, item, lines) {
 function staffList(token) {
   const u = authStaff_(token, 'super');
   if (u.role !== 'SUPER') throw new Error('Only for super admins.');
-  return { list: readStaff_().map(s => ({ id: s.id, name: s.name, phone: s.phone, role: s.role, perms: permsOf_(s), active: s.active })), perms: PERMS };
+  return { list: readStaff_().map(s => ({ id: s.id, name: s.name, phone: s.phone, role: s.role, perms: permsOf_(s), active: s.active })), perms: PERMS,
+    count2: getSettings_().count2, waitCount2: readBatches_().filter(b => b.status === 'COUNT2').length };
 }
 
 /** data = { id (edit) | newId, name, phone, role, perms: [], active, pin (new) } */
@@ -2953,6 +3094,7 @@ function getSettings_() {
       largeAdvance: Number(m['Large Advance Alert']) > 0 ? Number(m['Large Advance Alert']) : 10000,
       lowMargin: m['Low Margin %'] === '' || m['Low Margin %'] === undefined ? 20 : Number(m['Low Margin %']) || 0,
       nextAt: /1/.test(String(m['Next Job Starts At'] || '')) ? 'COUNT1' : 'COUNT2', // default: after count 2
+      count2: /^(on|yes|true|running|resumed)$/i.test(String(m['Count 2'] || '').trim()), // default: paused (count 1 is final)
     };
   });
 }
@@ -2978,7 +3120,7 @@ function forget_() {
     delete MEMO[arguments[i]];
     if (arguments[i] === 'lines') delete MEMO.batches; // batches carry their lines
   }
-  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate', 'cuttings'].forEach(k => { delete MEMO[k]; });
+  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate', 'cuttings', 'givenbywo'].forEach(k => { delete MEMO[k]; });
   Object.keys(MEMO).forEach(k => { if (k.indexOf('rows|') === 0) delete MEMO[k]; });
 }
 

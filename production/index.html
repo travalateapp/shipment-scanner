@@ -51,7 +51,9 @@ h1.page small{font-size:13px;color:var(--muted);font-weight:500}
 .mc .mk{font-weight:800;font-size:15px;margin-top:6px}.mc .mj{font-size:13.5px;color:#334155;margin-top:1px}.mc .ms{font-size:12.5px;color:#64748b;margin-top:2px}
 .mbar{height:6px;background:#e5e7eb;border-radius:4px;margin-top:7px;overflow:hidden}.mbar i{display:block;height:100%;background:#16a34a}
 .mc .mnx{border-top:1px dashed #e2e8f0;margin-top:7px;padding-top:5px;font-size:12.5px;color:#475569}
-.mc.idle .mhint{color:#94a3b8;margin-top:26px;font-size:13.5px}.mc.c2b{border-color:#f59e0b;background:#fffbeb}.mc.lateb{border-color:#fca5a5}
+.mc.idle .mhint{color:#94a3b8;margin-top:26px;font-size:13.5px}.mc.c2b{border-color:#f59e0b;background:#fffbeb}.mc.lateb{border-color:#fca5a5}.mc.mshort{border:2px solid #ef4444;background:#fef2f2}
+.mshortl{color:#b91c1c;font-weight:700;font-size:12.5px;margin-top:3px}.cdiff{color:#b91c1c;font-weight:700}.cst{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.cst select,.cst input{width:auto;display:inline-block;margin:0}.clines div{white-space:nowrap;line-height:1.55}
 .mstep{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e2e8f0;border-radius:10px;margin-top:8px}
 .mstep .n{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none;background:#e2e8f0;color:#475569}
 .mstep.done .n{background:#16a34a;color:#fff}.mstep.wait{border-color:#f59e0b;background:#fffbeb}.mstep.wait .n{background:#f59e0b;color:#fff}
@@ -203,7 +205,7 @@ function prefetch(fn) {
   p.catch(function () { if (RC[k] && RC[k].p === p) delete RC[k]; });
   return p;
 }
-var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], cutting: ['cuttingView'], material: ['moveList'],
+var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], cutting: ['cuttingView'], cutstock: ['cuttingView'], material: ['moveList'],
   balance: ['materialBalance'], payroll: ['payroll', ''], advances: ['advances'], karigars: ['karigarList'], items: ['itemList'], materials: ['materialList'],
   store: ['storeView'], staff: ['staffList'], home: ['getHome'], work: ['myWork', ''], slip: ['myPayslip', ''], myadv: ['myAdvances'] };
 /* After a save: load the screens again in the background (4 s later, at most once a minute). */
@@ -325,6 +327,9 @@ function statusPill(s) { var x = STATUS[s] || [s, '']; return '<span class="pill
 function invPill(s) { return s === 'DONE' ? '<span class="pill ok">' + T('In inventory') + '</span>' : s === 'PENDING' ? '<span class="pill err">' + T('Not in inventory yet') + '</span>' : s === 'NONE' ? '<span class="pill">' + T('Parts only') + '</span>' : ''; }
 
 /* ---------- shell ---------- */
+/* Count 2 can be paused by a super admin (Staff & permissions): then count 1 is the final count. */
+function c2On() { return !!(S.profile && S.profile.count2); }
+function c2Set(r) { if (r && r.count2 !== undefined && S.profile) S.profile.count2 = !!r.count2; }
 function menu() {
   var p = S.profile;
   if (p.kind === 'K') return [['home', '🏠', T('Home')], ['work', '🧾', T('My work')], ['slip', '💰', T('Payslips')], ['myadv', '🤝', T('My advances')], ['pin', '🔑', T('Change PIN')]];
@@ -335,6 +340,7 @@ function menu() {
   if (can('orders') || can('reports') || can('issue')) m.push(['orders', '🧵', 'Work orders']);
   if (can('machines')) m.push(['machines', '🏭', 'Machine Dashboard']);
   if (can('cutting') || can('reports') || can('machines')) m.push(['cutting', '✂️', 'Cutting Room']);
+  if (can('cutting') || can('reports') || can('machines')) m.push(['cutstock', '📦', 'Available Cuttings']);
   if (can('issue') || can('confirm') || can('reports')) m.push(['material', '🧰', 'Material issue']);
   if (can('reports') || can('issue') || can('confirm')) m.push(['balance', '⚖️', 'Material balance']);
   m.push(['-']);
@@ -617,6 +623,7 @@ function savePin(btn) {
 /* ======================= STAFF ======================= */
 VIEWS.dash = function () {
   api('adminDashboard', S.token).then(function (r) {
+    c2Set(r);
     var mc = r.machines;
     render('<h1 class="page">📊 Dashboard <small>Pay period ' + esc(r.period.label) + '</small></h1>' +
       (mc ? '<div class="tile mblock" onclick="go(\'machines\')"><div class="l">🏭 Machine Dashboard</div><div class="n">' + mc.running + ' / ' + mc.total + ' running</div>' +
@@ -624,7 +631,7 @@ VIEWS.dash = function () {
       '<div class="tiles">' +
       '<div class="tile ' + (r.lateOrders ? 'err' : '') + '" onclick="go(\'orders\')"><div class="l">Late work orders (past target date)</div><div class="n">' + r.lateOrders + '</div></div>' +
       '<div class="tile warn" onclick="go(\'count\')"><div class="l">Waiting for count 1</div><div class="n">' + r.waitCount1 + '</div></div>' +
-      '<div class="tile info" onclick="go(\'count\')"><div class="l">Waiting for count 2</div><div class="n">' + r.waitCount2 + '</div></div>' +
+      (c2On() || r.waitCount2 ? '<div class="tile info" onclick="go(\'count\')"><div class="l">Waiting for count 2</div><div class="n">' + r.waitCount2 + '</div></div>' : '') +
       '<div class="tile ' + (r.differed ? 'err' : '') + '" onclick="go(\'batches\')"><div class="l">Count 1 ≠ final (this period)</div><div class="n">' + r.differed + '</div></div>' +
       '<div class="tile ' + (r.movesPending ? 'warn' : '') + '" onclick="go(\'material\')"><div class="l">Material to confirm</div><div class="n">' + r.movesPending + '</div></div>' +
       '<div class="tile ok"><div class="l">Received today (good)</div><div class="n">' + r.receivedToday + '</div></div>' +
@@ -653,8 +660,11 @@ VIEWS.dash = function () {
 VIEWS.count = function () {
   api('countQueue', S.token).then(function (r) {
     S.data.cq = r;
-    var groups = [['COUNT1', 'Waiting for count 1 (with photo)'], ['COUNT2', 'Waiting for count 2: final count (a different person, blind)']];
+    c2Set(r);
+    var groups = [['COUNT1', c2On() ? 'Waiting for count 1 (with photo)' : 'Waiting for the count (with photo): it is the final count'], ['COUNT2', 'Waiting for count 2: final count (a different person, blind)']];
+    if (!c2On() && !r.list.some(function (b) { return b.status === 'COUNT2'; })) groups.pop();
     render('<h1 class="page">✅ Count received goods</h1>' +
+      (c2On() ? '' : '<div class="msg info">Count 2 is paused: count 1 is the final count (pay and inventory are updated and the job is completed).</div>') +
       (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"><select id="nbK"><option value="">' + (r.karigars.length ? 'Choose karigar (with a running work order)…' : 'No karigar has a running work order') + '</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
       groups.map(function (g) {
         var list = r.list.filter(function (b) { return b.status === g[0]; });
@@ -772,6 +782,7 @@ function saveCountNow(id, which, btn, repeatOk) {
   apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null, repeatOk: !!repeatOk, complete: complete }).then(function (r) {
     closeModal();
     if (complete && r.status !== 'LOCKED') toast('Count 1 saved: the machine is free. A different person does count 2.');
+    else if (which === 1 && r.status === 'LOCKED') toast('Count saved: batch locked' + (complete ? ', job completed' : '') + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : ''));
     else if (r.status === 'LOCKED') toast('Final count saved: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : '') + (r.differs && r.differs.length ? '. Count 1 was different on ' + r.differs.join(', ') + ' (noted).' : ''));
     else toast('Count 1 saved. Now a different person does count 2.');
     if (back) go('machines', S.arg); else go('count');
@@ -845,27 +856,29 @@ VIEWS.machines = function (f) {
   f = /^(run|c2|late|idle)$/.test(f || '') ? f : '';
   load('machineView', S.token).then(function (r) {
     S.data.mv = r;
+    c2Set(r);
     var has = { run: function (m) { return !!m.job; }, c2: function (m) { return m.pending.length > 0; }, late: function (m) { return !!(m.job && m.job.late); }, idle: function (m) { return !m.job && !m.pending.length; } };
     var n = function (k) { return r.list.filter(has[k]).length; };
     var tab = function (k, label) { return '<a class="' + (f === k ? 'on' : '') + '" onclick="go(\'machines\'' + (k ? ',\'' + k + '\'' : '') + ')">' + label + '</a>'; };
     var list = f ? r.list.filter(has[f]) : r.list;
     var lab = { late: 'LATE', c2: 'COUNT 2 PENDING', run: 'RUNNING', idle: 'IDLE' };
     render('<h1 class="page">🏭 Machine Dashboard <small>tap a machine to start a job, count the goods or plan the next job</small></h1>' +
-      '<div class="tabs">' + tab('', 'All (' + r.list.length + ')') + tab('run', 'Running (' + n('run') + ')') + tab('c2', 'Count 2 pending (' + n('c2') + ')') + tab('late', 'Late (' + n('late') + ')') + tab('idle', 'Idle (' + n('idle') + ')') + '</div>' +
+      '<div class="tabs">' + tab('', 'All (' + r.list.length + ')') + tab('run', 'Running (' + n('run') + ')') + (c2On() || n('c2') ? tab('c2', 'Count 2 pending (' + n('c2') + ')') : '') + tab('late', 'Late (' + n('late') + ')') + tab('idle', 'Idle (' + n('idle') + ')') + '</div>' +
       '<div class="muted" style="margin:-4px 0 10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">Next job starts at: ' +
       (r.canSetup ? '<select class="fix" style="width:auto" onchange="machSetting(this.value)"><option value="COUNT2"' + (r.nextAt === 'COUNT2' ? ' selected' : '') + '>Count 2 (final count) of the job before</option><option value="COUNT1"' + (r.nextAt === 'COUNT1' ? ' selected' : '') + '>Count 1 of the job before</option></select>' +
         ' <button class="btn sec sm" onclick="machAdd(this)">+ Add machine</button>' : '<b>' + (r.nextAt === 'COUNT2' ? 'Count 2 (final count)' : 'Count 1') + '</b> of the job before') + '</div>' +
-      (function () { var aw = r.karigars.filter(function (k) { return k.away; }); return aw.length ? '<div class="msg warn" style="margin:0 0 10px">🏠 Gone home: ' + aw.map(function (k) { return '<b>' + esc(k.name) + '</b> <span class="muted">(' + d(k.away) + ')</span> <a class="lnk" onclick="machAway(\'' + k.id + '\',false)">back</a>'; }).join(' · ') + '</div>' : ''; })() +
       '<div class="mgrid">' + (list.map(function (m) {
         var st = mState(m), j = m.job || m.pending[0];
         var head = '<div class="mtop"><span class="mid">' + esc(m.name) + '</span><span class="mst ' + st + '">● ' + lab[st] + '</span></div>';
         var nx = m.next ? '<div class="mnx">Next: ' + esc(m.next.item) + ' × ' + m.next.qty + (m.next.karigarId !== (j || {}).karigarId ? ' · ' + esc(m.next.karigar) : '') + '</div>' : '';
         if (!j) return '<div class="mc idle" onclick="machWin(\'' + m.id + '\')">' + head + (m.next ? '<div class="ms" style="margin-top:20px">Next job waiting to start</div>' + nx : '<div class="mhint">Tap to start a job</div>') + '</div>';
         var pct = Math.min(100, Math.round(100 * j.received / Math.max(1, j.qty)));
-        return '<div class="mc' + (st === 'c2' ? ' c2b' : st === 'late' ? ' lateb' : '') + '" onclick="machWin(\'' + m.id + '\')">' + head +
-          '<div class="mk">' + esc(j.karigar) + (r.karigars.some(function (k) { return k.id === j.karigarId && k.away; }) ? ' <span class="pill warn" style="font-size:11px">gone home</span>' : '') + '</div><div class="mj">' + esc(j.id) + ' · ' + esc(j.item) + ' × ' + j.qty + '</div>' +
+        var ms = m.job && m.job.matShort && m.job.matShort.length;
+        return '<div class="mc' + (ms ? ' mshort' : st === 'c2' ? ' c2b' : st === 'late' ? ' lateb' : '') + '" onclick="machWin(\'' + m.id + '\')">' + head +
+          '<div class="mk">' + esc(j.karigar) + '</div><div class="mj">' + esc(j.id) + ' · ' + esc(j.item) + ' × ' + j.qty + '</div>' +
           (m.job ? '<div class="ms">Started ' + d(j.date) + (j.target ? ' · ' + (j.late ? '<b style="color:var(--err)">due ' + d(j.target) + '</b>' : 'due ' + d(j.target)) : '') + (j.received ? ' · received ' + j.received : '') + '</div>' +
             '<div class="mbar"><i style="width:' + pct + '%"></i></div>' : '') +
+          (ms ? '<div class="mshortl">⚠ Material short: ' + m.job.matShort.map(function (x) { return esc(x.name) + ' ' + num(x.short) + ' ' + esc(x.unit); }).join(', ') + '</div>' : '') +
           m.pending.map(function (p) { return '<div class="ms" style="color:#b45309">' + esc(p.id) + ': ' + (p.batch ? 'count 1 done, waiting for count 2' : 'count again (count 1 was removed)') + '</div>'; }).join('') + nx + '</div>';
       }).join('') || '<div class="muted">No machine here.</div>') + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
@@ -891,22 +904,26 @@ function machOf(id) { return (S.data.mv.list || []).filter(function (m) { return
 function machKarOpts(m, sel, forStart) {
   return '<option value="">Karigar…</option>' + S.data.mv.karigars.map(function (k) {
     var busy = k.on && k.on !== m.name;
-    return '<option value="' + esc(k.id) + '"' + (k.id === sel ? ' selected' : '') + (k.away && forStart ? ' disabled' : '') + '>' + esc(k.name) + (busy ? ' (on ' + esc(k.on) + ')' : '') + (k.away ? ' (gone home)' : '') + '</option>';
+    return '<option value="' + esc(k.id) + '"' + (k.id === sel ? ' selected' : '') + '>' + esc(k.name) + (busy ? ' (on ' + esc(k.on) + ')' : '') + '</option>';
   }).join('');
 }
 function machWin(id) {
   var r = S.data.mv, m = machOf(id); if (!m) return;
   var j = m.job, h = '';
   if (j) {
-    var kj = r.karigars.filter(function (k) { return k.id === j.karigarId; })[0] || {};
-    h += '<div class="kv"><div>Karigar</div><div><b>' + esc(j.karigar) + '</b> ' + (kj.away ? '<span class="pill warn">gone home ' + d(kj.away) + '</span> <a class="lnk" onclick="machAway(\'' + j.karigarId + '\',false)">mark present</a>' : '<a class="lnk" style="font-size:12.5px" onclick="machAway(\'' + j.karigarId + '\',true)">gone home?</a>') + '</div><div>Job</div><div><b>' + esc(j.id) + '</b> · ' + esc(j.item) + ' × ' + j.qty + (j.rate !== null && j.rate !== undefined ? ' · ' + money(j.rate) + ' / piece' : '') + '</div>' +
+    h += '<div class="kv"><div>Karigar</div><div><b>' + esc(j.karigar) + '</b></div><div>Job</div><div><b>' + esc(j.id) + '</b> · ' + esc(j.item) + ' × ' + j.qty + (j.rate !== null && j.rate !== undefined ? ' · ' + money(j.rate) + ' / piece' : '') + '</div>' +
       '<div>Started</div><div>' + d(j.date) + '</div><div>Target date</div><div>' + (j.target ? (j.late ? '<b style="color:var(--err)">' + d(j.target) + ' · late</b>' : d(j.target)) : '<span class="muted">none</span>') + ' <a class="lnk" onclick="machTarget(\'' + j.id + '\',\'' + (j.target || '') + '\',\'' + m.id + '\')">change</a></div>' +
-      '<div>Received so far</div><div>' + j.received + ' of ' + j.qty + (j.extra ? ' <span class="pill warn">+' + j.extra + ' extra</span>' : '') + '</div></div>' +
+      '<div>Received so far</div><div>' + j.received + ' of ' + j.qty + (j.extra ? ' <span class="pill warn">+' + j.extra + ' extra</span>' : '') + ' <a class="lnk" onclick="machMore(\'' + m.id + '\')">+ more pieces given</a></div></div>' +
+      (j.matShort && j.matShort.length ? '<div class="msg err" style="margin-top:12px"><b>⚠ Material short for ' + esc(j.id) + '</b>: give it when it is at hand.' +
+        '<table class="tbl" style="margin-top:6px"><tr><th>Material</th><th class="r">Needed</th><th class="r">Given</th><th class="r">Give now</th></tr>' + j.matShort.map(function (x) {
+          return '<tr><td>' + esc(x.name) + '</td><td class="r">' + num(x.need) + ' ' + esc(x.unit) + '</td><td class="r">' + num(x.given) + '</td><td class="r"><input class="msq" data-code="' + esc(x.code) + '" type="number" step="any" inputmode="decimal" style="width:100px;display:inline-block" value="' + x.short + '"> ' + esc(x.unit) + '</td></tr>';
+        }).join('') + '</table><button class="btn ok" onclick="machGiveShort(\'' + j.id + '\',this)">✔ Give &amp; confirm</button></div>' : '') +
       '<h2 style="margin-top:14px">Goods ready? Complete the job</h2>' +
-      '<div class="mstep"><div class="n">1</div><div class="grow"><b>Count 1</b> <span class="muted">(photo with the phone camera)</span><div class="muted">Opens count 1 with ' + esc(j.id) + ' chosen and ' + j.remaining + ' filled in.</div></div>' +
-      machCountBtn(j.id, j.karigarId, j.remaining) + '</div>' +
-      '<div class="mstep"><div class="n">2</div><div class="grow"><b>Count 2</b> <span class="muted">(another person, blind)</span><div class="muted">The final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came. ' +
-      (r.nextAt === 'COUNT1' ? 'The next job starts at count 1.' : 'Then the next job starts by itself; with no next job the machine is idle and the karigar is free.') + '</div></div></div>';
+      '<div class="mstep"><div class="n">1</div><div class="grow"><b>' + (c2On() ? 'Count 1' : 'Count') + '</b> <span class="muted">(photo with the phone camera)</span><div class="muted">Opens the count with ' + esc(j.id) + ' chosen and ' + j.remaining + ' filled in.' +
+      (c2On() ? '' : ' It is the final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came. ' + 'Then the next job starts by itself; with no next job the machine is idle and the karigar is free.') + '</div></div>' +
+      machCountBtn(j.id, j.karigarId, j.remaining, c2On() ? '' : 'Count & complete') + '</div>' +
+      (c2On() ? '<div class="mstep"><div class="n">2</div><div class="grow"><b>Count 2</b> <span class="muted">(another person, blind)</span><div class="muted">The final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came. ' +
+      (r.nextAt === 'COUNT1' ? 'The next job starts at count 1.' : 'Then the next job starts by itself; with no next job the machine is idle and the karigar is free.') + '</div></div></div>' : '');
   }
   m.pending.forEach(function (p) {
     var can2 = r.canCount && p.batch && p.count1By !== r.me;
@@ -916,17 +933,17 @@ function machWin(id) {
         machCountBtn(p.id, p.karigarId, p.remaining, 'Count 1 again')) + '</div>';
   });
   if (!j && !m.next) {
-    h += '<h2 style="margin-top:' + (h ? 16 : 0) + 'px">Start a job on ' + esc(m.name) + '</h2>' +
+    h += '<div id="mwForm"><h2 style="margin-top:' + (h ? 16 : 0) + 'px">Start a job on ' + esc(m.name) + '</h2>' +
       '<div class="row"><div><label class="f">Karigar</label><select id="mwK">' + machKarOpts(m, '', true) + '</select></div><div><label class="f">Item</label><select id="mwI">' + itemOpts(r.items, '') + '</select></div></div>' +
       '<div class="row"><div><label class="f">Qty</label><input id="mwQ" type="number" inputmode="numeric"></div><div><label class="f">Date</label><input id="mwD" type="date" value="' + todayIso() + '" max="' + todayIso() + '"></div><div><label class="f">Target date (optional)</label><input id="mwT" type="date"></div></div>' +
       machRateHtml('mw') +
-      '<div class="muted" style="margin-top:6px">A work order is made for this machine and its material is given to the karigar at once. Its rate: the special rate if you type one, otherwise the karigar\'s own rate, otherwise the standard rate.</div>' +
-      '<button class="btn block" onclick="machStart(\'' + m.id + '\',this)">▶ Start job</button>';
+      '<div class="muted" style="margin-top:6px">A work order is made for this machine. Next you see the raw material to give the karigar (you can change the quantities; what is short can be given later). Its rate: the special rate if you type one, otherwise the karigar\'s own rate, otherwise the standard rate.</div>' +
+      '<button class="btn block" onclick="machStart(\'' + m.id + '\',this)">▶ Start job</button></div><div id="mwMat" style="display:none"></div>';
   }
   if (m.next) {
     var nx = m.next;
     h += '<h2 style="margin-top:16px">Next job on ' + esc(m.name) + '</h2><div class="mstep"><div class="grow"><b>' + esc(nx.id) + '</b> · ' + esc(nx.karigar) + ' · ' + esc(nx.item) + ' × ' + nx.qty + (nx.rate !== null && nx.rate !== undefined ? ' · special rate ' + money(nx.rate) : '') + (nx.target ? ' · target ' + d(nx.target) : '') +
-      '<div class="muted">' + (j ? 'Starts by itself at ' + (r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of ' + esc(j.id) + '.' : m.pending.length ? 'Starts by itself at count 2 of ' + esc(m.pending[0].id) + ', or start it now.' : 'Waiting to start' + (nx.karigarId && S.data.mv.karigars.some(function (k) { return k.id === nx.karigarId && k.on && k.on !== m.name; }) ? ': ' + esc(nx.karigar) + ' is still on another machine' : '') + '.') + '</div></div>' +
+      '<div class="muted">' + (j ? 'Starts by itself at ' + (!c2On() ? 'the count' : r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of ' + esc(j.id) + '.' : m.pending.length ? 'Starts by itself at ' + (c2On() ? 'count 2' : 'the count') + ' of ' + esc(m.pending[0].id) + ', or start it now.' : 'Waiting to start' + (nx.karigarId && S.data.mv.karigars.some(function (k) { return k.id === nx.karigarId && k.on && k.on !== m.name; }) ? ': ' + esc(nx.karigar) + ' is still on another machine' : '') + '.') + '</div></div>' +
       '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (!j ? '<button class="btn sm" onclick="machNextStart(\'' + nx.id + '\',this)">▶ Start now</button>' : '') +
       '<button class="btn sec sm" onclick="machNextEdit(\'' + m.id + '\')">Edit</button><button class="btn sec sm" onclick="machNextRemove(\'' + nx.id + '\',this)">Remove</button></div></div>';
   } else if (j || m.pending.length) {
@@ -935,7 +952,7 @@ function machWin(id) {
       '<div class="row"><div><label class="f">Karigar</label><select id="mnK">' + machKarOpts(m, base.karigarId) + '</select></div><div><label class="f">Item</label><select id="mnI">' + itemOpts(r.items, base.item) + '</select></div></div>' +
       '<div class="row"><div><label class="f">Qty</label><input id="mnQ" type="number" inputmode="numeric"></div><div><label class="f">Target date (optional)</label><input id="mnT" type="date"></div></div>' +
       machRateHtml('mn') +
-      '<div class="muted" style="margin-top:6px">Saved as a <b>Next</b> work order (Work orders → Next). It starts by itself at ' + (r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of the job before; its material is given to the karigar then.</div>' +
+      '<div class="muted" style="margin-top:6px">Saved as a <b>Next</b> work order (Work orders → Next). It starts by itself at ' + (!c2On() ? 'the count' : r.nextAt === 'COUNT2' ? 'count 2' : 'count 1') + ' of the job before; its material is given to the karigar then.</div>' +
       '<button class="btn block" onclick="machNext(\'' + m.id + '\',0,this)">💾 Save next job</button>';
   }
   if (r.canSetup) h += '<div class="muted" style="margin-top:14px;text-align:right"><a class="lnk" onclick="machRename(\'' + m.id + '\')">Rename ' + esc(m.name) + '</a>' +
@@ -944,16 +961,69 @@ function machWin(id) {
   var sh = document.querySelector('#modal .sheet'); if (sh) sh.classList.add('wide');
 }
 function machReload(r) { if (r && r.list) preload('machineView', r); closeModal(); go('machines', S.arg); }
+/* Raw material to give with a job: needed (BOM × pieces), in the store, and "give now" (can be changed; less = short). */
+function matIssueHtml(item, pieces) {
+  var r = S.data.mv, bom = (r.bom || {})[item] || [];
+  if (!bom.length) return '<div class="msg warn">' + esc(item) + ' has no material per piece (BOM): nothing to give.</div>';
+  return '<table class="tbl"><tr><th>Raw material</th><th class="r">Needed</th><th class="r">In store</th><th class="r">Give now</th></tr>' + bom.map(function (x) {
+    var need = Math.round(x.perPiece * pieces * 1000) / 1000, st = (r.store || {})[x.code];
+    return '<tr><td>' + esc(x.name) + '</td><td class="r">' + num(need) + ' ' + esc(x.unit) + '</td><td class="r' + (st !== undefined && st < need ? ' neg' : '') + '">' + (st === undefined ? '<span class="muted">–</span>' : num(st)) + '</td>' +
+      '<td class="r"><input class="miq" data-code="' + esc(x.code) + '" data-need="' + need + '" type="number" step="any" min="0" inputmode="decimal" style="width:100px;display:inline-block" value="' + need + '" oninput="matIssueNote()"> ' + esc(x.unit) + '</td></tr>';
+  }).join('') + '</table><div id="miNote" class="muted" style="margin-top:4px">Less than needed = short: the machine is marked and the rest can be given later.</div>';
+}
+function matIssueVals(box) {
+  var out = {};
+  Array.prototype.forEach.call((box || document).querySelectorAll('.miq'), function (i) { out[i.dataset.code] = i.value === '' ? 0 : Number(i.value); });
+  return out;
+}
+function matIssueNote() {
+  var short = Array.prototype.filter.call(document.querySelectorAll('.miq'), function (i) { return (Number(i.value) || 0) < Number(i.dataset.need) - 1e-9; }).length;
+  if ($('miNote')) $('miNote').innerHTML = short ? '<b style="color:var(--err)">' + short + ' material(s) short</b>: the machine is marked and the rest can be given later.' : 'Everything needed is given.';
+}
 function machStart(id, btn) {
   if (!val('mwK')) return toast('Choose the karigar.');
   if (!val('mwI')) return toast('Choose the item.');
   if (!(Number(val('mwQ')) > 0)) return toast('Enter the quantity.');
+  $('mwMat').innerHTML = '<h2>Raw material to give · ' + esc(val('mwI')) + ' × ' + Number(val('mwQ')) + '</h2>' + matIssueHtml(val('mwI'), Number(val('mwQ'))) +
+    '<div style="display:flex;gap:8px;margin-top:10px"><button class="btn sec" onclick="$(\'mwMat\').style.display=\'none\';$(\'mwForm\').style.display=\'\'">← Back</button>' +
+    '<button class="btn ok grow" onclick="machStartGo(\'' + id + '\',this)">✔ Confirm &amp; start job</button></div>';
+  $('mwForm').style.display = 'none'; $('mwMat').style.display = '';
+  matIssueNote();
+}
+function machStartGo(id, btn) {
   busy(btn, true);
   var rv = machRateVals('mw');
-  api('saveOrders', S.token, { karigarId: val('mwK'), machine: id, date: val('mwD') !== todayIso() ? val('mwD') : '', target: val('mwT'), note: rv.note, lines: [{ item: val('mwI'), qty: val('mwQ'), lotRate: rv.lotRate, futureToo: rv.futureToo }] }).then(function (r) {
+  api('saveOrders', S.token, { karigarId: val('mwK'), machine: id, date: val('mwD') !== todayIso() ? val('mwD') : '', target: val('mwT'), note: rv.note, issue: matIssueVals($('mwMat')), lines: [{ item: val('mwI'), qty: val('mwQ'), lotRate: rv.lotRate, futureToo: rv.futureToo }] }).then(function (r) {
     toast((r.added && r.added[0] ? r.added[0].id + ' started' : 'Job started') + ': its material is given to the karigar');
     machReload(r);
   }).catch(function (e) { fail(e, btn); });
+}
+/* More pieces given to the karigar on the running job: the quantity goes up and the extra material is given. */
+function machMore(id) {
+  var m = machOf(id), j = m.job;
+  modal('More pieces · ' + j.id, '<div class="kv"><div>Job</div><div><b>' + esc(j.item) + '</b> × ' + j.qty + ' · ' + esc(j.karigar) + '</div></div>' +
+    '<label class="f">How many more pieces?</label><input id="mmQ" type="number" inputmode="numeric" min="1" oninput="machMoreMat(\'' + id + '\')">' +
+    '<div id="mmM" style="margin-top:8px"></div><button class="btn block ok" onclick="machMoreGo(\'' + id + '\',this)">✔ Confirm: add pieces &amp; give material</button>');
+  modalBack(function () { machWin(id); });
+  machMoreMat(id);
+}
+function machMoreMat(id) {
+  var j = machOf(id).job, n = Number(val('mmQ')) || 0;
+  $('mmM').innerHTML = n > 0 ? '<b>Raw material for ' + n + ' more</b>' + matIssueHtml(j.item, n) : '<div class="muted">Type the pieces: the raw material to give shows here.</div>';
+  if (n > 0) matIssueNote();
+}
+function machMoreGo(id, btn) {
+  var j = machOf(id).job, n = Number(val('mmQ'));
+  if (!(n > 0) || n % 1) return toast('Enter how many more pieces.');
+  busy(btn, true);
+  api('addOrderQty', S.token, j.id, n, matIssueVals($('mmM'))).then(function (r) { toast(j.id + ': now ' + (j.qty + n) + ' pieces'); machReload(r); }).catch(function (e) { fail(e, btn); });
+}
+function machGiveShort(wo, btn) {
+  var lines = {};
+  Array.prototype.forEach.call(document.querySelectorAll('#modal .msq'), function (i) { if (Number(i.value) > 0) lines[i.dataset.code] = Number(i.value); });
+  if (!Object.keys(lines).length) return toast('Enter the quantity given.');
+  busy(btn, true);
+  api('giveOrderMaterial', S.token, wo, lines).then(function (r) { toast('Material given for ' + wo); machReload(r); }).catch(function (e) { fail(e, btn); });
 }
 function machNext(id, andComplete, btn) {
   if (!val('mnK')) return toast('Choose the karigar.');
@@ -983,8 +1053,15 @@ function machNextSave(wo, btn) {
   api('saveNextOrder', S.token, wo, nd).then(function () { toast('Next job changed'); machReload(); }).catch(function (e) { fail(e, btn); });
 }
 function machNextStart(wo, btn) {
+  var m = (S.data.mv.list || []).filter(function (x) { return x.next && x.next.id === wo; })[0], nx = m.next;
+  modal('Start ' + wo + ' · ' + m.name, '<h2>Raw material to give · ' + esc(nx.item) + ' × ' + nx.qty + '</h2>' + matIssueHtml(nx.item, nx.qty) +
+    '<button class="btn block ok" onclick="machNextStartGo(\'' + wo + '\',this)">✔ Confirm &amp; start job</button>');
+  modalBack(function () { machWin(m.id); });
+  matIssueNote();
+}
+function machNextStartGo(wo, btn) {
   busy(btn, true);
-  api('startNextOrder', S.token, wo).then(function () { toast(wo + ' started: its material is given to the karigar'); machReload(); }).catch(function (e) { fail(e, btn); });
+  api('startNextOrder', S.token, wo, matIssueVals($('modal'))).then(function () { toast(wo + ' started: its material is given to the karigar'); machReload(); }).catch(function (e) { fail(e, btn); });
 }
 function machNextRemove(wo, btn) {
   if (!confirm('Remove the next job ' + wo + '? It has not started (no material was given).')) return;
@@ -1044,23 +1121,69 @@ function machRemove(id) {
 // Cuttings of an SKU in pieces; its CR-tagged materials (BOM × pieces) are listed. Completed cutting is used up when a
 // job of that SKU starts. OK / Short = available cutting against the SKU's Next jobs.
 function nextStatus(x) { return x.status === 'OK' ? '<span class="pill ok">OK</span>' : x.status === 'SHORT' ? '<span class="pill err">Short ' + x.short + '</span>' : '<span class="muted">no next job</span>'; }
+function nextPlanned(x) { return x.planned && x.planned.length ? x.planned.map(function (p) { return '<b>' + d(p.date) + '</b> <span class="muted">· ' + p.qty + '</span>'; }).join('<br>') : '<span class="muted">Unplanned</span>'; }
+function nextJobsHtml(x) { return x.next ? '<b>' + x.next + '</b><div class="muted" style="font-size:12px">' + x.nextJobs.map(function (j) { return esc(j.id) + ' ' + esc(j.karigar) + (j.machine ? ' (' + esc(j.machine) + ')' : '') + ' × ' + j.qty; }).join('<br>') + '</div>' : '<span class="muted">–</span>'; }
+function nextCr(x) { return (x.cr || []).length ? '<div class="muted" style="font-size:12px">' + x.cr.map(function (n) { return '<span class="crtag on" style="font-size:10px;padding:0 4px">CR</span> ' + esc(n); }).join('<br>') + '</div>' : ''; }
+/* Next jobs & cuttings: SKU (with its CR fabric lines), Available, Planned date (Cutting Room), Next jobs, Status. */
 function nextBlockTable(rows) {
   var phone = '<div class="only-phone">' + rows.map(function (x) {
-    return '<div class="mcard"><div class="mtop"><b>' + esc(x.item) + '</b><span>' + nextStatus(x) + '</span></div>' +
-      '<div class="kv" style="margin-top:4px"><div>Available cutting</div><div><b>' + x.available + '</b></div><div>Running jobs</div><div>' + (x.runningJobs ? x.running + ' to make (' + x.runningJobs + ' job' + (x.runningJobs > 1 ? 's' : '') + ')' : '–') + '</div>' +
-      '<div>Next jobs</div><div>' + (x.next ? '<b>' + x.next + '</b><div class="muted" style="font-size:12.5px">' + x.nextJobs.map(function (j) { return esc(j.id) + ' ' + esc(j.karigar) + (j.machine ? ' (' + esc(j.machine) + ')' : '') + ' × ' + j.qty; }).join('<br>') + '</div>' : '–') + '</div></div></div>';
+    return '<div class="mcard"><div class="mtop"><b>' + esc(x.item) + '</b><span>' + nextStatus(x) + '</span></div>' + nextCr(x) +
+      '<div class="kv" style="margin-top:4px"><div>Available</div><div><b>' + x.available + '</b></div><div>Planned date</div><div>' + nextPlanned(x) + '</div>' +
+      '<div>Next jobs</div><div>' + nextJobsHtml(x) + '</div></div></div>';
   }).join('') + '</div>';
-  return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>SKU</th><th class="r">Available cutting</th><th class="r">Running jobs (to make)</th><th class="r">Next jobs</th><th>Status</th></tr>' + rows.map(function (x) {
-    return '<tr><td><b>' + esc(x.item) + '</b></td><td class="r"><b>' + x.available + '</b></td><td class="r">' + (x.runningJobs ? x.running + ' <span class="muted">(' + x.runningJobs + ' job' + (x.runningJobs > 1 ? 's' : '') + ')</span>' : '<span class="muted">–</span>') + '</td>' +
-      '<td class="r">' + (x.next ? '<b>' + x.next + '</b><div class="muted" style="font-size:12px">' + x.nextJobs.map(function (j) { return esc(j.id) + ' ' + esc(j.karigar) + (j.machine ? ' (' + esc(j.machine) + ')' : '') + ' × ' + j.qty; }).join('<br>') + '</div>' : '<span class="muted">–</span>') + '</td>' +
-      '<td>' + nextStatus(x) + '</td></tr>';
-  }).join('') + '</table></div><div class="muted" style="margin-top:6px">Available cutting = completed cuttings not yet used; a job takes its cutting when it starts. OK = enough cutting for the SKU\'s Next jobs.</div>';
+  return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>SKU</th><th class="r">Available</th><th>Planned date</th><th class="r">Next jobs</th><th>Status</th></tr>' + rows.map(function (x) {
+    return '<tr><td><b>' + esc(x.item) + '</b>' + nextCr(x) + '</td><td class="r"><b>' + x.available + '</b></td><td>' + nextPlanned(x) + '</td>' +
+      '<td class="r">' + nextJobsHtml(x) + '</td><td>' + nextStatus(x) + '</td></tr>';
+  }).join('') + '</table></div><div class="muted" style="margin-top:6px">Available = completed cuttings not yet used; a job takes its cutting when it starts. Planned date = the cuttings planned in the Cutting Room. OK = enough cutting for the SKU\'s Next jobs.</div>';
+}
+/* Available cuttings, per SKU: Base stock, Allocated (given to karigars), Available, Reserved (Next jobs), Status. */
+function cutStockStatus(x) { return x.status === 'SHORT' ? '<span class="pill err">Short ' + x.short + '</span>' : x.status === 'OK' ? '<span class="pill ok">OK</span>' : '<span class="pill warn">Low</span>'; }
+function cutStockTable(rows) {
+  if (!rows.length) return '<div class="muted">No SKU has a CR material yet.</div>';
+  return '<div class="muted" style="margin:-4px 0 8px">Base stock = cutting not made into goods yet. Allocated = given to karigars with their running jobs. Available = Base − Allocated. Reserved = queued as a machine\'s Next job (not started): it does not reduce Available, but is flagged if there won\'t be enough.</div>' +
+    '<div class="scroll"><table class="tbl"><tr><th>Cuttings</th><th class="r">Base stock</th><th class="r">Allocated (given to karigar)</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th>Status</th></tr>' + rows.map(function (x) {
+      return '<tr><td>' + esc(x.item) + (x.name && x.name !== x.item ? '<div class="muted" style="font-size:12px">' + esc(x.name) + '</div>' : '') + '</td><td class="r">' + x.base + '</td><td class="r">' + x.allocated + '</td><td class="r"><b>' + x.available + ' Pcs</b></td><td class="r">' + x.reserved + ' Pcs</td><td>' + cutStockStatus(x) + '</td></tr>';
+    }).join('') + '</table></div>';
+}
+/* A cutting's status: On table (default) · Planned (date) · Completed (date) · Remove (asks first). */
+var CUT_ST = [['TODO', 'On table'], ['PLANNED', 'Planned'], ['DONE', 'Completed'], ['CANCELLED', 'Remove']];
+function cutStatusCell(c, canCut) {
+  var dt = c.status === 'PLANNED' ? c.planned : c.status === 'DONE' ? String(c.doneAt || '').slice(0, 10) : '';
+  if (!canCut) return '<span class="pill' + (c.status === 'DONE' ? ' ok' : c.status === 'PLANNED' ? ' info' : '') + '">' + (CUT_ST.filter(function (x) { return x[0] === c.status; })[0] || ['', c.status])[1] + '</span>' + (dt ? ' ' + d(dt) : '');
+  return '<div class="cst" data-id="' + esc(c.id) + '" data-st="' + c.status + '"><select onchange="cutSel(this)">' + CUT_ST.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === c.status ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' +
+    '<input type="date" value="' + esc(dt) + '" style="' + (dt ? '' : 'display:none') + '" onchange="cutDate(this)"><button class="btn sm" style="display:none;margin:0" onclick="cutGo(this)">Save</button></div>';
+}
+function cutMatCells(c) {
+  var lines = function (f) { return '<div class="clines">' + c.materials.map(f).join('') + '</div>'; };
+  return {
+    names: lines(function (m) { return '<div>' + esc(m.name) + '</div>'; }),
+    calc: lines(function (m) { return '<div>' + num(m.qty) + ' ' + esc(m.unit) + '</div>'; }),
+    actual: lines(function (m) { return '<div>' + (m.actual === null || m.actual === undefined ? '<span class="muted">–</span>' : num(m.actual) + ' ' + esc(m.unit) + ' <span class="muted">(' + num(m.rolls) + ' roll' + (m.rolls === 1 ? '' : 's') + ')</span>') + '</div>'; }),
+    diff: lines(function (m) {
+      if (m.diff === null || m.diff === undefined) return '<div><span class="muted">–</span></div>';
+      var big = m.diffPct !== null && Math.abs(m.diffPct) > 2;
+      return '<div class="' + (big ? 'cdiff' : '') + '">' + (m.diff > 0 ? '+' : '') + num(m.diff) + ' ' + esc(m.unit) + (m.diffPct !== null ? ' (' + (m.diffPct > 0 ? '+' : '') + m.diffPct + '%)' : '') + '</div>';
+    }),
+  };
+}
+function cutTable(list, canCut) {
+  var phone = '<div class="only-phone">' + list.map(function (c) {
+    return '<div class="mcard"><div class="mtop"><b>' + esc(c.item) + ' × ' + c.qty + '</b><span class="muted">' + esc(c.id) + '</span></div>' + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') +
+      '<table class="tbl" style="margin-top:4px"><tr><th>CR material</th><th class="r">Calculation</th><th class="r">Actual cut</th><th class="r">Diff.</th></tr>' + c.materials.map(function (m) {
+        var big = m.diffPct !== null && m.diffPct !== undefined && Math.abs(m.diffPct) > 2;
+        return '<tr><td>' + esc(m.name) + '</td><td class="r">' + num(m.qty) + ' ' + esc(m.unit) + '</td><td class="r">' + (m.actual === null || m.actual === undefined ? '–' : num(m.actual)) + '</td><td class="r' + (big ? ' cdiff' : '') + '">' + (m.diff === null || m.diff === undefined ? '–' : (m.diff > 0 ? '+' : '') + num(m.diff) + (m.diffPct !== null ? ' (' + m.diffPct + '%)' : '')) + '</td></tr>';
+      }).join('') + '</table><div style="margin-top:8px">' + cutStatusCell(c, canCut) + '</div></div>';
+  }).join('') + '</div>';
+  return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>Cutting</th><th class="r">Pieces</th><th>CR material</th><th class="r">Calculation</th><th class="r">Actual cut</th><th class="r">Difference</th><th></th></tr>' + list.map(function (c) {
+    var mc = cutMatCells(c);
+    return '<tr><td><b>' + esc(c.item) + '</b><div class="muted" style="white-space:nowrap">' + esc(c.id) + '</div>' + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') + '</td><td class="r"><b>' + c.qty + '</b></td>' +
+      '<td>' + mc.names + '</td><td class="r">' + mc.calc + '</td><td class="r">' + mc.actual + '</td><td class="r">' + mc.diff + '</td><td>' + cutStatusCell(c, canCut) + '</td></tr>';
+  }).join('') + '</table></div><div class="muted" style="margin-top:6px">Calculation = material per piece × pieces. Actual cut = rolls × roll size. A difference of more than 2% is in red.</div>';
 }
 VIEWS.cutting = function () {
   load('cuttingView', S.token).then(function (r) {
     S.data.cv = r;
-    var todo = r.list.filter(function (c) { return c.status === 'TODO'; }), done = r.list.filter(function (c) { return c.status === 'DONE'; });
-    var mats = function (c) { return c.materials.map(function (m) { return esc(m.name) + ' <b>' + num(m.qty) + '</b> ' + esc(m.unit) + (m.rolls ? ' <span class="pill">' + num(m.rolls) + ' roll' + (m.rolls === 1 ? '' : 's') + '</span>' : ''); }).join('<br>'); };
+    var todo = r.list.filter(function (c) { return c.status === 'TODO' || c.status === 'PLANNED'; }), done = r.list.filter(function (c) { return c.status === 'DONE'; });
     render('<h1 class="page">✂️ Cutting Room <small>cutting of CR-tagged materials, per SKU</small></h1>' +
       (r.canCut ? '<div class="card"><h2>New cutting</h2>' + (r.items.length ?
         '<div class="row"><div><label class="f">SKU</label><select id="cuI" onchange="S.data.cuRolls={};cutPreview()"><option value="">Choose SKU…</option>' + r.items.map(function (i) { return '<option value="' + esc(i.code) + '">' + esc(i.code) + '</option>'; }).join('') + '</select></div>' +
@@ -1068,21 +1191,16 @@ VIEWS.cutting = function () {
         '<div id="cuP" class="muted" style="margin-top:8px">Choose the SKU: its CR materials show here.</div><input id="cuN" style="margin-top:8px" placeholder="Note (optional)">' +
         '<button class="btn block" onclick="cutSave(this)">Add cutting</button>' :
         '<div class="msg warn">No SKU has a CR material yet. In <a class="lnk" onclick="go(\'materials\')">Materials</a>, tap <b>CR</b> next to the materials that are cut in the cutting room.</div>') + '</div>' : '') +
-      '<div class="card"><h2>To cut <span class="pill ' + (todo.length ? 'warn' : '') + '">' + todo.length + '</span></h2>' + (todo.length ? '<div class="only-phone">' + todo.map(function (c) {
-        return '<div class="mcard"><div class="mtop"><b>' + esc(c.item) + ' × ' + c.qty + '</b><span class="muted">' + esc(c.id) + '</span></div><div class="muted">' + d(c.date) + ' · ' + esc(c.byName) + (c.note ? ' · ' + esc(c.note) : '') + '</div>' +
-          '<div style="margin-top:4px">' + mats(c) + '</div>' + (r.canCut ? '<div style="margin-top:8px;display:flex;gap:6px;flex-wrap:wrap"><button class="btn sm ok" onclick="cutStatus(\'' + c.id + '\',\'DONE\',this)">Cutting completed</button><button class="btn sec sm" onclick="cutStatus(\'' + c.id + '\',\'CANCELLED\',this)">Remove</button></div>' : '') + '</div>';
-      }).join('') + '</div><div class="only-desk scroll"><table class="tbl"><tr><th>Cutting</th><th>SKU</th><th class="r">Pieces</th><th>CR materials</th><th></th></tr>' + todo.map(function (c) {
-        return '<tr><td><b style="white-space:nowrap">' + esc(c.id) + '</b><div class="muted">' + d(c.date) + ' · ' + esc(c.byName) + '</div>' + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') + '</td><td><b>' + esc(c.item) + '</b></td><td class="r"><b>' + c.qty + '</b></td><td class="muted">' + mats(c) + '</td>' +
-          '<td style="white-space:nowrap">' + (r.canCut ? '<button class="btn sm ok" onclick="cutStatus(\'' + c.id + '\',\'DONE\',this)">Cutting completed</button> <button class="btn sec sm" onclick="cutStatus(\'' + c.id + '\',\'CANCELLED\',this)">Remove</button>' : '') + '</td></tr>';
-      }).join('') + '</table></div>' : '<div class="muted">Nothing to cut.</div>') + '</div>' +
-      '<div class="card"><h2>Next jobs &amp; cutting</h2>' + (r.block.length ? nextBlockTable(r.block) : '<div class="muted">No running or next jobs and no cutting available.</div>') + '</div>' +
-      '<div class="card"><h2>Completed (last 30 days)</h2>' + (done.length ? '<div class="only-phone">' + done.map(function (c) {
-        return '<div class="mcard"><div class="mtop"><b>' + esc(c.item) + ' × ' + c.qty + '</b><span class="muted">' + esc(c.id) + '</span></div><div class="muted">Completed ' + d(c.doneAt) + (c.doneByName ? ' · ' + esc(c.doneByName) : '') + '</div>' +
-          '<div style="margin-top:4px">' + mats(c) + '</div>' + (r.canCut ? '<div style="margin-top:6px"><a class="lnk" style="font-size:12.5px" onclick="cutStatus(\'' + c.id + '\',\'TODO\',this)">undo</a></div>' : '') + '</div>';
-      }).join('') + '</div><div class="only-desk scroll"><table class="tbl"><tr><th>Cutting</th><th>SKU</th><th class="r">Pieces</th><th>CR materials</th><th>Completed</th><th></th></tr>' + done.map(function (c) {
-        return '<tr><td><b style="white-space:nowrap">' + esc(c.id) + '</b><div class="muted">' + d(c.date) + '</div></td><td>' + esc(c.item) + '</td><td class="r">' + c.qty + '</td><td class="muted">' + mats(c) + '</td><td class="muted">' + d(c.doneAt) + (c.doneByName ? ' · ' + esc(c.doneByName) : '') + '</td>' +
-          '<td>' + (r.canCut ? '<a class="lnk" style="font-size:12.5px" onclick="cutStatus(\'' + c.id + '\',\'TODO\',this)">undo</a>' : '') + '</td></tr>';
-      }).join('') + '</table></div>' : '<div class="muted">No completed cutting yet.</div>') + '</div>');
+      '<div class="card"><h2>To cut <span class="pill ' + (todo.length ? 'warn' : '') + '">' + todo.length + '</span></h2>' + (todo.length ? cutTable(todo, r.canCut) : '<div class="muted">Nothing to cut.</div>') + '</div>' +
+      '<div class="card"><h2>Next jobs &amp; cuttings</h2>' + (r.block.length ? nextBlockTable(r.block) : '<div class="muted">No running or next jobs and no cutting available.</div>') + '</div>' +
+      '<div class="card" id="cutStock"><h2>📦 Available cuttings</h2>' + cutStockTable(r.stock || []) + '</div>' +
+      '<div class="card"><h2>Completed (last 30 days)</h2>' + (done.length ? cutTable(done, r.canCut) : '<div class="muted">No completed cutting yet.</div>') + '</div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+VIEWS.cutstock = function () {
+  load('cuttingView', S.token).then(function (r) {
+    S.data.cv = r;
+    render('<h1 class="page">📦 Available Cuttings <small>cut pieces per SKU, from the Cutting Room</small></h1><div class="card">' + cutStockTable(r.stock || []) + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 /* New cutting: the SKU's CR materials. Rolls (for a material bought in rolls) work out the pieces: rolls × roll size ÷
@@ -1120,11 +1238,34 @@ function cutSave(btn) {
   busy(btn, true);
   api('saveCutting', S.token, { item: val('cuI'), qty: val('cuQ'), date: val('cuD'), note: val('cuN'), rolls: S.data.cuRolls || {} }).then(function (r) { toast('Cutting added'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
 }
-function cutStatus(id, st, btn) {
-  if (st === 'CANCELLED' && !confirm('Remove cutting ' + id + '?')) return;
-  if (st === 'TODO' && !confirm('Undo: ' + id + ' goes back to "To cut"?')) return;
-  busy(btn, true);
-  api('setCuttingStatus', S.token, id, st).then(function (r) { toast(st === 'DONE' ? id + ' completed: available for the next jobs' : st === 'TODO' ? id + ' back to To cut' : id + ' removed'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
+function cutSel(sel) {
+  var box = sel.closest('.cst'), v = sel.value, inp = box.querySelector('input'), btn = box.querySelector('button'), c = (S.data.cv.list || []).filter(function (x) { return x.id === box.dataset.id; })[0] || {};
+  if (v === 'TODO' || v === 'CANCELLED') {
+    inp.style.display = 'none'; btn.style.display = 'none';
+    if (v === 'CANCELLED' && !confirm('Remove cutting ' + box.dataset.id + ' (' + (c.item || '') + ' × ' + (c.qty || '') + ')? It is not getting cut: it goes off the table.')) { sel.value = box.dataset.st; cutSel(sel); return; }
+    if (v !== box.dataset.st) cutStatus(box.dataset.id, v, '', sel);
+    return;
+  }
+  inp.value = v === box.dataset.st ? inp.value : v === 'DONE' ? todayIso() : (c.planned || '');
+  inp.style.display = ''; btn.style.display = v === box.dataset.st ? 'none' : '';
+  if (v === 'PLANNED' && !inp.value) inp.focus();
+}
+function cutDate(inp) {
+  var box = inp.closest('.cst'), v = box.querySelector('select').value;
+  if (v === box.dataset.st && inp.value) cutStatus(box.dataset.id, v, inp.value, inp); // already planned / completed: the new date is saved at once
+}
+function cutGo(btn) {
+  var box = btn.closest('.cst'), v = box.querySelector('select').value, dt = box.querySelector('input').value;
+  if (v === 'PLANNED' && !dt) return toast('Choose the planned date.');
+  cutStatus(box.dataset.id, v, dt, btn);
+}
+function cutStatus(id, st, date, btn) {
+  if (btn && btn.tagName === 'BUTTON') busy(btn, true); else if (btn) btn.disabled = true;
+  var view = S.view;
+  api('setCuttingStatus', S.token, id, st, date || '').then(function (r) {
+    toast(st === 'DONE' ? id + ' completed: available for the next jobs' : st === 'PLANNED' ? id + ' planned for ' + d(date) : st === 'TODO' ? id + ' on the table' : id + ' removed');
+    preload('cuttingView', r); go(view);
+  }).catch(function (e) { toast(e.message || String(e)); go(view); });
 }
 
 /* ---------- work orders ---------- */
@@ -1680,6 +1821,14 @@ document.addEventListener('keydown', function (e) {
   box.focus(); box.select();
   box.scrollIntoView({ block: 'center' });
 });
+// Esc closes the pop-up (like ×), unless it closes a dropdown / suggestion list first.
+document.addEventListener('keydown', function (e) {
+  if (e.key !== 'Escape' || !$('modal') || $('modal').style.display === 'none') return;
+  var open = Array.prototype.some.call(document.querySelectorAll('.sugg .box, .box.fixed'), function (b) { return b.style.display !== 'none' && b.getClientRects().length; });
+  if (open) return;
+  e.preventDefault();
+  closeModalByUser();
+}, true);
 function findRun() {
   var q = val('findQ'), words = findWords(q), rows = findRows();
   S.find = S.find || {}; S.find[S.view] = q;
@@ -2398,15 +2547,27 @@ VIEWS.alerts = function () {
 
 /* ---------- staff & log (super admin) ---------- */
 VIEWS.staff = function () {
-  api('staffList', S.token).then(function (r) {
+  load('staffList', S.token).then(function (r) {
     S.data.sl = r;
-    render('<h1 class="page">🛡️ Staff & permissions</h1><div class="card"><button class="btn" onclick="staffForm()">+ Add staff</button></div>' +
+    c2Set(r);
+    render('<h1 class="page">🛡️ Staff & permissions</h1>' +
+      '<div class="card"><h2>Count 2 (second, blind count) ' + (r.count2 ? '<span class="pill ok">On</span>' : '<span class="pill warn">⏸ Paused</span>') + '</h2>' +
+      '<div class="muted">' + (r.count2 ? 'Count 1 (with photo) and then count 2 by a different person, who does not see count 1. Count 2 is the final count.'
+        : 'Count 1 (with photo) is the final count: the batch is locked, pay and inventory are updated and a machine job is completed at once.') +
+      (r.waitCount2 ? ' <b>' + r.waitCount2 + ' batch(es) still wait for count 2</b> and can be finished in Count goods.' : '') + '</div>' +
+      '<button class="btn ' + (r.count2 ? 'sec' : 'ok') + '" style="margin-top:8px" onclick="setCount2(' + (r.count2 ? 'false' : 'true') + ',this)">' + (r.count2 ? '⏸ Pause count 2' : '▶ Resume count 2') + '</button></div>' +
+      '<div class="card"><button class="btn" onclick="staffForm()">+ Add staff</button></div>' +
       '<div class="card scroll"><table class="tbl"><tr><th>ID</th><th>Name</th><th>Role</th><th>Permissions</th><th>Status</th><th></th></tr>' + r.list.map(function (s) {
         return '<tr><td><b>' + esc(s.id) + '</b></td><td>' + esc(s.name) + '</td><td>' + (s.role === 'SUPER' ? '<span class="pill info">Super admin</span>' : 'Staff') + '</td><td class="muted">' + (s.role === 'SUPER' ? 'Everything' : s.perms.map(function (p) { return esc(r.perms[p]); }).join('<br>')) + '</td>' +
           '<td>' + (s.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') + '</td><td><button class="btn sec sm" onclick="staffForm(\'' + s.id + '\')">Edit</button></td></tr>';
       }).join('') + '</table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+function setCount2(on, btn) {
+  if (!confirm(on ? 'Resume count 2? From now on every batch needs a second, blind count by a different person.' : 'Pause count 2? From now on count 1 is the final count (batch locked, pay and inventory updated, job completed).')) return;
+  busy(btn, true);
+  api('setCount2', S.token, on).then(function (r) { c2Set(r); S.html = {}; toast(on ? 'Count 2 resumed' : 'Count 2 paused: count 1 is final'); preload('staffList', r); go('staff'); }).catch(function (e) { fail(e, btn); });
+}
 function staffForm(id) {
   var s = id ? S.data.sl.list.filter(function (x) { return x.id === id; })[0] : { perms: [], active: true, role: 'ADMIN' };
   modal(id ? 'Edit ' + id : 'Add staff',
