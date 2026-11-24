@@ -41,6 +41,9 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   Cutting Room) are at the bottom with no quantity: Given = all that is needed. Pending or partial material marks the
   machine **red (⚠ Material pending)**; its window lists it (Given / Pending again, **Save given material**). **All the
   raw material must be given before the job's count** ("Give all material first"; the server checks it too).
+- **Part count** (machine window): counts the pieces ready now (e.g. 40 of 100); the job stays on the machine with
+  "40 of 100 received" and can be part-counted again or finished with **Count & complete** (opens with the rest, 60).
+  The "all raw material given" rule applies only to Count & complete.
 - **Count from the Machine Dashboard opens at once** (from what the dashboard already has); the batch is made on the
   server meanwhile and Save waits for it only if it is not ready yet.
 - **+ more pieces given** (machine window): the running job's quantity goes up and the material for the extra pieces is
