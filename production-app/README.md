@@ -45,9 +45,12 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   pieces), **Actual cut** (✏️ **Edit actual cut** on each cutting, also completed ones: rolls × roll size, or type the amount), **Difference** (red when more than 2%), and a status picker instead of
   "Cutting completed": **On table** (default), **Planned** (+ date), **Completed** (+ date), **Remove** (asks first; not
   getting cut). Sheet Cuttings gets the column **Planned Date**. **Next jobs & cuttings**: SKU with its CR fabric lines,
-  Available, **Planned date** (or "Unplanned"), Next jobs, Status. **Available Cuttings** (block in the Cutting Room and
-  its own menu entry): Base stock, Allocated (given to karigars with running jobs), Available (Base − Allocated),
-  Reserved (Next jobs), Status (OK / Low / Short N).
+  Available, **Planned date** (or "Unplanned"), Next jobs, Status.
+- **Material Room** (menu; replaces Available Cuttings): every active raw material in two sections, **CR-tagged** and
+  **other** materials: Base stock (in the store + allocated), Allocated (given to karigars for running jobs, not made
+  into goods yet), Available (in the store), Reserved (what the Next jobs need), Status (OK / Low / Short N / No stock
+  entered) and a dropdown **Order placed** → date + quantity ordered (Save; "No order" removes it). Orders are kept in
+  the sheet **Material Orders** (newest row per material counts) and in the Change log.
 - **Cutting Room** (permission "cutting" to enter; staff with reports / machines can see it). In Materials, tap
   **CR** next to a material that is cut in the cutting room (filter "CR"; column Tags). A cutting = an SKU and a
   quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). For a CR material bought

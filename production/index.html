@@ -181,7 +181,7 @@ function apiUrl() {
  * Speed: answers fetched in the background (prefetch) are kept for 2 minutes and used once, so opening a screen
  * shows it at once; any save forgets them. A tiny request every 4 minutes keeps the server ready (no cold start).
  */
-var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|cuttingView|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
+var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|cuttingView|materialRoom|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
 var RC = {}, WR = { gen: 0, busy: 0 }; // answers asked for while a save was running are never kept
 function rcKey(fn, args) { return fn + '|' + JSON.stringify(args.slice(1)); }
 function api(fn) {
@@ -205,7 +205,7 @@ function prefetch(fn) {
   p.catch(function () { if (RC[k] && RC[k].p === p) delete RC[k]; });
   return p;
 }
-var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], cutting: ['cuttingView'], cutstock: ['cuttingView'], material: ['moveList'],
+var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], cutting: ['cuttingView'], cutstock: ['materialRoom'], material: ['moveList'],
   balance: ['materialBalance'], payroll: ['payroll', ''], advances: ['advances'], karigars: ['karigarList'], items: ['itemList'], materials: ['materialList'],
   store: ['storeView'], staff: ['staffList'], home: ['getHome'], work: ['myWork', ''], slip: ['myPayslip', ''], myadv: ['myAdvances'] };
 /* After a save: load the screens again in the background (4 s later, at most once a minute). */
@@ -340,7 +340,7 @@ function menu() {
   if (can('orders') || can('reports') || can('issue')) m.push(['orders', '🧵', 'Work orders']);
   if (can('machines')) m.push(['machines', '🏭', 'Machine Dashboard']);
   if (can('cutting') || can('reports') || can('machines')) m.push(['cutting', '✂️', 'Cutting Room']);
-  if (can('cutting') || can('reports') || can('machines')) m.push(['cutstock', '📦', 'Available Cuttings']);
+  if (can('cutting') || can('reports') || can('machines')) m.push(['cutstock', '📦', 'Material Room']);
   if (can('issue') || can('confirm') || can('reports')) m.push(['material', '🧰', 'Material issue']);
   if (can('reports') || can('issue') || can('confirm')) m.push(['balance', '⚖️', 'Material balance']);
   m.push(['-']);
@@ -1136,14 +1136,52 @@ function nextBlockTable(rows) {
       '<td class="r">' + nextJobsHtml(x) + '</td><td>' + nextStatus(x) + '</td></tr>';
   }).join('') + '</table></div><div class="muted" style="margin-top:6px">Available = completed cuttings not yet used; a job takes its cutting when it starts. Planned date = the cuttings planned in the Cutting Room. OK = enough cutting for the SKU\'s Next jobs.</div>';
 }
-/* Available cuttings, per SKU: Base stock, Allocated (given to karigars), Available, Reserved (Next jobs), Status. */
-function cutStockStatus(x) { return x.status === 'SHORT' ? '<span class="pill err">Short ' + x.short + '</span>' : x.status === 'OK' ? '<span class="pill ok">OK</span>' : '<span class="pill warn">Low</span>'; }
-function cutStockTable(rows) {
-  if (!rows.length) return '<div class="muted">No SKU has a CR material yet.</div>';
-  return '<div class="muted" style="margin:-4px 0 8px">Base stock = cutting not made into goods yet. Allocated = given to karigars with their running jobs. Available = Base − Allocated. Reserved = queued as a machine\'s Next job (not started): it does not reduce Available, but is flagged if there won\'t be enough.</div>' +
-    '<div class="scroll"><table class="tbl"><tr><th>Cuttings</th><th class="r">Base stock</th><th class="r">Allocated (given to karigar)</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th>Status</th></tr>' + rows.map(function (x) {
-      return '<tr><td>' + esc(x.item) + (x.name && x.name !== x.item ? '<div class="muted" style="font-size:12px">' + esc(x.name) + '</div>' : '') + '</td><td class="r">' + x.base + '</td><td class="r">' + x.allocated + '</td><td class="r"><b>' + x.available + ' Pcs</b></td><td class="r">' + x.reserved + ' Pcs</td><td>' + cutStockStatus(x) + '</td></tr>';
-    }).join('') + '</table></div>';
+/* Material Room: per material (CR-tagged and the others) — Base stock, Allocated (running jobs), Available (in the store),
+   Reserved (Next jobs), Status, and the order placed with a supplier (date + quantity). */
+function mrStatus(x) { return x.status === 'SHORT' ? '<span class="pill err">Short ' + num(x.short) + '</span>' : x.status === 'OK' ? '<span class="pill ok">OK</span>' : x.status === 'LOW' ? '<span class="pill warn">Low</span>' : '<span class="pill" title="No store stock entered (Store & bills)">No stock entered</span>'; }
+function mrOrderCell(x, canOrder) {
+  var o = x.order;
+  if (!canOrder) return o ? '<span class="pill info">Order placed</span> ' + d(o.date) + ' · ' + num(o.qty) + ' ' + esc(x.unit) : '<span class="muted">–</span>';
+  return '<div class="cst" data-code="' + esc(x.code) + '" data-st="' + (o ? 'PLACED' : '') + '"><select onchange="mrSel(this)"><option value="">No order</option><option value="PLACED"' + (o ? ' selected' : '') + '>Order placed</option></select>' +
+    '<input type="date" value="' + (o ? esc(o.date) : '') + '" style="' + (o ? '' : 'display:none') + '" onchange="mrChanged(this)">' +
+    '<input type="number" step="any" min="0" inputmode="decimal" placeholder="Qty" value="' + (o ? o.qty : '') + '" style="width:90px;' + (o ? '' : 'display:none') + '" oninput="mrChanged(this)">' +
+    '<span class="muted mru" style="' + (o ? '' : 'display:none') + '">' + esc(x.unit) + '</span><button class="btn sm" style="display:none;margin:0" onclick="mrSave(this)">Save</button></div>';
+}
+function mrTable(rows, canOrder) {
+  if (!rows.length) return '<div class="muted">No material here.</div>';
+  var q = function (v, u) { return v === null || v === undefined ? '<span class="muted">–</span>' : num(v) + ' ' + esc(u); };
+  return '<div class="scroll"><table class="tbl"><tr><th>Raw material</th><th class="r">Base stock</th><th class="r">Allocated (ongoing)</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th>Status</th><th>Order</th></tr>' + rows.map(function (x) {
+    return '<tr><td>' + esc(x.name) + ' <span class="muted">(' + esc(x.unit) + ')</span></td><td class="r">' + q(x.base, x.unit) + '</td><td class="r">' + q(x.allocated, x.unit) + '</td><td class="r"><b>' + q(x.available, x.unit) + '</b></td>' +
+      '<td class="r">' + q(x.reserved, x.unit) + '</td><td>' + mrStatus(x) + '</td><td>' + mrOrderCell(x, canOrder) + '</td></tr>';
+  }).join('') + '</table></div>';
+}
+VIEWS.cutstock = function () {
+  load('materialRoom', S.token).then(function (r) {
+    S.data.mr = r;
+    render('<h1 class="page">📦 Material Room <small>raw material stock, what running and next jobs take, and orders placed</small></h1>' +
+      '<div class="muted" style="margin:-4px 0 10px">Base stock = in the store + allocated. Allocated = given to karigars for their running jobs, not made into goods yet. Available = in the store. Reserved = what the Next jobs need (not given yet): it does not reduce Available, but is flagged if there won\'t be enough.</div>' +
+      '<div class="card"><h2><span class="crtag on" style="font-size:11px">CR</span> CR-tagged materials (Cutting Room) <span class="pill">' + r.cr.length + '</span></h2>' + mrTable(r.cr, r.canOrder) + '</div>' +
+      '<div class="card"><h2>Other materials (not CR-tagged) <span class="pill">' + r.other.length + '</span></h2>' + mrTable(r.other, r.canOrder) + '</div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function mrSel(sel) {
+  var box = sel.closest('.cst'), ins = box.querySelectorAll('input'), on = sel.value === 'PLACED';
+  ins[0].style.display = on ? '' : 'none'; ins[1].style.display = on ? '' : 'none'; box.querySelector('.mru').style.display = on ? '' : 'none';
+  if (on) { if (!ins[0].value) ins[0].value = todayIso(); box.querySelector('button').style.display = ''; if (!ins[1].value) ins[1].focus(); return; }
+  box.querySelector('button').style.display = 'none';
+  if (box.dataset.st === 'PLACED') { if (confirm('Remove the order placed for this material?')) mrGo(box, { placed: false }, sel); else { sel.value = 'PLACED'; mrSel(sel); box.querySelector('button').style.display = 'none'; } }
+}
+function mrChanged(el) { el.closest('.cst').querySelector('button').style.display = ''; }
+function mrSave(btn) {
+  var box = btn.closest('.cst'), ins = box.querySelectorAll('input');
+  if (!ins[0].value) return toast('Choose the date the order was placed.');
+  if (!(Number(ins[1].value) > 0)) return toast('Enter the quantity ordered.');
+  mrGo(box, { placed: true, date: ins[0].value, qty: Number(ins[1].value) }, btn);
+}
+function mrGo(box, data, el) {
+  if (el.tagName === 'BUTTON') busy(el, true); else el.disabled = true;
+  api('setMaterialOrder', S.token, box.dataset.code, data).then(function (r) { toast(data.placed ? 'Order saved' : 'Order removed'); preload('materialRoom', r); go('cutstock'); })
+    .catch(function (e) { toast(e.message || String(e)); go('cutstock'); });
 }
 /* A cutting's status: On table (default) · Planned (date) · Completed (date) · Remove (asks first). */
 var CUT_ST = [['TODO', 'On table'], ['PLANNED', 'Planned'], ['DONE', 'Completed'], ['CANCELLED', 'Remove']];
@@ -1198,14 +1236,7 @@ VIEWS.cutting = function () {
         '<div class="msg warn">No SKU has a CR material yet. In <a class="lnk" onclick="go(\'materials\')">Materials</a>, tap <b>CR</b> next to the materials that are cut in the cutting room.</div>') + '</div>' : '') +
       '<div class="card"><h2>To cut <span class="pill ' + (todo.length ? 'warn' : '') + '">' + todo.length + '</span></h2>' + (todo.length ? cutTable(todo, r.canCut) : '<div class="muted">Nothing to cut.</div>') + '</div>' +
       '<div class="card"><h2>Next jobs &amp; cuttings</h2>' + (r.block.length ? nextBlockTable(r.block) : '<div class="muted">No running or next jobs and no cutting available.</div>') + '</div>' +
-      '<div class="card" id="cutStock"><h2>📦 Available cuttings</h2>' + cutStockTable(r.stock || []) + '</div>' +
       '<div class="card"><h2>Completed (last 30 days)</h2>' + (done.length ? cutTable(done, r.canCut) : '<div class="muted">No completed cutting yet.</div>') + '</div>');
-  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
-};
-VIEWS.cutstock = function () {
-  load('cuttingView', S.token).then(function (r) {
-    S.data.cv = r;
-    render('<h1 class="page">📦 Available Cuttings <small>cut pieces per SKU, from the Cutting Room</small></h1><div class="card">' + cutStockTable(r.stock || []) + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 /* New cutting: the SKU's CR materials. Rolls (for a material bought in rolls) = the actual cut: rolls × roll size, compared
