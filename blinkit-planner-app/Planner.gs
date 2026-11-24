@@ -25,7 +25,7 @@ const TAB = {
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
   'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date', 'Delivered On', 'Removed From Tab', 'Dispatch Fixed',
-  'Shipped Qty', 'GRN Base'];
+  'Shipped Qty', 'GRN Base', 'Shipped On', 'Ship Sync Until'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 // 'TI SKU' = the SKU's name in the Travalate Inventory (TI) app, when it differs from 'SKU' (blank = same as SKU).
@@ -95,7 +95,7 @@ function doGet(e) {
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
-  groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink,
+  groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -546,7 +546,8 @@ function readLog_() {
     dispatch: r[L['Dispatch Date']], deliveredOn: r[L['Delivered On']], removedAt: r[L['Removed From Tab']],
     dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', updatedAt: r[L['Updated At']],
     shippedQty: r[L['Shipped Qty']] === '' || r[L['Shipped Qty']] == null ? null : Number(r[L['Shipped Qty']]),
-    grnBase: r[L['GRN Base']] === '' || r[L['GRN Base']] == null ? null : Number(r[L['GRN Base']]), // a dispatch day set by hand: used even with an appointment
+    grnBase: r[L['GRN Base']] === '' || r[L['GRN Base']] == null ? null : Number(r[L['GRN Base']]),
+    shippedOn: r[L['Shipped On']], shipSyncUntil: r[L['Ship Sync Until']], // a dispatch day set by hand: used even with an appointment
   })).filter(r => r.key);
 }
 
@@ -559,7 +560,7 @@ function publicRo_(r) {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
     appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch), dispatchFixed: !!r.dispatchFixed, updatedAt: fmtStamp_(r.updatedAt),
-    shippedQty: r.shippedQty, grnBase: r.grnBase,
+    shippedQty: r.shippedQty, grnBase: r.grnBase, shippedOn: fmtDate_(r.shippedOn),
     deliveredOn: fmtDate_(r.deliveredOn), removedAt: fmtDate_(r.removedAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
@@ -671,6 +672,8 @@ function createROs_(u, data) {
         r[L['Dispatch Fixed']] = '';
         r[L['Shipped Qty']] = '';
         r[L['GRN Base']] = '';
+        r[L['Shipped On']] = '';
+        r[L['Ship Sync Until']] = '';
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
@@ -1501,6 +1504,115 @@ function shippedQtyMap_(roNos) {
     out[k] = (out[k] || 0) + (parseInt(r[12], 10) || 0);
   });
   return out;
+}
+
+/*
+ * Shipment Manager → RO Log. Once a Blinkit shipment exists in the Shipment Manager for an RO (SHIPMENTS: PO_NUMBER =
+ * the RO number, not deleted):
+ *  - its dispatch day becomes the shipment's DATE (set as fixed: it is what really happened);
+ *  - its quantities become the quantities actually shipped (BLINKIT_PO → SHIPPED_QTY); the month tab follows, and an
+ *    item not shipped at all is cancelled;
+ *  - and it is checked again on every run for 2 days after it was first found (edits / adjustments there), then no more.
+ * Runs at most every 3 hours (in the background when the planner is opened), from Settings → Sync now, or from a
+ * time-driven trigger on syncFromShipmentManager.
+ */
+const SHIP_SYNC_DAYS = 2;
+function syncShipments_() {
+  const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
+  if (!id) return { skipped: 'Shipment Manager link not set (Settings).' };
+  const now = new Date(), log = ensureLog_(), all = readLog_();
+  const due = all.filter(r => r.roNo && r.status !== 'Cancelled' && !r.logOnly &&
+    !(r.shipSyncUntil instanceof Date && r.shipSyncUntil.getTime() < now.getTime()) &&
+    r.roDate instanceof Date && r.roDate.getTime() >= now.getTime() - 60 * 864e5);
+  if (!due.length) return { ros: 0, qty: 0, dates: 0 };
+  const ss = SpreadsheetApp.openById(id);
+  // Shipments by RO (PO) number: their date.
+  const shSh = ss.getSheetByName('SHIPMENTS');
+  if (!shSh) throw new Error('no SHIPMENTS tab in the Shipment Manager sheet');
+  const want = {}; due.forEach(r => { want[String(r.roNo).trim()] = 1; });
+  const sv = shSh.getLastRow() > 1 ? shSh.getRange(2, 5, shSh.getLastRow() - 1, 7).getValues() : []; // E PLATFORM … K DELETED
+  const shipDate = {};
+  sv.forEach(r => {
+    const po = String(r[1] || '').trim(); if (!want[po]) return;
+    if (!/blinkit/i.test(String(r[0] || ''))) return;
+    if (r[6] === true || String(r[6]).toUpperCase() === 'TRUE') return;
+    const d = r[3] instanceof Date ? r[3] : parseDate_(String(r[3] || '').slice(0, 10));
+    if (d) shipDate[po] = d;
+  });
+  const found = Object.keys(shipDate);
+  if (!found.length) return { ros: 0, qty: 0, dates: 0 };
+  const shipped = shippedQtyMap_(found);
+  const out = { ros: 0, qty: 0, dates: 0, cancelled: 0, warnings: [] }, changedRos = [], seenRo = {};
+  due.forEach(r => {
+    const po = String(r.roNo).trim(), d = shipDate[po]; if (!d) return;
+    if (!seenRo[po]) { seenRo[po] = 1; out.ros++; }
+    // First time found: the 2-day re-check window starts.
+    if (!(r.shipSyncUntil instanceof Date)) {
+      r.shipSyncUntil = new Date(now.getTime() + SHIP_SYNC_DAYS * 864e5);
+      log.getRange(r.row, L['Ship Sync Until'] + 1).setValue(r.shipSyncUntil);
+    }
+    // Dispatch day = the shipment's date.
+    if (fmtDate_(r.shippedOn) !== fmtDate_(d) || fmtDate_(r.dispatch) !== fmtDate_(d) || !r.dispatchFixed) {
+      r.shippedOn = d; r.dispatch = d; r.dispatchFixed = true;
+      log.getRange(r.row, L['Dispatch Date'] + 1).setValue(d);
+      log.getRange(r.row, L['Dispatch Fixed'] + 1).setValue('Yes');
+      log.getRange(r.row, L['Shipped On'] + 1).setValue(d);
+      out.dates++; changedRos.push(r);
+    }
+    // Quantity = what was shipped.
+    const sq = shipped[po + '|' + r.item];
+    if (sq === undefined) return;
+    if (r.shippedQty !== sq) { r.shippedQty = sq; log.getRange(r.row, L['Shipped Qty'] + 1).setValue(sq); }
+    if (sq === r.qty && r.status !== 'Cancelled') return;
+    const newEff = sq > 0 ? sq : 0, oldEff = r.qty;
+    if (newEff !== oldEff && !r.removedAt) { // (a delivered RO already taken out of the month tab is left there)
+      r.refs.forEach(ref => {
+        const tsh = SpreadsheetApp.getActive().getSheetByName(ref.t);
+        const w = tsh ? adjustCell_(tsh, r.wh, r.group, r.item, r.sku, ref.c, newEff - oldEff) : '';
+        if (w) out.warnings.push(w);
+      });
+    }
+    if (sq > 0) {
+      log.getRange(r.row, L['Qty'] + 1).setValue(sq);
+      r.qty = sq; out.qty++;
+    } else {
+      log.getRange(r.row, L['Status'] + 1).setValue('Cancelled');
+      log.getRange(r.row, L['Notes'] + 1).setValue((r.notes ? r.notes + '; ' : '') + 'Not shipped (Shipment Manager)');
+      r.status = 'Cancelled'; out.cancelled++;
+    }
+    log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, 'Shipment Manager']]);
+    changedRos.push(r);
+  });
+  try { refreshHeadings_(changedRos.filter(r => r.status !== 'Cancelled')); } catch (e) { /* the RO Log is updated either way */ }
+  return out;
+}
+
+/** For a time-driven trigger (Apps Script → Triggers → syncFromShipmentManager, e.g. every 3 hours). */
+function syncFromShipmentManager() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try { return syncShipments_(); } finally { lock.releaseLock(); }
+}
+
+/**
+ * From the page: in the background after opening (at most every 3 hours; force = Settings → Sync now). Answers with
+ * what changed and, when something did, the open ROs.
+ */
+function syncShipments(token, force) {
+  auth_(token, force ? 'Admin' : undefined);
+  const cache = CacheService.getScriptCache();
+  if (!force && cache.get('ship_sync')) return { skipped: 'recent' };
+  cache.put('ship_sync', '1', 3 * 3600);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try {
+    const res = syncShipments_();
+    if (res.dates || res.qty || res.cancelled) {
+      const all = readLog_();
+      res.openROs = openROsOf_(all); res.delivered = recentDeliveredOf_(all);
+    }
+    return res;
+  } finally { lock.releaseLock(); }
 }
 
 function getShipLink(token) {
