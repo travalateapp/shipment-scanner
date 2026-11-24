@@ -54,6 +54,15 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   "Cutting completed": **On table** (default), **Planned** (+ date), **Completed** (+ date), **Remove** (asks first; not
   getting cut). Sheet Cuttings gets the column **Planned Date**. **Next jobs & cuttings**: SKU with its CR fabric lines,
   Available, **Planned date** (or "Unplanned"), Next jobs, Status.
+- **Count on desktop:** the count needs the phone camera, so Count / Start count show only on a mobile phone; a computer
+  shows "📱 Open app on phone". The count's product list shows the **product code first** (TR-2040-Black × 100 · to make
+  60 · received 40 (W-0008)); machine cards too.
+- **Work orders:** the first column is the product code (with the lot and date under it); "Material for the lot" is a
+  tidy list (name · quantity); Cost / piece is gone and the last figure is **Karigar rate × Qty**.
+- **Material groups** (sheet Materials, new column **Group**: Fabric, Foam, Kunda …): set in Materials → Edit or in the
+  Material Room (🏷 under the name); the same group in another case joins the first spelling. The Material Room has
+  group filters (All · each group · No group) and **Opening stock** under each material (staff with "store").
+- **Store & bills is now called Stock & bills** (menu and heading).
 - **Material Room** (menu; replaces Available Cuttings): every active raw material in two sections, **CR-tagged** and
   **other** materials: Base stock (in the store + allocated), Allocated (given to karigars for running jobs, not made
   into goods yet), Available (in the store), Reserved (what the Next jobs need), Status (OK / Low / Short N / No stock
