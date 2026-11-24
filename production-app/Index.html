@@ -1208,8 +1208,8 @@ VIEWS.cutstock = function () {
     render('<h1 class="page">📦 Available Cuttings <small>cut pieces per SKU, from the Cutting Room</small></h1><div class="card">' + cutStockTable(r.stock || []) + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
-/* New cutting: the SKU's CR materials. Rolls (for a material bought in rolls) work out the pieces: rolls × roll size ÷
-   per piece (the smallest when several have rolls); the pieces can still be changed. */
+/* New cutting: the SKU's CR materials. Rolls (for a material bought in rolls) = the actual cut: rolls × roll size, compared
+   with the calculation (per piece × pieces). The pieces typed are never changed by the rolls. */
 function cutItem() { return (S.data.cv.items || []).filter(function (i) { return i.code === val('cuI'); })[0]; }
 function cutPreview() {
   var it = cutItem(); if (!$('cuP')) return;
@@ -1223,10 +1223,7 @@ function cutPreview() {
 }
 function cutRolls(code, v) {
   S.data.cuRolls[code] = v;
-  var it = cutItem(), best = null;
-  it.cr.forEach(function (m) { var r = Number(S.data.cuRolls[m.code]) || 0; if (r > 0 && m.perRoll) { var p = Math.floor(r * m.perRoll / m.perPiece + 1e-9); best = best === null ? p : Math.min(best, p); } });
-  if (best !== null) $('cuQ').value = best;
-  cutCalc();
+  cutCalc(); // the pieces typed stay as they are (the plan): rolls are the actual cut, compared with it
 }
 function cutCalc() {
   var it = cutItem(), qn = Number(val('cuQ')) || 0; if (!it || !$('cuH')) return;
@@ -1234,7 +1231,10 @@ function cutCalc() {
   it.cr.forEach(function (m, i) {
     var need = Math.round(m.perPiece * qn * 1000) / 1000, r = Number(S.data.cuRolls[m.code]) || 0, have = r * m.perRoll;
     $('cuA' + i).textContent = qn ? num(need) : '–';
-    $('cuR' + i).textContent = qn && m.perRoll ? (r > 0 ? (have >= need - 1e-9 ? 'left over ' + num(Math.round((have - need) * 1000) / 1000) + ' ' + m.unit : 'short ' + num(Math.round((need - have) * 1000) / 1000) + ' ' + m.unit) : '≈ ' + num(Math.round(need / m.perRoll * 100) / 100) + ' rolls') : '';
+    var pct = need ? Math.round(10000 * (have - need) / need) / 100 : 0;
+    $('cuR' + i).innerHTML = m.perRoll && r > 0 ? 'actual ' + num(Math.round(have * 1000) / 1000) + ' ' + esc(m.unit) + ' (enough for ≈ ' + Math.floor(have / m.perPiece + 1e-9) + ' pieces)' +
+      (qn ? '<br><span class="' + (Math.abs(pct) > 2 ? 'cdiff' : '') + '">' + (have >= need ? '+' : '') + num(Math.round((have - need) * 1000) / 1000) + ' ' + esc(m.unit) + ' (' + (pct > 0 ? '+' : '') + pct + '%)</span>' : '')
+      : qn && m.perRoll ? '≈ ' + num(Math.round(need / m.perRoll * 100) / 100) + ' rolls' : '';
   });
 }
 function cutSave(btn) {

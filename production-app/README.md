@@ -51,8 +51,8 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Cutting Room** (permission "cutting" to enter; staff with reports / machines can see it). In Materials, tap
   **CR** next to a material that is cut in the cutting room (filter "CR"; column Tags). A cutting = an SKU and a
   quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). For a CR material bought
-  in rolls, type the **number of rolls**: rolls × the usual roll size (from its price) ÷ per piece gives the pieces
-  (the smallest when several materials have rolls; it can still be changed), with what is left over or short. The
+  in rolls, type the **number of rolls** (the actual cut): rolls × the usual roll size (from its price), shown with the
+  pieces it is enough for and its difference from the calculation. The pieces typed are **never changed** by the rolls. The
   rolls are saved with the cutting. It waits in **To cut**
   until someone taps **Cutting completed** (undo is possible while it is not used; remove while not done). The
   store is not changed by cutting (material still leaves the store with the job). Completed cutting is **used up
