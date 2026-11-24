@@ -54,7 +54,8 @@ HEADERS[SHEET.RATES] = ['Karigar ID', 'Item Code', 'Rate', 'From Date', 'Set By'
 // Unit = the unit the BOM uses (sq m, inch, pcs …). The price is entered as bought (a roll, a kg, a pack) with how many
 // units one purchase gives: cost per unit = Purchase Price ÷ Units Per Purchase.
 HEADERS[SHEET.MATERIALS] = ['Code', 'Name', 'Unit', 'Active', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase',
-  'Conversion', 'Price Date', 'Color', 'Reorder Level', 'Check', 'Tags'];
+  'Conversion', 'Price Date', 'Color', 'Reorder Level', 'Check', 'Tags', 'Group'];
+// Group: e.g. Fabric, Foam, Kunda … (filters in the Material Room).
 HEADERS[SHEET.PRICES] = ['Material Code', 'Date', 'Purchase Type', 'Purchase Unit', 'Purchase Price', 'Units Per Purchase', 'Conversion',
   'Cost Per Unit', 'Set By', 'Set At', 'Note'];
 HEADERS[SHEET.BOM] = ['Item Code', 'Material Code', 'Qty Per Piece'];
@@ -152,7 +153,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   addOrderQty, giveOrderMaterial, setCount2,
-  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialTag,
+  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialGroup, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1473,7 +1474,7 @@ function materialRoom(token) {
     alloc[x.code] = (alloc[x.code] || 0) + Math.max(0, Math.min(x.given, per * o.remaining));
   }));
   prog.filter(o => o.next).forEach(o => (bom[o.item] || []).forEach(x => { res[x.material] = (res[x.material] || 0) + x.qty * o.qty; }));
-  const pos = poState_(), mats = materialMap_(), names = {};
+  const pos = poState_(), mats = materialMap_(), names = {}, opening = readOpening_();
   pos.filter(o => !o.done).forEach(o => (open[o.material] = open[o.material] || []).push(o));
   const poView = o => ({ id: o.id, supplier: o.supplier, date: o.date, qty: o.qty, purchaseUnit: o.purchaseUnit, units: o.units, received: o.received,
     note: o.note, bills: o.bills, doneHow: o.doneHow, doneOn: o.doneOn, byName: staffName_(o.by), closedByName: o.closedBy ? staffName_(o.closedBy) : '' });
@@ -1485,7 +1486,7 @@ function materialRoom(token) {
       purchaseUnit: boughtAs_(m).unit, perPurchase: boughtAs_(m).per,
       base: tracked ? round3_(available + allocated) : null, allocated: allocated, available: available, reserved: reserved,
       status: !tracked ? 'NONE' : reserved > available + 1e-9 ? 'SHORT' : available <= 0 || (m.reorder && available < m.reorder) ? 'LOW' : 'OK',
-      short: tracked ? round3_(Math.max(0, reserved - available)) : 0,
+      short: tracked ? round3_(Math.max(0, reserved - available)) : 0, group: m.group, store: storeRow_(m, st, opening),
       orders: (open[m.code] || []).map(poView) };
   }).sort((a, b) => a.name.localeCompare(b.name));
   const removed = readPOrders_().filter(o => o.status === 'CANCELLED').map(o => Object.assign({}, o, { received: 0, bills: [], doneHow: 'REMOVED', doneOn: String(o.closedAt).slice(0, 10) }));
@@ -1493,7 +1494,9 @@ function materialRoom(token) {
     .map(o => Object.assign(poView(o), { material: o.material, name: names[o.material] || (mats[o.material] || {}).name || o.material, unit: (mats[o.material] || {}).unit || '',
       cr: ((mats[o.material] || {}).tags || []).indexOf('CR') >= 0 }));
   return { cr: rows.filter(r => r.cr), other: rows.filter(r => !r.cr), historyCr: hist.filter(h => h.cr), historyOther: hist.filter(h => !h.cr),
-    suppliers: supplierList_().map(x => x.name), canOrder: can_(u, 'store') || can_(u, 'cutting') || can_(u, 'machines'), today: todayStr_() };
+    suppliers: supplierList_().map(x => x.name), canOrder: can_(u, 'store') || can_(u, 'cutting') || can_(u, 'machines'), today: todayStr_(),
+    groups: rows.map(r => r.group).filter((g, i, a) => g && a.indexOf(g) === i).sort(), canStock: can_(u, 'store'),
+    canGroup: can_(u, 'masters') || can_(u, 'store') || can_(u, 'cutting') };
 }
 
 /** A purchase order: data = { material, supplier (a saved one or a new one), date, qty (in the purchase unit), note }. */
@@ -1636,6 +1639,22 @@ function setCuttingStatus(token, id, status, date) {
   forget_('cuttings');
   log_(u, 'CUTTING_' + status, id, c.item + ' × ' + c.qty + (status === 'PLANNED' ? ' planned for ' + day : status === 'DONE' ? ' completed on ' + doneDay : '') + ' (was ' + c.status + ')');
   return cuttingView(token);
+}
+
+/** A material's group (Fabric, Foam …; '' = none): the Material Room filters by it. */
+function setMaterialGroup(token, code, group) {
+  const u = authStaff_(token, 'masters|store|cutting');
+  const m = readMaterials_().filter(x => x.code === String(code || '').toUpperCase())[0];
+  if (!m) throw new Error('Material not found.');
+  group = String(group || '').trim().replace(/\s+/g, ' ').slice(0, 30);
+  const same = readMaterials_().filter(x => x.group && x.group.toLowerCase() === group.toLowerCase())[0];
+  if (same) group = same.group; // the same spelling for the same group
+  const sh = sheet_(SHEET.MATERIALS);
+  if (String(sh.getRange(1, 15).getValues()[0][0] || '') === '') sh.getRange(1, 15).setValue('Group').setFontWeight('bold').setBackground('#e8eefc');
+  sh.getRange(m.row, 15).setValue(group);
+  forget_('materials');
+  log_(u, 'MATERIAL_GROUP', m.code, m.name + ': ' + (m.group || 'none') + ' → ' + (group || 'none'));
+  return { code: m.code, group: group };
 }
 
 /** CR (or another tag) on a material: on = true adds it, false removes it. */
@@ -2630,7 +2649,17 @@ function lowStockAlerts_(before) {
 function storeView(token) {
   const u = authStaff_(token, 'store|reports|masters');
   const st = storeStockMap_(), open = readOpening_();
-  const list = readMaterials_().map(m => {
+  const list = readMaterials_().map(m => storeRow_(m, st, open));
+  const month = todayStr_().slice(0, 7);
+  const bills = readBills_().slice().reverse();
+  return { list: list, bills: bills.slice(0, 300), suppliers: supplierList_(), canEdit: can_(u, 'store'),
+    monthCharges: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.charges, 0)),
+    monthPurchases: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.itemsTotal, 0)),
+    stockValue: round2_(list.reduce((n, x) => n + (x.tracked && x.value ? x.value : 0), 0)) };
+}
+
+/** One material's store figures (Stock & bills, and the opening stock form in the Material Room). */
+function storeRow_(m, st, open) {
     const x = st[m.code] || { opening: 0, purchased: 0, issued: 0, inStore: 0, tracked: false };
     return { code: m.code, name: m.name, unit: m.unit, active: m.active, unitCost: m.unitCost, reorder: m.reorder,
       opening: round3_(x.opening), openingDate: (open[m.code] || {}).date || '', purchased: round3_(x.purchased), issued: round3_(x.issued),
@@ -2638,13 +2667,6 @@ function storeView(token) {
       low: x.tracked && m.reorder > 0 && x.inStore < m.reorder, negative: x.tracked && x.inStore < -0.0005,
       purchaseType: m.purchaseType, purchaseUnit: m.purchaseUnit, perPurchase: m.perPurchase, price: m.price,
       rollL: (m.conversion || {}).length || null, rollW: (m.conversion || {}).width || null };
-  });
-  const month = todayStr_().slice(0, 7);
-  const bills = readBills_().slice().reverse();
-  return { list: list, bills: bills.slice(0, 300), suppliers: supplierList_(), canEdit: can_(u, 'store'),
-    monthCharges: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.charges, 0)),
-    monthPurchases: round2_(bills.filter(b => b.date.slice(0, 7) === month).reduce((n, b) => n + b.itemsTotal, 0)),
-    stockValue: round2_(list.reduce((n, x) => n + (x.tracked && x.value ? x.value : 0), 0)) };
 }
 
 /** The stock a material had before bills were entered (in its BOM unit). Can be corrected later. */
@@ -3004,7 +3026,7 @@ function readMaterials_() {
       purchaseType: String(r[4] || ''), purchaseUnit: String(r[5] || ''), price: price, perPurchase: per, conversion: parseJson_(r[8], {}),
       priceDate: toDateStr_(r[9]), unitCost: price !== null && per ? round4_(price / per) : null,
       check: /^[GY]$/.test(String(r[12] || '').trim().toUpperCase()) ? String(r[12]).trim().toUpperCase() : '',
-      tags: String(r[13] || '').split(',').map(x => x.trim().toUpperCase()).filter(String) };
+      tags: String(r[13] || '').split(',').map(x => x.trim().toUpperCase()).filter(String), group: String(r[14] || '').trim() };
   }).filter(x => x.code));
 }
 

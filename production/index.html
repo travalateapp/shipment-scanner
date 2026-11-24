@@ -54,6 +54,7 @@ h1.page small{font-size:13px;color:var(--muted);font-weight:500}
 .mc.idle .mhint{color:#94a3b8;margin-top:26px;font-size:13.5px}.mc.c2b{border-color:#f59e0b;background:#fffbeb}.mc.lateb{border-color:#fca5a5}.mc.mshort{border:2px solid #ef4444;background:#fef2f2}
 .mshortl{color:#b91c1c;font-weight:700;font-size:12.5px;margin-top:3px}.cdiff{color:#b91c1c;font-weight:700}.cst{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .cst select,.cst input{width:auto;display:inline-block;margin:0}.mrord{border-left:3px solid #93c5fd;padding:2px 0 4px 8px;margin-bottom:6px;font-size:13.5px}
+.lotm{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:#475569;line-height:1.5}.lotm b{font-weight:600;white-space:nowrap;color:#334155}
 .mrhist{margin-top:10px}.mrhist summary{cursor:pointer;font-weight:700;color:#334155;padding:6px 0}.clines div{white-space:nowrap;line-height:1.55}
 .mstep{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e2e8f0;border-radius:10px;margin-top:8px}
 .mstep .n{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none;background:#e2e8f0;color:#475569}
@@ -352,7 +353,7 @@ function menu() {
   if (can('masters') || can('reports')) m.push(['karigars', '👷', 'Karigars & rates']);
   if (can('masters') || can('reports')) m.push(['items', '🏷️', 'Items & rates']);
   if (can('masters') || can('reports')) m.push(['materials', '🧶', 'Materials']);
-  if (can('store') || can('reports') || can('masters')) m.push(['store', '🏬', 'Store & bills']);
+  if (can('store') || can('reports') || can('masters')) m.push(['store', '🏬', 'Stock & bills']);
   if (can('alerts')) m.push(['alerts', '🔔', 'Alerts' + (S.unread ? ' (' + S.unread + ')' : '')]);
   if (isSuper()) { m.push(['-']); m.push(['staff', '🛡️', 'Staff & permissions']); m.push(['log', '📜', 'Change log']); }
   m.push(['pin', '🔑', 'Change PIN']);
@@ -674,12 +675,13 @@ VIEWS.count = function () {
     if (!c2On() && !r.list.some(function (b) { return b.status === 'COUNT2'; })) groups.pop();
     render('<h1 class="page">✅ Count received goods</h1>' +
       (c2On() ? '' : '<div class="msg info">Count 2 is paused: count 1 is the final count (pay and inventory are updated and the job is completed).</div>') +
-      (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"><select id="nbK"><option value="">' + (r.karigars.length ? 'Choose karigar (with a running work order)…' : 'No karigar has a running work order') + '</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select><button class="btn fix" onclick="newBatch(this)">Start count 1</button></div></div>' : '') +
+      (r.canCount ? '<div class="card"><h2>New batch: goods brought by a karigar</h2><div class="row"' + (isMobile() ? '' : ' style="display:none"') + '><select id="nbK"><option value="">' + (r.karigars.length ? 'Choose karigar (with a running work order)…' : 'No karigar has a running work order') + '</option>' + opts(r.karigars, '', function (k) { return k.name + ' (' + k.id + ')'; }) + '</select>' + (isMobile() ? '<button class="btn fix" onclick="newBatch(this)">Start count' + (c2On() ? ' 1' : '') + '</button>' : '') + '</div>' +
+        (isMobile() ? '' : '<div class="muted" style="margin-top:6px">📱 The count is saved with a photo from the phone camera: start it in the app on a mobile phone.</div>') + '</div>' : '') +
       groups.map(function (g) {
         var list = r.list.filter(function (b) { return b.status === g[0]; });
         return '<div class="card"><h2>' + esc(g[1]) + ' <span class="pill ' + (list.length ? STATUS[g[0]][1] : '') + '">' + list.length + '</span></h2>' + (list.length ? '<div class="list">' + list.map(function (b) {
           var act = '';
-          if (r.canCount && b.status === 'COUNT1') act = '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (b.noOrder ? '' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">Count 1</button>') +
+          if (r.canCount && b.status === 'COUNT1') act = '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end">' + (b.noOrder ? '' : isMobile() ? '<button class="btn sm" onclick="countForm(\'' + b.id + '\',1)">' + (c2On() ? 'Count 1' : 'Count') + '</button>' : '<span class="pill" style="white-space:nowrap" title="The count needs the phone camera">📱 Open app on phone</span>') +
             '<button class="btn sec sm" onclick="cancelBatch(\'' + b.id + '\',this)">Remove</button></div>';
           if (r.canCount && b.status === 'COUNT2') act = b.mine ? '<span class="muted">You did count 1</span>' : '<button class="btn sm" onclick="countForm(\'' + b.id + '\',2)">Count 2</button>';
           if (b.status === 'COUNT2' && isSuper()) act = '<div style="display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end;align-items:center">' + act + '<button class="btn sec sm" onclick="cancelBatch(\'' + b.id + '\',this,1)">Remove</button></div>';
@@ -725,7 +727,7 @@ function countForm(id, which) {
   modal((which === 1 && !c2On() ? 'Count' : 'Count ' + which) + (/^NEW-/.test(id) ? '' : ' · ' + id) + ' · ' + (b.karigar || ''),
     (which === 2 ? '<div class="blind">Final count: you do not see count 1. Count every piece yourself. Your count is the one that is paid and added to the inventory.</div>' : b.claim.length ? '<div class="msg info">Karigar says: ' + b.claim.map(function (c) { return esc(c.item) + ' ' + c.qty; }).join(', ') + '</div>' : '') +
     (none ? '<div class="msg err">' + esc(b.karigar || 'This karigar') + ' has no running work order to count (or it is already being counted in another batch). Add a work order first (Work orders).</div>' :
-    '<div class="lines"><div class="ln hdr"><div>Work order <span class="muted" style="font-weight:400">(this karigar\'s)</span></div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add work order</button>' +
+    '<div class="lines"><div class="ln hdr"><div>Product <span class="muted" style="font-weight:400">(this karigar\'s jobs)</span></div><div>Good</div><div>Rejected</div><div></div></div><div id="cLines"></div></div><button class="btn sec sm" onclick="addCountLine()">+ Add work order</button>' +
     (which === 1 ? '<label class="f">Photo of the received goods (required, camera only)</label>' + (isMobile() ?
       '<div id="camBox"><button class="btn sec block" style="margin-top:0" onclick="camStart(\'environment\')">📷 Open camera</button></div><img id="cPhoto" class="photo" style="display:none">' :
       '<div class="msg warn">📱 The photo is taken with a mobile phone camera only. Open this batch in the app on a mobile phone to save count 1.</div>') : '') +
@@ -741,7 +743,7 @@ function addCountLine(item) {
   var div = document.createElement('div'); div.className = 'ln';
   if (S.data.countWos) { // a work order per line: given / received / still to make; more than given is marked extra
     div.innerHTML = '<select onchange="countHint(this)"><option value="">Choose the work order…</option>' + S.data.countWos.map(function (o) {
-      return '<option value="' + esc(o.id) + '"' + (o.id === item ? ' selected' : '') + '>' + esc(o.id) + ' · ' + esc(o.item) + ' · given ' + o.qty + ' · received ' + o.received + ' · to make ' + o.remaining + '</option>';
+      return '<option value="' + esc(o.id) + '"' + (o.id === item ? ' selected' : '') + '>' + esc(o.item) + ' × ' + o.qty + ' · to make ' + o.remaining + ' · received ' + o.received + ' (' + esc(o.id) + ')</option>';
     }).join('') + '</select><input type="number" inputmode="numeric" placeholder="0" oninput="countHint(this)"><input type="number" inputmode="numeric" placeholder="0"><button class="x" onclick="this.parentNode.remove()">×</button><div class="muted ch" style="grid-column:1/-1;margin-top:-4px"></div>';
     $('cLines').appendChild(div); countHint(div.children[0]); return;
   }
@@ -894,7 +896,7 @@ VIEWS.machines = function (f) {
         var pct = Math.min(100, Math.round(100 * j.received / Math.max(1, j.qty)));
         var ms = m.job && m.job.matShort && m.job.matShort.length;
         return '<div class="mc' + (ms ? ' mshort' : st === 'c2' ? ' c2b' : st === 'late' ? ' lateb' : '') + '" onclick="machWin(\'' + m.id + '\')">' + head +
-          '<div class="mk">' + esc(j.karigar) + '</div><div class="mj">' + esc(j.id) + ' · ' + esc(j.item) + ' × ' + j.qty + '</div>' +
+          '<div class="mk">' + esc(j.karigar) + '</div><div class="mj"><b>' + esc(j.item) + '</b> × ' + j.qty + ' <span class="muted" style="font-size:11.5px">' + esc(j.id) + '</span></div>' +
           (m.job ? '<div class="ms">Started ' + d(j.date) + (j.target ? ' · ' + (j.late ? '<b style="color:var(--err)">due ' + d(j.target) + '</b>' : 'due ' + d(j.target)) : '') + (j.received ? ' · received ' + j.received : '') + '</div>' +
             '<div class="mbar"><i style="width:' + pct + '%"></i></div>' : '') +
           (ms ? '<div class="mshortl">⚠ Material pending: ' + m.job.matShort.map(function (x) { return esc(x.name) + ' ' + num(x.short) + ' ' + esc(x.unit); }).join(', ') + '</div>' : '') +
@@ -1202,7 +1204,7 @@ function nextBlockTable(rows) {
 }
 /* Material Room: per material (CR-tagged and the others) — Base stock, Allocated (running jobs), Available (in the store),
    Reserved (Next jobs), Status, and the order placed with a supplier (date + quantity). */
-function mrStatus(x) { return x.status === 'SHORT' ? '<span class="pill err">Short ' + num(x.short) + '</span>' : x.status === 'OK' ? '<span class="pill ok">OK</span>' : x.status === 'LOW' ? '<span class="pill warn">Low</span>' : '<span class="pill" title="No store stock entered (Store & bills)">No stock entered</span>'; }
+function mrStatus(x) { return x.status === 'SHORT' ? '<span class="pill err">Short ' + num(x.short) + '</span>' : x.status === 'OK' ? '<span class="pill ok">OK</span>' : x.status === 'LOW' ? '<span class="pill warn">Low</span>' : '<span class="pill" title="No stock entered (Stock & bills)">No stock entered</span>'; }
 function mrQty(v, u) { return v === null || v === undefined ? '<span class="muted">–</span>' : num(v) + ' ' + esc(u); }
 /* Open purchase orders of a material (several possible) and + Order. */
 function mrOrderCell(x, canOrder) {
@@ -1215,15 +1217,24 @@ function mrOrderCell(x, canOrder) {
   }).join('');
   return h + (canOrder ? '<button class="btn sec sm" style="margin:2px 0 0" onclick="mrOrder(\'' + esc(x.code) + '\')">+ Order</button>' : x.orders.length ? '' : '<span class="muted">–</span>');
 }
+/* Under a material's name: its group (tap to set) and the opening stock (staff with "store"). */
+function mrTools(x) {
+  var r = S.data.mr;
+  return '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-top:3px;font-size:12px">' +
+    (r.canGroup ? '<a class="lnk" onclick="mrGroup(\'' + esc(x.code) + '\')">' + (x.group ? '🏷 ' + esc(x.group) : '+ group') + '</a>' : x.group ? '<span class="muted">🏷 ' + esc(x.group) + '</span>' : '') +
+    (r.canStock ? '<a class="lnk" onclick="openingForm(\'' + esc(x.code) + '\',1)">' + (x.tracked ? 'Opening stock' : '+ Opening stock') + '</a>' : '') + '</div>';
+}
 function mrTable(rows, canOrder) {
-  if (!rows.length) return '<div class="muted">No material here.</div>';
+  var g = S.data.mrG || '';
+  if (g) rows = rows.filter(function (x) { return g === '—' ? !x.group : x.group === g; });
+  if (!rows.length) return '<div class="muted">No material here' + (g ? ' in this group' : '') + '.</div>';
   var phone = '<div class="only-phone">' + rows.map(function (x) {
-    return '<div class="mcard"><div class="mtop"><b>' + esc(x.name) + '</b><span>' + mrStatus(x) + '</span></div>' +
+    return '<div class="mcard"><div class="mtop"><div><b>' + esc(x.name) + '</b>' + mrTools(x) + '</div><span>' + mrStatus(x) + '</span></div>' +
       '<div class="mrk"><div>Base stock</div><div>' + mrQty(x.base, x.unit) + '</div><div>Allocated (ongoing)</div><div>' + mrQty(x.allocated, x.unit) + '</div>' +
       '<div>Available</div><div><b>' + mrQty(x.available, x.unit) + '</b></div><div>Reserved (next jobs)</div><div>' + mrQty(x.reserved, x.unit) + '</div></div>' + mrOrderCell(x, canOrder) + '</div>';
   }).join('') + '</div>';
   return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>Raw material</th><th class="r">Base stock</th><th class="r">Allocated (ongoing)</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th>Status</th><th>Orders placed</th></tr>' + rows.map(function (x) {
-    return '<tr><td>' + esc(x.name) + ' <span class="muted">(' + esc(x.unit) + ')</span></td><td class="r">' + mrQty(x.base, x.unit) + '</td><td class="r">' + mrQty(x.allocated, x.unit) + '</td><td class="r"><b>' + mrQty(x.available, x.unit) + '</b></td>' +
+    return '<tr><td>' + esc(x.name) + ' <span class="muted">(' + esc(x.unit) + ')</span>' + mrTools(x) + '</td><td class="r">' + mrQty(x.base, x.unit) + '</td><td class="r">' + mrQty(x.allocated, x.unit) + '</td><td class="r"><b>' + mrQty(x.available, x.unit) + '</b></td>' +
       '<td class="r">' + mrQty(x.reserved, x.unit) + '</td><td>' + mrStatus(x) + '</td><td style="min-width:230px">' + mrOrderCell(x, canOrder) + '</td></tr>';
   }).join('') + '</table></div>';
 }
@@ -1238,13 +1249,30 @@ function mrHistory(list) {
 VIEWS.cutstock = function () {
   load('materialRoom', S.token).then(function (r) {
     S.data.mr = r;
+    if (S.data.mrG && S.data.mrG !== '—' && r.groups.indexOf(S.data.mrG) < 0) S.data.mrG = '';
+    var all = r.cr.concat(r.other), gtab = function (k, label, n) { return '<a class="' + ((S.data.mrG || '') === k ? 'on' : '') + '" onclick="S.data.mrG=\'' + esc(k) + '\';go(\'cutstock\')">' + esc(label) + ' (' + n + ')</a>'; };
+    var gtabs = '<div class="tabs" style="margin:0 0 10px">' + gtab('', 'All', all.length) + r.groups.map(function (g) { return gtab(g, g, all.filter(function (x) { return x.group === g; }).length); }).join('') +
+      (all.some(function (x) { return !x.group; }) && r.groups.length ? gtab('—', 'No group', all.filter(function (x) { return !x.group; }).length) : '') + '</div>';
     render('<h1 class="page">📦 Material Room <small>raw material stock, what running and next jobs take, and orders placed</small></h1>' +
       '<div class="muted" style="margin:-4px 0 10px">Base stock = in the store + allocated. Allocated = given to karigars for their running jobs, not made into goods yet. Available = in the store. Reserved = what the Next jobs need (not given yet): it does not reduce Available, but is flagged if there won\'t be enough. ' +
       'Orders: a purchase bill of the <b>same vendor</b> and material fills the oldest open order; a full order is completed and moves to History.</div>' +
-      '<div class="card"><h2><span class="crtag on" style="font-size:11px">CR</span> CR-tagged materials (Cutting Room) <span class="pill">' + r.cr.length + '</span></h2>' + mrTable(r.cr, r.canOrder) + mrHistory(r.historyCr || []) + '</div>' +
+      gtabs + '<div class="card"><h2><span class="crtag on" style="font-size:11px">CR</span> CR-tagged materials (Cutting Room) <span class="pill">' + r.cr.length + '</span></h2>' + mrTable(r.cr, r.canOrder) + mrHistory(r.historyCr || []) + '</div>' +
       '<div class="card"><h2>Other materials (not CR-tagged) <span class="pill">' + r.other.length + '</span></h2>' + mrTable(r.other, r.canOrder) + mrHistory(r.historyOther || []) + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+/* A material's group: pick one used before or type a new one (empty = no group). */
+function mrGroup(code) {
+  var x = mrMat(code), r = S.data.mr;
+  modal('Group · ' + x.name, '<label class="f">Group (e.g. Fabric, Foam, Kunda)</label><input id="mgG" list="mgL" value="' + esc(x.group || '') + '" placeholder="Type or pick a group"><datalist id="mgL">' +
+    r.groups.map(function (g) { return '<option value="' + esc(g) + '">'; }).join('') + '</datalist>' +
+    (r.groups.length ? '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:8px">' + r.groups.map(function (g) { return '<button class="btn sec sm" onclick="$(\'mgG\').value=this.textContent">' + esc(g) + '</button>'; }).join('') + '</div>' : '') +
+    '<button class="btn block" onclick="mrGroupSave(\'' + esc(code) + '\',this)">Save</button>');
+  setTimeout(function () { if ($('mgG')) $('mgG').focus(); }, 50);
+}
+function mrGroupSave(code, btn) {
+  busy(btn, true);
+  api('setMaterialGroup', S.token, code, val('mgG')).then(function (g) { closeModal(); toast(g.group ? 'Group: ' + g.group : 'Group removed'); go('cutstock'); }).catch(function (e) { fail(e, btn); });
+}
 function mrMat(code) { var r = S.data.mr; return r.cr.concat(r.other).filter(function (x) { return x.code === code; })[0]; }
 /* The order pop-up: vendor (pick a saved one or add a new one), date, quantity in the unit the material is bought in. */
 function mrOrder(code) {
@@ -1454,7 +1482,7 @@ VIEWS.orders = function (f) {
     var empty = { '': 'No running work orders.', all: 'No work orders.', done: 'No completed work orders yet.', next: 'No next jobs. Plan one on the Machine Dashboard (tap a machine → Next job).' }[f];
     render('<h1 class="page">🧵 Work orders (lots) <small>what each karigar is making, and at what rate</small></h1>' +
       '<div class="muted" style="margin:-4px 0 10px">New work orders are started on a machine in the ' + (can('machines') ? '<a class="lnk" onclick="go(\'machines\')">Machine Dashboard</a>' : 'Machine Dashboard') + ' (tap an idle machine), with the special rate there.</div>' +
-      '<div class="card scroll">' + filters + (f === 'next' ? woNextTable(r, empty) : '<table class="tbl"><tr><th>Lot</th><th>Karigar</th><th>Item</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Cost / piece</th><th class="r">Lot cost</th><th></th></tr>' +
+      '<div class="card scroll">' + filters + (f === 'next' ? woNextTable(r, empty) : '<table class="tbl"><tr><th>Product · lot</th><th>Karigar</th><th class="r">Rate</th><th class="r">Ordered</th><th class="r">Received</th><th class="r">To make</th><th>Material for the lot</th><th class="r">Karigar rate × Qty</th><th></th></tr>' +
       (r.list.map(function (o) {
         var rate = o.rate !== null ? money(o.rate) + '<div>' + srcPill(o.rateSource) + '</div>' : (o.rateNow !== null ? money(o.rateNow) : '<span class="pill warn">No rate</span>');
         var btns = (o.open && r.canRate ? '<button class="btn sm" onclick="lotRate(\'' + o.id + '\')">Rate</button> ' : '') +
@@ -1462,11 +1490,11 @@ VIEWS.orders = function (f) {
             (o.completedOn ? '<div class="muted" style="font-size:12.5px;margin-top:4px">' + (o.done ? 'Completed ' : 'Closed ') + d(o.completedOn) + '</div>' : ''));
         var due = o.target ? '<div class="' + (o.late ? '' : 'muted') + '" style="font-size:12.5px;white-space:nowrap' + (o.late ? ';color:var(--err);font-weight:700' : '') + '">due ' + d(o.target) + (o.late ? ' · late' : '') + '</div>' : '';
         if (r.canEdit && o.open) due += '<a class="lnk" style="font-size:12px;white-space:nowrap" onclick="machTarget(\'' + o.id + '\',\'' + (o.target || '') + '\')">' + (o.target ? 'change' : '+ target') + '</a>';
-        return '<tr' + (o.late ? ' style="background:#fef2f2"' : '') + '><td><b style="white-space:nowrap">' + o.id + '</b><div class="muted">' + d(o.date) + '</div>' + due + '</td><td>' + esc(o.karigar) + (o.machineName ? '<div class="muted">' + esc(o.machineName) + '</div>' : '') + '</td><td>' + esc(o.item) + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + (o.short ? '<div class="pill" title="Marked completed at its final count">' + o.short + ' fewer</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
-          '<td class="muted">' + o.material.map(function (m) { return esc(m.material) + ' ' + num(m.qty) + ' ' + esc(m.unit); }).join('<br>') + '</td>' +
-          '<td class="r"><b>' + (o.cost.perPiece === null ? '–' : money(o.cost.perPiece)) + '</b><div class="muted">material ' + money(o.cost.materialPerPiece) + '</div>' + (o.cost.missing.length ? '<span class="pill warn">no price</span>' : '') + '</td>' +
-          '<td class="r">' + (o.cost.total === null ? '–' : money(o.cost.total)) + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
-      }).join('') || '<tr><td colspan="11" class="muted">' + empty + '</td></tr>') + '</table>') + '</div>');
+        var rt = o.rate !== null ? o.rate : o.rateNow;
+        return '<tr' + (o.late ? ' style="background:#fef2f2"' : '') + '><td><b style="white-space:nowrap">' + esc(o.item) + '</b>' + (o.type === 'PART' ? ' <span class="pill">part</span>' : '') + '<div class="muted" style="white-space:nowrap">' + o.id + ' · ' + d(o.date) + '</div>' + due + '</td><td>' + esc(o.karigar) + (o.machineName ? '<div class="muted">' + esc(o.machineName) + '</div>' : '') + '</td><td class="r">' + rate + '</td><td class="r">' + o.qty + '</td><td class="r">' + o.received + (o.extra ? '<div class="pill warn" title="Given ' + o.qty + ', received ' + o.received + '">+' + o.extra + ' extra</div>' : '') + (o.short ? '<div class="pill" title="Marked completed at its final count">' + o.short + ' fewer</div>' : '') + '</td><td class="r"><b>' + o.remaining + '</b></td>' +
+          '<td style="min-width:290px">' + o.material.map(function (m) { return '<div class="lotm"><span>' + esc(m.material) + '</span><b>' + num(m.qty) + ' ' + esc(m.unit) + '</b></div>'; }).join('') + '</td>' +
+          '<td class="r" style="white-space:nowrap">' + (rt === null || rt === undefined ? '–' : '<b>' + money(rt * o.qty) + '</b><div class="muted">' + money(rt) + ' × ' + o.qty + '</div>') + '</td><td style="white-space:nowrap">' + btns + '</td></tr>';
+      }).join('') || '<tr><td colspan="9" class="muted">' + empty + '</td></tr>') + '</table>') + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
 /* Work orders → Next: planned jobs (not started: no material given, not in production). */
@@ -2241,10 +2269,13 @@ function matEdit(code) {
     '<label class="f">Colour</label>' + colorInput('meC', m.color) +
     '<label class="f">Unit used per piece</label><select id="meU" data-last="' + esc(m.unit) + '" onchange="unitPicked(this)">' + unitOpts(m.unit) + '</select>' +
     (m.usedIn.length ? '<div class="msg warn" style="margin-top:8px">Used in ' + m.usedIn.map(esc).join(', ') + '. If you change the unit, also change the material per piece in those BOMs.</div>' : '') +
+    '<label class="f">Group (optional, e.g. Fabric, Foam; Material Room filters by it)</label><input id="meG" list="meGL" value="' + esc(m.group || '') + '"><datalist id="meGL">' +
+      ((S.data.ml2 || {}).materials || []).map(function (y) { return y.group; }).filter(function (g, i, a) { return g && a.indexOf(g) === i; }).map(function (g) { return '<option value="' + esc(g) + '">'; }).join('') + '</datalist>' +
     '<label class="f">Reorder level in the store (' + esc(m.unit) + ', optional)</label><input id="meR" type="number" step="any" inputmode="decimal" value="' + (m.reorder || '') + '" placeholder="Alert when the store has less than this">' +
     '<div class="chk"><input type="checkbox" id="meA"' + (m.active ? ' checked' : '') + '> Active (inactive materials cannot be issued)</div><button class="btn block" id="meB">Save</button>');
   $('meB').onclick = function () {
-    var base = val('meN').trim(), color = val('meC').trim(), unit = val('meU'), active = $('meA').checked, reorder = val('meR');
+    var base = val('meN').trim(), color = val('meC').trim(), unit = val('meU'), active = $('meA').checked, reorder = val('meR'), group = val('meG').trim();
+    if (group !== (m.group || '')) api('setMaterialGroup', S.token, code, group).then(function (g) { m.group = g.group; var y = matByCode(code); if (y) y.group = g.group; }).catch(function (e) { toast(e.message); });
     if (!base || !unit) return toast('Enter the name and the unit.');
     var before = Object.assign({}, m);
     Object.assign(m, { name: withColor(base, color), baseName: base, color: color, unit: unit, active: active, reorder: Number(reorder) || 0, saving: true }); closeModal(); matTable();
@@ -2495,7 +2526,7 @@ VIEWS.store = function (tab) {
   load('storeView', S.token).then(function (r) {
     S.data.st = r;
     var low = r.list.filter(function (x) { return x.low || x.negative; }).length;
-    render('<h1 class="page">🏬 Store & bills <small>opening stock + purchase bills − issued to karigars</small></h1>' +
+    render('<h1 class="page">🏬 Stock & bills <small>opening stock + purchase bills − issued to karigars</small></h1>' +
       '<div class="tabs"><a class="' + (tab === 'stock' ? 'on' : '') + '" onclick="go(\'store\',\'stock\')">Stock</a><a class="' + (tab === 'bills' ? 'on' : '') + '" onclick="go(\'store\',\'bills\')">Purchase bills</a></div>' +
       '<div class="tiles"><div class="tile"><div class="l">Stock value</div><div class="n">' + money(r.stockValue) + '</div></div><div class="tile ' + (low ? 'err' : 'ok') + '"><div class="l">Low / short</div><div class="n">' + low + '</div></div>' +
       '<div class="tile info"><div class="l">Bought this month</div><div class="n">' + money(r.monthPurchases) + '</div></div><div class="tile"><div class="l">Bilty / loading this month</div><div class="n">' + money(r.monthCharges) + '</div></div></div>' +
@@ -2519,8 +2550,8 @@ function storeStock(r) {
     }).join('') + '</div></div>';
 }
 function osPU(x) { return x.purchaseType === 'METER' ? 'roll' : x.purchaseUnit; }
-function openingForm(code) {
-  var x = S.data.st.list.filter(function (y) { return y.code === code; })[0];
+function openingForm(code, fromRoom) {
+  var x = fromRoom ? mrMat(code).store : S.data.st.list.filter(function (y) { return y.code === code; })[0];
   S.data.osX = x;
   var sized = x.purchaseType && x.purchaseType !== 'UNIT' && x.purchaseType !== 'SQM' && x.purchaseType !== 'LEN' && x.perPurchase;
   modal('Opening stock · ' + x.name, '<div class="muted">What is in the store <b>today</b>, in ' + esc(x.unit) + '. Purchase bills entered from now on are added to it.</div>' +
@@ -2531,7 +2562,7 @@ function openingForm(code) {
     (/^m$/i.test(String(x.unit).trim()) ? '<label class="f">Or count it in sq m (worked out in m from the width)</label><div class="szrow" style="font-size:14px"><input id="osSq" type="number" step="any" inputmode="decimal" placeholder="sq m" style="width:110px" oninput="osSqm()"> sq m ÷ width <input id="osSw" type="number" step="any" inputmode="decimal" value="' + (x.rollW || '') + '" style="width:80px" oninput="osSqm()"> m = <b id="osSm">–</b> m</div>' : '') +
     '<label class="f">Stock in ' + esc(x.unit) + (sized ? ' (worked out from the lines above, or type it)' : '') + '</label><input id="osQ" type="number" step="any" inputmode="decimal" value="' + (x.tracked ? x.opening : '') + '"><label class="f">Note</label><input id="osN" placeholder="e.g. counted on 6 Nov"><button class="btn block" id="osB">Save</button>');
   if (sized) osLine();
-  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), [val('osN'), osText(), $('osSq') && Number(val('osSq')) > 0 && Number(val('osSw')) > 0 ? val('osSq') + ' sq m ÷ width ' + val('osSw') + ' m' : '', $('osM') && Number(val('osM')) > 0 ? val('osM') + ' m' : ''].filter(String).join(' · ')).then(function (r) { preload('storeView', r); closeModal(); toast('Opening stock saved'); go('store', 'stock'); }).catch(function (e) { fail(e, $('osB')); }); };
+  $('osB').onclick = function () { busy(this, true); apiBg($('osB'), 'setOpeningStock', S.token, code, val('osQ'), [val('osN'), osText(), $('osSq') && Number(val('osSq')) > 0 && Number(val('osSw')) > 0 ? val('osSq') + ' sq m ÷ width ' + val('osSw') + ' m' : '', $('osM') && Number(val('osM')) > 0 ? val('osM') + ' m' : ''].filter(String).join(' · ')).then(function (r) { closeModal(); toast('Opening stock saved'); if (fromRoom) go('cutstock'); else { preload('storeView', r); go('store', 'stock'); } }).catch(function (e) { fail(e, $('osB')); }); };
 }
 function storeBills(r) {
   return (r.canEdit ? '<div class="card"><button class="btn" onclick="billForm()">+ New purchase bill</button></div>' : '') +
