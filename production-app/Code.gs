@@ -538,6 +538,12 @@ function saveCount(token, batchId, data) {
     const sh = sheet_(SHEET.BATCHES);
     if (b.status === 'COUNT1') {
       if (!data.photo) throw new Error('Take a photo of the received goods.');
+      // Completing a machine job: all its raw material must be given first (pending / partial material blocks it).
+      const wantDone = (data.complete || []).map(x => String(x).toUpperCase());
+      ordersWithProgress_().filter(o => wantDone.indexOf(o.id) >= 0 && o.status === 'OPEN').forEach(o => {
+        const short = orderMaterial_(o).filter(x => x.short > 0);
+        if (short.length) throw new Error(o.id + ': give all its raw material first (' + short.map(x => x.name + ' ' + x.short + ' ' + x.unit).join(', ') + ' still pending). Machine Dashboard → ' + (o.machine || 'the machine') + ' → Material.');
+      });
       // No double count: a work order already waiting for its final count in another batch cannot be counted again.
       const busy = readBatches_().filter(x => x.id !== b.id && x.karigarId === b.karigarId && x.status === 'COUNT2');
       lines.filter(l => l.wo).forEach(l => {
@@ -1102,7 +1108,7 @@ function orderMaterial_(o) {
   return (bomMap_()[o.item] || []).map(x => {
     const need = round3_(x.qty * o.qty), got = round3_(given[o.id + '|' + x.material] || 0);
     return { code: x.material, name: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '', need: need, given: got,
-      short: round3_(Math.max(0, need - got)) };
+      short: round3_(Math.max(0, need - got)), cr: ((mats[x.material] || {}).tags || []).indexOf('CR') >= 0 };
   });
 }
 
@@ -1208,7 +1214,7 @@ function machineView(token) {
     items: activeItems_(), nextAt: getSettings_().nextAt, canSetup: can_(u, 'machinesetup'), canCount: can_(u, 'count'), canRate: can_(u, 'masters'),
     me: u.id, today: todayStr_(), count2: getSettings_().count2,
     bom: (() => { const b = bomMap_(), mats = materialMap_(), out = {}; Object.keys(b).forEach(i => { out[i] = b[i].map(x => ({ code: x.material,
-      name: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '', perPiece: x.qty })); }); return out; })(),
+      name: (mats[x.material] || {}).name || x.material, unit: (mats[x.material] || {}).unit || '', perPiece: x.qty, cr: ((mats[x.material] || {}).tags || []).indexOf('CR') >= 0 })); }); return out; })(),
     store: (() => { const st = storeStockMap_(), out = {}; Object.keys(st).forEach(c => { if (st[c].tracked) out[c] = round3_(st[c].inStore); }); return out; })() };
 }
 

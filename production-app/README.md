@@ -35,9 +35,14 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   "Count 2", default **Paused**). While paused, **count 1 is the final count**: the batch is locked, pay and inventory
   are updated and a machine job is marked completed at count 1. Batches already waiting for count 2 can still be finished.
 - **Esc** closes any pop-up (like ×), after first closing an open dropdown.
-- **Starting a job** (Machine Dashboard) shows the **raw material to give** (needed, in store, "give now": can be
-  changed) with **Confirm & start job**; also for "Start now" of a next job. Material given short marks the machine
-  **red (⚠ Material short)**; its window lists what is short and **Give & confirm** gives the rest later.
+- **Starting a job** (Machine Dashboard) shows the **raw material to give** with **Confirm & start job** (also for
+  "Start now" of a next job and "+ more pieces given"). Each material is **Given** or **Pending**: materials not
+  CR-tagged come first, Given = type the quantity (less than needed = partial); **CR-tagged** materials (cut in the
+  Cutting Room) are at the bottom with no quantity: Given = all that is needed. Pending or partial material marks the
+  machine **red (⚠ Material pending)**; its window lists it (Given / Pending again, **Save given material**). **All the
+  raw material must be given before the job's count** ("Give all material first"; the server checks it too).
+- **Count from the Machine Dashboard opens at once** (from what the dashboard already has); the batch is made on the
+  server meanwhile and Save waits for it only if it is not ready yet.
 - **+ more pieces given** (machine window): the running job's quantity goes up and the material for the extra pieces is
   given (shown first, can be changed). The "Gone home" marks are no longer on the Machine Dashboard and no longer hold
   back machine jobs.
