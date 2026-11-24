@@ -24,7 +24,8 @@ const TAB = {
 
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
-  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date', 'Delivered On', 'Removed From Tab', 'Dispatch Fixed'];
+  'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date', 'Delivered On', 'Removed From Tab', 'Dispatch Fixed',
+  'Shipped Qty', 'GRN Base'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 // 'TI SKU' = the SKU's name in the Travalate Inventory (TI) app, when it differs from 'SKU' (blank = same as SKU).
@@ -32,7 +33,7 @@ const SKU_HEAD = ['Item ID', 'SKU', 'Item Name', 'Group', 'Tier', 'Active', 'TI 
 const USER_HEAD = ['User ID', 'Name', 'PIN', 'Role', 'Active'];
 // 'Blinkit Incoming' + 'RO Log Incoming' = 'Planned' (its two parts, for the Dashboard's Planned breakdown).
 const SNAP_HEAD = ['Warehouse', 'Item ID', 'Item Name', 'Group', 'Status', 'Daily Rate', 'Stock + Incoming',
-  'Days Cover', 'Suggested', 'Locked', 'Has', 'Planned', 'Blinkit Incoming', 'RO Log Incoming'];
+  'Days Cover', 'Suggested', 'Locked', 'Has', 'Planned', 'Blinkit Incoming', 'RO Log Incoming', 'Delivered (awaiting GRN)'];
 
 // Delivered: asks for the delivery date; 2 days later the RO's quantities and heading are removed from the month tab.
 const STATUSES = ['Planned', 'Created', 'Delivered', 'Cancelled'];
@@ -94,7 +95,7 @@ function doGet(e) {
 const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
-  groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates,
+  groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -428,7 +429,7 @@ function getBoot(token) {
     cache.put('deliv_clean', '1', 1800);
     try { cleanupDeliveredROs(); } catch (e) { /* never blocks opening the planner */ }
   }
-  const tabs = monthTabs_(), latest = tabs[0];
+  const tabs = monthTabs_(), latest = tabs[0], bootLog = readLog_();
   return {
     user: { id: u.id, name: u.name, role: u.role },
     version: SERVER_VERSION,
@@ -437,7 +438,8 @@ function getBoot(token) {
     groups: GROUP_NAMES,
     warehouses: latest ? blockWarehouses_(latest.sheet) : [],
     months: tabs.slice(0, 6).map(t => t.name),
-    openROs: openROsOf_(readLog_()),
+    openROs: openROsOf_(bootLog),
+    delivered: recentDeliveredOf_(bootLog),
     snapshot: snapshotMeta_(),
   };
 }
@@ -523,7 +525,7 @@ function getDashboard(token) {
     openROs: openROsOf_(all),
     // ROs delivered in the last 45 days: shown on their delivery day in the calendar, and moved from Planned to Has
     // on the Dashboard when they were marked delivered after the last plan.
-    delivered: all.filter(r => r.status === 'Delivered' && r.deliveredOn instanceof Date && r.deliveredOn.getTime() >= Date.now() - 45 * 864e5).map(publicRo_),
+    delivered: recentDeliveredOf_(all),
   };
 }
 
@@ -542,7 +544,9 @@ function readLog_() {
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
     blinkitAt: r[L['Blinkit Created At']], merged: String(r[L['Merged RO']] == null ? '' : r[L['Merged RO']]),
     dispatch: r[L['Dispatch Date']], deliveredOn: r[L['Delivered On']], removedAt: r[L['Removed From Tab']],
-    dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', updatedAt: r[L['Updated At']], // a dispatch day set by hand: used even with an appointment
+    dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', updatedAt: r[L['Updated At']],
+    shippedQty: r[L['Shipped Qty']] === '' || r[L['Shipped Qty']] == null ? null : Number(r[L['Shipped Qty']]),
+    grnBase: r[L['GRN Base']] === '' || r[L['GRN Base']] == null ? null : Number(r[L['GRN Base']]), // a dispatch day set by hand: used even with an appointment
   })).filter(r => r.key);
 }
 
@@ -555,6 +559,7 @@ function publicRo_(r) {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
     appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch), dispatchFixed: !!r.dispatchFixed, updatedAt: fmtStamp_(r.updatedAt),
+    shippedQty: r.shippedQty, grnBase: r.grnBase,
     deliveredOn: fmtDate_(r.deliveredOn), removedAt: fmtDate_(r.removedAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
@@ -664,6 +669,8 @@ function createROs_(u, data) {
         r[L['Delivered On']] = '';
         r[L['Removed From Tab']] = '';
         r[L['Dispatch Fixed']] = '';
+        r[L['Shipped Qty']] = '';
+        r[L['GRN Base']] = '';
         rows.push(r);
       });
       out.batches.push({ batch: batchId, wh: b.wh, group: b.group, units: b.lines.reduce((s, l) => s + l.qty, 0),
@@ -903,6 +910,11 @@ function writeRuns_(sh, rows, colIdx) {
   }
 }
 
+/** ROs delivered in the last 45 days (calendar, Dashboard, and "Delivered, awaiting GRN" in the plan). */
+function recentDeliveredOf_(all) {
+  return all.filter(r => r.status === 'Delivered' && r.deliveredOn instanceof Date && r.deliveredOn.getTime() >= Date.now() - 45 * 864e5).map(publicRo_);
+}
+
 /** Open ROs (Planned / Created) for the page, from RO Log records already read. */
 function openROsOf_(all) {
   return all.filter(r => OPEN_STATUSES.indexOf(r.status) >= 0).map(publicRo_);
@@ -975,6 +987,14 @@ function updateBatch(token, batch, changes) {
     if (changes.status === 'Delivered' && !delivered) throw new Error('Enter the delivery date.');
     const dispatch = changes.dispatch !== undefined ? (changes.dispatch ? parseDate_(changes.dispatch) : '') : undefined;
     if (changes.dispatch && !dispatch) throw new Error('Bad date: ' + changes.dispatch);
+    // Marked Delivered: Blinkit shows the goods in its stock only after its GRN (2–3 days). Until then the plan counts
+    // them as "Delivered": the quantity actually shipped (Shipment Manager) and, to see when Blinkit has them, the
+    // item's stock on Blinkit now (Formula Sheet), its "GRN base".
+    let grnBase = {}, shipped = {};
+    if (changes.status === 'Delivered') {
+      try { grnBase = invStockMap_(); } catch (e) { grnBase = {}; }
+      try { shipped = shippedQtyMap_(lines.map(r => changes.roNo !== undefined ? String(changes.roNo) : r.roNo).filter(Boolean)); } catch (e) { warnings.push('Shipped quantities could not be read from the Shipment Manager (' + e.message + '); the RO quantities are used.'); }
+    }
     const first = {}; // per batch: its first line (appointment / RO number when not changed)
     lines.forEach(r => { if (!first[r.batch]) first[r.batch] = r; });
 
@@ -998,6 +1018,10 @@ function updateBatch(token, batch, changes) {
       if (changes.status !== undefined && (changes.status === 'Delivered' || r.status === 'Delivered')) {
         // Delivered: keep the date (the quantities leave the month tab 2 days later); un-delivered: clear it.
         log.getRange(r.row, L['Delivered On'] + 1).setValue(changes.status === 'Delivered' ? delivered : '');
+        const sq = changes.status === 'Delivered' ? shipped[String(changes.roNo !== undefined ? changes.roNo : r.roNo).trim() + '|' + r.item] : undefined;
+        const gb = changes.status === 'Delivered' ? grnBase[whLoose_(r.wh) + '|' + r.item] : undefined;
+        r.shippedQty = sq === undefined ? null : sq; r.grnBase = gb === undefined ? null : gb;
+        log.getRange(r.row, L['Shipped Qty'] + 1, 1, 2).setValues([[r.shippedQty == null ? '' : r.shippedQty, r.grnBase == null ? '' : r.grnBase]]);
         if (changes.status !== 'Delivered' && r.removedAt) warnings.push('RO ' + (r.roNo || r.batch) + ' was already removed from the month tab; its quantities are not put back.');
         r.deliveredOn = changes.status === 'Delivered' ? delivered : '';
       }
@@ -1433,6 +1457,85 @@ function saveTiLink(token, url, secret) {
   p.setProperty('TI_SECRET', secret);
   CacheService.getScriptCache().remove('ti_stock');
   return { ok: true, skus: (res.stocks || []).length, monthLabel: res.monthLabel };
+}
+
+/* ---------------- Delivered, awaiting GRN ---------------- */
+
+/** Warehouse names compared loosely: "Pune P3 - Feeder Warehouse" = "Pune P3 Feeder" = "pune p3". */
+function whLoose_(s) { return String(s || '').toLowerCase().replace(/feeder|warehouse/g, '').replace(/[^a-z0-9]/g, ''); }
+
+/** Stock on Blinkit now ("Total sellable" of the Inventory in the Formula Sheet), per loose warehouse name | item. */
+function invStockMap_() {
+  const sh = SpreadsheetApp.getActive().getSheetByName(FORMULA_SHEET);
+  if (!sh || sh.getLastRow() < 3) return {};
+  const v = sh.getRange(1, FORMULA_FIRST_COL, sh.getLastRow(), FORMULA_COLS).getValues();
+  let h = -1;
+  for (let i = 0; i < Math.min(10, v.length); i++) if (v[i].indexOf('Item ID') >= 0 && v[i].indexOf('Total sellable') >= 0) { h = i; break; }
+  if (h < 0) return {};
+  const ci = v[h].indexOf('Item ID'), cw = v[h].indexOf('Warehouse Facility Name'), cs = v[h].indexOf('Total sellable');
+  const out = {};
+  for (let i = h + 1; i < v.length; i++) {
+    const it = Number(v[i][ci]); if (!it) continue;
+    const k = whLoose_(v[i][cw]) + '|' + it;
+    out[k] = (out[k] || 0) + (Number(v[i][cs]) || 0);
+  }
+  return out;
+}
+
+/**
+ * Quantities actually shipped per Blinkit RO (PO) number | item, from the Shipment Manager's BLINKIT_PO tab
+ * (PO_NUMBER, ITEM_CODE, …, SHIPPED_QTY). Empty when its link is not set in Settings.
+ */
+function shippedQtyMap_(roNos) {
+  const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
+  if (!id || !roNos.length) return {};
+  const want = {}; roNos.forEach(n => { want[String(n).trim()] = 1; });
+  const sh = SpreadsheetApp.openById(id).getSheetByName('BLINKIT_PO');
+  if (!sh) throw new Error('no BLINKIT_PO tab in the Shipment Manager sheet');
+  const v = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 14).getValues();
+  const out = {};
+  v.forEach(r => {
+    const po = String(r[0] || '').trim(); if (!want[po]) return;
+    if (String(r[13] || '').trim().toUpperCase() === 'CANCELLED') return;
+    const k = po + '|' + Number(r[5]);
+    out[k] = (out[k] || 0) + (parseInt(r[12], 10) || 0);
+  });
+  return out;
+}
+
+function getShipLink(token) {
+  auth_(token, 'Admin');
+  const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
+  return { url: id ? 'https://docs.google.com/spreadsheets/d/' + id + '/edit' : '' };
+}
+
+/**
+ * Saves the Shipment Manager sheet link after checking it can be read, and fills in the shipped quantities of ROs
+ * delivered in the last 10 days that do not have them yet.
+ */
+function saveShipLink(token, url) {
+  auth_(token, 'Admin');
+  const m = String(url || '').match(/\/d\/([\w-]{20,})/) || String(url || '').match(/^([\w-]{20,})$/);
+  if (!m) throw new Error('Paste the Shipment Manager Google Sheet link.');
+  let tab;
+  try { tab = SpreadsheetApp.openById(m[1]).getSheetByName('BLINKIT_PO'); }
+  catch (e) { throw new Error('The planner cannot open that sheet: ' + e.message + ' (the Google account the planner runs as needs access to it).'); }
+  if (!tab) throw new Error('That sheet has no BLINKIT_PO tab.');
+  const p = PropertiesService.getScriptProperties();
+  p.setProperty('SHIP_SHEET_ID', m[1]);
+  // Back-fill: recently delivered ROs without a shipped quantity.
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const log = ensureLog_(), all = readLog_();
+    const due = all.filter(r => r.status === 'Delivered' && r.roNo && r.shippedQty == null && r.deliveredOn instanceof Date && r.deliveredOn.getTime() >= Date.now() - 10 * 864e5);
+    const sm = shippedQtyMap_(due.map(r => r.roNo));
+    let n = 0;
+    due.forEach(r => { const q = sm[String(r.roNo).trim() + '|' + r.item]; if (q === undefined) return; log.getRange(r.row, L['Shipped Qty'] + 1).setValue(q); n++; });
+    return { ok: true, filled: n, pos: tab.getLastRow() - 1 };
+  } finally {
+    lock.releaseLock();
+  }
 }
 
 /* ---------------- Settings & SKUs ---------------- */

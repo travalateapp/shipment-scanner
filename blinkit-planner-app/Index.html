@@ -46,7 +46,7 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .stat{background:var(--chip);border-radius:10px;padding:10px}.stat .v{font-size:20px;font-weight:800}.stat .k{font-size:11px;color:var(--muted)}
 .grp{margin:14px 0 6px;font-weight:800;font-size:13px;display:flex;justify-content:space-between;gap:8px}
-.line{display:grid;grid-template-columns:minmax(200px,2.2fr) repeat(6,minmax(58px,.65fr)) 92px minmax(56px,.6fr) minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
+.line{display:grid;grid-template-columns:minmax(200px,2fr) repeat(7,minmax(54px,.6fr)) 92px minmax(56px,.6fr) minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
 .line.head{font-size:11px;color:var(--muted);font-weight:700;border-bottom:2px solid var(--line)}
 /* Each warehouse block's title + column headings stay pinned under the top bar
    while scrolling through that block, and scroll away when the next block starts. */
@@ -141,6 +141,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .calw{margin:4px 0;font-size:13px}.calw summary{cursor:pointer}.calw ul{margin:4px 0 6px;padding-left:20px}
 .calinfo{margin-top:10px;padding:10px;border:1px solid var(--line);border-radius:10px}.calinfo ul{margin:4px 0 0;padding-left:18px;font-size:13px}
 .calinfo ul.rls{list-style:none;padding-left:0;margin-bottom:6px}
+#remList{list-style:none;padding-left:0;margin:8px 0 0}
 .rls li{padding:8px 0;border-bottom:1px solid var(--line)}.rls li:last-child{border-bottom:0}
 .rl1{display:flex;align-items:center;gap:6px 8px;flex-wrap:wrap}.rl1 .rlx{margin-left:auto}
 .rl2{display:flex;flex-wrap:wrap;align-items:center;gap:6px 18px;margin-top:6px}
@@ -284,6 +285,18 @@ var PlanCore = (function () {
       else if (r.status === 'Created' && o.bulkAt && at && at >= o.bulkAt - LIVE_MS && !(r.appt && bulkDay && String(r.appt) < bulkDay)) older[k] = (older[k] || 0) + num(r.qty);
     });
 
+    // Delivered, awaiting GRN: an RO marked Delivered is in Blinkit's stock only after its GRN (2–3 days), and it may
+    // have left Blinkit's Incoming already. Its quantity (the one actually shipped, else the RO's) is counted until
+    // the Inventory shows the goods: when the item's stock is above what it was when the RO was marked Delivered
+    // ("GRN base"; without one, once the stock date is 2 days past the delivery), and at most 7 days.
+    var dlv = {}, stockDate = o.stockDate || '', todayS = o.today || '';
+    (o.delivered || []).forEach(function (r) {
+      if (!r.deliveredOn) return;
+      var k = whNorm(r.wh) + '|' + num(r.item);
+      (dlv[k] = dlv[k] || []).push({ q: r.shippedQty != null ? num(r.shippedQty) : num(r.qty), on: String(r.deliveredOn), base: r.grnBase });
+    });
+    var plusDays = function (d, n) { var p = d.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10); };
+
     return bulk.map(function (b) {
       var x = invAt[b.whId + '|' + b.item] || null;
       var s7 = x ? x.s7 : 0, s15 = x ? x.s15 : 0, s30 = x ? x.s30 : 0;
@@ -293,7 +306,17 @@ var PlanCore = (function () {
       var kk = whNorm(b.whName) + '|' + b.item;
       var gap = Math.max(0, (recent[kk] || 0) - Math.max(0, inc - (older[kk] || 0)));
       app += gap;
-      var pos = wh + ds + inc + app;
+      var dq = 0;
+      (dlv[kk] || []).forEach(function (l) {
+        if (todayS && plusDays(l.on, 7) < todayS) return;                    // a week on: surely in the stock
+        var waiting = stockDate && stockDate < l.on ? true                      // Inventory from before the delivery
+          : l.base != null && l.base !== '' ? (x ? x.sellable : 0) <= num(l.base) // stock not up yet: no GRN
+          : !!(stockDate && stockDate < plusDays(l.on, 2));
+        if (waiting) dq += l.q;
+      });
+      // …unless Blinkit's Incoming still has it (after the older and recent open ROs): never counted twice.
+      var deliv = Math.max(0, dq - Math.max(0, inc - (older[kk] || 0) - (recent[kk] || 0)));
+      var pos = wh + ds + deliv + inc + app;
       var drr = dailyRate(s7, s15, s30), status, kind;
       if (s30 === 0) { drr = 0; status = pos === 0 ? 'Not live here' : 'In stock, no sales yet'; kind = pos === 0 ? 'notlive' : 'nosale'; }
       else if (s7 === s30) { status = 'New listing (≤7 days)'; kind = 'new'; }
@@ -313,7 +336,7 @@ var PlanCore = (function () {
         key: b.whId + '|' + b.item, row: b.row, whId: b.whId, wh: b.whName, item: b.item, name: b.name,
         sku: s.sku || '', group: s.group || '', tier: s.tier || '',
         s7: s7, s15: s15, s30: s30, status: status, kind: kind, rate: drr,
-        whStock: wh, dsStock: ds, incoming: inc, appIncoming: app, blinkitGap: gap, position: pos,
+        whStock: wh, dsStock: ds, delivered: deliv, incoming: inc, appIncoming: app, blinkitGap: gap, position: pos,
         daysAtStock: drr > 0 ? pos / drr : null, daysNow: drr > 0 ? pos / drr - EL : null, elapsed: EL,
         target: target, min: b.min, max: b.max,
         rec: rec, starter: starter, note: note, locked: b.locked, remarks: b.remarks
@@ -639,7 +662,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-24 delivered-view';
+  var PAGE_BUILD = '2026-11-24 grn-wait';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -759,7 +782,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * clicked twice meanwhile. (Background saves such as the Dashboard copy of the plan do not.)
    */
   var SAVES = { login: 'Logging in…', changePin: 1, createROs: 1, updateROLine: 1, updateBatch: 1, importPdfRO: 1, saveSettings: 1, saveSkus: 1,
-    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', saveTiLink: 1, setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
+    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', saveTiLink: 1, saveShipLink: 'Checking the Shipment Manager…', setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
   var busyN = 0;
   function busy(on, text) {
     busyN = Math.max(0, busyN + (on ? 1 : -1));
@@ -1015,7 +1038,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var sm = skuMap();
     S.plan = PlanCore.computePlan(S.inv.rows, S.bulk.rows, {
       coverDays: S.cover || s.coverDays, minLine: s.minLine, roundTo: s.roundTo, skus: sm,
-      openROs: S.boot.openROs, bulkAt: S.bulkAt, elapsed: (stockInfoNow() || {}).elapsed || 0
+      openROs: S.boot.openROs, bulkAt: S.bulkAt, elapsed: (stockInfoNow() || {}).elapsed || 0,
+      delivered: S.boot.delivered || [], stockDate: (stockInfoNow() || {}).stockDate || '', today: today()
     }).filter(function (r) { return !(sm[r.item] && sm[r.item].active === false); }); // Settings → SKUs: Active unticked = left out
     var old = keepEdits ? S.edited || {} : {};
     S.edited = {}; S.final = {};
@@ -1054,7 +1078,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var rows = S.plan.filter(function (r) { return r.rate > 0 || r.position > 0; }).map(function (r) {
       return [r.wh, r.item, r.name, r.group, r.status, Math.round(r.rate * 10) / 10, r.position,
         r.daysAtStock == null ? '' : Math.round(r.daysAtStock * 10) / 10, r.rec, r.locked ? 'Yes' : '',
-        r.whStock + r.dsStock, r.incoming + r.appIncoming, r.incoming, r.appIncoming];
+        r.whStock + r.dsStock, r.incoming + r.appIncoming, r.incoming, r.appIncoming, r.delivered || 0];
     });
     var items = {}; S.plan.forEach(function (r) { items[r.item] = { item: r.item, name: r.name }; });
     var units = 0, lines = 0; S.plan.forEach(function (r) { if (r.rec > 0) { units += r.rec; lines++; } });
@@ -1306,7 +1330,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     rows.forEach(function (r) { var k = r.wh + '||' + (r.group || '?'); (groups[k] = groups[k] || []).push(r); });
     // Send heading of each block: a small "fill all" box and a ↺ reset (both left out of the Tab order).
     var head = function (gi) {
-      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right" title="Stock on Blinkit now: warehouse + in-between + darkstore">Stock</div><div class="right" title="Planned / on its way: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet">Planned</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
+      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right" title="Stock on Blinkit now: warehouse + in-between + darkstore">Stock</div><div class="right" title="Delivered (marked in the RO Log), not in Blinkit\'s stock yet: counted until Blinkit\'s GRN shows it">Delivered</div><div class="right" title="Planned / on its way: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet">Planned</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
         '<div class="sendH"><span>Send</span><span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
         '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
         '<div class="right" title="Current stock in Travalate Inventory (all warehouses together)">TI</div>' +
@@ -1334,6 +1358,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Sold 7d / 30d</span>' + fmt(r.s7) + ' / ' + fmt(r.s30) + '</div>' +
           '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
           '<div class="right"><span class="lbl">Stock</span>' + fmt(r.whStock + r.dsStock) + '</div>' +
+          '<div class="right" title="Delivered, waiting for Blinkit\'s GRN (shipped quantity from the Shipment Manager when known)"><span class="lbl">Delivered</span>' + (r.delivered ? fmt(r.delivered) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right" title="Blinkit incoming ' + fmt(r.incoming) + (r.appIncoming ? ' + RO Log ' + fmt(r.appIncoming) + ' (not on Blinkit\'s Incoming yet)' : '') + '"><span class="lbl">Planned</span>' + (inc ? fmt(inc) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
@@ -1616,7 +1641,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return { Warehouse: r.wh, Group: r.group, SKU: r.sku, 'Item ID': r.item, Status: r.status,
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
-        'Stock': r.whStock + r.dsStock, 'Planned': r.incoming + r.appIncoming, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
+        'Stock': r.whStock + r.dsStock, 'Delivered (awaiting GRN)': r.delivered || 0, 'Planned': r.incoming + r.appIncoming, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
         Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, 'TI stock': tiQty(r) == null ? '' : tiQty(r), Note: r.note, Locked: r.locked ? r.remarks : '' };
     });
     var wb = XLSX.utils.book_new();
@@ -2180,7 +2205,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       // Has = stock (Total sellable); Planned = on ROs not received yet. A snapshot from before the split has only the sum.
       has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]),
       // Planned's two parts (snapshots from before 21 Nov 2026 don't have them).
-      plBlinkit: r[12] === '' || r[12] === undefined ? null : Number(r[12]), plLog: r[13] === '' || r[13] === undefined ? null : Number(r[13]) }; });
+      plBlinkit: r[12] === '' || r[12] === undefined ? null : Number(r[12]), plLog: r[13] === '' || r[13] === undefined ? null : Number(r[13]),
+      dlvPlan: Number(r[14]) || 0 }; });
+    rows.forEach(function (r) { if (r.dlvPlan && r.has != null) { r.has += r.dlvPlan; r.delivAdj = r.dlvPlan; } });
     // ROs marked Delivered after this plan was made were still counted in its Planned (Blinkit's file / the RO Log
     // had them on their way). They are now at the warehouse: shown under Has instead, until the next plan.
     var dlv = {};
@@ -2189,7 +2216,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var q = dlv[PlanCore.whNorm(r.wh) + '|' + Number(r.item)];
       if (!q || r.planned == null || !(r.planned > 0)) return;
       var a = Math.min(q, r.planned);
-      r.planned -= a; r.has = (r.has || 0) + a; r.delivAdj = a;
+      r.planned -= a; r.has = (r.has || 0) + a; r.delivAdj = (r.delivAdj || 0) + a;
       if (r.plBlinkit != null) { var b = Math.min(a, r.plBlinkit); r.plBlinkit -= b; if (r.plLog != null) r.plLog = Math.max(0, r.plLog - (a - b)); }
     });
     var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
@@ -2238,7 +2265,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units marked Delivered after the plan: moved from Planned to Has until the next plan">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units delivered, waiting for Blinkit\'s GRN (not in Blinkit\'s stock yet): counted under Has">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     var dashRows = function () { var m = list.filter(dashMatch); return m.length ? m.slice(0, 300).map(rowHtml).join('') : '<tr><td colspan="9" class="muted">No item matches the search.</td></tr>'; };
     var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
@@ -2579,7 +2606,44 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         e.target.disabled = true; saveDays(dt, short(g3.wh) + ' added to ' + dlab(S.dashCalDay) + '.');
       }
     };
-    det.addEventListener('toggle', function () { S.dashCalOpen = det.open; if (det.open) draw(); });
+    /*
+     * As soon as the calendar opens: ROs whose appointment date has passed but are still open — mark them delivered,
+     * or give a new appointment. "Remind me later" hides the reminder for 3 hours on this device.
+     */
+    var remind = function (force) {
+      var snooze = Number(load('bp_remind_until') || 0);
+      if (!can('Planner') || (!force && (snooze > Date.now() || S.remindShown))) return;
+      S.remindShown = true; // once per opening (the Dashboard redraws when fresh data arrives)
+      var due = roGroups(d.openROs).filter(function (x) { return x.status === 'Created' && x.appt && x.appt < todayS; })
+        .sort(function (a, b) { return a.appt.localeCompare(b.appt); });
+      if (!due.length) { if (popOpenR()) closeModal(); return; }
+      openModal('<h2>⏰ Appointment date passed</h2><div class="small muted">These ROs had their appointment and are not marked Delivered yet. Mark each as delivered (on its date), or give it a new appointment.</div>' +
+        '<ul class="rls" id="remList" style="margin-top:8px">' + due.map(function (x) {
+          var dv = x.appt < todayS ? x.appt : todayS;
+          return '<li><div class="rl1"><span>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · #' + esc(x.roNo) : '') + '</span><span class="pill warn">appt ' + esc(prettyDate(x.appt)) + '</span></div>' +
+            '<div class="rl2"><span class="ag"><span class="agl">Delivered on</span><input type="date" class="rmDl" data-k="' + esc(x.key) + '" value="' + dv + '" max="' + todayS + '"> <button class="btn sm g rmDlGo" data-k="' + esc(x.key) + '">Mark delivered</button></span>' +
+            '<span class="ag"><span class="agl">New appointment</span><input type="date" class="rmAp" data-k="' + esc(x.key) + '" min="' + todayS + '"> <button class="btn sm rmApGo" data-k="' + esc(x.key) + '">Change</button></span></div></li>';
+        }).join('') + '</ul>' +
+        '<div class="row" style="margin-top:12px"><button class="btn" id="remLater">⏰ Remind me later</button><button class="btn p" id="remClose">Close</button></div>');
+      $('modalBox').style.maxWidth = '760px';
+      $('remLater').onclick = function () { store('bp_remind_until', String(Date.now() + 3 * 3600e3)); closeModal(); toast('I\'ll remind you again in 3 hours.'); };
+      $('remClose').onclick = closeModal;
+      $('modalBox').onclick = function (e) {
+        var b = e.target.closest('.rmDlGo, .rmApGo'); if (!b) return;
+        var k = b.getAttribute('data-k'), g = roGroups(d.openROs).filter(function (x) { return x.key === k; })[0]; if (!g) return;
+        var isDl = b.classList.contains('rmDlGo'), inp = $('modalBox').querySelector((isDl ? '.rmDl' : '.rmAp') + '[data-k="' + k.replace(/"/g, '\\"') + '"]');
+        if (!inp || !inp.value) { toast(isDl ? 'Enter the delivery date.' : 'Enter the new appointment date.', 4000); return; }
+        b.disabled = true;
+        api('updateBatch', S.token, g.batches, isDl ? { status: 'Delivered', deliveredOn: inp.value } : { appt: inp.value })
+          .then(function (res) {
+            d.openROs = S.boot.openROs = res.openROs; syncDelivered(res.rows); refreshPlanAfterRoChange(); draw();
+            toast(short(g.wh) + (isDl ? ' marked delivered ' + dlab(inp.value) + '.' : ': new appointment ' + dlab(inp.value) + '.'));
+            remind(true);
+          }, function (er) { b.disabled = false; toast(er.message, 6000); });
+      };
+    };
+    var popOpenR = function () { return !$('modal').classList.contains('hidden') && !!$('remList'); };
+    det.addEventListener('toggle', function () { S.dashCalOpen = det.open; if (det.open) { draw(); S.remindShown = false; remind(false); } });
     $('dCalBody').onclick = function (e) {
       var mvb = e.target.closest('.mvGo');
       if (mvb) {
@@ -2594,7 +2658,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var cc = e.target.closest('.cd[data-d]'); if (!cc) return;
       S.dashCalDay = cc.getAttribute('data-d'); draw(); openDay(); // the day's details open in a pop-up
     };
-    if (det.open) draw();
+    if (det.open) { draw(); remind(false); }
   }
 
   /* ======================= Settings (admin) ======================= */
@@ -2624,6 +2688,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Inventory web-app link (/exec)</label><input type="text" id="tiUrl" placeholder="Loading…"></div>' +
         '<div><label class="f">Shared secret</label><input type="password" id="tiSec" autocomplete="off" placeholder="…"></div>' +
         '<div style="flex:0 0 auto"><button class="btn p" id="tiSave">Save &amp; test</button></div></div><div id="tiOut"></div></div>' +
+      '<div class="card"><h2>Shipment Manager</h2><div class="small muted">When an RO is marked <b>Delivered</b>, the planner takes the quantities <b>actually shipped</b> from the Shipment Manager (tab BLINKIT_PO, by RO number and item) and counts them as <b>Delivered</b> until Blinkit\'s stock shows them (GRN). ' +
+        'Paste the Shipment Manager\'s Google Sheet link; the Google account the planner runs as must be able to open it.</div>' +
+        '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager sheet link</label><input type="text" id="shUrl" placeholder="Loading…"></div>' +
+        '<div style="flex:0 0 auto"><button class="btn p" id="shSave">Save &amp; test</button></div></div><div id="shOut"></div></div>' +
       '<div class="card"><h2>Month tabs</h2><div class="small muted">Newest month tabs: ' + esc((S.boot.months || []).join(', ')) + '.<br>' +
       '<b>Start new month</b> creates the tab (copy of the newest month, columns D–H emptied, columns I onwards kept as they are) if it does not exist yet, then copies in open ROs from the last ' + s.carryDays + ' days of the old month. ' +
       'If you create the tab yourself, this only does the copying-in.</div>' +
@@ -2637,6 +2705,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     api('getTiLink', S.token).then(function (t) {
       $('tiUrl').value = t.url; $('tiSec').placeholder = t.hasSecret ? 'saved — leave empty to keep it' : 'not set yet';
     }, function (e) { $('tiOut').innerHTML = msgs([e.message], 'bad'); });
+    api('getShipLink', S.token).then(function (t) { $('shUrl').value = t.url; $('shUrl').placeholder = 'https://docs.google.com/spreadsheets/d/…'; }, function (e) { $('shOut').innerHTML = msgs([e.message], 'bad'); });
+    $('shSave').onclick = function () {
+      var b = this; b.disabled = true;
+      api('saveShipLink', S.token, $('shUrl').value.trim()).then(function (r) {
+        b.disabled = false; $('shOut').innerHTML = msgs(['Connected: ' + r.pos + ' PO lines in BLINKIT_PO.' + (r.filled ? ' Shipped quantities filled in for ' + r.filled + ' recently delivered RO line(s).' : '')], 'ok');
+      }, function (e) { b.disabled = false; $('shOut').innerHTML = msgs([e.message], 'bad'); });
+    };
     $('tiSave').onclick = function () {
       var b = this; b.disabled = true; b.innerHTML = '<span class="spin"></span>';
       api('saveTiLink', S.token, $('tiUrl').value.trim(), $('tiSec').value).then(function (r) {
