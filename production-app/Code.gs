@@ -46,7 +46,8 @@ const HEADERS = {};
 HEADERS[SHEET.SETTINGS] = ['Setting', 'Value', 'Notes'];
 // Gone Home = the day a karigar went home (empty = present): no new machine job and their next job waits. Active = No is
 // for a karigar who left (cannot log in, not in the lists).
-HEADERS[SHEET.KARIGARS] = ['ID', 'Name', 'Phone', 'PIN', 'Active', 'Joined', 'Note', 'Gone Home'];
+// Team = the karigar's team for man hours: {"main":1,"helpers":[0.5,0.4]} (a main counts 1, a helper 0.4 / 0.5 / 0.6).
+HEADERS[SHEET.KARIGARS] = ['ID', 'Name', 'Phone', 'PIN', 'Active', 'Joined', 'Note', 'Gone Home', 'Team'];
 HEADERS[SHEET.STAFF] = ['ID', 'Name', 'Phone', 'PIN', 'Role', 'Permissions', 'Active'];
 HEADERS[SHEET.ITEMS] = ['Code', 'Name', 'Type', 'Active', 'Selling Price'];
 // Karigar ID * = the STANDARD rate (all karigars). A karigar ID = that karigar's own rate for future lots; Rate STD = back to standard.
@@ -109,6 +110,8 @@ const DEFAULT_SETTINGS = [
   ['Large Advance Alert', 10000, 'An alert is sent when one advance (or a top-up) is this amount or more'],
   ['Low Margin %', 20, 'Items whose profit margin is below this are marked'],
   ['Next Job Starts At', 'Count 2', 'Machine Dashboard: a machine\'s next job starts at Count 2 (default) or Count 1 of the job before'],
+  ['Shift Hours', 13, 'Man hours: hours in one shift'],
+  ['Working Days', 26, 'Man hours: working days in a month'],
   ['Count 2', 'Paused', 'Paused = count 1 is the final count (the job is completed at count 1). On = a second, blind count. Super admins switch it in Staff & permissions'],
 ];
 
@@ -153,7 +156,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   addOrderQty, giveOrderMaterial, setCount2,
-  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialGroup, setMaterialTag,
+  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialGroup, setKarigarTeam, setManHourSettings, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1487,8 +1490,11 @@ function materialRoom(token) {
       base: tracked ? round3_(available + allocated) : null, allocated: allocated, available: available, reserved: reserved,
       status: !tracked ? 'NONE' : reserved > available + 1e-9 ? 'SHORT' : available <= 0 || (m.reorder && available < m.reorder) ? 'LOW' : 'OK',
       short: tracked ? round3_(Math.max(0, reserved - available)) : 0, group: m.group, store: storeRow_(m, st, opening),
+      incoming: round3_((open[m.code] || []).reduce((n, o) => n + Math.max(0, o.units - o.received), 0)),
       orders: (open[m.code] || []).map(poView) };
   }).sort((a, b) => a.name.localeCompare(b.name));
+  // Projected = Available + still to come on open orders − Reserved for the Next jobs.
+  rows.forEach(r => { r.projected = r.tracked ? round3_(r.available + r.incoming - r.reserved) : null; });
   const removed = readPOrders_().filter(o => o.status === 'CANCELLED').map(o => Object.assign({}, o, { received: 0, bills: [], doneHow: 'REMOVED', doneOn: String(o.closedAt).slice(0, 10) }));
   const hist = pos.filter(o => o.done).concat(removed).sort((a, b) => String(b.doneOn).localeCompare(String(a.doneOn))).slice(0, 300)
     .map(o => Object.assign(poView(o), { material: o.material, name: names[o.material] || (mats[o.material] || {}).name || o.material, unit: (mats[o.material] || {}).unit || '',
@@ -2182,8 +2188,45 @@ function advanceDeduction_(a, period, remaining) {
 
 function karigarList(token) {
   const u = authStaff_(token, 'masters|reports|advances|approve');
-  return { list: readKarigars_().map(k => ({ id: k.id, name: k.name, phone: k.phone, active: k.active, joined: k.joined, note: k.note, away: k.away })),
-    canEdit: can_(u, 'masters') };
+  const s = getSettings_();
+  const list = readKarigars_().map(k => ({ id: k.id, name: k.name, phone: k.phone, active: k.active, joined: k.joined, note: k.note, away: k.away,
+    team: k.team, manHours: manHours_(k.team, s) }));
+  return { list: list, canEdit: can_(u, 'masters'), shiftHours: s.shiftHours, workDays: s.workDays,
+    totalManHours: round2_(list.filter(k => k.active).reduce((n, k) => n + k.manHours, 0)) };
+}
+
+/** Man hours a month: shift hours × working days × (mains + Σ helpers' share). */
+function manHours_(team, s) {
+  return round2_(s.shiftHours * s.workDays * ((team.main || 0) + team.helpers.reduce((n, h) => n + h, 0)));
+}
+
+/** A karigar's team: data = { main (number of mains), helpers: [0.4 | 0.5 | 0.6, …] }. */
+function setKarigarTeam(token, id, data) {
+  const u = authStaff_(token, 'masters');
+  const k = readKarigars_().filter(x => x.id === String(id || '').toUpperCase())[0];
+  if (!k) throw new Error('Karigar not found.');
+  data = data || {};
+  const main = Number(data.main);
+  if (!(main >= 0) || main % 1) throw new Error('Enter the number of mains.');
+  const helpers = (data.helpers || []).map(Number);
+  if (helpers.some(h => [0.4, 0.5, 0.6].indexOf(h) < 0)) throw new Error('A helper counts 0.4, 0.5 or 0.6.');
+  const sh = sheet_(SHEET.KARIGARS);
+  if (String(sh.getRange(1, 9).getValues()[0][0] || '') === '') sh.getRange(1, 9).setValue('Team').setFontWeight('bold').setBackground('#e8eefc');
+  sh.getRange(k.row, 9).setValue(JSON.stringify({ main: main, helpers: helpers }));
+  forget_('karigars');
+  log_(u, 'KARIGAR_TEAM', k.id, k.name + ': ' + main + ' main' + (helpers.length ? ' + helpers ' + helpers.join(', ') : '') + ' (was ' + k.team.main + ' main' + (k.team.helpers.length ? ' + ' + k.team.helpers.join(', ') : '') + ')');
+  return karigarList(token);
+}
+
+/** Shift hours and working days a month (man hours). */
+function setManHourSettings(token, hours, days) {
+  const u = authStaff_(token, 'masters');
+  hours = Number(hours); days = Number(days);
+  if (!(hours > 0 && hours <= 24)) throw new Error('Enter the hours in a shift.');
+  if (!(days > 0 && days <= 31)) throw new Error('Enter the working days in a month.');
+  setSetting_('Shift Hours', hours); setSetting_('Working Days', days);
+  log_(u, 'SETTING', 'Man hours', hours + ' h × ' + days + ' days');
+  return karigarList(token);
 }
 
 /** data = { id (edit) | new, name, phone, active, note, pin (new only) } */
@@ -2992,7 +3035,8 @@ function bool_(v) { return !(v === false || /^(false|no|0)$/i.test(String(v).tri
 
 function readKarigars_() {
   return memo_('karigars', () => rows_(SHEET.KARIGARS).map((r, i) => ({ row: i + 2, kind: 'K', id: String(r[0]).trim().toUpperCase(),
-    name: String(r[1]).trim(), phone: String(r[2]), pin: String(r[3]), active: bool_(r[4]), joined: toDateStr_(r[5]), note: String(r[6] || ''), away: toDateStr_(r[7]) }))
+    name: String(r[1]).trim(), phone: String(r[2]), pin: String(r[3]), active: bool_(r[4]), joined: toDateStr_(r[5]), note: String(r[6] || ''), away: toDateStr_(r[7]),
+    team: (t => ({ main: t && Number(t.main) >= 0 ? Number(t.main) : 1, helpers: (t && Array.isArray(t.helpers) ? t.helpers : []).map(Number).filter(x => x > 0) }))(parseJson_(r[8], null)) }))
     .filter(k => k.id));
 }
 
@@ -3274,6 +3318,7 @@ function getSettings_() {
       lowMargin: m['Low Margin %'] === '' || m['Low Margin %'] === undefined ? 20 : Number(m['Low Margin %']) || 0,
       nextAt: /1/.test(String(m['Next Job Starts At'] || '')) ? 'COUNT1' : 'COUNT2', // default: after count 2
       count2: /^(on|yes|true|running|resumed)$/i.test(String(m['Count 2'] || '').trim()), // default: paused (count 1 is final)
+      shiftHours: Number(m['Shift Hours']) > 0 ? Number(m['Shift Hours']) : 13, workDays: Number(m['Working Days']) > 0 ? Number(m['Working Days']) : 26,
     };
   });
 }
