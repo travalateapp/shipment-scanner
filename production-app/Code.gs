@@ -38,6 +38,7 @@ const SHEET = {
   SUPPLIERS: 'Suppliers',
   MACHINES: 'Machines',
   CUTTINGS: 'Cuttings',
+  MAT_ORDERS: 'Material Orders',
 };
 
 const HEADERS = {};
@@ -62,6 +63,9 @@ HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status
 // (cutting completed) or CANCELLED. Completed cutting is used up when a job of that SKU starts ('Cut Used').
 // Status: TODO (on the table) → PLANNED (Planned Date) → DONE (completed on 'Done At'), or CANCELLED (removed: not cut).
 HEADERS[SHEET.CUTTINGS] = ['ID', 'Date', 'Item Code', 'Qty', 'Materials', 'Status', 'Note', 'By', 'At', 'Done By', 'Done At', 'Planned Date'];
+// Material Room: an order placed with a supplier for a material (date + quantity). The newest row of a material counts;
+// Status CLEARED = no order now.
+HEADERS[SHEET.MAT_ORDERS] = ['Material Code', 'Status', 'Order Date', 'Qty', 'By', 'At'];
 // Machines (M1, M2 …): a work order on a machine has its ID in 'Machine'. 'Off Machine' = when 'Complete job' (count 1)
 // freed the machine; the work order is then marked completed at its final count, even with fewer pieces.
 HEADERS[SHEET.MACHINES] = ['ID', 'Name', 'Active', 'Added By', 'At'];
@@ -142,7 +146,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   addOrderQty, giveOrderMaterial, setCount2,
-  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, setMaterialTag,
+  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, setMaterialOrder, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1396,25 +1400,49 @@ function nextJobsBlock_() {
 }
 
 /**
- * Available cuttings per SKU (like the material stock): Base = cutting not made into goods yet; Allocated = given to
- * karigars with their running jobs (still to make); Available = Base − Allocated; Reserved = Next jobs (not started).
+ * Material Room, per material (CR-tagged and the others): Base stock = in the store + Allocated; Allocated = given to
+ * karigars for their running jobs and not made into goods yet; Available = in the store; Reserved = what the Next jobs
+ * need (not given yet). Status: SHORT (Reserved > Available), LOW (nothing / below the reorder level), OK, NONE (no store
+ * stock entered). Plus the order placed with a supplier (date, quantity).
  */
-function cutStockBlock_() {
-  const avail = cutAvailable_(), prog = ordersWithProgress_(), by = {};
-  const items = activeItems_().filter(i => crMaterials_(i.code).length);
-  items.forEach(i => { by[i.code] = { item: i.code, name: i.name || '', base: 0, allocated: 0, available: Math.max(0, avail[i.code] || 0), reserved: 0 }; });
-  prog.forEach(o => {
-    const r = by[o.item]; if (!r) return;
-    if (o.open && o.cutUsed) r.allocated += Math.min(o.cutUsed, o.remaining);
-    if (o.next) r.reserved += o.qty;
-  });
-  return items.map(i => {
-    const r = by[i.code];
-    r.base = r.available + r.allocated;
-    r.status = r.reserved > r.available ? 'SHORT' : r.available > 0 ? 'OK' : 'LOW';
-    r.short = Math.max(0, r.reserved - r.available);
-    return r;
-  }).sort((a, b) => a.item.localeCompare(b.item));
+function materialRoom(token) {
+  const u = authStaff_(token, 'cutting|reports|machines|store');
+  const st = storeStockMap_(), prog = ordersWithProgress_(), bom = bomMap_(), alloc = {}, res = {}, ord = {};
+  prog.filter(o => o.open).forEach(o => orderMaterial_(o).forEach(x => {
+    const per = o.qty ? x.need / o.qty : 0;
+    alloc[x.code] = (alloc[x.code] || 0) + Math.max(0, Math.min(x.given, per * o.remaining));
+  }));
+  prog.filter(o => o.next).forEach(o => (bom[o.item] || []).forEach(x => { res[x.material] = (res[x.material] || 0) + x.qty * o.qty; }));
+  rows_(SHEET.MAT_ORDERS).forEach(r => { const c = String(r[0]).trim().toUpperCase(); if (c) ord[c] = { status: String(r[1]).trim().toUpperCase(), date: toDateStr_(r[2]), qty: Number(r[3]) || 0 }; });
+  const rows = readMaterials_().filter(m => m.active).map(m => {
+    const x = st[m.code] || {}, tracked = !!x.tracked, available = tracked ? round3_(x.inStore) : null;
+    const allocated = round3_(alloc[m.code] || 0), reserved = round3_(res[m.code] || 0), o = ord[m.code];
+    return { code: m.code, name: m.name, unit: m.unit, cr: m.tags.indexOf('CR') >= 0, tracked: tracked,
+      base: tracked ? round3_(available + allocated) : null, allocated: allocated, available: available, reserved: reserved,
+      status: !tracked ? 'NONE' : reserved > available + 1e-9 ? 'SHORT' : available <= 0 || (m.reorder && available < m.reorder) ? 'LOW' : 'OK',
+      short: tracked ? round3_(Math.max(0, reserved - available)) : 0,
+      order: o && o.status === 'PLACED' ? { date: o.date, qty: o.qty } : null };
+  }).sort((a, b) => a.name.localeCompare(b.name));
+  return { cr: rows.filter(r => r.cr), other: rows.filter(r => !r.cr), canOrder: can_(u, 'store') || can_(u, 'cutting') || can_(u, 'machines') };
+}
+
+/** data = { placed: true, date, qty } (an order placed with a supplier) or { placed: false } (no order now). */
+function setMaterialOrder(token, code, data) {
+  const u = authStaff_(token, 'store|cutting|machines');
+  const m = readMaterials_().filter(x => x.code === String(code || '').toUpperCase())[0];
+  if (!m) throw new Error('Material not found.');
+  data = data || {};
+  let row;
+  if (data.placed) {
+    const day = toDateStr_(data.date), q = Number(data.qty);
+    if (!day) throw new Error('Choose the date the order was placed.');
+    if (!(q > 0)) throw new Error('Enter the quantity ordered.');
+    row = [m.code, 'PLACED', "'" + day, q, u.id, nowStr_()];
+  } else row = [m.code, 'CLEARED', '', '', u.id, nowStr_()];
+  sheet_(SHEET.MAT_ORDERS).appendRow(row);
+  forget_('matorders');
+  log_(u, data.placed ? 'MATERIAL_ORDER' : 'MATERIAL_ORDER_CLEARED', m.code, m.name + (data.placed ? ': ordered ' + row[3] + ' ' + m.unit + ' on ' + String(row[2]).slice(1) : ': no order'));
+  return materialRoom(token);
 }
 
 /** Cut material from the rolls: rolls × roll size (the roll size saved with the cutting, else the usual one now). */
@@ -1435,7 +1463,7 @@ function cuttingView(token) {
   const since = Utilities.formatDate(new Date(Date.now() - 30 * 864e5), tz_(), 'yyyy-MM-dd');
   const list = readCuttings_().filter(c => c.status === 'TODO' || c.status === 'PLANNED' || (c.status === 'DONE' && String(c.doneAt || c.date).slice(0, 10) >= since)).reverse()
     .map(c => Object.assign({}, c, { materials: cutActual_(c), byName: staffName_(c.by), doneByName: c.doneBy ? staffName_(c.doneBy) : '' }));
-  return { items: items, list: list, block: nextJobsBlock_(), stock: cutStockBlock_(), canCut: can_(u, 'cutting'), today: todayStr_(),
+  return { items: items, list: list, block: nextJobsBlock_(), canCut: can_(u, 'cutting'), today: todayStr_(),
     crCount: readMaterials_().filter(m => m.active && m.tags.indexOf('CR') >= 0).length };
 }
 
