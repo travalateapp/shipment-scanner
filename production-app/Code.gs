@@ -1411,6 +1411,14 @@ function nextJobsBlock_() {
   }).sort((a, b) => (b.next ? 1 : 0) - (a.next ? 1 : 0) || a.item.localeCompare(b.item));
 }
 
+/** The unit a material is bought in, for orders: rolls for fabric priced per meter (× the usual roll length), else the
+ * purchase unit of its price (roll, pack, kg …) with how many BOM units one gives, else its own unit. */
+function boughtAs_(m) {
+  const L = Number((m.conversion || {}).length) || 0;
+  if (m.purchaseType === 'METER' && L) return { unit: 'roll', per: perRoll_(m) || L };
+  return { unit: m.purchaseUnit || m.unit, per: m.perPurchase || 1 };
+}
+
 function readPOrders_() {
   return memo_('porders', () => rows_(SHEET.PORDERS).map((r, i) => ({ row: i + 2, id: String(r[0]), material: String(r[1]).trim().toUpperCase(),
     supplier: String(r[2] || '').trim(), date: toDateStr_(r[3]), qty: Number(r[4]) || 0, purchaseUnit: String(r[5] || ''), units: Number(r[6]) || 0,
@@ -1474,7 +1482,7 @@ function materialRoom(token) {
     const x = st[m.code] || {}, tracked = !!x.tracked, available = tracked ? round3_(x.inStore) : null;
     const allocated = round3_(alloc[m.code] || 0), reserved = round3_(res[m.code] || 0);
     return { code: m.code, name: m.name, unit: m.unit, cr: m.tags.indexOf('CR') >= 0, tracked: tracked,
-      purchaseUnit: m.purchaseUnit || m.unit, perPurchase: m.perPurchase || 1,
+      purchaseUnit: boughtAs_(m).unit, perPurchase: boughtAs_(m).per,
       base: tracked ? round3_(available + allocated) : null, allocated: allocated, available: available, reserved: reserved,
       status: !tracked ? 'NONE' : reserved > available + 1e-9 ? 'SHORT' : available <= 0 || (m.reorder && available < m.reorder) ? 'LOW' : 'OK',
       short: tracked ? round3_(Math.max(0, reserved - available)) : 0,
@@ -1499,7 +1507,7 @@ function placeOrder(token, data) {
   const day = toDateStr_(data.date), q = Number(data.qty);
   if (!day) throw new Error('Choose the date the order was placed.');
   if (!(q > 0)) throw new Error('Enter the quantity ordered.');
-  const name = saveSupplier_(u, sup), per = m.perPurchase || 1, pu = m.purchaseUnit || m.unit, units = round3_(q * per);
+  const ba = boughtAs_(m), name = saveSupplier_(u, sup), per = ba.per, pu = ba.unit, units = round3_(q * per);
   const id = withLock_(() => {
     const id = nextId_(SHEET.PORDERS, 'PO-');
     sheet_(SHEET.PORDERS).appendRow([id, m.code, name, "'" + day, q, pu, units, 'OPEN', String(data.note || '').slice(0, 200), u.id, nowStr_(), '', '']);
