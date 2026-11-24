@@ -142,7 +142,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   addOrderQty, giveOrderMaterial, setCount2,
-  cuttingView, saveCutting, setCuttingStatus, setMaterialTag,
+  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1422,7 +1422,8 @@ function cutActual_(c) {
   const mats = materialMap_();
   return c.materials.map(m => {
     const per = m.perRoll || (mats[m.code] ? perRoll_(mats[m.code]) : 0);
-    const actual = m.rolls && per ? round3_(m.rolls * per) : null;
+    // Actual cut: typed in (Edit actual cut), else rolls × roll size.
+    const actual = m.actual !== undefined && m.actual !== null && m.actual !== '' ? round3_(Number(m.actual)) : m.rolls && per ? round3_(m.rolls * per) : null;
     return Object.assign({}, m, { perRoll: per, actual: actual, diff: actual === null ? null : round3_(actual - m.qty),
       diffPct: actual === null || !m.qty ? null : round2_(100 * (actual - m.qty) / m.qty) });
   });
@@ -1459,6 +1460,29 @@ function saveCutting(token, data) {
     return id;
   });
   log_(u, 'CUTTING', id, item + ' × ' + q + ': ' + mats.map(m => m.name + ' ' + m.qty + ' ' + m.unit + (m.rolls ? ' (' + m.rolls + ' rolls)' : '')).join(', '));
+  return cuttingView(token);
+}
+
+/** Actual cut of a cutting's CR materials: lines = { code: { rolls, actual } } (blank = not known). */
+function setCuttingActual(token, id, lines) {
+  const u = authStaff_(token, 'cutting');
+  const c = readCuttings_().filter(x => x.id === id)[0];
+  if (!c || c.status === 'CANCELLED') throw new Error('Cutting not found.');
+  lines = lines || {};
+  const mats = materialMap_();
+  const num = v => (v === '' || v === null || v === undefined ? null : Number(v));
+  const out = c.materials.map(m => {
+    const l = lines[m.code] || {}, r = num(l.rolls), a = num(l.actual);
+    if ((r !== null && !(r >= 0)) || (a !== null && !(a >= 0))) throw new Error('Enter valid numbers for ' + m.name + '.');
+    const x = Object.assign({}, m);
+    delete x.rolls; delete x.actual;
+    if (r) { x.rolls = r; x.perRoll = m.perRoll || (mats[m.code] ? perRoll_(mats[m.code]) : 0); }
+    if (a !== null) x.actual = round3_(a);
+    return x;
+  });
+  sheet_(SHEET.CUTTINGS).getRange(c.row, 5).setValue(JSON.stringify(out));
+  forget_('cuttings');
+  log_(u, 'CUTTING_ACTUAL', id, c.item + ' × ' + c.qty + ': ' + out.map(m => m.name + ' ' + (m.actual !== undefined ? m.actual + ' ' + m.unit : m.rolls ? m.rolls + ' rolls' : '–')).join(', '));
   return cuttingView(token);
 }
 

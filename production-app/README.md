@@ -42,7 +42,7 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   given (shown first, can be changed). The "Gone home" marks are no longer on the Machine Dashboard and no longer hold
   back machine jobs.
 - **Cutting Room · To cut** columns: Cutting (SKU + ID), Pieces, CR material, **Calculation** (material per piece ×
-  pieces), **Actual cut** (rolls × roll size), **Difference** (red when more than 2%), and a status picker instead of
+  pieces), **Actual cut** (✏️ **Edit actual cut** on each cutting, also completed ones: rolls × roll size, or type the amount), **Difference** (red when more than 2%), and a status picker instead of
   "Cutting completed": **On table** (default), **Planned** (+ date), **Completed** (+ date), **Remove** (asks first; not
   getting cut). Sheet Cuttings gets the column **Planned Date**. **Next jobs & cuttings**: SKU with its CR fabric lines,
   Available, **Planned date** (or "Unplanned"), Next jobs, Status. **Available Cuttings** (block in the Cutting Room and
