@@ -516,10 +516,14 @@ function getDashboard(token) {
   auth_(token);
   const sh = sheet_(TAB.SNAP);
   const rows = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, SNAP_HEAD.length).getValues() : [];
+  const all = readLog_();
   return {
     meta: snapshotMeta_(),
     rows: rows.map(r => r.map(v => (v instanceof Date ? fmtDate_(v) : v))),
-    openROs: openROsOf_(readLog_()),
+    openROs: openROsOf_(all),
+    // ROs delivered in the last 45 days: shown on their delivery day in the calendar, and moved from Planned to Has
+    // on the Dashboard when they were marked delivered after the last plan.
+    delivered: all.filter(r => r.status === 'Delivered' && r.deliveredOn instanceof Date && r.deliveredOn.getTime() >= Date.now() - 45 * 864e5).map(publicRo_),
   };
 }
 
@@ -538,7 +542,7 @@ function readLog_() {
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
     blinkitAt: r[L['Blinkit Created At']], merged: String(r[L['Merged RO']] == null ? '' : r[L['Merged RO']]),
     dispatch: r[L['Dispatch Date']], deliveredOn: r[L['Delivered On']], removedAt: r[L['Removed From Tab']],
-    dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', // a dispatch day set by hand: used even with an appointment
+    dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', updatedAt: r[L['Updated At']], // a dispatch day set by hand: used even with an appointment
   })).filter(r => r.key);
 }
 
@@ -550,7 +554,7 @@ function publicRo_(r) {
   return {
     key: r.key, batch: r.batch, createdAt: fmtStamp_(r.createdAt), createdBy: r.createdBy, roDate: fmtDate_(r.roDate),
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
-    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch), dispatchFixed: !!r.dispatchFixed,
+    appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch), dispatchFixed: !!r.dispatchFixed, updatedAt: fmtStamp_(r.updatedAt),
     deliveredOn: fmtDate_(r.deliveredOn), removedAt: fmtDate_(r.removedAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
