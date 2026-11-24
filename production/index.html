@@ -1224,18 +1224,20 @@ function mrTools(x) {
     (r.canGroup ? '<a class="lnk" onclick="mrGroup(\'' + esc(x.code) + '\')">' + (x.group ? '🏷 ' + esc(x.group) : '+ group') + '</a>' : x.group ? '<span class="muted">🏷 ' + esc(x.group) + '</span>' : '') +
     (r.canStock ? '<a class="lnk" onclick="openingForm(\'' + esc(x.code) + '\',1)">' + (x.tracked ? 'Opening stock' : '+ Opening stock') + '</a>' : '') + '</div>';
 }
+/* Projected = Available + still to come on open orders − Reserved for the Next jobs (red when below 0). */
+function mrProj(x) { return x.projected === null || x.projected === undefined ? '<span class="muted">–</span>' : '<b class="' + (x.projected < 0 ? 'neg' : '') + '">' + num(x.projected) + ' ' + esc(x.unit) + '</b>'; }
 function mrTable(rows, canOrder) {
   var g = S.data.mrG || '';
   if (g) rows = rows.filter(function (x) { return g === '—' ? !x.group : x.group === g; });
   if (!rows.length) return '<div class="muted">No material here' + (g ? ' in this group' : '') + '.</div>';
   var phone = '<div class="only-phone">' + rows.map(function (x) {
     return '<div class="mcard"><div class="mtop"><div><b>' + esc(x.name) + '</b>' + mrTools(x) + '</div><span>' + mrStatus(x) + '</span></div>' +
-      '<div class="mrk"><div>Base stock</div><div>' + mrQty(x.base, x.unit) + '</div><div>Allocated (ongoing)</div><div>' + mrQty(x.allocated, x.unit) + '</div>' +
-      '<div>Available</div><div><b>' + mrQty(x.available, x.unit) + '</b></div><div>Reserved (next jobs)</div><div>' + mrQty(x.reserved, x.unit) + '</div></div>' + mrOrderCell(x, canOrder) + '</div>';
+      '<div class="mrk"><div>Available</div><div><b>' + mrQty(x.available, x.unit) + '</b></div><div>Reserved (next jobs)</div><div>' + mrQty(x.reserved, x.unit) + '</div>' +
+      '<div>On order (to come)</div><div>' + mrQty(x.incoming, x.unit) + '</div><div>Projected</div><div>' + mrProj(x) + '</div></div>' + mrOrderCell(x, canOrder) + '</div>';
   }).join('') + '</div>';
-  return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>Raw material</th><th class="r">Base stock</th><th class="r">Allocated (ongoing)</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th>Status</th><th>Orders placed</th></tr>' + rows.map(function (x) {
-    return '<tr><td>' + esc(x.name) + ' <span class="muted">(' + esc(x.unit) + ')</span>' + mrTools(x) + '</td><td class="r">' + mrQty(x.base, x.unit) + '</td><td class="r">' + mrQty(x.allocated, x.unit) + '</td><td class="r"><b>' + mrQty(x.available, x.unit) + '</b></td>' +
-      '<td class="r">' + mrQty(x.reserved, x.unit) + '</td><td>' + mrStatus(x) + '</td><td style="min-width:230px">' + mrOrderCell(x, canOrder) + '</td></tr>';
+  return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>Raw material</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th class="r">On order (to come)</th><th class="r">Projected</th><th>Status</th><th>Orders placed</th></tr>' + rows.map(function (x) {
+    return '<tr><td>' + esc(x.name) + ' <span class="muted">(' + esc(x.unit) + ')</span>' + mrTools(x) + '</td><td class="r"><b>' + mrQty(x.available, x.unit) + '</b></td><td class="r">' + mrQty(x.reserved, x.unit) + '</td>' +
+      '<td class="r">' + mrQty(x.incoming, x.unit) + '</td><td class="r">' + mrProj(x) + '</td><td>' + mrStatus(x) + '</td><td style="min-width:230px">' + mrOrderCell(x, canOrder) + '</td></tr>';
   }).join('') + '</table></div>';
 }
 /* History (collapsed): completed orders (all received, or marked complete by hand) and removed ones. */
@@ -1254,7 +1256,7 @@ VIEWS.cutstock = function () {
     var gtabs = '<div class="tabs" style="margin:0 0 10px">' + gtab('', 'All', all.length) + r.groups.map(function (g) { return gtab(g, g, all.filter(function (x) { return x.group === g; }).length); }).join('') +
       (all.some(function (x) { return !x.group; }) && r.groups.length ? gtab('—', 'No group', all.filter(function (x) { return !x.group; }).length) : '') + '</div>';
     render('<h1 class="page">📦 Material Room <small>raw material stock, what running and next jobs take, and orders placed</small></h1>' +
-      '<div class="muted" style="margin:-4px 0 10px">Base stock = in the store + allocated. Allocated = given to karigars for their running jobs, not made into goods yet. Available = in the store. Reserved = what the Next jobs need (not given yet): it does not reduce Available, but is flagged if there won\'t be enough. ' +
+      '<div class="muted" style="margin:-4px 0 10px">Available = in the store. Reserved = what the Next jobs need (not given yet). On order = still to come on the open orders. <b>Projected = Available + On order − Reserved</b> (red when there won\'t be enough). ' +
       'Orders: a purchase bill of the <b>same vendor</b> and material fills the oldest open order; a full order is completed and moves to History.</div>' +
       gtabs + '<div class="card"><h2><span class="crtag on" style="font-size:11px">CR</span> CR-tagged materials (Cutting Room) <span class="pill">' + r.cr.length + '</span></h2>' + mrTable(r.cr, r.canOrder) + mrHistory(r.historyCr || []) + '</div>' +
       '<div class="card"><h2>Other materials (not CR-tagged) <span class="pill">' + r.other.length + '</span></h2>' + mrTable(r.other, r.canOrder) + mrHistory(r.historyOther || []) + '</div>');
@@ -1735,18 +1737,56 @@ function advStatus(id, st) { api('setAdvanceStatus', S.token, id, st).then(funct
 
 /* ---------- karigars & rates ---------- */
 VIEWS.karigars = function () {
-  api('karigarList', S.token).then(function (r) {
+  load('karigarList', S.token).then(function (r) {
     S.data.kl = r;
     render('<h1 class="page">👷 Karigars & rates</h1>' +
       (r.canEdit ? '<div class="card"><h2>Add a karigar</h2><div class="row"><input id="kN" placeholder="Name"><input id="kP" placeholder="Phone"></div><div class="row" style="margin-top:8px"><input id="kI" placeholder="ID (blank = automatic)"><input id="kPin" inputmode="numeric" placeholder="PIN (4–8 digits)"><button class="btn fix" onclick="addKarigar(this)">Add</button></div></div>' : '') +
-      '<div class="card scroll"><table class="tbl"><tr><th>ID</th><th>Name</th><th>Phone</th><th>Joined</th><th>Status</th><th></th></tr>' + r.list.map(function (k) {
-        return '<tr><td><b>' + esc(k.id) + '</b></td><td>' + esc(k.name) + '</td><td>' + esc(k.phone) + '</td><td>' + d(k.joined) + '</td><td>' + (k.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') +
+      '<div class="card"><h2>⏱ Man hours a month <span class="pill info">' + num(r.totalManHours) + ' h</span></h2><div class="muted">Per karigar: ' + r.shiftHours + ' h shift × ' + r.workDays + ' days × (mains + helpers). A main counts 1, a helper 0.4, 0.5 or 0.6. Total of the active karigars.' +
+        (r.canEdit ? ' <a class="lnk" onclick="mhSettings()">change shift / days</a>' : '') + '</div></div>' +
+      '<div class="card scroll"><table class="tbl"><tr><th>ID</th><th>Name</th><th>Phone</th><th>Team</th><th class="r">Man hours</th><th>Joined</th><th>Status</th><th></th></tr>' + r.list.map(function (k) {
+        var tm = k.team.main + ' main' + (k.team.helpers.length ? ' + ' + k.team.helpers.length + ' helper' + (k.team.helpers.length > 1 ? 's' : '') + ' <span class="muted">(' + k.team.helpers.join(', ') + ')</span>' : '');
+        return '<tr><td><b>' + esc(k.id) + '</b></td><td>' + esc(k.name) + '</td><td>' + esc(k.phone) + '</td><td style="white-space:nowrap">' + tm + (r.canEdit ? ' <a class="lnk" style="font-size:12.5px" onclick="kTeam(\'' + k.id + '\')">edit</a>' : '') + '</td>' +
+          '<td class="r" style="white-space:nowrap"><b>' + num(k.manHours) + '</b> h</td><td>' + d(k.joined) + '</td><td>' + (k.active ? '<span class="pill ok">active</span>' : '<span class="pill">inactive</span>') +
           (k.active ? (k.away ? ' <span class="pill warn">gone home ' + d(k.away) + '</span>' : ' <span class="pill info">present</span>') +
             (r.canEdit || can('machines') ? ' <a class="lnk" style="font-size:12.5px;white-space:nowrap" onclick="machAway(\'' + k.id + '\',' + (k.away ? 'false' : 'true') + ',1)">' + (k.away ? 'mark present' : 'gone home') + '</a>' : '') : '') + '</td>' +
           '<td style="white-space:nowrap"><button class="btn sm" onclick="rates(\'' + k.id + '\')">Rates</button> ' + (r.canEdit ? '<button class="btn sec sm" onclick="editKarigar(\'' + k.id + '\')">Edit</button>' : '') + '</td></tr>';
       }).join('') + '</table></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+/* A karigar's team for man hours: mains (1 each) and helpers (0.4 / 0.5 / 0.6 each). */
+function kTeam(id) {
+  var k = S.data.kl.list.filter(function (x) { return x.id === id; })[0], r = S.data.kl;
+  modal('Team · ' + k.name, '<label class="f">Mains (count 1 each)</label><input id="ktM" type="number" min="0" step="1" inputmode="numeric" value="' + k.team.main + '" oninput="kTeamCalc()">' +
+    '<label class="f">Helpers</label><div id="ktH"></div><button class="btn sec sm" onclick="kTeamAdd(0.5)">+ Add helper</button>' +
+    '<div class="msg info" id="ktR" style="margin-top:10px"></div><button class="btn block" onclick="kTeamSave(\'' + id + '\',this)">Save</button>');
+  k.team.helpers.forEach(kTeamAdd);
+  kTeamCalc();
+}
+function kTeamAdd(v) {
+  var dv = document.createElement('div'); dv.className = 'row'; dv.style.marginBottom = '6px';
+  dv.innerHTML = '<select class="kth" onchange="kTeamCalc()">' + [0.4, 0.5, 0.6].map(function (x) { return '<option value="' + x + '"' + (x === v ? ' selected' : '') + '>Helper · counts ' + x + '</option>'; }).join('') + '</select>' +
+    '<button class="btn sec fix" onclick="this.parentNode.remove();kTeamCalc()">×</button>';
+  $('ktH').appendChild(dv); kTeamCalc();
+}
+function kTeamVals() { return { main: Number(val('ktM')) || 0, helpers: Array.prototype.map.call(document.querySelectorAll('#ktH .kth'), function (s) { return Number(s.value); }) }; }
+function kTeamCalc() {
+  if (!$('ktR')) return;
+  var t = kTeamVals(), r = S.data.kl, f = t.main + t.helpers.reduce(function (n, h) { return n + h; }, 0);
+  $('ktR').innerHTML = r.shiftHours + ' h × ' + r.workDays + ' days × ' + (Math.round(f * 100) / 100) + ' = <b>' + num(Math.round(r.shiftHours * r.workDays * f * 100) / 100) + ' man hours</b> a month';
+}
+function kTeamSave(id, btn) {
+  busy(btn, true);
+  api('setKarigarTeam', S.token, id, kTeamVals()).then(function (r) { preload('karigarList', r); closeModal(); toast('Team saved'); go('karigars'); }).catch(function (e) { fail(e, btn); });
+}
+function mhSettings() {
+  var r = S.data.kl;
+  modal('Man hours', '<div class="row"><div><label class="f">Hours in a shift</label><input id="mhH" type="number" step="any" value="' + r.shiftHours + '"></div><div><label class="f">Working days a month</label><input id="mhD" type="number" value="' + r.workDays + '"></div></div>' +
+    '<button class="btn block" onclick="mhSave(this)">Save</button>');
+}
+function mhSave(btn) {
+  busy(btn, true);
+  api('setManHourSettings', S.token, val('mhH'), val('mhD')).then(function (r) { preload('karigarList', r); closeModal(); toast('Saved'); go('karigars'); }).catch(function (e) { fail(e, btn); });
+}
 function addKarigar(btn) { busy(btn, true); api('saveKarigar', S.token, { name: val('kN'), phone: val('kP'), newId: val('kI'), pin: val('kPin') }).then(function () { toast('Karigar added'); go('karigars'); }).catch(function (e) { fail(e, btn); }); }
 function editKarigar(id) {
   var k = S.data.kl.list.filter(function (x) { return x.id === id; })[0];

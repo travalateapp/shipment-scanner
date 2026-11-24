@@ -63,6 +63,12 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   Material Room (🏷 under the name); the same group in another case joins the first spelling. The Material Room has
   group filters (All · each group · No group) and **Opening stock** under each material (staff with "store").
 - **Store & bills is now called Stock & bills** (menu and heading).
+- **Material Room columns:** Available, Reserved (next jobs), **On order (to come)** (still to come on open orders) and
+  **Projected = Available + On order − Reserved** (red below 0); Base stock and Allocated are removed.
+- **Man hours** (Karigars & rates): each karigar has a **team**: mains (count 1 each) and helpers (0.4, 0.5 or 0.6 each;
+  "edit" in the Team column). Man hours a month = shift hours × working days × (mains + helpers), e.g. 13 × 26 × (1 + 0.4
+  + 0.5 + 0.6) = 845 h; the total of the active karigars is at the top. Shift hours (13) and working days (26) are in
+  Settings ("change shift / days"). Sheet Karigars gets the column **Team**.
 - **Material Room** (menu; replaces Available Cuttings): every active raw material in two sections, **CR-tagged** and
   **other** materials: Base stock (in the store + allocated), Allocated (given to karigars for running jobs, not made
   into goods yet), Available (in the store), Reserved (what the Next jobs need), Status (OK / Low / Short N / No stock
