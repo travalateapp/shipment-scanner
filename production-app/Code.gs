@@ -40,6 +40,10 @@ const SHEET = {
   CUTTINGS: 'Cuttings',
   MAT_ORDERS: 'Material Orders',
   PORDERS: 'Purchase Orders',
+  CH_SALES: 'Channel Sales',
+  SKU_MAP: 'SKU Map',
+  PRODUCTS: 'Products',
+  PROD_ORDERS: 'Product Orders',
 };
 
 const HEADERS = {};
@@ -74,6 +78,13 @@ HEADERS[SHEET.MAT_ORDERS] = ['Material Code', 'Status', 'Order Date', 'Qty', 'By
 // first; an order is completed when it has all its units, or by hand (CLOSED, even with less). CANCELLED = removed.
 HEADERS[SHEET.PORDERS] = ['ID', 'Material Code', 'Supplier', 'Order Date', 'Qty', 'Purchase Unit', 'Units', 'Status', 'Note', 'By', 'At',
   'Closed By', 'Closed At'];
+// Projections: the last upload of each sales channel (sales of the period, per channel SKU), the channel SKU → our SKU
+// mapping, each product's source (JAIPUR = made in the Jaipur factory = an item of this app; VENDOR = bought) and man
+// minutes per piece, and the orders of finished products placed with other vendors.
+HEADERS[SHEET.CH_SALES] = ['Channel', 'Channel SKU', 'Name', 'Qty', 'From', 'To', 'Upload ID', 'File', 'By', 'At'];
+HEADERS[SHEET.SKU_MAP] = ['Channel', 'Channel SKU', 'SKU', 'By', 'At'];
+HEADERS[SHEET.PRODUCTS] = ['SKU', 'Source', 'Man Minutes', 'Note', 'By', 'At'];
+HEADERS[SHEET.PROD_ORDERS] = ['ID', 'SKU', 'Vendor', 'Order Date', 'Qty', 'Status', 'Note', 'By', 'At', 'Closed By', 'Closed At'];
 // Machines (M1, M2 …): a work order on a machine has its ID in 'Machine'. 'Off Machine' = when 'Complete job' (count 1)
 // freed the machine; the work order is then marked completed at its final count, even with fewer pieces.
 HEADERS[SHEET.MACHINES] = ['ID', 'Name', 'Active', 'Added By', 'At'];
@@ -112,6 +123,7 @@ const DEFAULT_SETTINGS = [
   ['Next Job Starts At', 'Count 2', 'Machine Dashboard: a machine\'s next job starts at Count 2 (default) or Count 1 of the job before'],
   ['Shift Hours', 13, 'Man hours: hours in one shift'],
   ['Working Days', 26, 'Man hours: working days in a month'],
+  ['Projection Days', 30, 'Projections: stock to keep, in days of sales (the suggested quantity fills up to this)'],
   ['Count 2', 'Paused', 'Paused = count 1 is the final count (the job is completed at count 1). On = a second, blind count. Super admins switch it in Staff & permissions'],
 ];
 
@@ -131,6 +143,7 @@ const PERMS = {
   machines: 'Machine Dashboard: start jobs on machines, plan next jobs',
   cutting: 'Cutting Room: enter cuttings and mark them completed',
   machinesetup: 'Add, rename and remove machines; when the next job starts',
+  projections: 'Projections: upload channel sales, map SKUs, plan products in Jaipur, order from vendors',
 };
 
 /* ------------------------------------------------------------------ */
@@ -156,7 +169,8 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   addOrderQty, giveOrderMaterial, setCount2,
-  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialGroup, setKarigarTeam, setManHourSettings, setMaterialTag,
+  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialGroup, setKarigarTeam, setManHourSettings,
+  projectionView, uploadSales, mapSku, setProduct, productOrder, closeProductOrder, setProjectionDays, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1677,6 +1691,209 @@ function setMaterialTag(token, code, tag, on) {
   forget_('materials');
   log_(u, on ? 'TAG_ADD' : 'TAG_REMOVE', m.code, m.name + ': ' + tag);
   return { code: m.code, tags: tags };
+}
+
+
+/* ------------------------------------------------------------------ */
+/* Projections: channel sales → what to make in Jaipur / order outside */
+/* ------------------------------------------------------------------ */
+
+const CHANNELS = ['Zepto', 'Swiggy', 'Amazon', 'Flipkart'];
+
+function readChannelSales_() {
+  return memo_('chsales', () => rows_(SHEET.CH_SALES).map(r => ({ channel: String(r[0]).trim(), csku: String(r[1]).trim(), name: String(r[2] || ''),
+    qty: Number(r[3]) || 0, from: toDateStr_(r[4]), to: toDateStr_(r[5]), upload: String(r[6] || ''), file: String(r[7] || ''), by: String(r[8] || ''),
+    at: String(r[9] || '') })).filter(x => x.channel && x.csku));
+}
+function readSkuMap_() {
+  return memo_('skumap', () => { const m = {}; rows_(SHEET.SKU_MAP).forEach((r, i) => { const k = String(r[0]).trim() + '|' + String(r[1]).trim().toUpperCase(); if (String(r[1]).trim()) m[k] = { row: i + 2, sku: String(r[2] || '').trim() }; }); return m; });
+}
+function readProducts_() {
+  return memo_('products', () => { const m = {}; rows_(SHEET.PRODUCTS).forEach((r, i) => { const k = String(r[0]).trim(); if (k) m[k.toUpperCase()] = { row: i + 2, sku: k,
+    source: String(r[1] || '').trim().toUpperCase(), manMinutes: Number(r[2]) > 0 ? Number(r[2]) : null, note: String(r[3] || '') }; }); return m; });
+}
+function readProdOrders_() {
+  return memo_('prodorders', () => rows_(SHEET.PROD_ORDERS).map((r, i) => ({ row: i + 2, id: String(r[0]), sku: String(r[1]).trim(), vendor: String(r[2] || ''),
+    date: toDateStr_(r[3]), qty: Number(r[4]) || 0, status: String(r[5] || 'OPEN').trim().toUpperCase(), note: String(r[6] || ''), by: String(r[7] || ''),
+    at: String(r[8] || ''), closedBy: String(r[9] || ''), closedAt: String(r[10] || '') })).filter(o => o.id));
+}
+
+/** Finished-goods stock per SKU from the Inventory App (latest value), kept 10 minutes; {} with a note if it cannot be reached. */
+function finishedStock_() {
+  const hit = cGet_('fg_stock');
+  if (hit) return JSON.parse(hit);
+  let out;
+  try {
+    const r = inventoryCall_({ action: 'getStockSnapshot' }), m = {};
+    (r.stocks || []).forEach(x => { m[String(x.sku).trim().toUpperCase()] = Number(x.qty) || 0; });
+    out = { stock: m, asOf: nowStr_(), error: '' };
+    cPut_('fg_stock', JSON.stringify(out), 600);
+  } catch (e) { out = { stock: {}, asOf: '', error: String(e.message || e) }; }
+  return out;
+}
+
+/** Jaipur factory capacity: man hours a day (active karigars' teams) and the work already planned (running + next jobs). */
+function factoryLoad_() {
+  const s = getSettings_(), prods = readProducts_();
+  const teamF = readKarigars_().filter(k => k.active).reduce((n, k) => n + (k.team.main || 0) + k.team.helpers.reduce((a, h) => a + h, 0), 0);
+  let load = 0; const missing = {};
+  ordersWithProgress_().filter(o => o.open || o.next).forEach(o => {
+    const p = prods[o.item.toUpperCase()], mm = p && p.manMinutes;
+    const pcs = o.next ? o.qty : o.remaining;
+    if (mm) load += pcs * mm / 60; else if (pcs) missing[o.item] = (missing[o.item] || 0) + pcs;
+  });
+  return { dailyManHours: round2_(s.shiftHours * teamF), monthManHours: round2_(s.shiftHours * s.workDays * teamF), workDays: s.workDays,
+    shiftHours: s.shiftHours, loadHours: round2_(load), missing: Object.keys(missing).map(k => ({ item: k, pcs: missing[k] })) };
+}
+
+function projectionView(token) {
+  const u = authStaff_(token, 'projections|reports');
+  const s = getSettings_(), items = itemMap_(), prods = readProducts_(), map = readSkuMap_(), names = machineNames_();
+  const ourSkus = {};
+  Object.keys(items).forEach(c => { if (items[c].type !== 'PART') ourSkus[c.toUpperCase()] = c; });
+  Object.keys(prods).forEach(k => { ourSkus[k] = prods[k].sku; });
+  let invSkus = [];
+  try { invSkus = JSON.parse(cGet_('inv_skus') || 'null') || inventoryCall_({ action: 'getSkuList' }).skus || []; cPut_('inv_skus', JSON.stringify(invSkus), 600); } catch (e) { invSkus = []; }
+  invSkus.forEach(x => { const k = String(x).trim().toUpperCase(); if (k && !ourSkus[k]) ourSkus[k] = String(x).trim(); });
+  // Sales of each channel's last upload, per our SKU (a channel SKU equal to one of our SKUs maps by itself).
+  const uploads = {}, by = {}, unmapped = [];
+  const row = sku => (by[sku] = by[sku] || { sku: sku, sales: {}, daily: 0 });
+  readChannelSales_().forEach(x => {
+    const up = uploads[x.channel] = uploads[x.channel] || { channel: x.channel, file: x.file, from: x.from, to: x.to, at: x.at, by: staffName_(x.by), lines: 0, qty: 0 };
+    up.lines++; up.qty += x.qty;
+    const m = map[x.channel + '|' + x.csku.toUpperCase()], sku = m ? m.sku : ourSkus[x.csku.toUpperCase()] || '';
+    if (!sku) { unmapped.push({ channel: x.channel, csku: x.csku, name: x.name, qty: x.qty }); return; }
+    const days = x.from && x.to ? Math.max(1, Math.round((new Date(x.to) - new Date(x.from)) / 864e5) + 1) : 30;
+    const r = row(sku); r.sales[x.channel] = (r.sales[x.channel] || 0) + x.qty; r.daily += x.qty / days;
+  });
+  const mapped = Object.keys(map).map(k => ({ channel: k.split('|')[0], csku: k.split('|').slice(1).join('|'), sku: map[k].sku })).filter(x => x.sku);
+  // Stock, in production (running jobs still to make), Next jobs and vendor orders on the way.
+  const fg = finishedStock_(), inProd = {}, next = {}, onOrder = {}, orders = {};
+  ordersWithProgress_().forEach(o => {
+    if (o.open) inProd[o.item] = (inProd[o.item] || 0) + o.remaining;
+    if (o.next) (next[o.item] = next[o.item] || []).push({ id: o.id, qty: o.qty, machine: o.machine ? names[o.machine] || o.machine : '', target: o.target });
+  });
+  readProdOrders_().filter(o => o.status === 'OPEN').forEach(o => { onOrder[o.sku] = (onOrder[o.sku] || 0) + o.qty; (orders[o.sku] = orders[o.sku] || []).push(o); });
+  Object.keys(prods).forEach(k => row(prods[k].sku));
+  Object.keys(inProd).concat(Object.keys(next), Object.keys(onOrder)).forEach(k => { if (items[k] && items[k].type === 'PART') return; row(k); });
+  const list = Object.keys(by).map(sku => {
+    const r = by[sku], p = prods[sku.toUpperCase()] || {}, jaipur = !!items[sku];
+    const stock = Object.prototype.hasOwnProperty.call(fg.stock, sku.toUpperCase()) ? fg.stock[sku.toUpperCase()] : null;
+    const nx = (next[sku] || []).reduce((n, j) => n + j.qty, 0), pipe = (stock || 0) + (inProd[sku] || 0) + nx + (onOrder[sku] || 0);
+    const daily = round2_(r.daily);
+    return { sku: sku, name: (items[sku] || {}).name || '', sales: r.sales, total: CHANNELS.reduce((n, c) => n + (r.sales[c] || 0), 0), daily: daily,
+      stock: stock, inProd: inProd[sku] || 0, next: nx, nextJobs: next[sku] || [], onOrder: onOrder[sku] || 0,
+      orders: (orders[sku] || []).map(o => ({ id: o.id, vendor: o.vendor, date: o.date, qty: o.qty, note: o.note })),
+      cover: daily > 0 ? Math.floor(pipe / daily) : null, suggest: daily > 0 ? Math.max(0, Math.ceil(daily * s.projDays - pipe)) : 0,
+      jaipur: jaipur, source: p.source === 'VENDOR' || !jaipur ? 'VENDOR' : 'JAIPUR', manMinutes: p.manMinutes || null };
+  }).sort((a, b) => (b.suggest > 0) - (a.suggest > 0) || b.daily - a.daily || a.sku.localeCompare(b.sku));
+  const st = machineState_().filter(m => m.active);
+  return { channels: CHANNELS, uploads: CHANNELS.map(c => uploads[c] || { channel: c }), unmapped: unmapped.sort((a, b) => b.qty - a.qty), mapped: mapped,
+    list: list, projDays: s.projDays, stockError: fg.error, stockAsOf: fg.asOf, capacity: factoryLoad_(), skus: Object.keys(ourSkus).map(k => ourSkus[k]).sort(),
+    colMaps: CHANNELS.reduce((m, c) => { m[c] = parseJson_(pGet_('salescols_' + c), null); return m; }, {}),
+    machines: st.map(m => ({ id: m.id, name: m.name, job: m.job ? { id: m.job.id, item: m.job.item, karigarId: m.job.karigarId, karigar: m.job.karigar, remaining: m.job.remaining } : null,
+      next: m.next ? m.next.id : '', idle: !m.job && !m.pending.length })),
+    karigars: readKarigars_().filter(k => k.active).map(k => ({ id: k.id, name: k.name })), suppliers: supplierList_().map(x => x.name),
+    canEdit: can_(u, 'projections'), canPlan: can_(u, 'projections') && can_(u, 'machines'), today: todayStr_() };
+}
+
+/** The last 30 days' sales of one channel (replaces its earlier upload): data = { file, from, to, cols, lines: [{ sku, name, qty }] }. */
+function uploadSales(token, channel, data) {
+  const u = authStaff_(token, 'projections');
+  if (CHANNELS.indexOf(channel) < 0) throw new Error('Choose the channel.');
+  data = data || {};
+  const agg = {};
+  (data.lines || []).forEach(l => {
+    const k = String(l.sku || '').trim(); if (!k) return;
+    const q = Number(l.qty) || 0;
+    const x = agg[k.toUpperCase()] = agg[k.toUpperCase()] || { sku: k, name: String(l.name || '').slice(0, 120), qty: 0 };
+    x.qty += q;
+  });
+  const lines = Object.keys(agg).map(k => agg[k]);
+  if (!lines.length) throw new Error('No sales lines found in the file.');
+  const from = toDateStr_(data.from) || '', to = toDateStr_(data.to) || '';
+  const id = 'U-' + Utilities.formatDate(new Date(), tz_(), 'yyMMddHHmm'), at = nowStr_(), file = String(data.file || '').slice(0, 120);
+  withLock_(() => {
+    deleteRowsWhere_(SHEET.CH_SALES, r => String(r[0]).trim() === channel);
+    const sh = sheet_(SHEET.CH_SALES);
+    const rows = lines.map(l => [channel, l.sku, l.name, round3_(l.qty), from ? "'" + from : '', to ? "'" + to : '', id, file, u.id, at]);
+    sh.getRange(sh.getLastRow() + 1, 1, rows.length, rows[0].length).setValues(rows);
+    forget_('chsales');
+  });
+  if (data.cols) pSet_('salescols_' + channel, JSON.stringify(data.cols));
+  log_(u, 'SALES_UPLOAD', channel, file + ': ' + lines.length + ' SKUs, ' + round2_(lines.reduce((n, l) => n + l.qty, 0)) + ' pcs' + (from ? ', ' + from + ' to ' + to : ''));
+  return projectionView(token);
+}
+
+/** A channel SKU → our SKU ('' removes the mapping). */
+function mapSku(token, channel, csku, sku) {
+  const u = authStaff_(token, 'projections');
+  csku = String(csku || '').trim(); sku = String(sku || '').trim();
+  if (!csku || CHANNELS.indexOf(channel) < 0) throw new Error('Channel SKU not found.');
+  const ex = readSkuMap_()[channel + '|' + csku.toUpperCase()];
+  const sh = sheet_(SHEET.SKU_MAP), row = [channel, csku, sku, u.id, nowStr_()];
+  if (ex) sh.getRange(ex.row, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
+  forget_('skumap');
+  log_(u, 'SKU_MAP', channel + ' ' + csku, (ex ? ex.sku || 'none' : 'none') + ' → ' + (sku || 'none'));
+  return projectionView(token);
+}
+
+/** A product's source (JAIPUR / VENDOR) and man minutes per piece: data = { source, manMinutes }. */
+function setProduct(token, sku, data) {
+  const u = authStaff_(token, 'projections');
+  sku = String(sku || '').trim(); data = data || {};
+  if (!sku) throw new Error('Product not found.');
+  const ex = readProducts_()[sku.toUpperCase()] || {};
+  const source = data.source !== undefined ? (data.source === 'JAIPUR' ? 'JAIPUR' : 'VENDOR') : (ex.source || '');
+  if (source === 'JAIPUR' && !itemMap_()[sku]) throw new Error(sku + ' is not made in the Jaipur factory (not an item of this app): order it from a vendor.');
+  const mm = data.manMinutes !== undefined ? (data.manMinutes === '' || data.manMinutes === null ? '' : Number(data.manMinutes)) : (ex.manMinutes || '');
+  if (mm !== '' && !(mm > 0)) throw new Error('Enter the man minutes per piece.');
+  const sh = sheet_(SHEET.PRODUCTS), row = [ex.sku || sku, source, mm, ex.note || '', u.id, nowStr_()];
+  if (ex.row) sh.getRange(ex.row, 1, 1, row.length).setValues([row]); else sh.appendRow(row);
+  forget_('products');
+  log_(u, 'PRODUCT', sku, (source ? 'source ' + source : '') + (mm !== '' ? ', ' + mm + ' man minutes per piece' : ''));
+  return projectionView(token);
+}
+
+/** An order of a finished product with another vendor: data = { sku, vendor, date, qty, note }. */
+function productOrder(token, data) {
+  const u = authStaff_(token, 'projections');
+  data = data || {};
+  const sku = String(data.sku || '').trim(), vendor = cleanSupplier_(data.vendor), q = Number(data.qty), day = toDateStr_(data.date) || todayStr_();
+  if (!sku) throw new Error('Product not found.');
+  if (!vendor) throw new Error('Choose or add the vendor.');
+  if (!(q > 0) || q % 1) throw new Error('Enter the quantity.');
+  const name = saveSupplier_(u, vendor);
+  const id = withLock_(() => {
+    const id = nextId_(SHEET.PROD_ORDERS, 'FO-');
+    sheet_(SHEET.PROD_ORDERS).appendRow([id, sku, name, "'" + day, q, 'OPEN', String(data.note || '').slice(0, 200), u.id, nowStr_(), '', '']);
+    forget_('prodorders');
+    return id;
+  });
+  log_(u, 'PRODUCT_ORDER', id, sku + ' × ' + q + ' from ' + name + ' on ' + day);
+  return projectionView(token);
+}
+
+/** status RECEIVED (arrived: the stock is then in the Inventory App) or CANCELLED. */
+function closeProductOrder(token, id, status) {
+  const u = authStaff_(token, 'projections');
+  const o = readProdOrders_().filter(x => x.id === id)[0];
+  if (!o || o.status !== 'OPEN') throw new Error('This order is not open.');
+  status = status === 'RECEIVED' ? 'RECEIVED' : 'CANCELLED';
+  sheet_(SHEET.PROD_ORDERS).getRange(o.row, 6).setValue(status);
+  sheet_(SHEET.PROD_ORDERS).getRange(o.row, 10, 1, 2).setValues([[u.id, nowStr_()]]);
+  forget_('prodorders');
+  log_(u, 'PRODUCT_ORDER_' + status, id, o.sku + ' × ' + o.qty + ' from ' + o.vendor);
+  return projectionView(token);
+}
+
+function setProjectionDays(token, days) {
+  const u = authStaff_(token, 'projections');
+  days = Number(days);
+  if (!(days > 0 && days <= 365)) throw new Error('Enter the days of stock to keep.');
+  setSetting_('Projection Days', days);
+  log_(u, 'SETTING', 'Projection Days', String(days));
+  return projectionView(token);
 }
 
 /* ------------------------------------------------------------------ */
@@ -3318,6 +3535,7 @@ function getSettings_() {
       lowMargin: m['Low Margin %'] === '' || m['Low Margin %'] === undefined ? 20 : Number(m['Low Margin %']) || 0,
       nextAt: /1/.test(String(m['Next Job Starts At'] || '')) ? 'COUNT1' : 'COUNT2', // default: after count 2
       count2: /^(on|yes|true|running|resumed)$/i.test(String(m['Count 2'] || '').trim()), // default: paused (count 1 is final)
+      projDays: Number(m['Projection Days']) > 0 ? Number(m['Projection Days']) : 30,
       shiftHours: Number(m['Shift Hours']) > 0 ? Number(m['Shift Hours']) : 13, workDays: Number(m['Working Days']) > 0 ? Number(m['Working Days']) : 26,
     };
   });
@@ -3344,7 +3562,7 @@ function forget_() {
     delete MEMO[arguments[i]];
     if (arguments[i] === 'lines') delete MEMO.batches; // batches carry their lines
   }
-  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate', 'cuttings', 'givenbywo', 'postate'].forEach(k => { delete MEMO[k]; });
+  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate', 'cuttings', 'givenbywo', 'postate', 'chsales', 'skumap', 'products', 'prodorders'].forEach(k => { delete MEMO[k]; });
   Object.keys(MEMO).forEach(k => { if (k.indexOf('rows|') === 0) delete MEMO[k]; });
 }
 

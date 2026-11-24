@@ -55,6 +55,7 @@ h1.page small{font-size:13px;color:var(--muted);font-weight:500}
 .mshortl{color:#b91c1c;font-weight:700;font-size:12.5px;margin-top:3px}.cdiff{color:#b91c1c;font-weight:700}.cst{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
 .cst select,.cst input{width:auto;display:inline-block;margin:0}.mrord{border-left:3px solid #93c5fd;padding:2px 0 4px 8px;margin-bottom:6px;font-size:13.5px}
 .lotm{display:flex;justify-content:space-between;gap:12px;font-size:13px;color:#475569;line-height:1.5}.lotm b{font-weight:600;white-space:nowrap;color:#334155}
+.pjup{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}.pjch{border:1px solid var(--line);border-radius:12px;padding:10px 12px}
 .mrhist{margin-top:10px}.mrhist summary{cursor:pointer;font-weight:700;color:#334155;padding:6px 0}.clines div{white-space:nowrap;line-height:1.55}
 .mstep{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e2e8f0;border-radius:10px;margin-top:8px}
 .mstep .n{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none;background:#e2e8f0;color:#475569}
@@ -185,7 +186,7 @@ function apiUrl() {
  * Speed: answers fetched in the background (prefetch) are kept for 2 minutes and used once, so opening a screen
  * shows it at once; any save forgets them. A tiny request every 4 minutes keeps the server ready (no cold start).
  */
-var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|cuttingView|materialRoom|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
+var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|cuttingView|materialRoom|projectionView|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
 var RC = {}, WR = { gen: 0, busy: 0 }; // answers asked for while a save was running are never kept
 function rcKey(fn, args) { return fn + '|' + JSON.stringify(args.slice(1)); }
 function api(fn) {
@@ -209,7 +210,7 @@ function prefetch(fn) {
   p.catch(function () { if (RC[k] && RC[k].p === p) delete RC[k]; });
   return p;
 }
-var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], cutting: ['cuttingView'], cutstock: ['materialRoom'], material: ['moveList'],
+var PF_VIEWS = { dash: ['adminDashboard'], count: ['countQueue'], batches: ['batchList', '', ''], orders: ['orderList'], machines: ['machineView'], cutting: ['cuttingView'], cutstock: ['materialRoom'], proj: ['projectionView'], material: ['moveList'],
   balance: ['materialBalance'], payroll: ['payroll', ''], advances: ['advances'], karigars: ['karigarList'], items: ['itemList'], materials: ['materialList'],
   store: ['storeView'], staff: ['staffList'], home: ['getHome'], work: ['myWork', ''], slip: ['myPayslip', ''], myadv: ['myAdvances'] };
 /* After a save: load the screens again in the background (4 s later, at most once a minute). */
@@ -345,6 +346,7 @@ function menu() {
   if (can('machines')) m.push(['machines', '🏭', 'Machine Dashboard']);
   if (can('cutting') || can('reports') || can('machines')) m.push(['cutting', '✂️', 'Cutting Room']);
   if (can('cutting') || can('reports') || can('machines')) m.push(['cutstock', '📦', 'Material Room']);
+  if (can('projections') || can('reports')) m.push(['proj', '📈', 'Projections']);
   if (can('issue') || can('confirm') || can('reports')) m.push(['material', '🧰', 'Material issue']);
   if (can('reports') || can('issue') || can('confirm')) m.push(['balance', '⚖️', 'Material balance']);
   m.push(['-']);
@@ -1312,6 +1314,227 @@ function mrRemove(id, el) { if (confirm('Remove order ' + id + '? (placed by mis
 function mrAct(fn, id, msg, el) {
   el.style.pointerEvents = 'none';
   api(fn, S.token, id).then(function (r) { toast(msg); preload('materialRoom', r); go('cutstock'); }).catch(function (e) { el.style.pointerEvents = ''; toast(e.message || String(e)); });
+}
+/* ---------- projections ---------- */
+// Sales of the last 30 days per channel (Zepto, Swiggy, Amazon, Flipkart: an Excel / CSV upload each), mapped to our SKUs,
+// against the stock (Inventory App), what is in production in Jaipur, the Next jobs and vendor orders. Each product is
+// made in the Jaipur factory (an item of this app: planned as a Next job, timed by the man hours) or ordered from a vendor.
+function pjNum(v) { return v === null || v === undefined ? '<span class="muted">–</span>' : num(v); }
+function pjFinish(hours) { // working days of the factory → a date (Sundays off when 26 working days a month)
+  var c = S.data.pj.capacity; if (!c.dailyManHours) return null;
+  var days = Math.ceil((c.loadHours + hours) / c.dailyManHours), dt = new Date(), skipSun = c.workDays <= 26;
+  while (days > 0) { dt.setDate(dt.getDate() + 1); if (!(skipSun && dt.getDay() === 0)) days--; }
+  return dt.getFullYear() + '-' + ('0' + (dt.getMonth() + 1)).slice(-2) + '-' + ('0' + dt.getDate()).slice(-2);
+}
+VIEWS.proj = function (f) {
+  f = /^(jaipur|vendor|reorder)$/.test(f || '') ? f : '';
+  load('projectionView', S.token).then(function (r) {
+    S.data.pj = r;
+    var c = r.capacity, tab = function (k, label, n) { return '<a class="' + (f === k ? 'on' : '') + '" onclick="go(\'proj\'' + (k ? ',\'' + k + '\'' : '') + ')">' + label + ' (' + n + ')</a>'; };
+    var has = { jaipur: function (x) { return x.source === 'JAIPUR'; }, vendor: function (x) { return x.source === 'VENDOR'; }, reorder: function (x) { return x.suggest > 0; } };
+    var list = f ? r.list.filter(has[f]) : r.list;
+    render('<h1 class="page">📈 Projections <small>last 30 days of sales → make in Jaipur or order from a vendor</small></h1>' +
+      // uploads
+      '<div class="card"><h2>Sales uploads <small class="muted" style="font-weight:400">Excel or CSV of the last 30 days, one per channel (a new upload replaces the last one)</small></h2><div class="pjup">' + r.uploads.map(function (u) {
+        return '<div class="pjch"><b>' + esc(u.channel) + '</b>' + (u.file ? '<div class="muted" style="font-size:12.5px">' + esc(u.file) + '<br>' + (u.from ? d(u.from) + ' – ' + d(u.to) + ' · ' : '') + u.lines + ' SKUs · ' + num(u.qty) + ' pcs<br>uploaded ' + d(u.at) + (u.by ? ' · ' + esc(u.by) : '') + '</div>' : '<div class="muted" style="font-size:12.5px">Not uploaded yet</div>') +
+          (r.canEdit ? '<label class="btn sec sm" style="margin-top:6px;display:inline-block">⬆ Upload<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="pjFile(\'' + u.channel + '\',this)"></label>' : '') + '</div>';
+      }).join('') + '</div></div>' +
+      // mapping
+      (r.unmapped.length ? '<div class="card"><h2>SKU mapping <span class="pill warn">' + r.unmapped.length + ' not mapped</span></h2><div class="muted" style="margin-bottom:6px">Which of our SKUs is each channel product? A channel SKU that is the same as ours maps by itself.</div>' +
+        '<datalist id="pjSkus">' + r.skus.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist>' +
+        '<div class="scroll"><table class="tbl"><tr><th>Channel</th><th>Channel SKU</th><th>Name</th><th class="r">Sold</th><th>Our SKU</th></tr>' + r.unmapped.map(function (x, i) {
+          return '<tr><td>' + esc(x.channel) + '</td><td><b>' + esc(x.csku) + '</b></td><td class="muted">' + esc(x.name) + '</td><td class="r">' + num(x.qty) + '</td><td style="white-space:nowrap">' +
+            (r.canEdit ? '<input id="pjm' + i + '" list="pjSkus" placeholder="our SKU" style="width:170px;display:inline-block;margin:0"> <button class="btn sm" onclick="pjMap(' + i + ',this)">Save</button>' : '') + '</td></tr>';
+        }).join('') + '</table></div></div>' : '') +
+      (r.mapped.length ? '<details class="card mrhist" style="margin-top:0"><summary>Mapped channel SKUs <span class="pill">' + r.mapped.length + '</span></summary><div class="scroll"><table class="tbl"><tr><th>Channel</th><th>Channel SKU</th><th>Our SKU</th><th></th></tr>' +
+        r.mapped.map(function (x, i) { return '<tr><td>' + esc(x.channel) + '</td><td>' + esc(x.csku) + '</td><td><b>' + esc(x.sku) + '</b></td><td>' + (r.canEdit ? '<a class="lnk" onclick="pjRemap(' + i + ')">change</a>' : '') + '</td></tr>'; }).join('') + '</table></div></details>' : '') +
+      // capacity
+      '<div class="card"><h2>🏭 Jaipur factory capacity</h2><div class="mrk"><div>Man hours a month</div><div><b>' + num(c.monthManHours) + ' h</b> <span class="muted">(' + c.shiftHours + ' h × ' + c.workDays + ' days × teams: Karigars & rates)</span></div>' +
+        '<div>Man hours a day</div><div><b>' + num(c.dailyManHours) + ' h</b></div><div>Already planned</div><div><b>' + num(c.loadHours) + ' h</b> <span class="muted">(running + next jobs) · free from about <b>' + (pjFinish(0) ? d(pjFinish(0)) : '–') + '</b></span></div></div>' +
+        (c.missing.length ? '<div class="msg warn" style="margin-top:6px">No man minutes per piece yet for ' + c.missing.map(function (m) { return esc(m.item) + ' (' + m.pcs + ' pcs)'; }).join(', ') + ': set them (Plan in Jaipur) so the load is right.</div>' : '') + '</div>' +
+      // products
+      (r.stockError ? '<div class="msg warn">Stock from the Inventory App could not be read (' + esc(r.stockError) + '): stock shows –.</div>' : '') +
+      '<div class="card"><h2>Products <small class="muted" style="font-weight:400">keep ' + r.projDays + ' days of sales' + (r.canEdit ? ' · <a class="lnk" onclick="pjDays()">change</a>' : '') + '</small></h2>' +
+      '<div class="tabs" style="margin:0 0 10px">' + tab('', 'All', r.list.length) + tab('reorder', 'To reorder', r.list.filter(has.reorder).length) + tab('jaipur', 'Jaipur Factory', r.list.filter(has.jaipur).length) + tab('vendor', 'Other vendors', r.list.filter(has.vendor).length) + '</div>' +
+      (list.length ? pjTable(list, r) : '<div class="muted">No products yet: upload the sales of a channel.</div>') +
+      '<div class="muted" style="margin-top:6px">Cover = (stock + in production + next jobs + on order) ÷ sales a day. Suggested = what fills up to ' + r.projDays + ' days.</div></div>');
+  }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
+};
+function pjTable(list, r) {
+  var src = function (x) {
+    if (!r.canEdit) return x.source === 'JAIPUR' ? 'Jaipur Factory' : 'Other vendor';
+    return '<select onchange="pjSource(\'' + q(x.sku) + '\',this)" style="width:auto;margin:0"><option value="JAIPUR"' + (x.source === 'JAIPUR' ? ' selected' : '') + (x.jaipur ? '' : ' disabled') + '>Jaipur Factory</option><option value="VENDOR"' + (x.source === 'VENDOR' ? ' selected' : '') + '>Other vendor</option></select>' +
+      (x.jaipur ? '' : '<div class="muted" style="font-size:11.5px">not made in Jaipur</div>');
+  };
+  var act = function (x) {
+    if (!r.canEdit) return '';
+    return x.source === 'JAIPUR' ? (r.canPlan ? '<button class="btn sm" onclick="pjPlan(\'' + q(x.sku) + '\')">Plan in Jaipur</button>' : '') : '<button class="btn sm" onclick="pjOrder(\'' + q(x.sku) + '\')">Order</button>';
+  };
+  var pipe = function (x) {
+    return x.nextJobs.map(function (j) { return '<div class="muted" style="font-size:12px">next ' + esc(j.id) + (j.machine ? ' ' + esc(j.machine) : '') + ' × ' + j.qty + (j.target ? ' · by ' + d(j.target) : '') + '</div>'; }).join('') +
+      x.orders.map(function (o) { return '<div class="muted" style="font-size:12px;white-space:normal">' + esc(o.id) + ' ' + esc(o.vendor) + ' × ' + o.qty + ' · ' + d(o.date) + (r.canEdit ? ' <a class="lnk" onclick="pjClose(\'' + o.id + '\',\'RECEIVED\',this)">received</a> · <a class="lnk" onclick="pjClose(\'' + o.id + '\',\'CANCELLED\',this)">remove</a>' : '') + '</div>'; }).join('');
+  };
+  var cov = function (x) { return x.cover === null ? '<span class="muted">–</span>' : '<b class="' + (x.cover < S.data.pj.projDays / 2 ? 'neg' : '') + '">' + x.cover + ' d</b>'; };
+  var phone = '<div class="only-phone">' + list.map(function (x) {
+    return '<div class="mcard"><div class="mtop"><b>' + esc(x.sku) + '</b>' + (x.suggest ? '<span class="pill warn">reorder ' + x.suggest + '</span>' : '<span class="pill ok">OK</span>') + '</div>' +
+      '<div class="muted" style="font-size:12px">' + r.channels.map(function (c) { return c + ' ' + (x.sales[c] || 0); }).join(' · ') + '</div>' +
+      '<div class="mrk"><div>Sold (30 d) · a day</div><div><b>' + num(x.total) + '</b> · ' + num(x.daily) + '</div><div>Stock</div><div>' + pjNum(x.stock) + '</div><div>In production + next</div><div>' + x.inProd + ' + ' + x.next + '</div>' +
+      '<div>On order</div><div>' + x.onOrder + '</div><div>Cover</div><div>' + cov(x) + '</div></div>' + pipe(x) +
+      '<div style="display:flex;gap:8px;align-items:center;margin-top:6px">' + src(x) + act(x) + '</div></div>';
+  }).join('') + '</div>';
+  return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>Product</th>' +
+    '<th class="r">Sold 30 d</th><th class="r">A day</th><th class="r">Stock</th><th class="r">In prod.</th><th class="r">Next jobs</th><th class="r">On order</th><th class="r">Cover</th><th class="r">Suggested</th><th>Source · order</th></tr>' + list.map(function (x) {
+      return '<tr><td style="white-space:nowrap"><b>' + esc(x.sku) + '</b>' + pipe(x) + '</td>' +
+        '<td class="r"><b>' + num(x.total) + '</b><div class="muted" style="font-size:11.5px;white-space:nowrap">' + r.channels.filter(function (c) { return x.sales[c]; }).map(function (c) { return c + ' ' + num(x.sales[c]); }).join(' · ') + '</div></td><td class="r">' + num(x.daily) + '</td><td class="r">' + pjNum(x.stock) + '</td><td class="r">' + (x.inProd || '<span class="muted">–</span>') + '</td><td class="r">' + (x.next || '<span class="muted">–</span>') + '</td>' +
+        '<td class="r">' + (x.onOrder || '<span class="muted">–</span>') + '</td><td class="r">' + cov(x) + '</td><td class="r">' + (x.suggest ? '<b style="color:var(--warn)">' + x.suggest + '</b>' : '<span class="muted">0</span>') + '</td>' +
+        '<td><div style="display:flex;flex-direction:column;gap:4px;align-items:flex-start">' + src(x) + act(x) + '</div></td></tr>';
+    }).join('') + '</table></div>';
+}
+function pjItem(sku) { return S.data.pj.list.filter(function (x) { return x.sku === sku; })[0]; }
+function pjReload(r) { preload('projectionView', r); closeModal(); go('proj', S.arg); }
+function pjSource(sku, sel) {
+  sel.disabled = true;
+  api('setProduct', S.token, sku, { source: sel.value }).then(function (r) { toast(sku + ': ' + (sel.value === 'JAIPUR' ? 'Jaipur Factory' : 'other vendor')); pjReload(r); }).catch(function (e) { toast(e.message); go('proj', S.arg); });
+}
+function pjMap(i, btn) {
+  var x = S.data.pj.unmapped[i], v = val('pjm' + i).trim();
+  if (!v) return toast('Type our SKU.');
+  busy(btn, true);
+  api('mapSku', S.token, x.channel, x.csku, v).then(function (r) { toast(x.csku + ' → ' + v); pjReload(r); }).catch(function (e) { fail(e, btn); });
+}
+function pjRemap(i) {
+  var x = S.data.pj.mapped[i];
+  modal('Mapping · ' + x.channel + ' ' + x.csku, '<label class="f">Our SKU (empty = not mapped)</label><input id="pjR" list="pjSk2" value="' + esc(x.sku) + '"><datalist id="pjSk2">' + S.data.pj.skus.map(function (k) { return '<option value="' + esc(k) + '">'; }).join('') + '</datalist>' +
+    '<button class="btn block" onclick="pjRemapSave(' + i + ',this)">Save</button>');
+}
+function pjRemapSave(i, btn) {
+  var x = S.data.pj.mapped[i]; busy(btn, true);
+  api('mapSku', S.token, x.channel, x.csku, val('pjR').trim()).then(function (r) { toast('Mapping saved'); pjReload(r); }).catch(function (e) { fail(e, btn); });
+}
+function pjDays() {
+  modal('Days of stock to keep', '<label class="f">Keep this many days of sales (stock + in production + on order)</label><input id="pjD" type="number" value="' + S.data.pj.projDays + '"><button class="btn block" onclick="pjDaysSave(this)">Save</button>');
+}
+function pjDaysSave(btn) { busy(btn, true); api('setProjectionDays', S.token, val('pjD')).then(pjReload).catch(function (e) { fail(e, btn); }); }
+function pjClose(id, st, el) {
+  if (!confirm(st === 'RECEIVED' ? 'Mark ' + id + ' as received? (Add the goods to the Inventory App as usual: the stock comes from there.)' : 'Remove order ' + id + '?')) return;
+  el.style.pointerEvents = 'none';
+  api('closeProductOrder', S.token, id, st).then(function (r) { toast(id + (st === 'RECEIVED' ? ' received' : ' removed')); pjReload(r); }).catch(function (e) { el.style.pointerEvents = ''; toast(e.message); });
+}
+/* Order from another vendor. */
+function pjOrder(sku) {
+  var x = pjItem(sku), r = S.data.pj;
+  modal('Order · ' + sku, '<label class="f">Vendor</label><select id="poS" onchange="mrVendor()"><option value="">Choose vendor…</option>' + r.suppliers.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('') + '<option value="__new">+ Add a new vendor…</option></select>' +
+    '<input id="poSN" style="display:none;margin-top:6px" placeholder="New vendor name">' +
+    '<div class="row"><div><label class="f">Quantity (pcs)</label><input id="pjQ" type="number" inputmode="numeric" value="' + (x.suggest || '') + '"></div><div><label class="f">Order date</label><input id="pjOD" type="date" value="' + todayIso() + '"></div></div>' +
+    '<label class="f">Note (optional)</label><input id="pjN"><button class="btn block ok" onclick="pjOrderSave(\'' + q(sku) + '\',this)">✔ Place order</button>');
+}
+function pjOrderSave(sku, btn) {
+  var v = val('poS') === '__new' ? val('poSN').trim() : val('poS');
+  if (!v) return toast('Choose or add the vendor.');
+  if (!(Number(val('pjQ')) > 0)) return toast('Enter the quantity.');
+  busy(btn, true);
+  api('productOrder', S.token, { sku: sku, vendor: v, qty: Number(val('pjQ')), date: val('pjOD'), note: val('pjN') }).then(function (r) { toast('Order placed'); pjReload(r); }).catch(function (e) { fail(e, btn); });
+}
+/* Plan in the Jaipur factory: a Next job on a machine; the man hours say when it can be done. */
+function pjPlan(sku) {
+  var x = pjItem(sku), r = S.data.pj;
+  var free = r.machines.filter(function (m) { return !m.next; });
+  modal('Plan in Jaipur · ' + sku, '<div class="mrk"><div>Sold a day</div><div>' + num(x.daily) + '</div><div>Cover now</div><div>' + (x.cover === null ? '–' : x.cover + ' days') + '</div><div>Suggested</div><div><b>' + x.suggest + '</b> pcs</div></div>' +
+    '<div class="row"><div><label class="f">Quantity (pcs)</label><input id="ppQ" type="number" inputmode="numeric" value="' + (x.suggest || '') + '" oninput="pjCalc(\'' + q(sku) + '\')"></div>' +
+    '<div><label class="f">Man minutes per piece</label><input id="ppM" type="number" step="any" inputmode="decimal" value="' + (x.manMinutes || '') + '" placeholder="e.g. 25" oninput="pjCalc(\'' + q(sku) + '\')"></div></div>' +
+    '<div class="msg info" id="ppR" style="margin-top:8px"></div>' +
+    '<label class="f">Machine (its next job)</label><select id="ppMa" onchange="pjMachine()"><option value="">Choose machine…</option>' + free.map(function (m) {
+      return '<option value="' + m.id + '">' + esc(m.name) + (m.job ? ' · running ' + esc(m.job.item) + ' (' + esc(m.job.karigar) + ', ' + m.job.remaining + ' to make)' : m.idle ? ' · idle: starts at once' : '') + '</option>';
+    }).join('') + '</select>' +
+    '<label class="f">Karigar</label><select id="ppK"><option value="">Karigar…</option>' + r.karigars.map(function (k) { return '<option value="' + k.id + '">' + esc(k.name) + '</option>'; }).join('') + '</select>' +
+    '<label class="f">Target date</label><input id="ppT" type="date">' +
+    '<button class="btn block ok" onclick="pjPlanSave(\'' + q(sku) + '\',this)">✔ Save as next job</button>');
+  pjCalc(sku);
+}
+function pjMachine() { var m = S.data.pj.machines.filter(function (x) { return x.id === val('ppMa'); })[0]; if (m && m.job) $('ppK').value = m.job.karigarId; }
+function pjCalc(sku) {
+  var qn = Number(val('ppQ')) || 0, mm = Number(val('ppM')) || 0, c = S.data.pj.capacity;
+  if (!qn || !mm) { $('ppR').innerHTML = 'Enter the quantity and the man minutes per piece to see when it can be done.'; return; }
+  var h = Math.round(qn * mm / 60 * 10) / 10, fin = pjFinish(qn * mm / 60);
+  $('ppR').innerHTML = qn + ' pcs × ' + mm + ' min = <b>' + num(h) + ' man hours</b> (' + (c.dailyManHours ? Math.round(h / c.dailyManHours * 10) / 10 + ' factory days' : 'no man hours: set the teams in Karigars & rates') + ').' +
+    (fin ? ' After the ' + num(c.loadHours) + ' h already planned: done by about <b>' + d(fin) + '</b>.' : '');
+  if (fin && $('ppT') && !$('ppT').dataset.touched) $('ppT').value = fin;
+}
+function pjPlanSave(sku, btn) {
+  var qn = Number(val('ppQ')), mm = val('ppM');
+  if (!(qn > 0)) return toast('Enter the quantity.');
+  if (!val('ppMa')) return toast('Choose the machine.');
+  if (!val('ppK')) return toast('Choose the karigar.');
+  busy(btn, true);
+  var x = pjItem(sku), save = mm !== '' && Number(mm) !== x.manMinutes ? api('setProduct', S.token, sku, { manMinutes: mm }) : Promise.resolve();
+  save.then(function () {
+    return api('saveOrders', S.token, { karigarId: val('ppK'), machine: val('ppMa'), next: true, target: val('ppT'), note: 'Projections', lines: [{ item: sku, qty: qn }] });
+  }).then(function () { return api('projectionView', S.token); }).then(function (r) { toast('Next job saved on ' + $('ppMa').selectedOptions[0].text.split(' · ')[0]); pjReload(r); }).catch(function (e) { fail(e, btn); });
+}
+/* ---- sales upload: the Excel / CSV is read here; the columns are matched once per channel (remembered) ---- */
+function pjXlsx() {
+  if (window.XLSX) return Promise.resolve(window.XLSX);
+  return new Promise(function (ok, bad) {
+    var s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+    s.onload = function () { ok(window.XLSX); }; s.onerror = function () { bad(new Error('The Excel reader could not be loaded (internet?).')); };
+    document.head.appendChild(s);
+  });
+}
+function pjFile(channel, inp) {
+  var file = inp.files && inp.files[0]; inp.value = ''; if (!file) return;
+  modalWait('Upload · ' + channel, pjXlsx().then(function (X) {
+    return file.arrayBuffer().then(function (buf) {
+      var wb = X.read(buf, { type: 'array', cellDates: true }), ws = wb.Sheets[wb.SheetNames[0]];
+      return X.utils.sheet_to_json(ws, { header: 1, raw: true, defval: '' });
+    });
+  }), function (rows) { pjMatch(channel, file.name, rows); });
+}
+function pjMatch(channel, fileName, rows) {
+  var hi = 0; for (var i = 0; i < Math.min(rows.length, 20); i++) { if (rows[i].filter(function (v) { return String(v).trim() !== ''; }).length >= 2) { hi = i; break; } }
+  var head = (rows[hi] || []).map(function (h, i) { return String(h).trim() || 'Column ' + (i + 1); }), body = rows.slice(hi + 1).filter(function (r) { return r.some(function (v) { return String(v).trim() !== ''; }); });
+  if (!body.length) return modal('Upload · ' + channel, '<div class="msg err">No rows found in ' + esc(fileName) + '.</div>');
+  var saved = S.data.pj.colMaps[channel] || {};
+  var guess = function (key, re) { var i = head.indexOf(saved[key]); if (i >= 0) return i; for (var j = 0; j < head.length; j++) if (re.test(head[j])) return j; return -1; };
+  var g = { sku: guess('sku', /sku|asin|fsn|item ?id|product ?id|item ?code|style/i), name: guess('name', /name|title|description/i), qty: guess('qty', /qty|quantity|units|sold|sales ?qty|ordered/i), date: guess('date', /date|day/i) };
+  var sel = function (id, k, opt) { return '<select id="' + id + '" onchange="pjPreview()">' + (opt ? '<option value="-1">(none)</option>' : '') + head.map(function (h, i) { return '<option value="' + i + '"' + (g[k] === i ? ' selected' : '') + '>' + esc(h) + '</option>'; }).join('') + '</select>'; };
+  S.data.pjUp = { channel: channel, file: fileName, head: head, body: body };
+  var to = new Date(), from = new Date(Date.now() - 29 * 864e5), iso = function (x) { return x.getFullYear() + '-' + ('0' + (x.getMonth() + 1)).slice(-2) + '-' + ('0' + x.getDate()).slice(-2); };
+  modal('Upload · ' + channel + ' · ' + fileName, '<div class="muted">' + body.length + ' rows. Match the columns (remembered for ' + esc(channel) + ').</div>' +
+    '<div class="row"><div><label class="f">Product / SKU column</label>' + sel('puS', 'sku') + '</div><div><label class="f">Quantity sold column</label>' + sel('puQ', 'qty') + '</div></div>' +
+    '<div class="row"><div><label class="f">Name column (optional)</label>' + sel('puN', 'name', 1) + '</div><div><label class="f">Date column (optional)</label>' + sel('puD', 'date', 1) + '</div></div>' +
+    '<div class="row"><div><label class="f">Sales from</label><input id="puF" type="date" value="' + iso(from) + '" onchange="pjPreview()"></div><div><label class="f">to</label><input id="puT" type="date" value="' + iso(to) + '" onchange="pjPreview()"></div></div>' +
+    '<div id="puP" style="margin-top:8px"></div><button class="btn block ok" onclick="pjUpload(this)">⬆ Upload ' + esc(channel) + ' sales</button>');
+  pjPreview();
+}
+function pjCellDate(v) {
+  if (v instanceof Date) return v;
+  if (typeof v === 'number' && v > 20000 && v < 80000) return new Date(Math.round((v - 25569) * 864e5));
+  var s = String(v).trim(), m = /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})/.exec(s);
+  if (m) return new Date((m[3].length === 2 ? '20' + m[3] : m[3]) + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[1]).slice(-2));
+  var t = new Date(s); return isNaN(t) ? null : t;
+}
+function pjLines() {
+  var u = S.data.pjUp, si = Number(val('puS')), qi = Number(val('puQ')), ni = Number(val('puN')), di = Number(val('puD'));
+  var from = val('puF') ? new Date(val('puF')) : null, to = val('puT') ? new Date(val('puT') + 'T23:59:59') : null, agg = {}, skipped = 0;
+  u.body.forEach(function (r) {
+    var sku = String(r[si] === undefined ? '' : r[si]).trim(); if (!sku) return;
+    if (di >= 0) { var dt = pjCellDate(r[di]); if (dt && ((from && dt < from) || (to && dt > to))) { skipped++; return; } }
+    var qn = Number(String(r[qi]).replace(/,/g, '')) || 0;
+    var x = agg[sku.toUpperCase()] = agg[sku.toUpperCase()] || { sku: sku, name: ni >= 0 ? String(r[ni] || '') : '', qty: 0 };
+    x.qty += qn;
+  });
+  return { lines: Object.keys(agg).map(function (k) { return agg[k]; }), skipped: skipped, cols: { sku: u.head[si], qty: u.head[qi], name: ni >= 0 ? u.head[ni] : '', date: di >= 0 ? u.head[di] : '' } };
+}
+function pjPreview() {
+  var p = pjLines(), top = p.lines.slice().sort(function (a, b) { return b.qty - a.qty; }).slice(0, 5);
+  $('puP').innerHTML = '<div class="msg info"><b>' + p.lines.length + ' products · ' + num(p.lines.reduce(function (n, l) { return n + l.qty; }, 0)) + ' pcs</b>' + (p.skipped ? ' (' + p.skipped + ' rows outside the dates left out)' : '') +
+    (top.length ? '<div style="font-size:12.5px;margin-top:4px">Most sold: ' + top.map(function (l) { return esc(l.sku) + ' ' + num(l.qty); }).join(' · ') + '</div>' : '') + '</div>';
+}
+function pjUpload(btn) {
+  var p = pjLines(), u = S.data.pjUp;
+  if (!p.lines.length) return toast('No sales lines: check the columns.');
+  busy(btn, true);
+  api('uploadSales', S.token, u.channel, { file: u.file, from: val('puF'), to: val('puT'), cols: p.cols, lines: p.lines }).then(function (r) { toast(u.channel + ': ' + p.lines.length + ' products uploaded'); pjReload(r); }).catch(function (e) { fail(e, btn); });
 }
 /* A cutting's status: On table (default) · Planned (date) · Completed (date) · Remove (asks first). */
 var CUT_ST = [['TODO', 'On table'], ['PLANNED', 'Planned'], ['DONE', 'Completed'], ['CANCELLED', 'Remove']];

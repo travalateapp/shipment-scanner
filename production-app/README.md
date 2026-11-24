@@ -69,6 +69,25 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   "edit" in the Team column). Man hours a month = shift hours × working days × (mains + helpers), e.g. 13 × 26 × (1 + 0.4
   + 0.5 + 0.6) = 845 h; the total of the active karigars is at the top. Shift hours (13) and working days (26) are in
   Settings ("change shift / days"). Sheet Karigars gets the column **Team**.
+- **📈 Projections** (menu; permission **projections** to change, reports to view): last 30 days of sales → what to make
+  in the Jaipur factory or order from a vendor.
+  - **Sales uploads:** one Excel (.xlsx/.xls) or CSV per channel: **Zepto, Swiggy, Amazon, Flipkart** (a new upload
+    replaces that channel's last one). The file is read on the phone/computer (SheetJS from cdnjs); you match the columns
+    once per channel (product/SKU, quantity sold, optional name and date — remembered): with a date column only the
+    chosen period (default the last 30 days) counts. Sheet **Channel Sales**.
+  - **SKU mapping:** a channel SKU that is the same as one of ours maps by itself; the others are listed to map (our SKUs
+    = items of this app + the Inventory App's SKUs); "Mapped channel SKUs" (collapsed) to change one. Sheet **SKU Map**.
+  - **Products:** sold in 30 days (per channel), a day, **stock** (Inventory App, latest value), in production, next jobs,
+    on order, **cover** in days and the **suggested** quantity to keep **30 days** of sales (Settings "Projection Days",
+    "change"). Filters: All · To reorder · Jaipur Factory · Other vendors.
+  - **Source** per product: **Jaipur Factory** (only for items of this app) or **Other vendor**. Sheet **Products** (also
+    the **man minutes per piece**).
+    - Jaipur Factory → **Plan in Jaipur**: quantity (suggested), man minutes per piece → man hours needed and, after the
+      work already planned (running + next jobs) at the factory's man hours a day (teams in Karigars & rates), the date it
+      can be done; saved as the machine's **Next job** (an idle machine starts it at once) with that target date.
+    - Other vendor → **Order**: vendor (saved or new), quantity, date, note; "received" / "remove". Sheet **Product Orders**.
+  - **Jaipur factory capacity:** man hours a month / a day, hours already planned and when the factory is free; products
+    without man minutes are listed.
 - **Material Room** (menu; replaces Available Cuttings): every active raw material in two sections, **CR-tagged** and
   **other** materials: Base stock (in the store + allocated), Allocated (given to karigars for running jobs, not made
   into goods yet), Available (in the store), Reserved (what the Next jobs need), Status (OK / Low / Short N / No stock
