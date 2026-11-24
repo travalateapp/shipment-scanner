@@ -1148,6 +1148,9 @@ function cutStockTable(rows) {
 /* A cutting's status: On table (default) · Planned (date) · Completed (date) · Remove (asks first). */
 var CUT_ST = [['TODO', 'On table'], ['PLANNED', 'Planned'], ['DONE', 'Completed'], ['CANCELLED', 'Remove']];
 function cutStatusCell(c, canCut) {
+  if (c.status === 'DONE') return '<span class="pill ok">✔ Completed</span> <b style="white-space:nowrap">' + d(String(c.doneAt || '').slice(0, 10)) + '</b>' +
+    (c.doneByName ? '<div class="muted" style="font-size:12px">' + esc(c.doneByName) + '</div>' : '') +
+    (canCut ? '<div><a class="lnk" style="font-size:12.5px" onclick="cutUndo(\'' + esc(c.id) + '\',this)">undo</a></div>' : '');
   var dt = c.status === 'PLANNED' ? c.planned : c.status === 'DONE' ? String(c.doneAt || '').slice(0, 10) : '';
   if (!canCut) return '<span class="pill' + (c.status === 'DONE' ? ' ok' : c.status === 'PLANNED' ? ' info' : '') + '">' + (CUT_ST.filter(function (x) { return x[0] === c.status; })[0] || ['', c.status])[1] + '</span>' + (dt ? ' ' + d(dt) : '');
   return '<div class="cst" data-id="' + esc(c.id) + '" data-st="' + c.status + '"><select onchange="cutSel(this)">' + CUT_ST.map(function (x) { return '<option value="' + x[0] + '"' + (x[0] === c.status ? ' selected' : '') + '>' + x[1] + '</option>'; }).join('') + '</select>' +
@@ -1172,13 +1175,15 @@ function cutTable(list, canCut) {
       '<table class="tbl" style="margin-top:4px"><tr><th>CR material</th><th class="r">Calculation</th><th class="r">Actual cut</th><th class="r">Diff.</th></tr>' + c.materials.map(function (m) {
         var big = m.diffPct !== null && m.diffPct !== undefined && Math.abs(m.diffPct) > 2;
         return '<tr><td>' + esc(m.name) + '</td><td class="r">' + num(m.qty) + ' ' + esc(m.unit) + '</td><td class="r">' + (m.actual === null || m.actual === undefined ? '–' : num(m.actual)) + '</td><td class="r' + (big ? ' cdiff' : '') + '">' + (m.diff === null || m.diff === undefined ? '–' : (m.diff > 0 ? '+' : '') + num(m.diff) + (m.diffPct !== null ? ' (' + m.diffPct + '%)' : '')) + '</td></tr>';
-      }).join('') + '</table><div style="margin-top:8px">' + cutStatusCell(c, canCut) + '</div></div>';
+      }).join('') + '</table><div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">' + cutStatusCell(c, canCut) +
+      (canCut ? '<a class="lnk" style="font-size:12.5px" onclick="cutActual(\'' + esc(c.id) + '\')">✏️ Edit actual cut</a>' : '') + '</div></div>';
   }).join('') + '</div>';
   return phone + '<div class="only-desk scroll"><table class="tbl"><tr><th>Cutting</th><th class="r">Pieces</th><th>CR material</th><th class="r">Calculation</th><th class="r">Actual cut</th><th class="r">Difference</th><th></th></tr>' + list.map(function (c) {
     var mc = cutMatCells(c);
-    return '<tr><td><b>' + esc(c.item) + '</b><div class="muted" style="white-space:nowrap">' + esc(c.id) + '</div>' + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') + '</td><td class="r"><b>' + c.qty + '</b></td>' +
+    return '<tr><td><b>' + esc(c.item) + '</b><div class="muted" style="white-space:nowrap">' + esc(c.id) + '</div>' + (c.note ? '<div class="muted">' + esc(c.note) + '</div>' : '') +
+      (canCut ? '<div><a class="lnk" style="font-size:12.5px;white-space:nowrap" onclick="cutActual(\'' + esc(c.id) + '\')">✏️ Edit actual cut</a></div>' : '') + '</td><td class="r"><b>' + c.qty + '</b></td>' +
       '<td>' + mc.names + '</td><td class="r">' + mc.calc + '</td><td class="r">' + mc.actual + '</td><td class="r">' + mc.diff + '</td><td>' + cutStatusCell(c, canCut) + '</td></tr>';
-  }).join('') + '</table></div><div class="muted" style="margin-top:6px">Calculation = material per piece × pieces. Actual cut = rolls × roll size. A difference of more than 2% is in red.</div>';
+  }).join('') + '</table></div><div class="muted" style="margin-top:6px">Calculation = material per piece × pieces. Actual cut = what was really cut (✏️ Edit actual cut: rolls or the amount). A difference of more than 2% is in red.</div>';
 }
 VIEWS.cutting = function () {
   load('cuttingView', S.token).then(function (r) {
@@ -1203,8 +1208,8 @@ VIEWS.cutstock = function () {
     render('<h1 class="page">📦 Available Cuttings <small>cut pieces per SKU, from the Cutting Room</small></h1><div class="card">' + cutStockTable(r.stock || []) + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
-/* New cutting: the SKU's CR materials. Rolls (for a material bought in rolls) work out the pieces: rolls × roll size ÷
-   per piece (the smallest when several have rolls); the pieces can still be changed. */
+/* New cutting: the SKU's CR materials. Rolls (for a material bought in rolls) = the actual cut: rolls × roll size, compared
+   with the calculation (per piece × pieces). The pieces typed are never changed by the rolls. */
 function cutItem() { return (S.data.cv.items || []).filter(function (i) { return i.code === val('cuI'); })[0]; }
 function cutPreview() {
   var it = cutItem(); if (!$('cuP')) return;
@@ -1218,10 +1223,7 @@ function cutPreview() {
 }
 function cutRolls(code, v) {
   S.data.cuRolls[code] = v;
-  var it = cutItem(), best = null;
-  it.cr.forEach(function (m) { var r = Number(S.data.cuRolls[m.code]) || 0; if (r > 0 && m.perRoll) { var p = Math.floor(r * m.perRoll / m.perPiece + 1e-9); best = best === null ? p : Math.min(best, p); } });
-  if (best !== null) $('cuQ').value = best;
-  cutCalc();
+  cutCalc(); // the pieces typed stay as they are (the plan): rolls are the actual cut, compared with it
 }
 function cutCalc() {
   var it = cutItem(), qn = Number(val('cuQ')) || 0; if (!it || !$('cuH')) return;
@@ -1229,7 +1231,10 @@ function cutCalc() {
   it.cr.forEach(function (m, i) {
     var need = Math.round(m.perPiece * qn * 1000) / 1000, r = Number(S.data.cuRolls[m.code]) || 0, have = r * m.perRoll;
     $('cuA' + i).textContent = qn ? num(need) : '–';
-    $('cuR' + i).textContent = qn && m.perRoll ? (r > 0 ? (have >= need - 1e-9 ? 'left over ' + num(Math.round((have - need) * 1000) / 1000) + ' ' + m.unit : 'short ' + num(Math.round((need - have) * 1000) / 1000) + ' ' + m.unit) : '≈ ' + num(Math.round(need / m.perRoll * 100) / 100) + ' rolls') : '';
+    var pct = need ? Math.round(10000 * (have - need) / need) / 100 : 0;
+    $('cuR' + i).innerHTML = m.perRoll && r > 0 ? 'actual ' + num(Math.round(have * 1000) / 1000) + ' ' + esc(m.unit) + ' (enough for ≈ ' + Math.floor(have / m.perPiece + 1e-9) + ' pieces)' +
+      (qn ? '<br><span class="' + (Math.abs(pct) > 2 ? 'cdiff' : '') + '">' + (have >= need ? '+' : '') + num(Math.round((have - need) * 1000) / 1000) + ' ' + esc(m.unit) + ' (' + (pct > 0 ? '+' : '') + pct + '%)</span>' : '')
+      : qn && m.perRoll ? '≈ ' + num(Math.round(need / m.perRoll * 100) / 100) + ' rolls' : '';
   });
 }
 function cutSave(btn) {
@@ -1237,6 +1242,43 @@ function cutSave(btn) {
   if (!(Number(val('cuQ')) > 0)) return toast('Enter the quantity (pieces).');
   busy(btn, true);
   api('saveCutting', S.token, { item: val('cuI'), qty: val('cuQ'), date: val('cuD'), note: val('cuN'), rolls: S.data.cuRolls || {} }).then(function (r) { toast('Cutting added'); preload('cuttingView', r); go('cutting'); }).catch(function (e) { fail(e, btn); });
+}
+/* Actual cut per CR material: rolls (× roll size fills the amount) or the amount itself. */
+function cutActual(id) {
+  var c = (S.data.cv.list || []).filter(function (x) { return x.id === id; })[0]; if (!c) return;
+  modal('Actual cut · ' + c.item + ' × ' + c.qty + ' · ' + c.id, '<div class="muted" style="margin-bottom:6px">Enter what was really cut. Rolls × roll size fill in the amount; you can also type the amount.</div>' +
+    '<div class="scroll"><table class="tbl"><tr><th>CR material</th><th class="r">Calculation</th><th class="r">Rolls</th><th class="r">Actual cut</th><th class="r">Difference</th></tr>' + c.materials.map(function (m, i) {
+      return '<tr class="cam" data-code="' + esc(m.code) + '" data-per="' + (m.perRoll || 0) + '" data-calc="' + m.qty + '" data-unit="' + esc(m.unit) + '"><td>' + esc(m.name) + '</td><td class="r">' + num(m.qty) + ' ' + esc(m.unit) + '</td>' +
+        '<td class="r">' + (m.perRoll ? '<input class="car" type="number" step="any" min="0" inputmode="decimal" style="width:80px;display:inline-block" value="' + (m.rolls || '') + '" oninput="cutActRolls(this)"><div class="muted" style="font-size:11.5px">1 roll = ' + num(m.perRoll) + ' ' + esc(m.unit) + '</div>' : '<span class="muted" style="font-size:12px">–</span>') + '</td>' +
+        '<td class="r"><input class="caa" type="number" step="any" min="0" inputmode="decimal" style="width:100px;display:inline-block" value="' + (m.actual === null || m.actual === undefined ? '' : m.actual) + '" oninput="cutActDiff(this.closest(\'tr\'))"> ' + esc(m.unit) + '</td>' +
+        '<td class="r cad"></td></tr>';
+    }).join('') + '</table></div><button class="btn block" onclick="cutActualSave(\'' + esc(c.id) + '\',this)">Save actual cut</button>');
+  Array.prototype.forEach.call(document.querySelectorAll('#modal .cam'), cutActDiff);
+}
+function cutActRolls(inp) {
+  var tr = inp.closest('tr'), r = Number(inp.value) || 0, per = Number(tr.dataset.per) || 0;
+  tr.querySelector('.caa').value = r > 0 && per ? Math.round(r * per * 1000) / 1000 : '';
+  cutActDiff(tr);
+}
+function cutActDiff(tr) {
+  var a = tr.querySelector('.caa').value, calc = Number(tr.dataset.calc), cell = tr.querySelector('.cad');
+  if (a === '') { cell.innerHTML = '<span class="muted">–</span>'; return; }
+  var diff = Math.round((Number(a) - calc) * 1000) / 1000, pct = calc ? Math.round(10000 * diff / calc) / 100 : null;
+  cell.innerHTML = '<span class="' + (pct !== null && Math.abs(pct) > 2 ? 'cdiff' : '') + '">' + (diff > 0 ? '+' : '') + num(diff) + ' ' + esc(tr.dataset.unit) + (pct !== null ? ' (' + (pct > 0 ? '+' : '') + pct + '%)' : '') + '</span>';
+}
+function cutActualSave(id, btn) {
+  var lines = {};
+  Array.prototype.forEach.call(document.querySelectorAll('#modal .cam'), function (tr) {
+    var r = tr.querySelector('.car');
+    lines[tr.dataset.code] = { rolls: r ? r.value : '', actual: tr.querySelector('.caa').value };
+  });
+  busy(btn, true);
+  var view = S.view;
+  api('setCuttingActual', S.token, id, lines).then(function (r) { toast('Actual cut saved'); preload('cuttingView', r); closeModal(); go(view); }).catch(function (e) { fail(e, btn); });
+}
+function cutUndo(id, a) {
+  if (!confirm('Undo: ' + id + ' goes back to "On table"?')) return;
+  cutStatus(id, 'TODO', '', a);
 }
 function cutSel(sel) {
   var box = sel.closest('.cst'), v = sel.value, inp = box.querySelector('input'), btn = box.querySelector('button'), c = (S.data.cv.list || []).filter(function (x) { return x.id === box.dataset.id; })[0] || {};

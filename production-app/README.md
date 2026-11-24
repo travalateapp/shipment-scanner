@@ -42,7 +42,7 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   given (shown first, can be changed). The "Gone home" marks are no longer on the Machine Dashboard and no longer hold
   back machine jobs.
 - **Cutting Room · To cut** columns: Cutting (SKU + ID), Pieces, CR material, **Calculation** (material per piece ×
-  pieces), **Actual cut** (rolls × roll size), **Difference** (red when more than 2%), and a status picker instead of
+  pieces), **Actual cut** (✏️ **Edit actual cut** on each cutting, also completed ones: rolls × roll size, or type the amount), **Difference** (red when more than 2%), and a status picker instead of
   "Cutting completed": **On table** (default), **Planned** (+ date), **Completed** (+ date), **Remove** (asks first; not
   getting cut). Sheet Cuttings gets the column **Planned Date**. **Next jobs & cuttings**: SKU with its CR fabric lines,
   Available, **Planned date** (or "Unplanned"), Next jobs, Status. **Available Cuttings** (block in the Cutting Room and
@@ -51,8 +51,8 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Cutting Room** (permission "cutting" to enter; staff with reports / machines can see it). In Materials, tap
   **CR** next to a material that is cut in the cutting room (filter "CR"; column Tags). A cutting = an SKU and a
   quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). For a CR material bought
-  in rolls, type the **number of rolls**: rolls × the usual roll size (from its price) ÷ per piece gives the pieces
-  (the smallest when several materials have rolls; it can still be changed), with what is left over or short. The
+  in rolls, type the **number of rolls** (the actual cut): rolls × the usual roll size (from its price), shown with the
+  pieces it is enough for and its difference from the calculation. The pieces typed are **never changed** by the rolls. The
   rolls are saved with the cutting. It waits in **To cut**
   until someone taps **Cutting completed** (undo is possible while it is not used; remove while not done). The
   store is not changed by cutting (material still leaves the store with the job). Completed cutting is **used up
