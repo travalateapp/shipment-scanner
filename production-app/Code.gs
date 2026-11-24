@@ -39,6 +39,7 @@ const SHEET = {
   MACHINES: 'Machines',
   CUTTINGS: 'Cuttings',
   MAT_ORDERS: 'Material Orders',
+  PORDERS: 'Purchase Orders',
 };
 
 const HEADERS = {};
@@ -65,7 +66,12 @@ HEADERS[SHEET.ORDERS] = ['ID', 'Date', 'Karigar ID', 'Item Code', 'Qty', 'Status
 HEADERS[SHEET.CUTTINGS] = ['ID', 'Date', 'Item Code', 'Qty', 'Materials', 'Status', 'Note', 'By', 'At', 'Done By', 'Done At', 'Planned Date'];
 // Material Room: an order placed with a supplier for a material (date + quantity). The newest row of a material counts;
 // Status CLEARED = no order now.
-HEADERS[SHEET.MAT_ORDERS] = ['Material Code', 'Status', 'Order Date', 'Qty', 'By', 'At'];
+HEADERS[SHEET.MAT_ORDERS] = ['Material Code', 'Status', 'Order Date', 'Qty', 'By', 'At']; // first version: no longer used
+// Material Room orders (several per material): Qty in the purchase unit (roll, kg …), Units = in the BOM unit (Qty × units per
+// purchase). Purchase bills of the SAME supplier and material, dated on/after the order date, fill the oldest open orders
+// first; an order is completed when it has all its units, or by hand (CLOSED, even with less). CANCELLED = removed.
+HEADERS[SHEET.PORDERS] = ['ID', 'Material Code', 'Supplier', 'Order Date', 'Qty', 'Purchase Unit', 'Units', 'Status', 'Note', 'By', 'At',
+  'Closed By', 'Closed At'];
 // Machines (M1, M2 …): a work order on a machine has its ID in 'Machine'. 'Off Machine' = when 'Complete job' (count 1)
 // freed the machine; the work order is then marked completed at its final count, even with fewer pieces.
 HEADERS[SHEET.MACHINES] = ['ID', 'Name', 'Active', 'Added By', 'At'];
@@ -146,7 +152,7 @@ const API_FUNCTIONS = {
   correctBatch, moveList, saveMove, decideMove, confirmLot, materialBalance, orderList, saveOrder, setOrderStatus,
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   addOrderQty, giveOrderMaterial, setCount2,
-  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, setMaterialOrder, setMaterialTag,
+  cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1399,49 +1405,127 @@ function nextJobsBlock_() {
   }).sort((a, b) => (b.next ? 1 : 0) - (a.next ? 1 : 0) || a.item.localeCompare(b.item));
 }
 
+function readPOrders_() {
+  return memo_('porders', () => rows_(SHEET.PORDERS).map((r, i) => ({ row: i + 2, id: String(r[0]), material: String(r[1]).trim().toUpperCase(),
+    supplier: String(r[2] || '').trim(), date: toDateStr_(r[3]), qty: Number(r[4]) || 0, purchaseUnit: String(r[5] || ''), units: Number(r[6]) || 0,
+    status: (x => (['CLOSED', 'CANCELLED'].indexOf(x) >= 0 ? x : 'OPEN'))(String(r[7]).trim().toUpperCase()), note: String(r[8] || ''),
+    by: String(r[9] || ''), at: String(r[10] || ''), closedBy: String(r[11] || ''), closedAt: String(r[12] || '') })).filter(o => o.id && o.material));
+}
+
+/**
+ * Received on each order, worked out from the purchase bills (so an edited bill is followed): every bill line of a
+ * material goes, oldest bill first, to the oldest order of the same supplier and material that was open then
+ * (order date ≤ bill date, not closed by hand before the bill was entered, not full yet).
+ */
+function poState_() {
+  return memo_('postate', () => {
+    const list = readPOrders_().filter(o => o.status !== 'CANCELLED').map(o => Object.assign({}, o, { received: 0, bills: [], filledAt: '' }))
+      .sort((a, b) => (a.date + a.at).localeCompare(b.date + b.at));
+    const key = (m, sup) => m + '|' + String(sup || '').trim().toLowerCase();
+    const by = {};
+    list.forEach(o => (by[key(o.material, o.supplier)] = by[key(o.material, o.supplier)] || []).push(o));
+    const lines = [];
+    readBills_().forEach(b => b.lines.forEach(l => { const m = String(l.material || '').toUpperCase(); if (by[key(m, b.supplier)]) lines.push({ k: key(m, b.supplier), units: Number(l.units) || 0, date: b.date, at: b.at, bill: b.id }); }));
+    lines.sort((a, b) => (a.date + a.at).localeCompare(b.date + b.at)).forEach(l => {
+      let left = l.units;
+      by[l.k].forEach(o => {
+        if (left <= 1e-9 || o.date > l.date || (o.status === 'CLOSED' && o.closedAt && o.closedAt <= l.at) || o.received >= o.units - 1e-9) return;
+        const take = Math.min(left, o.units - o.received);
+        o.received = round3_(o.received + take); left -= take;
+        if (o.bills.indexOf(l.bill) < 0) o.bills.push(l.bill);
+        if (o.received >= o.units - 1e-9) o.filledAt = l.date;
+      });
+    });
+    list.forEach(o => {
+      o.done = o.status === 'CLOSED' || o.received >= o.units - 1e-9;
+      o.doneHow = o.status === 'CLOSED' && o.received < o.units - 1e-9 ? 'MANUAL' : o.done ? 'RECEIVED' : '';
+      o.doneOn = o.status === 'CLOSED' ? String(o.closedAt).slice(0, 10) : o.filledAt;
+    });
+    return list;
+  });
+}
+
 /**
  * Material Room, per material (CR-tagged and the others): Base stock = in the store + Allocated; Allocated = given to
  * karigars for their running jobs and not made into goods yet; Available = in the store; Reserved = what the Next jobs
  * need (not given yet). Status: SHORT (Reserved > Available), LOW (nothing / below the reorder level), OK, NONE (no store
- * stock entered). Plus the order placed with a supplier (date, quantity).
+ * stock entered). Plus the open purchase orders and, per section, the history (completed and removed orders).
  */
 function materialRoom(token) {
   const u = authStaff_(token, 'cutting|reports|machines|store');
-  const st = storeStockMap_(), prog = ordersWithProgress_(), bom = bomMap_(), alloc = {}, res = {}, ord = {};
+  const st = storeStockMap_(), prog = ordersWithProgress_(), bom = bomMap_(), alloc = {}, res = {}, open = {};
   prog.filter(o => o.open).forEach(o => orderMaterial_(o).forEach(x => {
     const per = o.qty ? x.need / o.qty : 0;
     alloc[x.code] = (alloc[x.code] || 0) + Math.max(0, Math.min(x.given, per * o.remaining));
   }));
   prog.filter(o => o.next).forEach(o => (bom[o.item] || []).forEach(x => { res[x.material] = (res[x.material] || 0) + x.qty * o.qty; }));
-  rows_(SHEET.MAT_ORDERS).forEach(r => { const c = String(r[0]).trim().toUpperCase(); if (c) ord[c] = { status: String(r[1]).trim().toUpperCase(), date: toDateStr_(r[2]), qty: Number(r[3]) || 0 }; });
+  const pos = poState_(), mats = materialMap_(), names = {};
+  pos.filter(o => !o.done).forEach(o => (open[o.material] = open[o.material] || []).push(o));
+  const poView = o => ({ id: o.id, supplier: o.supplier, date: o.date, qty: o.qty, purchaseUnit: o.purchaseUnit, units: o.units, received: o.received,
+    note: o.note, bills: o.bills, doneHow: o.doneHow, doneOn: o.doneOn, byName: staffName_(o.by), closedByName: o.closedBy ? staffName_(o.closedBy) : '' });
   const rows = readMaterials_().filter(m => m.active).map(m => {
+    names[m.code] = m.name;
     const x = st[m.code] || {}, tracked = !!x.tracked, available = tracked ? round3_(x.inStore) : null;
-    const allocated = round3_(alloc[m.code] || 0), reserved = round3_(res[m.code] || 0), o = ord[m.code];
+    const allocated = round3_(alloc[m.code] || 0), reserved = round3_(res[m.code] || 0);
     return { code: m.code, name: m.name, unit: m.unit, cr: m.tags.indexOf('CR') >= 0, tracked: tracked,
+      purchaseUnit: m.purchaseUnit || m.unit, perPurchase: m.perPurchase || 1,
       base: tracked ? round3_(available + allocated) : null, allocated: allocated, available: available, reserved: reserved,
       status: !tracked ? 'NONE' : reserved > available + 1e-9 ? 'SHORT' : available <= 0 || (m.reorder && available < m.reorder) ? 'LOW' : 'OK',
       short: tracked ? round3_(Math.max(0, reserved - available)) : 0,
-      order: o && o.status === 'PLACED' ? { date: o.date, qty: o.qty } : null };
+      orders: (open[m.code] || []).map(poView) };
   }).sort((a, b) => a.name.localeCompare(b.name));
-  return { cr: rows.filter(r => r.cr), other: rows.filter(r => !r.cr), canOrder: can_(u, 'store') || can_(u, 'cutting') || can_(u, 'machines') };
+  const removed = readPOrders_().filter(o => o.status === 'CANCELLED').map(o => Object.assign({}, o, { received: 0, bills: [], doneHow: 'REMOVED', doneOn: String(o.closedAt).slice(0, 10) }));
+  const hist = pos.filter(o => o.done).concat(removed).sort((a, b) => String(b.doneOn).localeCompare(String(a.doneOn))).slice(0, 300)
+    .map(o => Object.assign(poView(o), { material: o.material, name: names[o.material] || (mats[o.material] || {}).name || o.material, unit: (mats[o.material] || {}).unit || '',
+      cr: ((mats[o.material] || {}).tags || []).indexOf('CR') >= 0 }));
+  return { cr: rows.filter(r => r.cr), other: rows.filter(r => !r.cr), historyCr: hist.filter(h => h.cr), historyOther: hist.filter(h => !h.cr),
+    suppliers: supplierList_().map(x => x.name), canOrder: can_(u, 'store') || can_(u, 'cutting') || can_(u, 'machines'), today: todayStr_() };
 }
 
-/** data = { placed: true, date, qty } (an order placed with a supplier) or { placed: false } (no order now). */
-function setMaterialOrder(token, code, data) {
+/** A purchase order: data = { material, supplier (a saved one or a new one), date, qty (in the purchase unit), note }. */
+function placeOrder(token, data) {
   const u = authStaff_(token, 'store|cutting|machines');
-  const m = readMaterials_().filter(x => x.code === String(code || '').toUpperCase())[0];
-  if (!m) throw new Error('Material not found.');
   data = data || {};
-  let row;
-  if (data.placed) {
-    const day = toDateStr_(data.date), q = Number(data.qty);
-    if (!day) throw new Error('Choose the date the order was placed.');
-    if (!(q > 0)) throw new Error('Enter the quantity ordered.');
-    row = [m.code, 'PLACED', "'" + day, q, u.id, nowStr_()];
-  } else row = [m.code, 'CLEARED', '', '', u.id, nowStr_()];
-  sheet_(SHEET.MAT_ORDERS).appendRow(row);
-  forget_('matorders');
-  log_(u, data.placed ? 'MATERIAL_ORDER' : 'MATERIAL_ORDER_CLEARED', m.code, m.name + (data.placed ? ': ordered ' + row[3] + ' ' + m.unit + ' on ' + String(row[2]).slice(1) : ': no order'));
+  const m = readMaterials_().filter(x => x.code === String(data.material || '').toUpperCase())[0];
+  if (!m) throw new Error('Material not found.');
+  const sup = cleanSupplier_(data.supplier);
+  if (!sup) throw new Error('Choose or add the vendor.');
+  const day = toDateStr_(data.date), q = Number(data.qty);
+  if (!day) throw new Error('Choose the date the order was placed.');
+  if (!(q > 0)) throw new Error('Enter the quantity ordered.');
+  const name = saveSupplier_(u, sup), per = m.perPurchase || 1, pu = m.purchaseUnit || m.unit, units = round3_(q * per);
+  const id = withLock_(() => {
+    const id = nextId_(SHEET.PORDERS, 'PO-');
+    sheet_(SHEET.PORDERS).appendRow([id, m.code, name, "'" + day, q, pu, units, 'OPEN', String(data.note || '').slice(0, 200), u.id, nowStr_(), '', '']);
+    forget_('porders');
+    return id;
+  });
+  log_(u, 'PURCHASE_ORDER', id, m.name + ': ' + q + ' ' + pu + (pu !== m.unit ? ' (' + units + ' ' + m.unit + ')' : '') + ' from ' + name + ' on ' + day);
+  return materialRoom(token);
+}
+
+/** Marks an open order completed by hand (e.g. the vendor sent less and nothing more is coming). */
+function completeOrder(token, id) {
+  const u = authStaff_(token, 'store|cutting|machines');
+  const o = poState_().filter(x => x.id === id)[0];
+  if (!o || o.done) throw new Error('This order is not open.');
+  sheet_(SHEET.PORDERS).getRange(o.row, 8).setValue('CLOSED');
+  sheet_(SHEET.PORDERS).getRange(o.row, 12, 1, 2).setValues([[u.id, nowStr_()]]);
+  forget_('porders');
+  log_(u, 'PURCHASE_ORDER_DONE', id, o.material + ' from ' + o.supplier + ': completed by hand with ' + o.received + ' of ' + o.units + ' received');
+  return materialRoom(token);
+}
+
+/** Removes an open order (placed by mistake / not coming). It stays in the history as removed. */
+function removeOrder(token, id) {
+  const u = authStaff_(token, 'store|cutting|machines');
+  const o = poState_().filter(x => x.id === id)[0];
+  if (!o || o.done) throw new Error('This order is not open.');
+  if (o.received > 0) throw new Error('Something was already received on this order: mark it complete instead.');
+  sheet_(SHEET.PORDERS).getRange(o.row, 8).setValue('CANCELLED');
+  sheet_(SHEET.PORDERS).getRange(o.row, 12, 1, 2).setValues([[u.id, nowStr_()]]);
+  forget_('porders');
+  log_(u, 'PURCHASE_ORDER_REMOVED', id, o.material + ' from ' + o.supplier + ': ' + o.qty + ' ' + o.purchaseUnit);
   return materialRoom(token);
 }
 
@@ -2576,6 +2660,8 @@ function saveBill(token, data) {
   const u = authStaff_(token, 'store');
   data = data || {};
   const mats = materialMap_();
+  const poBefore = {};
+  poState_().forEach(o => { poBefore[o.id] = o.received; });
   const date = toDateStr_(data.date) || todayStr_();
   const lines = (data.lines || []).filter(l => l && l.material).map(l => {
     const m = mats[String(l.material).toUpperCase()];
@@ -2643,7 +2729,11 @@ function saveBill(token, data) {
       'Bill ' + id + (row[3] ? ' (' + row[3] + ')' : '')]);
     forget_('materials');
   });
-  return storeView(token);
+  // Material Room orders of this supplier filled by the bill (same vendor and material, see poState_).
+  forget_('bills');
+  const filled = poState_().filter(o => (o.received || 0) !== (poBefore[o.id] || 0)).map(o => ({ id: o.id, name: (mats[o.material] || {}).name || o.material,
+    received: o.received, units: o.units, unit: (mats[o.material] || {}).unit || '', done: o.done }));
+  return Object.assign(storeView(token), { ordersFilled: filled });
 }
 
 /* ---------- suppliers ---------- */
@@ -2687,7 +2777,8 @@ function renameSupplier(token, oldName, newName) {
     else sh.appendRow([newName, u.id + ' ' + u.name, nowStr_(), nowStr_() + ' ' + u.name + ': ' + oldName + ' → ' + newName]);
     let n = 0;
     readBills_().forEach(b => { if (b.supplier.toLowerCase() === lo) { sheet_(SHEET.BILLS).getRange(b.row, 3).setValue(newName); n++; } });
-    forget_('suppliers'); forget_('bills');
+    readPOrders_().forEach(o => { if (o.supplier.toLowerCase() === lo) sheet_(SHEET.PORDERS).getRange(o.row, 3).setValue(newName); });
+    forget_('suppliers'); forget_('bills'); forget_('porders');
     log_(u, 'RENAME_SUPPLIER', newName, oldName + ' → ' + newName + ' (' + n + ' bill' + (n === 1 ? '' : 's') + ')' + (other ? ', joined with the existing supplier' : ''));
   });
   return storeView(token);
@@ -3172,7 +3263,7 @@ function forget_() {
     delete MEMO[arguments[i]];
     if (arguments[i] === 'lines') delete MEMO.batches; // batches carry their lines
   }
-  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate', 'cuttings', 'givenbywo'].forEach(k => { delete MEMO[k]; });
+  ['itemmap', 'orderprog', 'balances', 'ordermap', 'mstate', 'cuttings', 'givenbywo', 'postate'].forEach(k => { delete MEMO[k]; });
   Object.keys(MEMO).forEach(k => { if (k.indexOf('rows|') === 0) delete MEMO[k]; });
 }
 

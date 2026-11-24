@@ -53,7 +53,8 @@ h1.page small{font-size:13px;color:var(--muted);font-weight:500}
 .mc .mnx{border-top:1px dashed #e2e8f0;margin-top:7px;padding-top:5px;font-size:12.5px;color:#475569}
 .mc.idle .mhint{color:#94a3b8;margin-top:26px;font-size:13.5px}.mc.c2b{border-color:#f59e0b;background:#fffbeb}.mc.lateb{border-color:#fca5a5}.mc.mshort{border:2px solid #ef4444;background:#fef2f2}
 .mshortl{color:#b91c1c;font-weight:700;font-size:12.5px;margin-top:3px}.cdiff{color:#b91c1c;font-weight:700}.cst{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
-.cst select,.cst input{width:auto;display:inline-block;margin:0}.clines div{white-space:nowrap;line-height:1.55}
+.cst select,.cst input{width:auto;display:inline-block;margin:0}.mrord{border-left:3px solid #93c5fd;padding:2px 0 4px 8px;margin-bottom:6px;font-size:13.5px}
+.mrhist{margin-top:10px}.mrhist summary{cursor:pointer;font-weight:700;color:#334155;padding:6px 0}.clines div{white-space:nowrap;line-height:1.55}
 .mstep{display:flex;gap:10px;align-items:center;padding:9px 12px;border:1px solid #e2e8f0;border-radius:10px;margin-top:8px}
 .mstep .n{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;flex:none;background:#e2e8f0;color:#475569}
 .mstep.done .n{background:#16a34a;color:#fff}.mstep.wait{border-color:#f59e0b;background:#fffbeb}.mstep.wait .n{background:#f59e0b;color:#fff}
@@ -1139,49 +1140,80 @@ function nextBlockTable(rows) {
 /* Material Room: per material (CR-tagged and the others) — Base stock, Allocated (running jobs), Available (in the store),
    Reserved (Next jobs), Status, and the order placed with a supplier (date + quantity). */
 function mrStatus(x) { return x.status === 'SHORT' ? '<span class="pill err">Short ' + num(x.short) + '</span>' : x.status === 'OK' ? '<span class="pill ok">OK</span>' : x.status === 'LOW' ? '<span class="pill warn">Low</span>' : '<span class="pill" title="No store stock entered (Store & bills)">No stock entered</span>'; }
+function mrQty(v, u) { return v === null || v === undefined ? '<span class="muted">–</span>' : num(v) + ' ' + esc(u); }
+/* Open purchase orders of a material (several possible) and + Order. */
 function mrOrderCell(x, canOrder) {
-  var o = x.order;
-  if (!canOrder) return o ? '<span class="pill info">Order placed</span> ' + d(o.date) + ' · ' + num(o.qty) + ' ' + esc(x.unit) : '<span class="muted">–</span>';
-  return '<div class="cst" data-code="' + esc(x.code) + '" data-st="' + (o ? 'PLACED' : '') + '"><select onchange="mrSel(this)"><option value="">No order</option><option value="PLACED"' + (o ? ' selected' : '') + '>Order placed</option></select>' +
-    '<input type="date" value="' + (o ? esc(o.date) : '') + '" style="' + (o ? '' : 'display:none') + '" onchange="mrChanged(this)">' +
-    '<input type="number" step="any" min="0" inputmode="decimal" placeholder="Qty" value="' + (o ? o.qty : '') + '" style="width:90px;' + (o ? '' : 'display:none') + '" oninput="mrChanged(this)">' +
-    '<span class="muted mru" style="' + (o ? '' : 'display:none') + '">' + esc(x.unit) + '</span><button class="btn sm" style="display:none;margin:0" onclick="mrSave(this)">Save</button></div>';
+  var h = x.orders.map(function (o) {
+    var pct = o.units ? Math.min(100, Math.round(100 * o.received / o.units)) : 0;
+    return '<div class="mrord"><div><b>' + esc(o.supplier) + '</b> · ' + num(o.qty) + ' ' + esc(o.purchaseUnit) + (o.purchaseUnit !== x.unit ? ' <span class="muted">(' + num(o.units) + ' ' + esc(x.unit) + ')</span>' : '') +
+      ' · <span class="muted">' + d(o.date) + ' · ' + esc(o.id) + '</span></div>' +
+      '<div class="muted" style="font-size:12px">Received ' + num(o.received) + ' of ' + num(o.units) + ' ' + esc(x.unit) + (o.received ? ' (' + pct + '%)' : '') + (o.note ? ' · ' + esc(o.note) : '') + '</div>' +
+      (canOrder ? '<div style="margin-top:3px"><a class="lnk" style="font-size:12.5px" onclick="mrComplete(\'' + esc(o.id) + '\',this)">✔ Mark complete</a>' + (o.received ? '' : ' · <a class="lnk" style="font-size:12.5px" onclick="mrRemove(\'' + esc(o.id) + '\',this)">Remove</a>') + '</div>' : '') + '</div>';
+  }).join('');
+  return h + (canOrder ? '<button class="btn sec sm" style="margin:2px 0 0" onclick="mrOrder(\'' + esc(x.code) + '\')">+ Order</button>' : x.orders.length ? '' : '<span class="muted">–</span>');
 }
 function mrTable(rows, canOrder) {
   if (!rows.length) return '<div class="muted">No material here.</div>';
-  var q = function (v, u) { return v === null || v === undefined ? '<span class="muted">–</span>' : num(v) + ' ' + esc(u); };
-  return '<div class="scroll"><table class="tbl"><tr><th>Raw material</th><th class="r">Base stock</th><th class="r">Allocated (ongoing)</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th>Status</th><th>Order</th></tr>' + rows.map(function (x) {
-    return '<tr><td>' + esc(x.name) + ' <span class="muted">(' + esc(x.unit) + ')</span></td><td class="r">' + q(x.base, x.unit) + '</td><td class="r">' + q(x.allocated, x.unit) + '</td><td class="r"><b>' + q(x.available, x.unit) + '</b></td>' +
-      '<td class="r">' + q(x.reserved, x.unit) + '</td><td>' + mrStatus(x) + '</td><td>' + mrOrderCell(x, canOrder) + '</td></tr>';
+  return '<div class="scroll"><table class="tbl"><tr><th>Raw material</th><th class="r">Base stock</th><th class="r">Allocated (ongoing)</th><th class="r">Available</th><th class="r">Reserved (next jobs)</th><th>Status</th><th>Orders placed</th></tr>' + rows.map(function (x) {
+    return '<tr><td>' + esc(x.name) + ' <span class="muted">(' + esc(x.unit) + ')</span></td><td class="r">' + mrQty(x.base, x.unit) + '</td><td class="r">' + mrQty(x.allocated, x.unit) + '</td><td class="r"><b>' + mrQty(x.available, x.unit) + '</b></td>' +
+      '<td class="r">' + mrQty(x.reserved, x.unit) + '</td><td>' + mrStatus(x) + '</td><td style="min-width:230px">' + mrOrderCell(x, canOrder) + '</td></tr>';
   }).join('') + '</table></div>';
+}
+/* History (collapsed): completed orders (all received, or marked complete by hand) and removed ones. */
+function mrHistory(list) {
+  return '<details class="mrhist"><summary>History <span class="pill">' + list.length + '</span></summary>' + (list.length ? '<div class="scroll"><table class="tbl"><tr><th>Order</th><th>Raw material</th><th>Vendor</th><th class="r">Ordered</th><th class="r">Received</th><th>Result</th><th>Bills</th></tr>' + list.map(function (o) {
+    var res = o.doneHow === 'REMOVED' ? '<span class="pill">Removed</span>' : o.doneHow === 'MANUAL' ? '<span class="pill warn">Completed by hand</span>' : '<span class="pill ok">Received in full</span>';
+    return '<tr><td><b>' + esc(o.id) + '</b><div class="muted">' + d(o.date) + '</div></td><td>' + esc(o.name) + '</td><td>' + esc(o.supplier) + '</td><td class="r">' + num(o.qty) + ' ' + esc(o.purchaseUnit) + (o.purchaseUnit !== o.unit ? '<div class="muted">' + num(o.units) + ' ' + esc(o.unit) + '</div>' : '') + '</td>' +
+      '<td class="r' + (o.doneHow === 'MANUAL' ? ' neg' : '') + '">' + num(o.received) + ' ' + esc(o.unit) + '</td><td>' + res + '<div class="muted">' + d(o.doneOn) + (o.closedByName ? ' · ' + esc(o.closedByName) : '') + '</div></td><td class="muted">' + (o.bills || []).map(esc).join(', ') + '</td></tr>';
+  }).join('') + '</table></div>' : '<div class="muted">No completed orders yet.</div>') + '</details>';
 }
 VIEWS.cutstock = function () {
   load('materialRoom', S.token).then(function (r) {
     S.data.mr = r;
     render('<h1 class="page">📦 Material Room <small>raw material stock, what running and next jobs take, and orders placed</small></h1>' +
-      '<div class="muted" style="margin:-4px 0 10px">Base stock = in the store + allocated. Allocated = given to karigars for their running jobs, not made into goods yet. Available = in the store. Reserved = what the Next jobs need (not given yet): it does not reduce Available, but is flagged if there won\'t be enough.</div>' +
-      '<div class="card"><h2><span class="crtag on" style="font-size:11px">CR</span> CR-tagged materials (Cutting Room) <span class="pill">' + r.cr.length + '</span></h2>' + mrTable(r.cr, r.canOrder) + '</div>' +
-      '<div class="card"><h2>Other materials (not CR-tagged) <span class="pill">' + r.other.length + '</span></h2>' + mrTable(r.other, r.canOrder) + '</div>');
+      '<div class="muted" style="margin:-4px 0 10px">Base stock = in the store + allocated. Allocated = given to karigars for their running jobs, not made into goods yet. Available = in the store. Reserved = what the Next jobs need (not given yet): it does not reduce Available, but is flagged if there won\'t be enough. ' +
+      'Orders: a purchase bill of the <b>same vendor</b> and material fills the oldest open order; a full order is completed and moves to History.</div>' +
+      '<div class="card"><h2><span class="crtag on" style="font-size:11px">CR</span> CR-tagged materials (Cutting Room) <span class="pill">' + r.cr.length + '</span></h2>' + mrTable(r.cr, r.canOrder) + mrHistory(r.historyCr || []) + '</div>' +
+      '<div class="card"><h2>Other materials (not CR-tagged) <span class="pill">' + r.other.length + '</span></h2>' + mrTable(r.other, r.canOrder) + mrHistory(r.historyOther || []) + '</div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
-function mrSel(sel) {
-  var box = sel.closest('.cst'), ins = box.querySelectorAll('input'), on = sel.value === 'PLACED';
-  ins[0].style.display = on ? '' : 'none'; ins[1].style.display = on ? '' : 'none'; box.querySelector('.mru').style.display = on ? '' : 'none';
-  if (on) { if (!ins[0].value) ins[0].value = todayIso(); box.querySelector('button').style.display = ''; if (!ins[1].value) ins[1].focus(); return; }
-  box.querySelector('button').style.display = 'none';
-  if (box.dataset.st === 'PLACED') { if (confirm('Remove the order placed for this material?')) mrGo(box, { placed: false }, sel); else { sel.value = 'PLACED'; mrSel(sel); box.querySelector('button').style.display = 'none'; } }
+function mrMat(code) { var r = S.data.mr; return r.cr.concat(r.other).filter(function (x) { return x.code === code; })[0]; }
+/* The order pop-up: vendor (pick a saved one or add a new one), date, quantity in the unit the material is bought in. */
+function mrOrder(code) {
+  var x = mrMat(code), r = S.data.mr;
+  modal('Place order · ' + x.name,
+    '<label class="f">Vendor</label><select id="poS" onchange="mrVendor()"><option value="">Choose vendor…</option>' + r.suppliers.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('') + '<option value="__new">+ Add a new vendor…</option></select>' +
+    '<input id="poSN" style="display:none;margin-top:6px" placeholder="New vendor name">' +
+    '<div class="row"><div><label class="f">Order date</label><input id="poD" type="date" value="' + todayIso() + '"></div>' +
+    '<div><label class="f">Quantity (' + esc(x.purchaseUnit) + ')</label><input id="poQ" type="number" step="any" min="0" inputmode="decimal" oninput="mrOrderCalc(\'' + esc(code) + '\')"><div class="muted" id="poU" style="font-size:12.5px">' +
+    (x.purchaseUnit !== x.unit ? '1 ' + esc(x.purchaseUnit) + ' = ' + num(x.perPurchase) + ' ' + esc(x.unit) : '') + '</div></div></div>' +
+    '<label class="f">Note (optional)</label><input id="poN">' +
+    '<button class="btn block ok" onclick="mrOrderSave(\'' + esc(code) + '\',this)">✔ Place order</button>');
 }
-function mrChanged(el) { el.closest('.cst').querySelector('button').style.display = ''; }
-function mrSave(btn) {
-  var box = btn.closest('.cst'), ins = box.querySelectorAll('input');
-  if (!ins[0].value) return toast('Choose the date the order was placed.');
-  if (!(Number(ins[1].value) > 0)) return toast('Enter the quantity ordered.');
-  mrGo(box, { placed: true, date: ins[0].value, qty: Number(ins[1].value) }, btn);
+function mrVendor() { var n = val('poS') === '__new'; $('poSN').style.display = n ? '' : 'none'; if (n) $('poSN').focus(); }
+function mrOrderCalc(code) {
+  var x = mrMat(code), q = Number(val('poQ')) || 0;
+  if (x.purchaseUnit !== x.unit) $('poU').textContent = q ? num(q) + ' ' + x.purchaseUnit + ' = ' + num(Math.round(q * x.perPurchase * 1000) / 1000) + ' ' + x.unit : '1 ' + x.purchaseUnit + ' = ' + num(x.perPurchase) + ' ' + x.unit;
 }
-function mrGo(box, data, el) {
-  if (el.tagName === 'BUTTON') busy(el, true); else el.disabled = true;
-  api('setMaterialOrder', S.token, box.dataset.code, data).then(function (r) { toast(data.placed ? 'Order saved' : 'Order removed'); preload('materialRoom', r); go('cutstock'); })
-    .catch(function (e) { toast(e.message || String(e)); go('cutstock'); });
+function mrOrderSave(code, btn) {
+  var sup = val('poS') === '__new' ? val('poSN').trim() : val('poS');
+  if (!sup) return toast('Choose or add the vendor.');
+  if (!val('poD')) return toast('Choose the order date.');
+  if (!(Number(val('poQ')) > 0)) return toast('Enter the quantity ordered.');
+  busy(btn, true);
+  api('placeOrder', S.token, { material: code, supplier: sup, date: val('poD'), qty: Number(val('poQ')), note: val('poN') }).then(function (r) { toast('Order placed'); preload('materialRoom', r); closeModal(); go('cutstock'); }).catch(function (e) { fail(e, btn); });
+}
+function mrFind(id) { var r = S.data.mr, o = null; r.cr.concat(r.other).forEach(function (x) { x.orders.forEach(function (y) { if (y.id === id) o = { o: y, x: x }; }); }); return o; }
+function mrComplete(id, el) {
+  var f = mrFind(id); if (!f) return;
+  var o = f.o, less = o.received < o.units;
+  if (!confirm('Mark ' + id + ' (' + o.supplier + ') complete?' + (less ? '\n\nOnly ' + num(o.received) + ' of ' + num(o.units) + ' ' + f.x.unit + ' received from ' + o.supplier + '. Nothing more is expected on this order.' : ''))) return;
+  mrAct('completeOrder', id, id + ' completed', el);
+}
+function mrRemove(id, el) { if (confirm('Remove order ' + id + '? (placed by mistake or not coming)')) mrAct('removeOrder', id, id + ' removed', el); }
+function mrAct(fn, id, msg, el) {
+  el.style.pointerEvents = 'none';
+  api(fn, S.token, id).then(function (r) { toast(msg); preload('materialRoom', r); go('cutstock'); }).catch(function (e) { el.style.pointerEvents = ''; toast(e.message || String(e)); });
 }
 /* A cutting's status: On table (default) · Planned (date) · Completed (date) · Remove (asks first). */
 var CUT_ST = [['TODO', 'On table'], ['PLANNED', 'Planned'], ['DONE', 'Completed'], ['CANCELLED', 'Remove']];
@@ -2459,7 +2491,12 @@ function billForm(id) {
     }).filter(function (l) { return l.material; });
     busy(this, true);
     apiBg($('bfB'), 'saveBill', S.token, { id: id || '', date: val('bfD'), billNo: val('bfN'), supplier: val('bfS'), lines: lines, charges: val('bfC'), chargesNote: val('bfCN'), note: val('bfNote') })
-      .then(function (r) { preload('storeView', r); closeModal(); toast(id ? 'Bill saved' : 'Bill added'); go('store', 'bills'); }).catch(function (e) { fail(e, $('bfB')); });
+      .then(function (r) {
+        preload('storeView', r); closeModal();
+        var f = r.ordersFilled || [];
+        toast((id ? 'Bill saved' : 'Bill added') + (f.length ? ' · order' + (f.length > 1 ? 's' : '') + ' ' + f.map(function (o) { return o.id + ' (' + o.name + ': ' + num(o.received) + ' of ' + num(o.units) + ' ' + o.unit + (o.done ? ', completed' : '') + ')'; }).join(', ') : ''));
+        go('store', 'bills');
+      }).catch(function (e) { fail(e, $('bfB')); });
   };
 }
 /*

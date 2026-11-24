@@ -49,8 +49,15 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
 - **Material Room** (menu; replaces Available Cuttings): every active raw material in two sections, **CR-tagged** and
   **other** materials: Base stock (in the store + allocated), Allocated (given to karigars for running jobs, not made
   into goods yet), Available (in the store), Reserved (what the Next jobs need), Status (OK / Low / Short N / No stock
-  entered) and a dropdown **Order placed** → date + quantity ordered (Save; "No order" removes it). Orders are kept in
-  the sheet **Material Orders** (newest row per material counts) and in the Change log.
+  entered) and **Orders placed**: several orders per material, each from **+ Order** (pop-up: vendor = a saved supplier or
+  **+ Add a new vendor**, order date, quantity in the unit the material is **bought** in (roll, kg … from Materials →
+  Price; shown also in its BOM unit) and a note). **Purchase bills fill the orders by themselves**: a bill line of the
+  **same vendor** and material, dated on or after the order date, goes to the oldest open order first (an edited bill
+  is followed). An order with everything received is completed and leaves the list; **✔ Mark complete** completes it by
+  hand when less came (nothing more expected from that vendor); **Remove** (only before anything is received). Each
+  section has a **History** (collapsed): completed and removed orders with what was received and the bills. Saving a
+  bill shows which orders it filled. Sheet **Purchase Orders**; every change is in the Change log. (The first version's
+  sheet "Material Orders" is no longer used.)
 - **Cutting Room** (permission "cutting" to enter; staff with reports / machines can see it). In Materials, tap
   **CR** next to a material that is cut in the cutting room (filter "CR"; column Tags). A cutting = an SKU and a
   quantity in **pieces**; its CR materials are listed from the BOM (per piece × pieces). For a CR material bought
