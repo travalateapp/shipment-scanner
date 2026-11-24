@@ -662,7 +662,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-24 grn-wait';
+  var PAGE_BUILD = '2026-11-24 ship-sync';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -782,7 +782,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * clicked twice meanwhile. (Background saves such as the Dashboard copy of the plan do not.)
    */
   var SAVES = { login: 'Logging in…', changePin: 1, createROs: 1, updateROLine: 1, updateBatch: 1, importPdfRO: 1, saveSettings: 1, saveSkus: 1,
-    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', saveTiLink: 1, saveShipLink: 'Checking the Shipment Manager…', setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
+    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', saveTiLink: 1, saveShipLink: 'Checking the Shipment Manager…', syncShipments: 0, setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
   var busyN = 0;
   function busy(on, text) {
     busyN = Math.max(0, busyN + (on ? 1 : -1));
@@ -863,6 +863,25 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     setStickTop();
     $('nav').onclick = function (e) { var t = e.target.getAttribute('data-t'); if (t) go(t); };
     go(S.tab);
+    syncShipmentsBg();
+  }
+
+  /**
+   * Shipment Manager → RO Log, in the background (the server runs it at most every 3 hours): dispatch days become the
+   * shipment dates and quantities the shipped ones. When something changed, the page takes the new open ROs.
+   */
+  function syncShipmentsBg() {
+    if (S.shipSynced) return; S.shipSynced = true;
+    api('syncShipments', S.token, false).then(applyShipSync, function () { /* tried again on the next opening */ });
+  }
+  function applyShipSync(r) {
+    if (!r || !r.openROs) return r;
+    S.boot.openROs = r.openROs; S.boot.delivered = r.delivered || S.boot.delivered;
+    if (S.dash) { S.dash.openROs = r.openROs; S.dash.delivered = r.delivered || S.dash.delivered; }
+    refreshPlanAfterRoChange();
+    if (S.tab === 'dash' && S.dash && $('dashOut')) drawDash();
+    toast('Shipment Manager: ' + [r.dates ? r.dates + ' dispatch day(s)' : '', r.qty ? r.qty + ' quantity(ies)' : '', r.cancelled ? r.cancelled + ' line(s) not shipped' : ''].filter(Boolean).join(', ') + ' updated.', 5000);
+    return r;
   }
 
   function go(tab) {
@@ -2691,7 +2710,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="card"><h2>Shipment Manager</h2><div class="small muted">When an RO is marked <b>Delivered</b>, the planner takes the quantities <b>actually shipped</b> from the Shipment Manager (tab BLINKIT_PO, by RO number and item) and counts them as <b>Delivered</b> until Blinkit\'s stock shows them (GRN). ' +
         'Paste the Shipment Manager\'s Google Sheet link; the Google account the planner runs as must be able to open it.</div>' +
         '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager sheet link</label><input type="text" id="shUrl" placeholder="Loading…"></div>' +
-        '<div style="flex:0 0 auto"><button class="btn p" id="shSave">Save &amp; test</button></div></div><div id="shOut"></div></div>' +
+        '<div style="flex:0 0 auto"><button class="btn p" id="shSave">Save &amp; test</button></div><div style="flex:0 0 auto"><button class="btn" id="shSync" title="Take shipment dates and shipped quantities now">Sync now</button></div></div>' +
+        '<div class="small muted" style="margin-top:6px">Every 3 hours (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div></div>' +
       '<div class="card"><h2>Month tabs</h2><div class="small muted">Newest month tabs: ' + esc((S.boot.months || []).join(', ')) + '.<br>' +
       '<b>Start new month</b> creates the tab (copy of the newest month, columns D–H emptied, columns I onwards kept as they are) if it does not exist yet, then copies in open ROs from the last ' + s.carryDays + ' days of the old month. ' +
       'If you create the tab yourself, this only does the copying-in.</div>' +
@@ -2706,6 +2726,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('tiUrl').value = t.url; $('tiSec').placeholder = t.hasSecret ? 'saved — leave empty to keep it' : 'not set yet';
     }, function (e) { $('tiOut').innerHTML = msgs([e.message], 'bad'); });
     api('getShipLink', S.token).then(function (t) { $('shUrl').value = t.url; $('shUrl').placeholder = 'https://docs.google.com/spreadsheets/d/…'; }, function (e) { $('shOut').innerHTML = msgs([e.message], 'bad'); });
+    $('shSync').onclick = function () {
+      busy(true, 'Syncing with the Shipment Manager…');
+      api('syncShipments', S.token, true).then(function (r) {
+        busy(false); applyShipSync(r);
+        $('shOut').innerHTML = msgs([r.skipped ? r.skipped : 'Synced: ' + (r.ros || 0) + ' RO(s) found in the Shipment Manager; ' + (r.dates || 0) + ' dispatch day(s), ' + (r.qty || 0) + ' quantity(ies) updated' + (r.cancelled ? ', ' + r.cancelled + ' line(s) not shipped (cancelled)' : '') + '.'], r.skipped ? 'warn' : 'ok') + msgs(r.warnings, 'warn');
+      }, function (e) { busy(false); $('shOut').innerHTML = msgs([e.message], 'bad'); });
+    };
     $('shSave').onclick = function () {
       var b = this; b.disabled = true;
       api('saveShipLink', S.token, $('shUrl').value.trim()).then(function (r) {
