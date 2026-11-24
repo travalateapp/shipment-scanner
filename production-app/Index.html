@@ -778,6 +778,7 @@ function saveCountNow(id, which, btn, repeatOk) {
   var seen = {}, dup = lines.filter(function (l) { if (seen[l.wo]) return true; seen[l.wo] = 1; return false; })[0];
   if (dup) return toast(dup.wo + ' is entered twice: put its whole count on one line.');
   if (which === 1 && !S.data.photo) return toast('Take a photo of the received goods.');
+  if (S.data.partWo && !lines.some(function (l) { return l.good + l.rejected > 0; })) return toast('Enter the pieces ready now.');
   if (/^NEW-/.test(id)) { // opened at once from the Machine Dashboard: the batch is still being made on the server
     busy(btn, true);
     var cw = S.data.completeWo;
@@ -788,6 +789,7 @@ function saveCountNow(id, which, btn, repeatOk) {
   apiBg(btn, 'saveCount', S.token, id, { lines: lines, photo: which === 1 ? S.data.photo : null, repeatOk: !!repeatOk, complete: complete }).then(function (r) {
     closeModal();
     if (complete && r.status !== 'LOCKED') toast('Count 1 saved: the machine is free. A different person does count 2.');
+    else if (which === 1 && back && !complete) toast('Part count saved: ' + lines.reduce(function (n, l) { return n + l.good; }, 0) + ' pieces received, the job stays on the machine' + (r.status === 'LOCKED' ? '' : ' (count 2 next)'));
     else if (which === 1 && r.status === 'LOCKED') toast('Count saved: batch locked' + (complete ? ', job completed' : '') + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : ''));
     else if (r.status === 'LOCKED') toast('Final count saved: batch locked' + (r.inventory === 'DONE' ? ' and added to the inventory' : r.inventory === 'PENDING' ? '. Inventory will be retried.' : '') + (r.differs && r.differs.length ? '. Count 1 was different on ' + r.differs.join(', ') + ' (noted).' : ''));
     else toast('Count 1 saved. Now a different person does count 2.');
@@ -898,6 +900,12 @@ function machRateHtml(pre, val) {
     (pre === 'mne' ? '' : '<div class="chk" id="' + pre + 'Fw" style="display:none;margin-top:6px"><input type="checkbox" id="' + pre + 'F"> Also use this rate for this karigar\'s future lots of this item</div>');
 }
 function machRateVals(pre) { return { lotRate: $(pre + 'R') ? val(pre + 'R') : '', futureToo: $(pre + 'F') ? $(pre + 'F').checked : false, note: $(pre + 'N') ? val(pre + 'N') : '' }; }
+/* Part count: some pieces now, the job stays on its machine (no material check: that is only for completing it). */
+function machPartBtn(wo, karigarId) {
+  if (!S.data.mv.canCount) return '';
+  return isMobile() ? '<button class="btn sm sec" onclick="machComplete(\'' + wo + '\',\'' + karigarId + '\',0,1)">Part count</button>'
+    : '<span class="pill" style="white-space:nowrap" title="The count needs the phone camera">Open app on phone</span>';
+}
 function machCountBtn(wo, karigarId, remaining, label) {
   if (!S.data.mv.canCount) return '';
   var jb = null; (S.data.mv.list || []).forEach(function (m) { [m.job].concat(m.pending).forEach(function (x) { if (x && x.id === wo) jb = x; }); });
@@ -926,9 +934,11 @@ function machWin(id) {
         '<div class="scroll"><table class="tbl" style="margin-top:6px"><tr><th>Raw material</th><th></th><th class="r">Given now</th></tr>' + j.matShort.slice().sort(function (a, b) { return (a.cr ? 1 : 0) - (b.cr ? 1 : 0); }).map(function (x) {
           return matRowHtml(x, x.short, (r.store || {})[x.code], 'mir').replace('<div class="muted" style="font-size:12px">', '<div class="muted" style="font-size:12px">' + (x.given ? '<b>partial</b>: ' + num(x.given) + ' of ' + num(x.need) + ' given · ' : '<b>pending</b> · ') + 'still ');
         }).join('') + '</table></div><div id="miNote" class="muted"></div><button class="btn ok" onclick="machGiveShort(\'' + j.id + '\',this)">✔ Save given material</button></div>' : '') +
-      '<h2 style="margin-top:14px">Goods ready? Complete the job</h2>' +
-      '<div class="mstep"><div class="n">1</div><div class="grow"><b>' + (c2On() ? 'Count 1' : 'Count') + '</b> <span class="muted">(photo with the phone camera)</span><div class="muted">Opens the count with ' + esc(j.id) + ' chosen and ' + j.remaining + ' filled in.' +
-      (c2On() ? '' : ' It is the final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came. ' + 'Then the next job starts by itself; with no next job the machine is idle and the karigar is free.') + '</div></div>' +
+      '<h2 style="margin-top:14px">Goods ready? Count them</h2>' +
+      '<div class="mstep"><div class="n">½</div><div class="grow"><b>Part count</b> <span class="muted">(some pieces ready, photo with the phone camera)</span><div class="muted">Counts the pieces ready now; the job stays on ' + esc(m.name) + ' (' + j.received + ' of ' + j.qty + ' received so far) and the next count opens with the rest.</div></div>' +
+      machPartBtn(j.id, j.karigarId) + '</div>' +
+      '<div class="mstep"><div class="n">1</div><div class="grow"><b>' + (c2On() ? 'Count 1' : 'Count &amp; complete') + '</b> <span class="muted">(all the rest, photo)</span><div class="muted">Opens with ' + esc(j.id) + ' and ' + j.remaining + ' filled in.' +
+      (c2On() ? '' : ' The job is completed even if fewer pieces came; then the next job starts (or the machine is idle).') + '</div></div>' +
       machCountBtn(j.id, j.karigarId, j.remaining, c2On() ? '' : 'Count & complete') + '</div>' +
       (c2On() ? '<div class="mstep"><div class="n">2</div><div class="grow"><b>Count 2</b> <span class="muted">(another person, blind)</span><div class="muted">The final count: pay and inventory are updated and the job is marked completed, even if fewer pieces came. ' +
       (r.nextAt === 'COUNT1' ? 'The next job starts at count 1.' : 'Then the next job starts by itself; with no next job the machine is idle and the karigar is free.') + '</div></div></div>' : '');
@@ -1111,7 +1121,7 @@ function saveTarget(wo, btn) {
  * Complete job = count 1 of that work order (the usual count 1: phone camera photo), with the job marked. Opens at once
  * from what the Machine Dashboard already has; the batch is made on the server meanwhile (Save waits for it if needed).
  */
-function machComplete(wo, karigarId, remaining) {
+function machComplete(wo, karigarId, remaining, part) {
   var j = null; (S.data.mv.list || []).forEach(function (m) { [m.job].concat(m.pending).forEach(function (x) { if (x && x.id === wo) j = x; }); });
   if (!j) return toast('Job not found: refresh the screen.');
   var tmp = 'NEW-' + karigarId;
@@ -1122,8 +1132,10 @@ function machComplete(wo, karigarId, remaining) {
   p.catch(function (e) { if (S.data.batchP === p && $('modal')) { toast(e.message); } });
   countForm(tmp, 1);
   if (!$('cLines')) return;
-  var ln = $('cLines').lastChild; ln.children[1].value = remaining; countHint(ln.children[1]);
-  S.data.completeWo = wo;
+  var ln = $('cLines').lastChild;
+  if (part) { ln.children[1].focus(); countHint(ln.children[1]); S.data.completeWo = null; S.data.partWo = wo; return; } // type the pieces ready now
+  ln.children[1].value = remaining; countHint(ln.children[1]);
+  S.data.completeWo = wo; S.data.partWo = null;
 }
 function machCount2(batchId) {
   api('countQueue', S.token).then(function (cq) { S.data.cq = cq; countForm(batchId, 2); }).catch(function (e) { toast(e.message); });
