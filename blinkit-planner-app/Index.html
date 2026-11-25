@@ -689,7 +689,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 ro-file-choice';
+  var PAGE_BUILD = '2026-11-25 ro-wh-groups';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1794,7 +1794,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     openModal('<h2>Create ROs</h2><div class="small muted">Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.</div>' +
       '<div class="small" style="margin-top:10px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
       '<div style="margin:6px 0 10px">' + whs.map(function (w) {
-        return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (pre.indexOf(w) >= 0 ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span><b>' + fmt(t.byWh[w].units) + '</b><span class="small muted">' + t.byWh[w].lines + ' lines</span></label>';
+        return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (pre.indexOf(w) >= 0 ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span>' +
+          '<span class="small muted cwg" data-w="' + esc(w) + '"></span><b class="cwu" data-w="' + esc(w) + '">' + fmt(t.byWh[w].units) + '</b></label>';
       }).join('') + '</div>' +
       '<div class="row"><div><label class="f">RO date</label><input type="date" id="cDate" value="' + today() + '"></div>' +
       '<div><label class="f">Status</label><select id="cStatus"><option value="Created">Planned (upload to Blinkit now)</option><option value="Planned">Draft (not on Blinkit yet)</option></select></div></div>' +
@@ -1818,8 +1819,22 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return m === 'separate' ? groupList() : [m];
     };
     // What will be saved and downloaded, and what stays in the plan.
+    // Per warehouse and group: the units to send (for the small TBI / TBO / TBG figures next to a ticked warehouse).
+    var whG = {};
+    S.plan.forEach(function (r) { var q = S.final[r.key] || 0; if (q > 0) { var m = whG[r.wh] = whG[r.wh] || {}; m[r.group || '?'] = (m[r.group || '?'] || 0) + q; } });
     var fileNote = function () {
       Array.prototype.forEach.call(document.querySelectorAll('#cFiles > label'), function (l) { l.classList.toggle('on', l.querySelector('input').checked); });
+      // A ticked warehouse shows its TBI / TBO / TBG units (groups not in the chosen file struck through) and, as
+      // its total, the units that will be saved and downloaded.
+      var gs0 = chosenGroups();
+      Array.prototype.forEach.call(document.querySelectorAll('.cw'), function (c) {
+        var w = c.value, m = whG[w] || {}, on = c.checked;
+        var g = document.querySelector('.cwg[data-w="' + (window.CSS && CSS.escape ? CSS.escape(w) : w) + '"]'), u = document.querySelector('.cwu[data-w="' + (window.CSS && CSS.escape ? CSS.escape(w) : w) + '"]');
+        if (g) g.innerHTML = on ? Object.keys(m).sort(function (a, b) { return groupList().indexOf(a) - groupList().indexOf(b); }).map(function (k) {
+          return gs0.indexOf(k) >= 0 ? k + ' ' + fmt(m[k]) : '<s title="Not in the chosen file: stays in the plan">' + k + ' ' + fmt(m[k]) + '</s>';
+        }).join(' · ') : '';
+        if (u) u.textContent = fmt(on ? Object.keys(m).reduce(function (a, k) { return a + (gs0.indexOf(k) >= 0 ? m[k] : 0); }, 0) : Object.keys(m).reduce(function (a, k) { return a + m[k]; }, 0));
+      });
       $('cMergeG').style.display = fileMode() === 'merged' ? '' : 'none';
       var pick = Array.prototype.filter.call(document.querySelectorAll('.cw'), function (c) { return c.checked; }).map(function (c) { return c.value; });
       var gs = chosenGroups(), by = {};
