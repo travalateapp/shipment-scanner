@@ -27,7 +27,7 @@ h2{font-size:16px;margin:0 0 10px}h3{font-size:14px;margin:0 0 8px}
 .muted{color:var(--muted)}.small{font-size:12px}.right{text-align:right}.nowrap{white-space:nowrap}
 .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}.row>*{flex:1 1 160px}
 label.f{display:block;font-size:12px;color:var(--muted);margin-bottom:3px;font-weight:600}
-input[type=text],input[type=number],input[type=date],input[type=month],input[type=password],select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
+input[type=text],input[type=search],input[type=number],input[type=date],input[type=month],input[type=password],select,textarea{width:100%;padding:9px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 .btn{border:0;border-radius:9px;padding:10px 14px;font-weight:700;cursor:pointer;background:var(--chip);white-space:nowrap}
 .btn.p{background:var(--brand);color:#fff}.btn.g{background:#16a34a;color:#fff}.btn.r{background:var(--badbg);color:var(--bad)}
 .btn:disabled{opacity:.5;cursor:not-allowed}.btn.sm{padding:6px 10px;font-size:12px}
@@ -690,7 +690,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 out-collapsed';
+  var PAGE_BUILD = '2026-11-25 log-search';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1786,10 +1786,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
   window.addEventListener('resize', setStickTop);
 
-  // Ctrl+F (⌘F) jumps to the page's own search box: Dashboard → item search, New Plan → SKU search.
+  // Ctrl+F (⌘F) jumps to the page's own search box: Dashboard → item search, New Plan → SKU search, RO Log → search.
   document.addEventListener('keydown', function (e) {
     if (!(e.ctrlKey || e.metaKey) || String(e.key).toLowerCase() !== 'f') return;
-    var box = S.tab === 'dash' ? $('dQ') : S.tab === 'plan' ? $('fQ') : null;
+    var box = S.tab === 'dash' ? $('dQ') : S.tab === 'plan' ? $('fQ') : S.tab === 'log' ? $('gQ') : null;
     if (!box) return;
     e.preventDefault();
     box.focus(); box.select();
@@ -2272,11 +2272,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">To</label><input type="date" id="gTo" value="' + f.to + '"></div>' +
       '<div><label class="f">Warehouse</label><select id="gWh"><option value="">All</option>' + whs.map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
       '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ST_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (f.status === o[0] ? ' selected' : '') + '>' + o[1].replace(' (on Blinkit)', ' / Shipped') + '</option>'; }).join('') + '</select></div>' +
+      '<div style="flex:1 1 240px"><label class="f">Search (Ctrl+F)</label><input type="search" id="gQ" placeholder="🔍 SKU, item ID, RO no., warehouse…" value="' + esc(S.logQ || '') + '" autocomplete="off" title="Every word must match: SKU, item ID, RO number, warehouse, group, status or a date (e.g. 25 Nov)"></div>' +
       '</div><div class="small muted" style="margin-top:8px"><b>From / To</b> = RO date. <b>Status:</b> ' +
         '<b>Draft</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
         '<b>Planned</b> = on Blinkit, not shipped yet · <b>Shipped</b> = the Shipment Manager has its shipment (set by itself) · ' +
         '<b>Delivered</b> = received at the warehouse (asks for the date; 2 days later its quantities leave the month tab) · <b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
       '</div><div id="logState" class="small muted" style="margin:0 4px 6px;min-height:16px"></div><div id="logOut" class="muted card">Loading…</div>';
+    // Search: narrows the ROs already shown, at once (no reading from the sheet).
+    $('gQ').oninput = function () { S.logQ = this.value; drawLog(); };
+    $('gQ').onkeydown = function (e) { if (e.key === 'Escape' && this.value) { e.stopPropagation(); this.value = ''; S.logQ = ''; drawLog(); } };
     ['gFrom', 'gTo', 'gWh', 'gSt'].forEach(function (id) {
       $(id).onchange = function () { f.from = $('gFrom').value; f.to = $('gTo').value; f.wh = $('gWh').value; f.status = $('gSt').value; loadLog(); };
     });
@@ -2310,7 +2314,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     apiCall('listROs', [S.token, f]).then(function (rows) {
       if (JSON.stringify(S.logFilter) !== fk) return; // the filters changed meanwhile
       if (SQ.n > 0) { st(''); return; } // a save is on its way: the page's own copy is newer
-      S.logRows = rows; S.logKey = fk; drawLog(); st('');
+      st(''); S.logRows = rows; S.logKey = fk; drawLog();
       try { if (JSON.stringify(rows).length < 1500000) cachePut(CACHE_LOG, { k: fk, rows: rows }); } catch (e) { /* too big to keep */ }
     }, function (e) { st(''); if (!S.logRows || !S.logRows.length) $('logOut').innerHTML = msgs([e.message], 'bad'); else toast(e.message, 5000); });
   }
@@ -2354,8 +2358,20 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
 
   function drawLog() {
     var box = $('logOut'); if (!box) return;
-    var cs = cardsOf(S.logRows || []);
-    if (!cs.length) { box.className = 'card muted'; box.innerHTML = 'No ROs for these filters.'; return; }
+    var cs = cardsOf(S.logRows || []), all = cs.length;
+    // Search (Ctrl+F): every word must appear somewhere in the RO card (warehouse, groups, RO no., SKUs, item IDs,
+    // status, RO / appointment / dispatch / delivery dates); a matching RO is shown whole.
+    var words = String(S.logQ || '').toLowerCase().split(/\s+/).filter(Boolean);
+    if (words.length) cs = cs.filter(function (c) {
+      var hay = c.rows.map(function (r) {
+        return [r.wh, r.group, r.roNo, r.sku, r.item, r.batch, r.merged, stLabel(r.status, r.shippedOn), r.status, r.notes, r.shortNote,
+          prettyDate(r.roDate), prettyDate(r.appt), prettyDate(dispatchOf(r)), prettyDate(r.deliveredOn), r.roDate, r.appt].join(' ');
+      }).join(' ').toLowerCase();
+      return words.every(function (w) { return hay.indexOf(w) >= 0; });
+    });
+    if ($('logState') && words.length && !/spin/.test($('logState').innerHTML)) $('logState').textContent = cs.length + ' of ' + all + ' ROs match "' + S.logQ.trim() + '"';
+    else if ($('logState') && !words.length && /match "/.test($('logState').textContent)) $('logState').textContent = '';
+    if (!cs.length) { box.className = 'card muted'; box.innerHTML = words.length && all ? 'No RO matches "' + esc(S.logQ.trim()) + '" — Esc clears the search.' : 'No ROs for these filters.'; return; }
     box.className = '';
     var open = S.openBatch || {};
     var pc = { Planned: 'info', Created: 'warn', Delivered: 'ok', Cancelled: 'bad', Mixed: '' };
