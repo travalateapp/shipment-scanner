@@ -47,6 +47,13 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - **Planned:** on its way but **not shipped yet** (Blinkit's Incoming + RO Log ROs Blinkit does not show yet, minus Shipped; hover for the split).
 
   Shipped and Planned follow the Shipment Manager: once it has the shipment, the RO moves to Shipped. Days now, Days after and Suggested count all four, so the split changes nothing in the numbers.
+- **Status names on screen:**
+  - **Draft:** saved here, not on Blinkit yet.
+  - **Planned:** on Blinkit, not shipped yet.
+  - **Shipped:** set by itself once the Shipment Manager has its shipment.
+  - **Delivered**, **Cancelled**.
+
+  The RO Log tab keeps its own values: Draft is stored as *Planned* and Planned / Shipped as *Created*, which the planner's counting relies on. **Escape** closes any pop-up.
 - **Speed:** every save is one request (a merged RO with its dispatch day included); the month tab is read once per save and written in one go, and the answer carries the changed lines and open ROs, so nothing is read again afterwards. The app opens at once with the last data kept on the device (Dashboard, RO Log) and refreshes it in the background. RO changes are **instant**: Calendar move / appointment / ✕ / Follow appointment / Mark delivered / Add an open RO / Give dispatch days, the reminder, the Planned pop-up's appointment, and RO Log Save RO / line Save / Cancel line all show at once and are saved in the background, one after the other, with a small **Saving… → ✓ Saved** pill. If a save fails, the pill and a message say so and the page reads the sheet again, undoing what was not saved. Bigger jobs (Create ROs, RO PDF, Settings, Users, Start month, Sync) still blur the screen with **Saving…** until they are done.
 
 The app only writes to the **RO columns** of a month tab (D–H, plus any it added when they were full) and the RO heading above them. It never changes the columns after them; when it adds an RO column they move one column right, formulas included.
