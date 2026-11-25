@@ -637,7 +637,7 @@ function createROs_(u, data) {
     // Created with one merged Blinkit file: the group batches of a warehouse are one RO, shown as one in the RO Log.
     // (Each group still gets its own batch, because each goes into its own TBI / TBO / TBG block of the month tab.)
     const mergedId = data.merged ? Utilities.formatDate(now, tz_(), 'yyMMdd-HHmmss') + '-M' + Utilities.getUuid().slice(0, 4) : '';
-    const rows = [];
+    const rows = [], written = []; // written: the month tab columns filled, undone if the RO Log can't be saved
     Object.keys(batches).forEach(k => {
       const b = batches[k];
       const batchId = Utilities.formatDate(now, tz_(), 'yyMMdd-HHmmss') + '-' + Utilities.getUuid().slice(0, 4);
@@ -646,7 +646,7 @@ function createROs_(u, data) {
         // Already typed into the month tab by hand: only logged.
       } else if (tab) {
         const w = writeBatch_(tab.sheet, b.wh, b.group, b.lines, roLabel_(roDate, data.roNo, appt, b.wh, null));
-        if (w.col) ref = mkRef_(tab.name, w.col);
+        if (w.col) { ref = mkRef_(tab.name, w.col); written.push({ sh: tab.sheet, wh: b.wh, group: b.group, lines: b.lines, col: w.col }); }
         w.warnings.forEach(x => out.warnings.push(b.wh + ' ' + b.group + ': ' + x));
       } else {
         out.warnings.push('No month tab for ' + MONTHS[roDate.getMonth()] + ' ' + roDate.getFullYear() +
@@ -696,7 +696,15 @@ function createROs_(u, data) {
     });
     out.batches.forEach(b => { b.tab = b.ref ? refsText_([b.ref]) : ''; delete b.ref; });
     const log = ensureLog_(); // adds a column a newer version needs (e.g. "Merged RO") by itself
-    log.getRange(log.getLastRow() + 1, 1, rows.length, LOG_HEAD.length).setValues(rows);
+    try {
+      log.getRange(log.getLastRow() + 1, 1, rows.length, LOG_HEAD.length).setValues(rows);
+    } catch (e) {
+      // Not in the RO Log: take the quantities and headings back out of the month tab, so no column is left that
+      // belongs to no RO (and a retry doesn't fill a second one).
+      const undone = undoTabWrites_(written);
+      throw new Error('The RO could not be saved in the RO Log (' + e.message + '). ' +
+        (undone ? 'What was written in the month tab was taken out again; try again.' : 'Check the month tab for a column with this RO and clear it.'));
+    }
     out.openROs = openROsOf_(readLog_());
     return out;
   }
@@ -1277,6 +1285,22 @@ function writeBatch_(sh, wh, group, lines, label) {
   lines.forEach(l => { setTabValue_(sh, b.items[l.item], ci, l.qty); });
   setTabLabel_(sh, b.headRow, ci, label);
   return { col: colLetter_(FIRST_RO_COL + col), warnings: warnings };
+}
+
+/** Clears RO columns just written by writeBatch_ (quantities and heading). Returns true when all were cleared. */
+function undoTabWrites_(written) {
+  let ok = true;
+  written.forEach(w => {
+    try {
+      delete TABV_[w.sh.getName()];
+      const ci = roCols_(w.sh).indexOf(w.col), b = blockFor_(tabValues_(w.sh), w.wh, w.group);
+      if (ci < 0 || !b) { ok = false; return; }
+      const c = FIRST_RO_COL - 1 + ci;
+      w.lines.forEach(l => { if (b.items[l.item] !== undefined) setTabValue_(w.sh, b.items[l.item], c, ''); });
+      setTabLabel_(w.sh, b.headRow, c, '');
+    } catch (e) { ok = false; }
+  });
+  return ok;
 }
 
 function insertItemRow_(sh, b, item, sku) {
