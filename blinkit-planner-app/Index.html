@@ -687,7 +687,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 ti-left';
+  var PAGE_BUILD = '2026-11-25 ro-zip';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1800,7 +1800,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div style="margin-top:10px"><label class="f">Excel file(s) to download</label><div class="chips" id="cFiles">' +
         '<label class="chip"><input type="checkbox" class="cf" value="ALL" checked> Merged (all groups)</label>' +
         groupList().map(function (g) { return '<label class="chip"><input type="checkbox" class="cf" value="' + g + '"> ' + g + ' only</label>'; }).join('') +
-      '</div><div class="small muted" style="margin-top:4px">The file(s) have only the ticked warehouses and the SKUs being ordered. A group file is made only when that group has lines.</div></div>' +
+      '</div><div class="small muted" style="margin-top:4px">The file(s) have only the ticked warehouses and the SKUs being ordered. A group file is made only when that group has lines. Two or more files come as one ZIP folder.</div></div>' +
       '<div id="cOut"></div><div class="row" style="margin-top:12px"><button class="btn" id="cNo">Cancel</button><button class="btn g" id="cGo">Save &amp; download file</button></div>');
     $('cNo').onclick = closeModal;
     var tickAll = function (on) { return function (e) { e.preventDefault(); Array.prototype.forEach.call(document.querySelectorAll('.cw'), function (c) { c.checked = on; }); }; };
@@ -1837,15 +1837,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           .then(function () { return downloadFiles(files); }).then(function () { return res; });
       }).then(function (res) {
         var ok = res.batches.map(function (b) { return b.wh + ' ' + b.group + ': ' + fmt(b.units) + ' units' + (b.tab ? ' → ' + b.tab : ''); });
-        $('modalBox').innerHTML = '<h2>✅ Saved — ' + (files.length > 1 ? files.length + ' files' : 'file') + ' downloaded</h2>' + msgs(ok, 'ok') + msgs(res.warnings, 'warn') +
+        $('modalBox').innerHTML = '<h2>✅ Saved — ' + (files.length > 1 ? files.length + ' files downloaded in one ZIP' : 'file downloaded') + '</h2>' + msgs(ok, 'ok') + msgs(res.warnings, 'warn') +
           (res.dispatchPlan && res.dispatchPlan.length ? '<div class="msg info"><b>🚚 Dispatch days</b> (within ' + fmt(dConf().cap) + ' units a day; change them in the Dashboard calendar or the RO Log):<br>' +
             res.dispatchPlan.map(function (x) { return esc(x.wh) + ' · ' + esc(x.groups.join(' + ')) + ' · ' + fmt(x.units) + ' units → <b>' + new Date(x.day + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }) + '</b>'; }).join('<br>') + '</div>' : '') +
           (res.dispatchErr ? msgs(['Dispatch days could not be saved: ' + res.dispatchErr], 'warn') : '') +
-          '<div class="msg info">Upload the downloaded file' + (files.length > 1 ? 's' : '') + ' on Blinkit (Bulk RO upload). Then add the RO number and appointment in the RO Log.' +
-          (files.length > 1 ? ' If the browser asked to allow several downloads and one is missing, download it again below.' : '') + '</div>' +
-          '<div style="margin-top:8px">' + files.map(function (f, i) { return '<button class="btn sm cAgain" data-i="' + i + '" style="margin:0 6px 6px 0">⬇ ' + esc(f.name) + ' (' + fmt(f.units) + ' units)</button>'; }).join('') + '</div>' +
+          '<div class="msg info">' + (files.length > 1 ? 'Open (unzip) <b>' + esc(zipNameOf(files)) + '</b> and upload each Excel in it on Blinkit' : 'Upload the downloaded file on Blinkit') + ' (Bulk RO upload). Then add the RO number and appointment in the RO Log.</div>' +
+          '<div style="margin-top:8px">' + (files.length > 1 ? '<button class="btn sm" id="cZip" style="margin:0 6px 6px 0">⬇ ' + esc(zipNameOf(files)) + ' (all ' + files.length + ' files)</button>' : '') + files.map(function (f, i) { return '<button class="btn sm cAgain" data-i="' + i + '" style="margin:0 6px 6px 0">⬇ ' + esc(f.name) + ' (' + fmt(f.units) + ' units)</button>'; }).join('') + '</div>' +
           '<div class="row" style="margin-top:6px"><button class="btn p" id="cDone">Done</button></div>';
         Array.prototype.forEach.call(document.querySelectorAll('.cAgain'), function (b) { b.onclick = function () { var f = files[Number(b.getAttribute('data-i'))]; downloadBlinkitFile(f.lines, f.name); }; });
+        if ($('cZip')) $('cZip').onclick = function () { downloadFiles(files); };
         $('cDone').onclick = function () { closeModal(); freshPlan(false); };
       }, function (e) {
         $('cGo').disabled = false; $('cGo').textContent = 'Save & download file';
@@ -1865,21 +1865,28 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     kinds.forEach(function (k) {
       var ls = k === 'ALL' ? lines : lines.filter(function (r) { return r.group === k; });
       if (!ls.length) return;
-      out.push({ name: 'Blinkit_Bulk_RO_' + today() + wh + (k === 'ALL' ? '' : '_' + k) + '.xlsx', lines: ls,
+      out.push({ name: 'Blinkit_Bulk_RO_' + today() + wh + (k === 'ALL' ? '' : '_' + k) + '.xlsx', base: 'Blinkit_Bulk_RO_' + today() + wh, lines: ls,
         units: ls.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0) });
     });
     return out;
   }
-  /** Downloads the files one after another (a short pause so the browser takes each one). */
+  /** One file: the Excel itself. Several (Merged / TBI / TBO / TBG): one ZIP folder holding them all, one download. */
   function downloadFiles(files) {
-    return files.reduce(function (p, f, i) {
-      return p.then(function () { return downloadBlinkitFile(f.lines, f.name); })
-        .then(function () { return i < files.length - 1 ? new Promise(function (r) { setTimeout(r, 700); }) : null; });
-    }, Promise.resolve());
+    if (files.length === 1) return downloadBlinkitFile(files[0].lines, files[0].name);
+    var zip = new JSZip();
+    return files.reduce(function (p, f) {
+      return p.then(function () { return buildBlinkitFile(f.lines).then(function (blob) { zip.file(f.name, blob); }); });
+    }, Promise.resolve()).then(function () {
+      return zip.generateAsync({ type: 'blob', mimeType: 'application/zip', compression: 'DEFLATE' });
+    }).then(function (blob) { saveBlob(blob, zipNameOf(files)); });
+  }
+  function zipNameOf(files) { return (files[0].base || 'Blinkit_Bulk_RO_' + today()) + '.zip'; }
+  function downloadBlinkitFile(lines, name) {
+    return buildBlinkitFile(lines).then(function (blob) { saveBlob(blob, name || 'Blinkit_Bulk_RO_' + today() + '.xlsx'); });
   }
 
-  /** Blinkit's own Bulk RO file with RO Quantity and Shipping Address filled in for these lines. */
-  function downloadBlinkitFile(lines, name) {
+  /** Blinkit's own Bulk RO file with RO Quantity and Shipping Address filled in for these lines (an Excel blob). */
+  function buildBlinkitFile(lines) {
     var head = S.bulk.head;
     var qCol = PlanCore.colLetter(head.indexOf('RO Quantity')), aCol = PlanCore.colLetter(head.indexOf('Shipping Address'));
     var fills = {}; lines.forEach(function (r) { fills[r.row] = S.final[r.key]; });
@@ -1900,7 +1907,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           });
         });
       });
-    }).then(function (blob) { saveBlob(blob, name || 'Blinkit_Bulk_RO_' + today() + '.xlsx'); });
+    });
   }
 
   function saveBlob(blob, name) {
