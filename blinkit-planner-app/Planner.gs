@@ -653,7 +653,7 @@ function createROs_(u, data) {
           ' yet. The RO is saved in the RO Log; use Settings → Start new month, then it is written in.');
       }
       b.lines.forEach((l, i) => {
-        const r = [];
+        const r = new Array(LOG_HEAD.length).fill(''); // every RO Log column, also ones added later (e.g. Short Note)
         r[L['RO Key']] = batchId + '-' + (i + 1);
         r[L['Batch']] = batchId;
         r[L['Created At']] = now;
