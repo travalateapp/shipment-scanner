@@ -268,7 +268,7 @@ var PlanCore = (function () {
     });
     var med = {};
     Object.keys(rates).forEach(function (k) { med[k] = median(rates[k]); });
-    var extra = {}, recent = {}, older = {}, RECENT_MS = 3 * 864e5, LIVE_MS = 30 * 864e5;
+    var extra = {}, recent = {}, older = {}, short = {}, RECENT_MS = 3 * 864e5, LIVE_MS = 30 * 864e5;
     var bulkDay = o.bulkAt ? new Date(o.bulkAt + 330 * 60000).toISOString().slice(0, 10) : ''; // India date of the file
     (o.openROs || []).forEach(function (r) {
       // A Created RO is in Blinkit's Incoming once Blinkit has it: from the R.O. time printed on its PDF when known,
@@ -276,13 +276,16 @@ var PlanCore = (function () {
       var at = r.blinkitAt || r.createdAt;
       var count = r.status === 'Planned' || (r.status === 'Created' && (!o.bulkAt || !at || at > o.bulkAt));
       var k = whNorm(r.wh) + '|' + num(r.item);
-      if (count) extra[k] = (extra[k] || 0) + num(r.qty);
+      // Shipped short (Shipment Manager): the part not sent will not come, though Blinkit still lists it as incoming.
+      var sh = num(r.shortQty), q = Math.max(0, num(r.qty) - sh);
+      if (sh && r.status === 'Created') short[k] = (short[k] || 0) + sh;
+      if (count) extra[k] = (extra[k] || 0) + q;
       // Created on Blinkit before the Bulk RO file but maybe not in its Incoming yet: from the last 3 days, or with no
       // appointment yet (Blinkit may list an RO as Incoming only once it has one), up to 30 days old (ROs expire).
-      else if (r.status === 'Created' && o.bulkAt && at && (at >= o.bulkAt - RECENT_MS || (!r.appt && at >= o.bulkAt - LIVE_MS))) recent[k] = (recent[k] || 0) + num(r.qty);
+      else if (r.status === 'Created' && o.bulkAt && at && (at >= o.bulkAt - RECENT_MS || (!r.appt && at >= o.bulkAt - LIVE_MS))) recent[k] = (recent[k] || 0) + q;
       // Older Created ROs still on their way (under 30 days old, appointment not passed): Blinkit's Incoming is
       // matched to these first. One whose appointment has passed has most likely arrived.
-      else if (r.status === 'Created' && o.bulkAt && at && at >= o.bulkAt - LIVE_MS && !(r.appt && bulkDay && String(r.appt) < bulkDay)) older[k] = (older[k] || 0) + num(r.qty);
+      else if (r.status === 'Created' && o.bulkAt && at && at >= o.bulkAt - LIVE_MS && !(r.appt && bulkDay && String(r.appt) < bulkDay)) older[k] = (older[k] || 0) + q;
     });
 
     // Delivered, awaiting GRN: an RO marked Delivered is in Blinkit's stock only after its GRN (2–3 days), and it may
@@ -300,7 +303,8 @@ var PlanCore = (function () {
     return bulk.map(function (b) {
       var x = invAt[b.whId + '|' + b.item] || null;
       var s7 = x ? x.s7 : 0, s15 = x ? x.s15 : 0, s30 = x ? x.s30 : 0;
-      var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming, app = extra[whNorm(b.whName) + '|' + b.item] || 0;
+      var shortIn = Math.min(b.incoming, short[whNorm(b.whName) + '|' + b.item] || 0);
+      var wh = x ? x.warehouse : 0, ds = x ? x.sellable - x.warehouse : 0, inc = b.incoming - shortIn, app = extra[whNorm(b.whName) + '|' + b.item] || 0;
       // Safety: when Blinkit's Incoming is less than those recent ROs (Blinkit doesn't show them yet), count the
       // missing part from the RO Log, so the same stock is never planned twice.
       var kk = whNorm(b.whName) + '|' + b.item;
@@ -336,7 +340,7 @@ var PlanCore = (function () {
         key: b.whId + '|' + b.item, row: b.row, whId: b.whId, wh: b.whName, item: b.item, name: b.name,
         sku: s.sku || '', group: s.group || '', tier: s.tier || '',
         s7: s7, s15: s15, s30: s30, status: status, kind: kind, rate: drr,
-        whStock: wh, dsStock: ds, delivered: deliv, incoming: inc, appIncoming: app, blinkitGap: gap, position: pos,
+        whStock: wh, dsStock: ds, delivered: deliv, incoming: inc, notSent: shortIn, appIncoming: app, blinkitGap: gap, position: pos,
         daysAtStock: drr > 0 ? pos / drr : null, daysNow: drr > 0 ? pos / drr - EL : null, elapsed: EL,
         target: target, min: b.min, max: b.max,
         rec: rec, starter: starter, note: note, locked: b.locked, remarks: b.remarks
@@ -662,7 +666,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 ti-free';
+  var PAGE_BUILD = '2026-11-25 short-ship';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -880,7 +884,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (S.dash) { S.dash.openROs = r.openROs; S.dash.delivered = r.delivered || S.dash.delivered; }
     refreshPlanAfterRoChange();
     if (S.tab === 'dash' && S.dash && $('dashOut')) drawDash();
-    toast('Shipment Manager: ' + [r.dates ? r.dates + ' dispatch day(s)' : '', r.qty ? r.qty + ' quantity(ies)' : '', r.cancelled ? r.cancelled + ' line(s) not shipped' : ''].filter(Boolean).join(', ') + ' updated.', 5000);
+    toast('Shipment Manager: ' + [r.dates ? r.dates + ' dispatch day(s)' : '', r.qty ? r.qty + ' quantity(ies)' : '', r.short ? r.short + ' line(s) shipped short' : ''].filter(Boolean).join(', ') + ' updated.', 5000);
     return r;
   }
 
@@ -1394,7 +1398,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
           '<div class="right"><span class="lbl">Stock</span>' + fmt(r.whStock + r.dsStock) + '</div>' +
           '<div class="right" title="Delivered, waiting for Blinkit\'s GRN (shipped quantity from the Shipment Manager when known)"><span class="lbl">Delivered</span>' + (r.delivered ? fmt(r.delivered) : '<span class="muted">0</span>') + '</div>' +
-          '<div class="right" title="Blinkit incoming ' + fmt(r.incoming) + (r.appIncoming ? ' + RO Log ' + fmt(r.appIncoming) + ' (not on Blinkit\'s Incoming yet)' : '') + '"><span class="lbl">Planned</span>' + (inc ? fmt(inc) : '<span class="muted">0</span>') + '</div>' +
+          '<div class="right" title="Blinkit incoming ' + fmt(r.incoming) + (r.appIncoming ? ' + RO Log ' + fmt(r.appIncoming) + ' (not on Blinkit\'s Incoming yet)' : '') + (r.notSent ? ' · ' + fmt(r.notSent) + ' left out: on the RO but not sent (Shipment Manager)' : '') + '"><span class="lbl">Planned</span>' + (inc ? fmt(inc) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
           '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + (isConfirmed(r.key) ? '' : ' pend') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
@@ -1758,7 +1762,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // Blinkit incoming (ROs Blinkit already shows, on their way): the Bulk RO file on New Plan, else the last plan's copy.
     var incWh = {}, incTot = {}, incSrc = '';
     var addInc = function (item, wh, q) { if (!q) return; var m = incWh[item] = incWh[item] || {}, k = whLoose(wh); m[k] = (m[k] || 0) + q; incTot[item] = (incTot[item] || 0) + q; };
-    if (S.bulk) { incSrc = 'bulk'; S.bulk.rows.forEach(function (b) { addInc(b.item, b.whName, b.incoming || 0); }); }
+    if (S.bulk) {
+      incSrc = 'bulk';
+      var notSent = {}; (S.boot.openROs || []).forEach(function (r) { if (r.shortQty && r.status === 'Created') { var k = whLoose(r.wh) + '|' + Number(r.item); notSent[k] = (notSent[k] || 0) + Number(r.shortQty); } });
+      S.bulk.rows.forEach(function (b) { addInc(b.item, b.whName, Math.max(0, (b.incoming || 0) - (notSent[whLoose(b.whName) + '|' + Number(b.item)] || 0))); });
+    }
     else if (S.dash && S.dash.rows && S.dash.rows.some(function (r) { return r[12] !== '' && r[12] != null; })) {
       incSrc = 'plan'; S.dash.rows.forEach(function (r) { addInc(Number(r[1]), r[0], Number(r[12]) || 0); });
     }
@@ -1975,7 +1983,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         rs.map(function (r) {
           return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.sku || 'No SKU') + '<div class="small muted">by ' + esc(r.createdBy) + (r.source && r.source !== 'Plan' ? ' · ' + esc(r.source === 'PDF' ? 'from PDF' : 'manual') : '') + '</div></td><td>' + r.item + '</td>' +
             (multi ? '<td>' + esc(r.group) + '</td>' : '') +
-            '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) + '</td>' +
+            '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) +
+              (r.shortQty ? '<div class="small" style="color:var(--bad)" title="Shipment Manager: not all was sent; the planner counts only what was shipped">shipped ' + fmt(r.shippedQty) + ' · ' + fmt(r.shortQty) + ' not sent</div>' : '') + '</td>' +
             '<td><span class="pill ' + pc[r.status] + '">' + r.status + '</span></td>' +
             (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
         }).join('') + '</table></div><div class="bmsg"></div></div></div>';
@@ -2746,7 +2755,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       busy(true, 'Syncing with the Shipment Manager…');
       api('syncShipments', S.token, true).then(function (r) {
         busy(false); applyShipSync(r);
-        $('shOut').innerHTML = msgs([r.skipped ? r.skipped : 'Synced: ' + (r.ros || 0) + ' RO(s) found in the Shipment Manager; ' + (r.dates || 0) + ' dispatch day(s), ' + (r.qty || 0) + ' quantity(ies) updated' + (r.cancelled ? ', ' + r.cancelled + ' line(s) not shipped (cancelled)' : '') + '.'], r.skipped ? 'warn' : 'ok') + msgs(r.warnings, 'warn');
+        $('shOut').innerHTML = msgs([r.skipped ? r.skipped : 'Synced: ' + (r.ros || 0) + ' RO(s) found in the Shipment Manager; ' + (r.dates || 0) + ' dispatch day(s), ' + (r.qty || 0) + ' quantity(ies) updated' + (r.short ? ', ' + r.short + ' line(s) shipped short (red in the month tab)' : '') + '.'], r.skipped ? 'warn' : 'ok') + msgs(r.warnings, 'warn');
       }, function (e) { busy(false); $('shOut').innerHTML = msgs([e.message], 'bad'); });
     };
     $('shSave').onclick = function () {

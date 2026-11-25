@@ -32,7 +32,11 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
 - **Delivered, waiting for Blinkit's GRN:** Blinkit shows delivered goods in its stock only 2–3 days after delivery (GRN), and they may already have left its *Incoming*. So when an RO is marked **Delivered**, the planner saves the item's stock on Blinkit at that moment (*GRN Base*, from the Formula Sheet) and the quantity **actually shipped** (*Shipped Qty*, from the Shipment Manager's BLINKIT_PO tab; link in **Settings → Shipment Manager**). New Plan counts that quantity in a **Delivered** column, between Stock and Planned. It stops as soon as the Inventory shows the item's stock above the GRN base, which means Blinkit has received it, and after 7 days at the latest. It is never counted twice with Blinkit's Incoming. On the Dashboard it is part of **Has** ("+N delivered").
 - **Shipment Manager sync:** once an RO has a Blinkit shipment in the Shipment Manager (SHIPMENTS, PO number = RO number, not deleted):
   - its **dispatch day becomes the shipment date**, set as fixed;
-  - its **quantities become the shipped quantities** (BLINKIT_PO → SHIPPED_QTY), and the month tab follows. An item shipped as 0 is cancelled ("Not shipped").
+  - its RO keeps the **RO quantity** (BLINKIT_PO → PO_QTY) and gets the **quantity actually shipped** (SHIPPED_QTY, RO Log *Shipped Qty*);
+  - when less was sent, the month-tab cell keeps the RO quantity but turns **red**, with a note *"Shipped X of Y — Z not sent"*;
+  - the planner leaves the part **not sent** out everywhere. Blinkit still lists it as incoming until the RO closes, so it is taken off Blinkit's incoming in the plan and in Projections, and it never shows as *Planned without RO*;
+  - the RO Log line shows "shipped X · Z not sent";
+  - when the RO is delivered, the whole quantity (red part included) leaves the month tab 2 days later like any other, and the red mark goes with it.
 
   The sync runs at most every 3 hours, in the background when the planner is opened, from **Settings → Shipment Manager → Sync now**, or from a time-driven trigger on `syncFromShipmentManager`. Each RO is checked again for **2 days** after its shipment is first found (RO Log *Ship Sync Until*), then left alone.
 - **Appointment passed — reminder:** when the calendar opens, ROs whose appointment date has passed and are not marked Delivered pop up: **Mark delivered** (with the date), **New appointment**, or **⏰ Remind me later** (3 hours, on that device).

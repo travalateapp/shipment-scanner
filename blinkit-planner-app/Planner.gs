@@ -561,6 +561,7 @@ function publicRo_(r) {
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
     appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch), dispatchFixed: !!r.dispatchFixed, updatedAt: fmtStamp_(r.updatedAt),
     shippedQty: r.shippedQty, grnBase: r.grnBase, shippedOn: fmtDate_(r.shippedOn),
+    shortQty: r.shippedOn instanceof Date && r.shippedQty != null && r.status !== 'Cancelled' ? Math.max(0, r.qty - r.shippedQty) : 0,
     deliveredOn: fmtDate_(r.deliveredOn), removedAt: fmtDate_(r.removedAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
@@ -1279,7 +1280,23 @@ function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
   const i = b.items[item], c = FIRST_RO_COL - 1 + ci;
   const next = (Number(v[i][c]) || 0) + delta;
   setTabValue_(sh, i, c, next > 0 ? next : '');
+  if (!(next > 0)) sh.getRange(i + 1, c + 1).setFontColor(null).setFontWeight(null).setNote(''); // no "not sent" mark left
   return '';
+}
+
+/**
+ * The RO's cell for this item in its month tab(s): red with a note "Shipped X of Y — Z not sent" when not all was
+ * sent (Shipment Manager), back to normal otherwise.
+ */
+function markShort_(r, short, shipped, ordered) {
+  r.refs.forEach(ref => {
+    const sh = SpreadsheetApp.getActive().getSheetByName(ref.t); if (!sh) return;
+    const ci = roCols_(sh).indexOf(ref.c), v = tabValues_(sh), b = blockFor_(v, r.wh, r.group);
+    if (ci < 0 || !b || b.items[r.item] === undefined) return;
+    const cell = sh.getRange(b.items[r.item] + 1, FIRST_RO_COL + ci);
+    if (short > 0) cell.setFontColor('#d00000').setFontWeight('bold').setNote('Shipped ' + shipped + ' of ' + ordered + ' — ' + short + ' not sent (Shipment Manager). Not counted by the planner.');
+    else cell.setFontColor(null).setFontWeight(null).setNote('');
+  });
 }
 
 function setBatchLabel_(sh, wh, group, colLetter, label) {
@@ -1490,6 +1507,12 @@ function invStockMap_() {
  * (PO_NUMBER, ITEM_CODE, …, SHIPPED_QTY). Empty when its link is not set in Settings.
  */
 function shippedQtyMap_(roNos) {
+  const m = poLinesMap_(roNos), out = {};
+  Object.keys(m).forEach(k => { out[k] = m[k].shipped; });
+  return out;
+}
+/** BLINKIT_PO lines per RO (PO) number | item: { ordered: PO_QTY, shipped: SHIPPED_QTY }. */
+function poLinesMap_(roNos) {
   const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
   if (!id || !roNos.length) return {};
   const want = {}; roNos.forEach(n => { want[String(n).trim()] = 1; });
@@ -1501,7 +1524,8 @@ function shippedQtyMap_(roNos) {
     const po = String(r[0] || '').trim(); if (!want[po]) return;
     if (String(r[13] || '').trim().toUpperCase() === 'CANCELLED') return;
     const k = po + '|' + Number(r[5]);
-    out[k] = (out[k] || 0) + (parseInt(r[12], 10) || 0);
+    const x = out[k] = out[k] || { ordered: 0, shipped: 0 };
+    x.ordered += parseInt(r[11], 10) || 0; x.shipped += parseInt(r[12], 10) || 0;
   });
   return out;
 }
@@ -1521,7 +1545,8 @@ function syncShipments_() {
   const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
   if (!id) return { skipped: 'Shipment Manager link not set (Settings).' };
   const now = new Date(), log = ensureLog_(), all = readLog_();
-  const due = all.filter(r => r.roNo && r.status !== 'Cancelled' && !r.logOnly &&
+  const NOT_SHIPPED = 'Not shipped (Shipment Manager)';
+  const due = all.filter(r => r.roNo && (r.status !== 'Cancelled' || String(r.notes).indexOf(NOT_SHIPPED) >= 0) && !r.logOnly &&
     !(r.shipSyncUntil instanceof Date && r.shipSyncUntil.getTime() < now.getTime()) &&
     r.roDate instanceof Date && r.roDate.getTime() >= now.getTime() - 60 * 864e5);
   if (!due.length) return { ros: 0, qty: 0, dates: 0 };
@@ -1541,13 +1566,14 @@ function syncShipments_() {
   });
   const found = Object.keys(shipDate);
   if (!found.length) return { ros: 0, qty: 0, dates: 0 };
-  const shipped = shippedQtyMap_(found);
-  const out = { ros: 0, qty: 0, dates: 0, cancelled: 0, warnings: [] }, changedRos = [], seenRo = {};
+  const poLines = poLinesMap_(found);
+  const out = { ros: 0, qty: 0, dates: 0, short: 0, warnings: [] }, changedRos = [], seenRo = {};
   due.forEach(r => {
     const po = String(r.roNo).trim(), d = shipDate[po]; if (!d) return;
     if (!seenRo[po]) { seenRo[po] = 1; out.ros++; }
     // First time found: the 2-day re-check window starts.
-    if (!(r.shipSyncUntil instanceof Date)) {
+    const firstFound = !(r.shipSyncUntil instanceof Date);
+    if (firstFound) {
       r.shipSyncUntil = new Date(now.getTime() + SHIP_SYNC_DAYS * 864e5);
       log.getRange(r.row, L['Ship Sync Until'] + 1).setValue(r.shipSyncUntil);
     }
@@ -1559,27 +1585,36 @@ function syncShipments_() {
       log.getRange(r.row, L['Shipped On'] + 1).setValue(d);
       out.dates++; changedRos.push(r);
     }
-    // Quantity = what was shipped.
-    const sq = shipped[po + '|' + r.item];
-    if (sq === undefined) return;
-    if (r.shippedQty !== sq) { r.shippedQty = sq; log.getRange(r.row, L['Shipped Qty'] + 1).setValue(sq); }
-    if (sq === r.qty && r.status !== 'Cancelled') return;
-    const newEff = sq > 0 ? sq : 0, oldEff = r.qty;
-    if (newEff !== oldEff && !r.removedAt) { // (a delivered RO already taken out of the month tab is left there)
-      r.refs.forEach(ref => {
-        const tsh = SpreadsheetApp.getActive().getSheetByName(ref.t);
-        const w = tsh ? adjustCell_(tsh, r.wh, r.group, r.item, r.sku, ref.c, newEff - oldEff) : '';
-        if (w) out.warnings.push(w);
-      });
+    // Quantities: the RO keeps its RO quantity (BLINKIT_PO → PO_QTY) and gets the quantity actually shipped
+    // (SHIPPED_QTY). What was not sent stays in the month tab, in red with a note, and the planner leaves it out
+    // (Blinkit still lists it as incoming until the RO closes). Lines an earlier version lowered or cancelled as
+    // "Not shipped" get their RO quantity back.
+    const pl = poLines[po + '|' + r.item];
+    if (!pl) return;
+    const sq = pl.shipped, ordered = pl.ordered > 0 ? pl.ordered : r.qty, revive = r.status === 'Cancelled';
+    let touched = false;
+    if (r.shippedQty !== sq) { r.shippedQty = sq; log.getRange(r.row, L['Shipped Qty'] + 1).setValue(sq); touched = true; }
+    if (revive || ordered !== r.qty) {
+      const delta = ordered - (revive ? 0 : r.qty);
+      if (delta && !r.removedAt) { // (a delivered RO already taken out of the month tab is left there)
+        r.refs.forEach(ref => {
+          const tsh = SpreadsheetApp.getActive().getSheetByName(ref.t);
+          const w = tsh ? adjustCell_(tsh, r.wh, r.group, r.item, r.sku, ref.c, delta) : '';
+          if (w) out.warnings.push(w);
+        });
+      }
+      log.getRange(r.row, L['Qty'] + 1).setValue(ordered);
+      r.qty = ordered; out.qty++;
+      if (revive) {
+        r.status = 'Created'; r.notes = String(r.notes).split('; ').filter(x => x !== NOT_SHIPPED).join('; ');
+        log.getRange(r.row, L['Status'] + 1).setValue('Created');
+        log.getRange(r.row, L['Notes'] + 1).setValue(r.notes);
+      }
+      touched = true;
     }
-    if (sq > 0) {
-      log.getRange(r.row, L['Qty'] + 1).setValue(sq);
-      r.qty = sq; out.qty++;
-    } else {
-      log.getRange(r.row, L['Status'] + 1).setValue('Cancelled');
-      log.getRange(r.row, L['Notes'] + 1).setValue((r.notes ? r.notes + '; ' : '') + 'Not shipped (Shipment Manager)');
-      r.status = 'Cancelled'; out.cancelled++;
-    }
+    if (!touched && !firstFound) return;
+    if (!r.removedAt) markShort_(r, Math.max(0, ordered - sq), sq, ordered);
+    if (sq < ordered) out.short = (out.short || 0) + 1;
     log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, 'Shipment Manager']]);
     changedRos.push(r);
   });
@@ -1607,7 +1642,7 @@ function syncShipments(token, force) {
   lock.waitLock(60000);
   try {
     const res = syncShipments_();
-    if (res.dates || res.qty || res.cancelled) {
+    if (res.dates || res.qty || res.short) {
       const all = readLog_();
       res.openROs = openROsOf_(all); res.delivered = recentDeliveredOf_(all);
     }
