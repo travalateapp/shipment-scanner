@@ -687,7 +687,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 ask-suggest';
+  var PAGE_BUILD = '2026-11-25 ti-left';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1501,9 +1501,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (q == null) return '<b class="hv" title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</b>';
     var send = sendOfItem(r.item), over = send > q, res = tiReserved(r.item);
     var why = 'TI ' + fmt(tiQty(r)) + (res ? ' − ' + fmt(res) + ' on open ROs not shipped yet' : '') + ' = ' + fmt(q) + ' free';
-    // "sending N" = confirmed Send boxes of this SKU, all warehouses: grey while within TI, red once it is more.
-    return '<b class="hv" title="' + why + (over ? ' · the plan sends ' + send + ' of this SKU (all warehouses)' : '') + '">' + fmt(q) + '</b>' +
-      (send > 0 ? '<span class="tiw hv' + (over ? '' : ' ok') + '" title="Confirmed Send quantity of this SKU, all warehouses together">sending ' + fmt(send) + '</span>' : '');
+    // The number = what stays free in TI after this plan: free − the Send boxes of this SKU (all warehouses), updated
+    // as you type; red once the plan sends more than TI has. Below it: free before the plan and what this plan sends.
+    return '<b class="hv" title="' + why + (send ? ' − ' + fmt(send) + ' in this plan (all warehouses) = ' + fmt(q - send) + ' left' : '') + '">' + fmt(q - send) + '</b>' +
+      (send > 0 ? '<span class="tiw hv' + (over ? '' : ' ok') + '" title="Free in TI before this plan, and the Send quantity of this SKU in this plan (all warehouses together)">' + fmt(q) + ' − sending ' + fmt(send) + '</span>' : '');
   }
   function tiCell(r) {
     var q = tiFree(r), over = q != null && sendOfItem(r.item) > q;
@@ -1533,7 +1534,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var miss = [], seen = {};
     S.plan.forEach(function (r) { if (!seen[r.item] && (S.final[r.key] || 0) > 0 && tiQty(r) == null) { seen[r.item] = 1; miss.push(skuText(r.sku, r.item)); } });
     return '<div class="msg info">TI = stock in Travalate Inventory <b>still free</b>: minus the open ROs not shipped yet (shipped ones are already out of TI)' + (S.ti.updatedAt ? ' · read ' + new Date(S.ti.updatedAt).toLocaleString('en-IN') : '') + ' · <a href="#" id="tiRe">↻ refresh</a>' +
-      '<br>Send boxes in <span style="color:var(--muted)">grey</span> are suggestions: they count in TI\'s "sending" once you click into them (or type / fill a quantity). "sending" turns red when it is more than TI.' +
+      '<br>The TI number is what stays free <b>after this plan</b>: it goes down as you type a Send quantity (below it: free now − sending). Send boxes in <span style="color:var(--muted)">grey</span> are suggestions: they count once you click into them (or type / fill a quantity). It turns red when the plan sends more than TI has.' +
       (miss.length ? '<br><b>' + miss.length + ' SKU(s) to send are not found in TI:</b> ' + esc(miss.slice(0, 8).join(', ')) + (miss.length > 8 ? '…' : '') + '. An admin sets their name in TI under Settings → SKUs → TI SKU.' : '') + '</div>';
   }
 
@@ -1558,7 +1559,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       case 'days': return r.daysOnHand;
       case 'max': return r.max;
       case 'send': return q;
-      case 'ti': return tiFree(r);
+      case 'ti': var tf = tiFree(r); return tf == null ? null : tf - sendOfItem(r.item);
       case 'after': return daysAfter(r, q);
     }
     return null;
@@ -1595,7 +1596,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         H('max', 'right c-max', 'The most Blinkit lets you send on this RO', 'Blinkit max', 'Blinkit\'s limit') +
         '<div class="sendH">' + H('send', '', '', 'Send').replace(/^<div/, '<span').replace(/<\/div>$/, '</span>') + '<span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
         '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
-        H('ti', 'right', 'Stock in Travalate Inventory still free (all warehouses together)', 'TI', 'free in TI') +
+        H('ti', 'right', 'Stock in Travalate Inventory left free after this plan: free now − the Send boxes of this SKU (all warehouses). Changes as you type', 'TI', 'left after this plan') +
         H('after', 'right', 'Days everything lasts once this RO arrives: (Stock + Delivered + Shipped + Planned + Send) ÷ Per day − days passed', 'Days after', 'all + this Send') + '</div>';
     };
     var blocks = [];
