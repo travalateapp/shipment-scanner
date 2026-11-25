@@ -662,7 +662,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-24 ship-sync';
+  var PAGE_BUILD = '2026-11-25 ti-free';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1295,21 +1295,37 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   // the planner's suggestion and shown grey.
   function isConfirmed(k) { return !!((S.confirmed && S.confirmed[k]) || (S.edited && k in S.edited)); }
   function sendOfItem(item) { var t = 0; S.plan.forEach(function (x) { if (x.item === item && isConfirmed(x.key)) t += S.final[x.key] || 0; }); return t; }
+  /*
+   * TI free = TI − what open ROs (all warehouses) still have to take from it. An RO leaves TI when it is shipped (the
+   * Shipment Manager deducts it there), so only ROs not shipped yet are taken off: no shipment found by the Shipment
+   * Manager sync, and dispatch day not passed.
+   */
+  function tiReserved(item) {
+    var t = 0, td = today();
+    (S.boot.openROs || []).forEach(function (r) {
+      if (Number(r.item) !== Number(item) || (r.status !== 'Created' && r.status !== 'Planned') || r.shippedOn) return;
+      var d = dispatchOf(r); if (d && d < td) return;
+      t += Number(r.qty) || 0;
+    });
+    return t;
+  }
+  function tiFree(r) { var q = tiQty(r); return q == null ? null : q - tiReserved(r.item); }
   function tiInner(r) {
-    var q = tiQty(r);
+    var q = tiFree(r);
     if (q == null) return '<b title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</b>';
-    var send = sendOfItem(r.item), over = send > q;
+    var send = sendOfItem(r.item), over = send > q, res = tiReserved(r.item);
+    var why = 'TI ' + fmt(tiQty(r)) + (res ? ' − ' + fmt(res) + ' on open ROs not shipped yet' : '') + ' = ' + fmt(q) + ' free';
     // "sending N" = confirmed Send boxes of this SKU, all warehouses: grey while within TI, red once it is more.
-    return '<b' + (over ? ' title="The plan sends ' + send + ' of this SKU (all warehouses) but TI has ' + q + '"' : '') + '>' + fmt(q) + '</b>' +
+    return '<b title="' + why + (over ? ' · the plan sends ' + send + ' of this SKU (all warehouses)' : '') + '">' + fmt(q) + '</b>' +
       (send > 0 ? '<span class="tiw' + (over ? '' : ' ok') + '" title="Confirmed Send quantity of this SKU, all warehouses together">sending ' + fmt(send) + '</span>' : '');
   }
   function tiCell(r) {
-    var q = tiQty(r), over = q != null && sendOfItem(r.item) > q;
+    var q = tiFree(r), over = q != null && sendOfItem(r.item) > q;
     return '<div class="right ti-c' + (over ? ' tiover' : '') + '" data-it="' + r.item + '"><span class="lbl">TI</span>' + tiInner(r) + '</div>';
   }
   function refreshTiCells(item) {
     var r = S.plan.filter(function (x) { return x.item === item; })[0]; if (!r) return;
-    var q = tiQty(r), over = q != null && sendOfItem(item) > q;
+    var q = tiFree(r), over = q != null && sendOfItem(item) > q;
     Array.prototype.forEach.call(document.querySelectorAll('.ti-c[data-it="' + item + '"]'), function (c) {
       c.classList.toggle('tiover', over); c.innerHTML = '<span class="lbl">TI</span>' + tiInner(r);
     });
@@ -1330,7 +1346,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!S.ti.ok) return '<div class="msg warn">TI column: ' + esc(S.ti.error || 'Travalate Inventory could not be read.') + (S.ti.setup ? '' : ' <a href="#" id="tiRe">Try again</a>') + '</div>';
     var miss = [], seen = {};
     S.plan.forEach(function (r) { if (!seen[r.item] && (S.final[r.key] || 0) > 0 && tiQty(r) == null) { seen[r.item] = 1; miss.push(skuText(r.sku, r.item)); } });
-    return '<div class="msg info">TI = stock in Travalate Inventory' + (S.ti.updatedAt ? ', read ' + new Date(S.ti.updatedAt).toLocaleString('en-IN') : '') + ' · <a href="#" id="tiRe">↻ refresh</a>' +
+    return '<div class="msg info">TI = stock in Travalate Inventory <b>still free</b>: minus the open ROs not shipped yet (shipped ones are already out of TI)' + (S.ti.updatedAt ? ' · read ' + new Date(S.ti.updatedAt).toLocaleString('en-IN') : '') + ' · <a href="#" id="tiRe">↻ refresh</a>' +
       '<br>Send boxes in <span style="color:var(--muted)">grey</span> are suggestions: they count in TI\'s "sending" once you click into them (or type / fill a quantity). "sending" turns red when it is more than TI.' +
       (miss.length ? '<br><b>' + miss.length + ' SKU(s) to send are not found in TI:</b> ' + esc(miss.slice(0, 8).join(', ')) + (miss.length > 8 ? '…' : '') + '. An admin sets their name in TI under Settings → SKUs → TI SKU.' : '') + '</div>';
   }
@@ -1661,7 +1677,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
         'Stock': r.whStock + r.dsStock, 'Delivered (awaiting GRN)': r.delivered || 0, 'Planned': r.incoming + r.appIncoming, 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
-        Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, 'TI stock': tiQty(r) == null ? '' : tiQty(r), Note: r.note, Locked: r.locked ? r.remarks : '' };
+        Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, 'TI stock': tiQty(r) == null ? '' : tiQty(r), 'TI free': tiFree(r) == null ? '' : tiFree(r), Note: r.note, Locked: r.locked ? r.remarks : '' };
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Plan');
