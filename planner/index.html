@@ -48,6 +48,7 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .grp{margin:14px 0 6px;font-weight:800;font-size:13px;display:flex;justify-content:space-between;gap:8px}
 .line{display:grid;grid-template-columns:minmax(190px,1.9fr) repeat(8,minmax(52px,.58fr)) 92px minmax(56px,.6fr) minmax(70px,.7fr);gap:8px;align-items:center;padding:8px 10px;border-bottom:1px solid var(--line)}
 .line.head{font-size:11px;color:var(--muted);font-weight:700;border-bottom:2px solid var(--line)}
+.line.head .srt{cursor:pointer;user-select:none}.line.head .srt:hover{color:var(--ink)}.line.head .srt.on{color:var(--brand)}
 /* Each warehouse block's title + column headings stay pinned under the top bar
    while scrolling through that block, and scroll away when the next block starts. */
 .whsec{position:relative}
@@ -671,10 +672,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 days-zero';
+  var PAGE_BUILD = '2026-11-25 plan-sort';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
+  // New Plan sort picked by clicking a heading ({key, dir}); kept on this device, the same for every block.
+  try { S.lineSort = JSON.parse(load('bp_line_sort') || 'null'); } catch (e) { S.lineSort = null; }
 
   /* ---------------- small helpers ---------------- */
   function $(id) { return document.getElementById(id); }
@@ -1486,6 +1489,36 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     keys.forEach(function (k) { var q = S.final[k] || 0; if (q > 0) { u += q; n++; } });
     return fmt(u) + ' units · ' + n + (n === 1 ? ' line' : ' lines');
   }
+  /** Value of a New Plan column for sorting (S.lineSort.key); null sorts last either way. */
+  var LINE_SORT_TEXT = { sku: 1 }, LINE_SORT_UP = { sku: 1, days: 1, after: 1 }; // first click: A→Z / fewest days first
+  function lineSortVal(r, key) {
+    var q = S.final[r.key] || 0;
+    switch (key) {
+      case 'sku': return String(r.sku || '~' + r.item).toLowerCase();
+      case 'sold': return r.s7 * 1e6 + r.s30;
+      case 'rate': return r.rate;
+      case 'stock': return r.whStock + r.dsStock;
+      case 'deliv': return r.delivered || 0;
+      case 'ship': return r.shipped || 0;
+      case 'plan': return r.incoming + r.appIncoming - (r.shipped || 0);
+      case 'days': return r.daysOnHand;
+      case 'max': return r.max;
+      case 'send': return q;
+      case 'ti': return tiFree(r);
+      case 'after': return daysAfter(r, q);
+    }
+    return null;
+  }
+  function sortLines(rs) {
+    var k = S.lineSort.key, d = S.lineSort.dir;
+    // Stable: lines with the same value keep the planner's order.
+    return rs.map(function (r, i) { return { r: r, i: i, v: lineSortVal(r, k) }; }).sort(function (a, b) {
+      var na = a.v == null || (typeof a.v === 'number' && !isFinite(a.v)), nb = b.v == null || (typeof b.v === 'number' && !isFinite(b.v));
+      if (na || nb) return na === nb ? a.i - b.i : na ? 1 : -1;
+      var c = LINE_SORT_TEXT[k] ? (a.v < b.v ? -1 : a.v > b.v ? 1 : 0) : a.v - b.v;
+      return c * d || a.i - b.i;
+    }).map(function (x) { return x.r; });
+  }
   function renderLines() {
     saveDraftState(); // filters changed
     var rows = visibleRows(), box = $('lines'); if (!box) return;
@@ -1494,11 +1527,22 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     rows.forEach(function (r) { var k = r.wh + '||' + (r.group || '?'); (groups[k] = groups[k] || []).push(r); });
     // Send heading of each block: a small "fill all" box and a ↺ reset (both left out of the Tab order).
     var head = function (gi) {
-      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right" title="Stock on Blinkit now: warehouse + in-between + darkstore">Stock</div><div class="right" title="Delivered (marked in the RO Log), not in Blinkit\'s stock yet: counted until Blinkit\'s GRN shows it">Delivered</div><div class="right" title="Shipped, on the road: ROs the Shipment Manager has a shipment for, not delivered yet">Shipped</div><div class="right" title="Planned, not shipped yet: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet, without what is shipped">Planned</div><div class="right c-days" title="Days the stock there lasts: (Stock + Delivered) ÷ Per day − days passed. Hover a number for the days counting what is on its way.">Days now</div><div class="right c-max">Blinkit max</div>' +
-        '<div class="sendH"><span>Send</span><span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
+      // Every heading but Send's boxes sorts the lines; one sort for every block (S.lineSort).
+      var H = function (key, cls, title, label) {
+        var on = S.lineSort && S.lineSort.key === key;
+        return '<div class="' + (cls ? cls + ' ' : '') + 'srt' + (on ? ' on' : '') + '" data-s="' + key + '" title="' + (title ? title + ' · ' : '') + 'Click to sort every block by this">' + label + (on ? (S.lineSort.dir > 0 ? ' ▲' : ' ▼') : '') + '</div>';
+      };
+      return '<div class="line head">' + H('sku', '', '', 'SKU · Item ID') + H('sold', 'right', '', 'Sold 7d / 30d') + H('rate', 'right', '', 'Per day') +
+        H('stock', 'right', 'Stock on Blinkit now: warehouse + in-between + darkstore', 'Stock') +
+        H('deliv', 'right', 'Delivered (marked in the RO Log), not in Blinkit\'s stock yet: counted until Blinkit\'s GRN shows it', 'Delivered') +
+        H('ship', 'right', 'Shipped, on the road: ROs the Shipment Manager has a shipment for, not delivered yet', 'Shipped') +
+        H('plan', 'right', 'Planned, not shipped yet: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet, without what is shipped', 'Planned') +
+        H('days', 'right c-days', 'Days the stock there lasts: (Stock + Delivered) ÷ Per day − days passed. Hover a number for the days counting what is on its way', 'Days now') +
+        H('max', 'right c-max', '', 'Blinkit max') +
+        '<div class="sendH">' + H('send', '', '', 'Send').replace(/^<div/, '<span').replace(/<\/div>$/, '</span>') + '<span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
         '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
-        '<div class="right" title="Current stock in Travalate Inventory (all warehouses together)">TI</div>' +
-        '<div class="right">Days after</div></div>';
+        H('ti', 'right', 'Current stock in Travalate Inventory (all warehouses together)', 'TI') +
+        H('after', 'right', '', 'Days after') + '</div>';
     };
     var blocks = [];
     var html = '';
@@ -1507,6 +1551,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       // Sorted by the planner's suggestion (not by what you typed), so rows stay put while you edit, fill or reset.
       var sug = function (r) { return r.locked ? 0 : r.rec + (S.starters ? r.starter : 0); };
       rs.sort(function (a, b) { return sug(b) - sug(a) || (a.daysNow == null ? 999 : a.daysNow) - (b.daysNow == null ? 999 : b.daysNow) || a.item - b.item; });
+      if (S.lineSort) rs = sortLines(rs); // a clicked heading: the same order in every block
       var gi = blocks.push(rs.map(function (r) { return r.key; })) - 1;
       var shut = !!(S.shut && S.shut[k]);
       html += '<section class="whsec' + (shut ? ' shut' : '') + '" data-sk="' + esc(k) + '"><div class="whhead"><div class="grp tgl" style="padding:0 10px" title="Click to collapse / expand this block"><span><span class="chev">' + (shut ? '▸' : '▾') + '</span> ' + esc(p[0]) + ' · ' + esc(p[1] === '?' ? 'No group' : groupName(p[1])) + '</span><span class="blkSum">' + blkSumText(rs.map(function (r) { return r.key; })) + '</span></div>' + head(gi) + '</div>';
@@ -1533,7 +1578,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       });
       html += '</section>';
     });
-    box.innerHTML = '<div class="small" style="padding:10px 10px 0;text-align:right"><a href="#" id="shutAll">Collapse all</a> · <a href="#" id="openAll">Expand all</a></div>' + html;
+    box.innerHTML = '<div class="small" style="padding:10px 10px 0;text-align:right">' + (S.lineSort ? '<a href="#" id="sortReset" title="Back to the planner\'s order: biggest suggestion first">↺ Default order</a> · ' : '') + '<a href="#" id="shutAll">Collapse all</a> · <a href="#" id="openAll">Expand all</a></div>' + html;
+    if ($('sortReset')) $('sortReset').onclick = function (e) { e.preventDefault(); S.lineSort = null; store('bp_line_sort', null); renderLines(); };
     setStickTop();
     var setShut = function (sec, on) {
       S.shut = S.shut || {};
@@ -1574,6 +1620,19 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         setShut(sec, on);
         // Collapsing a block that is pinned at the top: bring its heading back into view.
         if (on && sec.getBoundingClientRect().top < 0) sec.scrollIntoView({ block: 'start' });
+        return;
+      }
+      var sh = e.target.closest('.srt');
+      if (sh) {
+        var key = sh.getAttribute('data-s');
+        // Same heading again: flip the direction. New heading: its natural first direction.
+        S.lineSort = S.lineSort && S.lineSort.key === key ? { key: key, dir: -S.lineSort.dir } : { key: key, dir: LINE_SORT_UP[key] ? 1 : -1 };
+        store('bp_line_sort', JSON.stringify(S.lineSort));
+        var y = sh.getBoundingClientRect().top, sec0 = sh.closest('.whsec').getAttribute('data-sk');
+        renderLines();
+        // Keep the clicked block's heading where it was on screen.
+        var same = box.querySelector('.whsec[data-sk="' + (window.CSS && CSS.escape ? CSS.escape(sec0) : sec0) + '"] .line.head');
+        if (same) window.scrollBy(0, same.getBoundingClientRect().top - y);
         return;
       }
       var b = e.target.closest('.fillR'); if (!b) return;
