@@ -161,7 +161,8 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 #askMsgs .bot{align-self:flex-start;background:var(--chip);border-radius:12px 12px 12px 2px;padding:8px 10px;max-width:95%}
 #askMsgs .bot ul{margin:4px 0 0 16px;padding:0}#askMsgs .bot li{margin:2px 0}
 #askMsgs .ex{display:flex;flex-wrap:wrap;gap:6px}#askMsgs .ex button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}
-#askF{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}#askF input{flex:1}
+#askF{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line);position:relative}#askF input{flex:1}
+#askSug{top:auto;bottom:100%;margin:0 0 4px;left:8px;right:8px}
 .shortNote{margin-top:4px;width:100%;min-width:180px;font-size:12px;padding:4px 6px}
 #savePill{position:fixed;left:14px;bottom:84px;z-index:96;background:#111827;color:#fff;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.2);display:flex;gap:8px;align-items:center}
 #savePill.ok{background:var(--ok)}#savePill.bad{background:var(--bad)}
@@ -686,7 +687,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 short-note-ask';
+  var PAGE_BUILD = '2026-11-25 ask-suggest';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2299,16 +2300,64 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!box) {
       box = document.createElement('div'); box.id = 'askBox';
       box.innerHTML = '<div class="ah">💬 Ask the planner<button title="Close (Esc)">✕</button></div><div id="askMsgs"></div>' +
-        '<form id="askF"><input type="text" id="askQ" placeholder="e.g. Why was 2 in 1 Belt not sent in Mumbai?" autocomplete="off"><button class="btn p">Ask</button></form>';
+        '<form id="askF"><div id="askSug" class="sugg hidden" role="listbox"></div><input type="text" id="askQ" placeholder="e.g. Why was 2 in 1 Belt not sent in Mumbai?" autocomplete="off"><button class="btn p">Ask</button></form>';
       document.body.appendChild(box);
       box.querySelector('.ah button').onclick = closeAsk;
-      $('askF').onsubmit = function (e) { e.preventDefault(); var q = $('askQ').value.trim(); if (q) { $('askQ').value = ''; askQuestion(q); } };
+      $('askF').onsubmit = function (e) { e.preventDefault(); askSugHide(); var q = $('askQ').value.trim(); if (q) { $('askQ').value = ''; askQuestion(q); } };
+      $('askQ').oninput = askSugShow;
+      $('askQ').onblur = function () { setTimeout(askSugHide, 150); };
+      $('askQ').onkeydown = function (e) {
+        var sg = $('askSug'), items = sg.querySelectorAll('div'); if (sg.classList.contains('hidden') || !items.length) return;
+        var on = sg.querySelector('div.on'), i = Array.prototype.indexOf.call(items, on);
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+          e.preventDefault(); if (on) on.classList.remove('on');
+          i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
+          items[i].classList.add('on'); items[i].scrollIntoView({ block: 'nearest' });
+        } else if ((e.key === 'Enter' || e.key === 'Tab') && on) { e.preventDefault(); askSugPick(on); }
+        else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); askSugHide(); } // Esc closes the list first, then the box
+      };
+      $('askSug').onmousedown = function (e) { var d = e.target.closest('div[data-v]'); if (d) { e.preventDefault(); askSugPick(d); } };
       $('askMsgs').onclick = function (e) { var x = e.target.closest('.ex button'); if (x) askQuestion(x.textContent); };
       askSay('bot', 'Ask about an SKU, optionally at a warehouse. I answer from the RO Log (last 120 days) and the last plan.' +
         '<div class="ex" style="margin-top:6px"><button type="button">Why was 2 in 1 Belt not sent in Mumbai?</button><button type="button">What is not sent?</button><button type="button">When does 1323 arrive in Kundli?</button></div>');
     }
     box.classList.remove('hidden');
     setTimeout(function () { $('askQ').focus(); }, 0);
+  }
+  /**
+   * Suggestions while typing: the last words typed are matched against the start of SKU names, item IDs and
+   * warehouse names; picking one (click, Enter or Tab, arrows to move) completes those words.
+   */
+  function askSugHide() { var s = $('askSug'); if (s) s.classList.add('hidden'); }
+  function askSugShow() {
+    var inp = $('askQ'), sg = $('askSug'), v = inp.value, words = v.split(/\s+/);
+    if (!/\S$/.test(v)) { askSugHide(); return; }
+    var whs = {}; ((S.boot && S.boot.openROs) || []).concat((ASK.rows || [])).forEach(function (r) { whs[r.wh] = 1; });
+    ((S.dash && S.dash.rows) || []).forEach(function (r) { whs[r[0]] = 1; });
+    var cands = (S.boot.skus || []).map(function (s) { return { v: s.sku || String(s.item), n: askNorm(s.sku), id: String(s.item), sub: s.item + (s.group ? ' · ' + s.group : '') }; })
+      .concat(Object.keys(whs).map(function (w) { return { v: w, n: askNorm(w), id: '', sub: 'warehouse', wh: 1 }; }));
+    var found = [], seen = {}, startAt = -1;
+    // Longest ending first: "2 in" finds "2 in 1 Belt"; a single word also matches any word of a warehouse name.
+    for (var k = Math.min(4, words.length); k >= 1 && !found.length; k--) {
+      var frag = words.slice(words.length - k).join(' '), nf = askNorm(frag);
+      if (nf.length < 2 || (k === 1 && /^(why|was|not|the|in|at|of|is|to|did|sent|when|does|what)$/i.test(frag))) continue;
+      cands.forEach(function (c) {
+        var hit = (c.n && c.n.indexOf(nf) === 0) || (c.id && c.id.indexOf(nf) === 0) ||
+          (k === 1 && c.wh && askWords(c.v).some(function (w) { return !ASK_WH_SKIP[w] && w.indexOf(nf) === 0; }));
+        if (hit && !seen[c.v]) { seen[c.v] = 1; found.push(c); }
+      });
+      if (found.length) startAt = words.length - k;
+    }
+    found = found.filter(function (c) { return askNorm(c.v) !== askNorm(words.slice(startAt).join(' ')); }).slice(0, 8);
+    if (!found.length) { askSugHide(); return; }
+    sg.setAttribute('data-start', startAt);
+    sg.innerHTML = found.map(function (c, i) { return '<div data-v="' + esc(c.v) + '"' + (i === 0 ? ' class="on"' : '') + '>' + esc(c.v) + ' <small>' + esc(c.sub) + '</small></div>'; }).join('');
+    sg.classList.remove('hidden');
+  }
+  function askSugPick(d) {
+    var inp = $('askQ'), words = inp.value.split(/\s+/), start = Number($('askSug').getAttribute('data-start'));
+    inp.value = words.slice(0, start).concat([d.getAttribute('data-v')]).join(' ') + ' ';
+    askSugHide(); inp.focus();
   }
   function askSay(who, html) {
     var m = $('askMsgs'), d = document.createElement('div'); d.className = who; d.innerHTML = html; m.appendChild(d); m.scrollTop = m.scrollHeight; return d;
