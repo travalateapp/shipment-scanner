@@ -148,6 +148,8 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .ag{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.ag .agl{font-size:12px;color:var(--muted)}
 .ag input[type=date]{width:140px;padding:4px 6px}
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
+#savePill{position:fixed;left:14px;bottom:84px;z-index:96;background:#111827;color:#fff;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.2);display:flex;gap:8px;align-items:center}
+#savePill.ok{background:var(--ok)}#savePill.bad{background:var(--bad)}
 #busy{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);cursor:progress}
 #busy .bx{background:var(--card);color:var(--ink);padding:14px 22px;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.25);font-weight:600;font-size:15px;display:flex;gap:10px;align-items:center}
 .toast{position:fixed;left:50%;transform:translateX(-50%);bottom:80px;background:#111827;color:#fff;padding:10px 14px;border-radius:10px;z-index:60;font-size:13px;max-width:90vw}
@@ -162,6 +164,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 <div class="wrap" id="app"><div class="card muted">Loading…</div></div>
 <div id="bar" class="bar hidden"></div>
 <div id="modal" class="modal hidden"><div class="box" id="modalBox"></div></div>
+<div id="savePill" class="hidden" role="status" aria-live="polite"></div>
 <div id="busy" class="hidden" role="status" aria-live="polite"><div class="bx"><span class="spin"></span><span id="busyT">Saving…</span></div></div>
 
 <script>
@@ -666,7 +669,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 short-ship';
+  var PAGE_BUILD = '2026-11-25 instant-save';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -904,7 +907,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function cacheGet(k) { try { var v = JSON.parse(load(k) || 'null'); return v && v.t === S.token ? v.d : null; } catch (e) { return null; } }
   function cachePut(k, d) { store(k, JSON.stringify({ t: S.token, d: d })); }
   function clearCaches() { store(CACHE_BOOT, null); store(CACHE_DASH, null); S.dash = null; S.logRows = null; S.logKey = null; }
-  function refreshBoot() { return api('getBoot', S.token).then(function (b) { S.boot = b; cachePut(CACHE_BOOT, b); return b; }); }
+  function refreshBoot() {
+    return api('getBoot', S.token).then(function (b) {
+      // Changes still being saved (instant saves) stay as they are on the page.
+      if (SQ.n > 0 && S.boot) { b.openROs = S.boot.openROs; b.delivered = S.boot.delivered; }
+      S.boot = b; cachePut(CACHE_BOOT, b); return b;
+    });
+  }
 
   /* ======================= New Plan ======================= */
   function renderPlan() {
@@ -1084,10 +1093,91 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    */
   /** Lines just saved (answer of a save): the Dashboard's list of delivered ROs follows. */
   function syncDelivered(rows) {
-    if (!S.dash || !rows) return;
+    if (!rows) return;
     var keys = {}; rows.forEach(function (r) { keys[r.key] = 1; });
-    S.dash.delivered = (S.dash.delivered || []).filter(function (r) { return !keys[r.key]; }).concat(rows.filter(function (r) { return r.status === 'Delivered'; }));
+    var upd = function (list) { return (list || []).filter(function (r) { return !keys[r.key]; }).concat(rows.filter(function (r) { return r.status === 'Delivered'; })); };
+    if (S.dash) S.dash.delivered = upd(S.dash.delivered);
+    if (S.boot) S.boot.delivered = upd(S.boot.delivered);
   }
+
+  /* ---------------- Instant saves ----------------
+   * RO changes (calendar, reminder, Planned pop-up, RO Log) show on the page at once; the save runs in the background,
+   * one after the other, with a small "Saving…" / "✓ Saved" pill. When the last one is done the page takes the sheet's
+   * own answer; if a save fails, it says so and the page reads the sheet again (undoing what was not saved). */
+  var SQ = { n: 0, chain: Promise.resolve(), t: null };
+  function savePill(state, text) {
+    var el = $('savePill'); clearTimeout(SQ.t);
+    el.className = state === 'busy' ? '' : state; el.innerHTML = state === 'busy' ? '<span class="spin"></span> ' + esc(text) : esc(text);
+    if (state === 'ok') SQ.t = setTimeout(function () { el.classList.add('hidden'); }, 1600);
+    if (state === 'bad') SQ.t = setTimeout(function () { el.classList.add('hidden'); }, 8000);
+  }
+  function bgSave(fn, args) {
+    SQ.n++; savePill('busy', 'Saving' + (SQ.n > 1 ? ' ' + SQ.n + ' changes' : '') + '…');
+    var p = SQ.chain.then(function () { return apiCall(fn, args); });
+    SQ.chain = p.then(function () {}, function () {});
+    return p.then(function (r) {
+      SQ.n--;
+      if (SQ.n > 0) { savePill('busy', 'Saving' + (SQ.n > 1 ? ' ' + SQ.n + ' changes' : '') + '…'); return r; }
+      savePill('ok', '✓ Saved');
+      adoptServer(r);
+      if (r && r.warnings && r.warnings.length) toast(r.warnings.join(' '), 7000);
+      return r;
+    }, function (e) {
+      SQ.n--;
+      savePill('bad', '⚠ Not saved: ' + e.message);
+      toast('Not saved: ' + e.message + ' — showing the sheet as it is.', 8000);
+      if (SQ.n === 0) resyncFromSheet();
+    });
+  }
+  /** The sheet's own answer after the last save (open ROs, changed lines). */
+  function adoptServer(r) {
+    if (!r) return;
+    if (r.openROs) { S.boot.openROs = r.openROs; if (S.dash) S.dash.openROs = r.openROs; }
+    if (r.rows) { mergeLogRows(r.rows); syncDelivered(r.rows); }
+    redrawAfterSave();
+  }
+  function resyncFromSheet() {
+    refreshBoot().then(function () {
+      if (S.dash) S.dash.openROs = S.boot.openROs;
+      if (S.tab === 'log') loadLog(); else redrawAfterSave();
+    }, function () {});
+  }
+  function redrawAfterSave() {
+    refreshPlanAfterRoChange();
+    if (S.tab === 'log' && $('logOut')) drawLog();
+    if (S.tab === 'dash' && S.calRedraw) S.calRedraw();
+  }
+  /**
+   * Applies a change to the RO lines on the page at once (open ROs, RO Log list, delivered list): ch = { appt, roNo,
+   * dispatch, status, deliveredOn, qty } as sent to the server, which works it out the same way.
+   */
+  function applyLocal(match, ch) {
+    var seen = [], touched = [];
+    [S.boot && S.boot.openROs, S.dash && S.dash.openROs, S.logRows].forEach(function (list) {
+      (list || []).forEach(function (r) {
+        if (!match(r) || seen.indexOf(r) >= 0) return;
+        seen.push(r);
+        if (ch.appt !== undefined) { var na = ch.appt || ''; if (na !== (r.appt || '') && r.dispatchFixed && ch.dispatch === undefined) r.dispatchFixed = false; r.appt = na; }
+        if (ch.roNo !== undefined) r.roNo = ch.roNo;
+        if (ch.dispatch !== undefined) { r.dispatch = ch.dispatch || ''; r.dispatchFixed = !!(ch.dispatch && r.appt); }
+        if (ch.status) { if (ch.status === 'Delivered') r.deliveredOn = ch.deliveredOn; else if (r.status === 'Delivered') r.deliveredOn = ''; r.status = ch.status; }
+        if (ch.qty !== undefined) r.qty = ch.qty;
+        if (!touched.some(function (t) { return t.key === r.key; })) touched.push(r);
+      });
+    });
+    var open = function (r) { return r.status === 'Planned' || r.status === 'Created'; };
+    var keep = function (list) {
+      var out = (list || []).filter(open), keys = {};
+      out.forEach(function (r) { keys[r.key] = 1; });
+      touched.forEach(function (r) { if (open(r) && !keys[r.key]) out.push(r); }); // back to open (e.g. from Delivered)
+      return out;
+    };
+    if (S.boot) S.boot.openROs = keep(S.boot.openROs);
+    if (S.dash) S.dash.openROs = S.dash.openROs === undefined ? S.dash.openROs : keep(S.dash.openROs);
+    syncDelivered(touched);
+    return touched;
+  }
+  function inBatches(batches) { return function (r) { return batches.indexOf(r.batch) >= 0; }; }
   function refreshPlanAfterRoChange() {
     if (S.dash && S.boot && S.boot.openROs) S.dash.openROs = S.boot.openROs; // the Dashboard's calendar / Planned too
     if (!S.inv || !S.bulk) return;
@@ -1998,16 +2088,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var c = cs[Number(ro.getAttribute('data-c'))];
       if (e.target.closest('.h')) { ro.classList.toggle('open'); S.openBatch = S.openBatch || {}; c.batches.forEach(function (b) { S.openBatch[b] = ro.classList.contains('open'); }); return; }
       var out = ro.querySelector('.bmsg');
-      // The answer carries the changed lines and the open ROs: the page updates from it, without reading again.
-      var done = function (r) {
-        if (r && r.openROs) S.boot.openROs = r.openROs;
-        if (r && r.rows) { mergeLogRows(r.rows); syncDelivered(r.rows); }
-        drawLog();
-        var w = (r && r.warnings) || [];
-        toast(w.length ? 'Saved — ' + w.join(' ') : 'Saved', w.length ? 7000 : 2500);
-        refreshPlanAfterRoChange();
-      };
-      var err = function (er) { out.innerHTML = msgs([er.message], 'bad'); };
       if (e.target.classList.contains('bSave')) {
         var ch = { appt: ro.querySelector('.bAp').value, roNo: ro.querySelector('.bNo').value.trim() };
         var st = ro.querySelector('.bSt').value; if (st) ch.status = st;
@@ -2022,15 +2102,24 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           if (ds.value && !isWorkDay(ds.value)) { out.innerHTML = msgs([prettyDate(ds.value) + ' is not a dispatch day (Settings → Dispatch).'], 'bad'); return; }
           ch.dispatch = ds.value;
         }
-        e.target.disabled = true;
-        // One request for the whole RO, also when it is merged (one batch per group) and the dispatch day changed.
-        api('updateBatch', S.token, c.batches, ch).then(done, function (er) { e.target.disabled = false; err(er); });
+        // Instant: the RO Log shows it at once; one request for the whole RO saves it in the background.
+        mergeLogRows(applyLocal(inBatches(c.batches), ch)); drawLog(); refreshPlanAfterRoChange();
+        bgSave('updateBatch', [S.token, c.batches, ch]);
       }
       var tr = e.target.closest('tr'); if (!tr) return;
       var k = tr.getAttribute('data-k');
-      var btn = e.target, fail = function (er) { btn.disabled = false; err(er); };
-      if (btn.classList.contains('lSave')) { btn.disabled = true; api('updateROLine', S.token, k, { qty: Number(tr.querySelector('.lQ').value) }).then(done, fail); }
-      if (btn.classList.contains('lCan')) { if (!confirm('Cancel this line? Its quantity is taken out of the month tab.')) return; btn.disabled = true; api('updateROLine', S.token, k, { status: 'Cancelled' }).then(done, fail); }
+      var btn = e.target, byKey = function (r) { return r.key === k; };
+      if (btn.classList.contains('lSave')) {
+        var nq = Math.round(Number(tr.querySelector('.lQ').value));
+        if (!(nq > 0)) { out.innerHTML = msgs(['Quantity must be more than 0. To remove a line, cancel it.'], 'bad'); return; }
+        mergeLogRows(applyLocal(byKey, { qty: nq })); drawLog(); refreshPlanAfterRoChange();
+        bgSave('updateROLine', [S.token, k, { qty: nq }]);
+      }
+      if (btn.classList.contains('lCan')) {
+        if (!confirm('Cancel this line? Its quantity is taken out of the month tab.')) return;
+        mergeLogRows(applyLocal(byKey, { status: 'Cancelled' })); drawLog(); refreshPlanAfterRoChange();
+        bgSave('updateROLine', [S.token, k, { status: 'Cancelled' }]);
+      }
     };
   }
 
@@ -2238,6 +2327,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       cachePut(CACHE_DASH, d);
       if (S.tab !== 'dash' || !$('dashOut')) { S.dash = d; return; }
       if (js === shown) return; // nothing changed: keep the screen as it is
+      if (SQ.n > 0 && S.dash) { d.openROs = S.dash.openROs; d.delivered = S.dash.delivered; } // instant saves still running
       S.dash = d; drawDash();
     }, function (e) { if (!last) $('dashOut').innerHTML = msgs([e.message], 'bad'); else toast('Could not refresh the Dashboard: ' + e.message, 5000); });
   }
@@ -2393,16 +2483,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var x = ros[Number(b.getAttribute('data-i'))], val = $('modalBox').querySelector('.apIn[data-i="' + b.getAttribute('data-i') + '"]').value;
       var same = function (y) { return PlanCore.whNorm(y.wh) === PlanCore.whNorm(x.wh) && (x.merged ? y.merged === x.merged : x.roNo ? y.roNo === x.roNo : y.batch === x.batch); };
       var batches = []; (d.openROs || []).forEach(function (y) { if (same(y) && batches.indexOf(y.batch) < 0) batches.push(y.batch); });
-      b.disabled = true; b.innerHTML = '<span class="spin"></span>';
-      api('updateBatch', S.token, batches, { appt: val })
-        .then(function (res) {
-          (d.openROs || []).forEach(function (y) { if (same(y)) y.appt = val; });
-          S.boot.openROs = res.openROs;
-          refreshPlanAfterRoChange();
-          showPlanned(d, r);
-          var warns = res.warnings || [];
-          toast(warns.length ? warns.join(' ') : val ? 'Appointment ' + prettyDate(val) + ' saved for RO ' + (x.roNo || '') : 'Appointment removed', warns.length ? 6000 : 3200);
-        }, function (er) { b.disabled = false; b.textContent = 'Save'; toast(er.message, 6000); });
+      applyLocal(inBatches(batches), { appt: val }); refreshPlanAfterRoChange();
+      showPlanned(S.dash || d, r);
+      toast(val ? 'Appointment ' + prettyDate(val) + ' for RO ' + (x.roNo || '') : 'Appointment removed');
+      bgSave('updateBatch', [S.token, batches, { appt: val }]);
     };
     function apptCell(x) {
       var i = ros.indexOf(x);
@@ -2535,7 +2619,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         warns + '<div class="cal" style="margin-top:8px">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>';
       lastInfo = info;
       if ($('calSched')) $('calSched').onclick = function () {
-        var b = this; b.disabled = true;
         var urg = function (x) { var m = 999; rows.forEach(function (r) { if (PlanCore.whNorm(r.wh) === PlanCore.whNorm(x.wh) && r.days != null) m = Math.min(m, r.days); }); return m - leadOf(x.wh); };
         var sp = spreadDispatch(W.unsched, d.openROs, urg);
         saveDays(sp.dates, 'Dispatch days given to ' + W.unsched.length + ' RO(s).');
@@ -2589,9 +2672,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('modalBox').onclick = dayClick;
     };
     var popOpen = function () { return !$('modal').classList.contains('hidden') && !!$('calPop'); };
-    var refreshAfter = function (okMsg) { draw(); if (popOpen()) openDay(); toast(okMsg); };
+    var refreshAfter = function (okMsg) { draw(); if (popOpen()) openDay(); if (okMsg) toast(okMsg); };
+    S.calRedraw = function () { if (!$('dCal')) return; draw(); if (popOpen()) openDay(); };
+    // Instant: the change shows at once and is saved in the background.
+    var localSave = function (batches, ch, okMsg) {
+      applyLocal(inBatches(batches), ch); refreshPlanAfterRoChange(); refreshAfter(okMsg);
+      bgSave('updateBatch', [S.token, batches, ch]);
+    };
     var saveDays = function (dates, okMsg) {
-      api('setDispatchDates', S.token, dates).then(function (r) { d.openROs = r.openROs; S.boot.openROs = r.openROs; refreshPlanAfterRoChange(); refreshAfter(okMsg); }, function (e) { toast(e.message, 6000); draw(); });
+      Object.keys(dates).forEach(function (b) { applyLocal(inBatches([b]), { dispatch: dates[b] }); });
+      refreshPlanAfterRoChange(); refreshAfter(okMsg);
+      bgSave('setDispatchDates', [S.token, dates]);
     };
     /** Clicks inside the day pop-up: move a dispatch, change an appointment, add an open RO. */
     var dayClick = function (e) {
@@ -2602,16 +2693,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var key = mvb.getAttribute('data-k'), inp = q('mvIn', key), g = grp(key); if (!g || !inp.value) return;
         if (!isWorkDay(inp.value)) { toast(dlab(inp.value) + ' is not a dispatch day (Settings → Dispatch).', 5000); return; }
         var dates = {}; g.batches.forEach(function (b) { dates[b] = inp.value; });
-        mvb.disabled = true; saveDays(dates, 'Moved to ' + dlab(inp.value) + '.');
+        saveDays(dates, 'Moved to ' + dlab(inp.value) + '.');
         return;
       }
       var ufb = e.target.closest('.unfixD');
       if (ufb) {
         var k6 = ufb.getAttribute('data-k'), g6 = grp(k6); if (!g6) return;
-        ufb.disabled = true;
-        api('updateBatch', S.token, g6.batches, { dispatch: '' })
-          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; refreshPlanAfterRoChange(); refreshAfter(short(g6.wh) + ': dispatch follows the appointment again (' + dlab(dispatchOf({ appt: g6.appt, wh: g6.wh })) + ').'); },
-            function (er) { ufb.disabled = false; toast(er.message, 6000); });
+        localSave(g6.batches, { dispatch: '' }, short(g6.wh) + ': dispatch follows the appointment again (' + dlab(dispatchOf({ appt: g6.appt, wh: g6.wh })) + ').');
         return;
       }
       var rmb = e.target.closest('.rmD');
@@ -2619,35 +2707,26 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var k5 = rmb.getAttribute('data-k'), g5 = grp(k5); if (!g5) return;
         var lbl = short(g5.wh) + ' · ' + g5.groups.join(' + ') + ' (' + fmt(g5.units) + ' units)';
         if (g5.appt && !confirm(lbl + ' has its appointment on ' + dlab(g5.appt) + '. Remove it from this day? This clears its appointment and dispatch day (RO Log and month tab).')) return;
-        rmb.disabled = true;
-        api('updateBatch', S.token, g5.batches, g5.appt ? { appt: '', dispatch: '' } : { dispatch: '' })
-          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; refreshPlanAfterRoChange(); refreshAfter(lbl + ' removed from ' + dlab(S.dashCalDay) + '; it has no dispatch day now.'); },
-            function (er) { rmb.disabled = false; toast(er.message, 6000); });
+        localSave(g5.batches, g5.appt ? { appt: '', dispatch: '' } : { dispatch: '' }, lbl + ' removed from ' + dlab(S.dashCalDay) + '; it has no dispatch day now.');
         return;
       }
       var apb = e.target.closest('.apGo2');
       if (apb) {
         var k2 = apb.getAttribute('data-k'), ai = q('apIn2', k2), g2 = grp(k2); if (!g2 || !ai.value) return;
-        apb.disabled = true;
-        api('updateBatch', S.token, g2.batches, { appt: ai.value })
-          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; refreshPlanAfterRoChange(); refreshAfter('Appointment ' + dlab(ai.value) + ' saved; dispatch ' + dlab(dispatchOf({ appt: ai.value, wh: g2.wh })) + '.'); },
-            function (er) { apb.disabled = false; toast(er.message, 6000); });
+        localSave(g2.batches, { appt: ai.value }, 'Appointment ' + dlab(ai.value) + '; dispatch ' + dlab(dispatchOf({ appt: ai.value, wh: g2.wh })) + '.');
         return;
       }
       var dlb = e.target.closest('.dlGo');
       if (dlb) {
         var k4 = dlb.getAttribute('data-k'), di = q('dlIn', k4), g4 = grp(k4); if (!g4 || !di.value) { toast('Enter the delivery date.', 4000); return; }
         if (!confirm('Mark ' + short(g4.wh) + ' · ' + g4.groups.join(' + ') + ' (' + fmt(g4.units) + ' units) as delivered on ' + dlab(di.value) + '? Its quantities leave the month tab on ' + dlab(addDays(di.value, 2)) + '.')) return;
-        dlb.disabled = true;
-        api('updateBatch', S.token, g4.batches, { status: 'Delivered', deliveredOn: di.value })
-          .then(function (res) { d.openROs = S.boot.openROs = res.openROs; syncDelivered(res.rows); refreshPlanAfterRoChange(); refreshAfter(short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.'); },
-            function (er) { dlb.disabled = false; toast(er.message, 6000); });
+        localSave(g4.batches, { status: 'Delivered', deliveredOn: di.value }, short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.');
         return;
       }
       if (e.target.id === 'calAddGo') {
         var g3 = grp(addPick); if (!g3) { toast('Pick an open RO from the list first.', 4000); $('calAddQ').focus(); return; }
         var dt = {}; g3.batches.forEach(function (b) { dt[b] = S.dashCalDay; });
-        e.target.disabled = true; saveDays(dt, short(g3.wh) + ' added to ' + dlab(S.dashCalDay) + '.');
+        saveDays(dt, short(g3.wh) + ' added to ' + dlab(S.dashCalDay) + '.');
       }
     };
     /*
@@ -2677,13 +2756,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var k = b.getAttribute('data-k'), g = roGroups(d.openROs).filter(function (x) { return x.key === k; })[0]; if (!g) return;
         var isDl = b.classList.contains('rmDlGo'), inp = $('modalBox').querySelector((isDl ? '.rmDl' : '.rmAp') + '[data-k="' + k.replace(/"/g, '\\"') + '"]');
         if (!inp || !inp.value) { toast(isDl ? 'Enter the delivery date.' : 'Enter the new appointment date.', 4000); return; }
-        b.disabled = true;
-        api('updateBatch', S.token, g.batches, isDl ? { status: 'Delivered', deliveredOn: inp.value } : { appt: inp.value })
-          .then(function (res) {
-            d.openROs = S.boot.openROs = res.openROs; syncDelivered(res.rows); refreshPlanAfterRoChange(); draw();
-            toast(short(g.wh) + (isDl ? ' marked delivered ' + dlab(inp.value) + '.' : ': new appointment ' + dlab(inp.value) + '.'));
-            remind(true);
-          }, function (er) { b.disabled = false; toast(er.message, 6000); });
+        var ch = isDl ? { status: 'Delivered', deliveredOn: inp.value } : { appt: inp.value };
+        applyLocal(inBatches(g.batches), ch); refreshPlanAfterRoChange(); draw();
+        toast(short(g.wh) + (isDl ? ' marked delivered ' + dlab(inp.value) + '.' : ': new appointment ' + dlab(inp.value) + '.'));
+        remind(true);
+        bgSave('updateBatch', [S.token, g.batches, ch]);
       };
     };
     var popOpenR = function () { return !$('modal').classList.contains('hidden') && !!$('remList'); };
