@@ -46,7 +46,12 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - **Shipped:** on the road. These are open ROs the **Shipment Manager has a shipment for**, not delivered yet. An RO whose dispatch day has passed without a shipment there stays Planned. (Without a Shipment Manager link in Settings, the dispatch day decides: today or earlier counts as shipped.)
   - **Planned:** on its way but **not shipped yet** (Blinkit's Incoming + RO Log ROs Blinkit does not show yet, minus Shipped; hover for the split).
 
-  Shipped and Planned follow the Shipment Manager: once it has the shipment, the RO moves to Shipped. Days now, Days after and Suggested count all four, so the split changes nothing in the numbers.
+  Shipped and Planned follow the Shipment Manager: once it has the shipment, the RO moves to Shipped.
+- **Days (Dashboard) / Days now (New Plan):**
+  - **How long the stock that is there lasts:** (Stock + Delivered) ÷ Per day − days passed since the stock date. Its colour shows real urgency (red under 7, amber under 15).
+  - **"Runs out ~"** uses the same figure.
+  - **Hover a number** for the days counting what is on its way (Shipped + Planned).
+  - **Suggested still counts everything:** Stock, Delivered, Shipped and Planned. Nothing is ordered twice. Days now, Days after and Suggested count all four, so the split changes nothing in the numbers.
 - **Status names on screen:**
   - **Draft:** saved here, not on Blinkit yet.
   - **Planned:** on Blinkit, not shipped yet.
