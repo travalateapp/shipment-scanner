@@ -1171,6 +1171,18 @@ function addRoColumn_(sh) {
   sh.getRange(1, last).setNote(RO_COL_NOTE);
   RO_N_[name] = n + 1;
   delete TABV_[name];
+  // The daily inventory updater (same project) remembers the columns of its last upload by letter for "Undo Last
+  // Upload". Columns at or right of the insert moved one to the right: move its letters along.
+  try {
+    const dp = PropertiesService.getDocumentProperties(), raw = dp.getProperty('BLINKIT_UNDO_META');
+    if (raw) {
+      const um = JSON.parse(raw);
+      if (um && um.mainSheetName === name) {
+        ['sourceCol', 'targetCol'].forEach(k => { if (um[k] && colNumber_(um[k]) >= last) um[k] = colLetter_(colNumber_(um[k]) + 1); });
+        dp.setProperty('BLINKIT_UNDO_META', JSON.stringify(um));
+      }
+    }
+  } catch (e) { /* the RO column is added either way */ }
   // References to columns at or right of the insert move one column right:
   const log = sheet_(TAB.LOG), fresh = readLog_(); // (its references join REF_OBJS_)
   const moved = new Set();

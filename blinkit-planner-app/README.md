@@ -89,6 +89,8 @@ Ideas discussed but not built yet are kept in [`IDEAS-ON-HOLD.md`](IDEAS-ON-HOLD
 
 - The updater finds today's column from **row 4** (the rightmost filled cell, e.g. AO). The planner only writes RO quantities and headings into **D–H**, so that detection is not affected.
 - When the planner adds a row for an item missing from a block, the new row gets the formulas of the row above, including the live formula column. Numbers in the frozen daily columns are not copied.
+- When the planner **adds an RO column** (D–H full), the daily columns move one to the right. The updater still finds today's column from row 4, and Sheets adjusts the formulas. The planner also moves the column letters that **"Undo Last Upload"** remembers (e.g. AN→AO), so an undo after that still hits the right columns.
+- The updater copies its formula for rows **4–513** only (`FORMULA_COPY_END_ROW`). If a month tab grows past row 513 (the planner adds rows for missing items), raise that number in the updater's `Code.gs`, or use the tab's last row.
 - **"Undo Last Upload"** restores the column exactly as it was by row number. If the planner inserted a row between an upload and its undo, the undone column would be off by one row below that point. So don't undo an upload after a Create RO that reported "Added a row for …".
 
 ### Opening the app
