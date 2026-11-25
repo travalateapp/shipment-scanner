@@ -977,6 +977,8 @@ function updateROLine(token, key, changes) {
     if (changes.notes !== undefined) log.getRange(r.row, L['Notes'] + 1).setValue(String(changes.notes));
     log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[new Date(), u.name || u.id]]);
     r.qty = qty; r.status = status;
+    // A short-shipped line shows what was shipped in the month tab: after a quantity change it is set again.
+    if (changes.qty !== undefined && shortOf_(r) > 0 && !r.removedAt) { try { markShort_(r, shortOf_(r), r.shippedQty, r.qty); } catch (e) { /* the cell keeps the sum */ } }
     if (changes.notes !== undefined) r.notes = String(changes.notes);
     if (changes.shortNote !== undefined) {
       // Why the not-sent part was not sent: kept in the RO Log and shown in the red cell's note in the month tab.
@@ -1339,19 +1341,42 @@ function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
 }
 
 /**
- * The RO's cell for this item in its month tab(s): red with a note "Shipped X of Y — Z not sent" when not all was
- * sent (Shipment Manager), back to normal otherwise.
+ * The RO's cell for this item in its month tab(s) when the Shipment Manager has its shipment: not all sent → the
+ * cell shows the quantity actually shipped (0 when nothing went), red and bold, with a note "Ordered Y — shipped X,
+ * Z not sent" (+ "Why: …" when noted in the RO Log). All sent again → back to the ordered quantity, normal.
  */
 function markShort_(r, short, shipped, ordered) {
   r.refs.forEach(ref => {
     const sh = SpreadsheetApp.getActive().getSheetByName(ref.t); if (!sh) return;
     const ci = roCols_(sh).indexOf(ref.c), v = tabValues_(sh), b = blockFor_(v, r.wh, r.group);
     if (ci < 0 || !b || b.items[r.item] === undefined) return;
-    const cell = sh.getRange(b.items[r.item] + 1, FIRST_RO_COL + ci);
-    if (short > 0) cell.setFontColor('#d00000').setFontWeight('bold').setNote('Shipped ' + shipped + ' of ' + ordered + ' — ' + short + ' not sent (Shipment Manager). Not counted by the planner.' +
-      (r.shortNote ? '\nWhy: ' + r.shortNote : ''));
-    else cell.setFontColor(null).setFontWeight(null).setNote('');
+    const i = b.items[r.item], c = FIRST_RO_COL - 1 + ci, cell = sh.getRange(i + 1, c + 1);
+    if (short > 0) {
+      setTabValue_(sh, i, c, Math.max(0, Number(shipped) || 0));
+      cell.setFontColor('#d00000').setFontWeight('bold').setNote('Ordered ' + ordered + ' — shipped ' + (Number(shipped) || 0) + ', ' + short +
+        ' not sent (Shipment Manager). The planner counts only what was shipped.' + (r.shortNote ? '\nWhy: ' + r.shortNote : ''));
+    } else if (cell.getNote()) {
+      // Was marked short before: the ordered quantity again.
+      setTabValue_(sh, i, c, ordered > 0 ? ordered : '');
+      cell.setFontColor(null).setFontWeight(null).setNote('');
+    }
   });
+}
+
+/**
+ * Once: cells marked short before the month tab showed the shipped quantity (they still show the ordered one) get
+ * the shipped quantity now. Runs with the Shipment Manager sync; a Script Property remembers it was done.
+ */
+function refreshShortCells_() {
+  const props = PropertiesService.getScriptProperties();
+  if (props.getProperty('SHORT_CELLS_V2')) return 0;
+  let n = 0;
+  readLog_().forEach(r => {
+    const short = shortOf_(r);
+    if (short > 0 && !r.removedAt && r.refs.length) { try { markShort_(r, short, r.shippedQty, r.qty); n++; } catch (e) { /* next time */ } }
+  });
+  props.setProperty('SHORT_CELLS_V2', String(new Date().getTime()));
+  return n;
 }
 
 function setBatchLabel_(sh, wh, group, colLetter, label) {
@@ -1729,6 +1754,7 @@ function syncShipments(token, force) {
   lock.waitLock(60000);
   try {
     const res = syncShipments_();
+    try { res.cells = refreshShortCells_(); } catch (e) { /* tried again next sync */ }
     if (res.dates || res.qty || res.short) {
       const all = readLog_();
       res.openROs = openROsOf_(all); res.delivered = recentDeliveredOf_(all);

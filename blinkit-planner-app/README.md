@@ -44,7 +44,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
 - **Shipment Manager sync:** once an RO has a Blinkit shipment in the Shipment Manager (SHIPMENTS, PO number = RO number, not deleted):
   - its **dispatch day becomes the shipment date**, set as fixed;
   - its RO keeps the **RO quantity** (BLINKIT_PO → PO_QTY) and gets the **quantity actually shipped** (SHIPPED_QTY, RO Log *Shipped Qty*);
-  - when less was sent, the month-tab cell keeps the RO quantity but turns **red**, with a note *"Shipped X of Y — Z not sent"*;
+  - when less was sent, the month-tab cell shows the quantity **actually shipped** (0 when nothing went), in **red**, with a note *"Ordered Y — shipped X, Z not sent"* (+ *"Why: …"*). Cells marked before this change are corrected once at the next Shipment Manager sync; if a later shipment completes the RO, the cell goes back to the ordered quantity;
   - the planner leaves the part **not sent** out everywhere. Blinkit still lists it as incoming until the RO closes, so it is taken off Blinkit's incoming in the plan and in Projections, and it never shows as *Planned without RO*;
   - the RO Log line shows "shipped X · Z not sent";
   - when the RO is delivered, the whole quantity (red part included) leaves the month tab 2 days later like any other, and the red mark goes with it.
