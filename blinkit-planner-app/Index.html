@@ -689,7 +689,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 ro-wh-groups';
+  var PAGE_BUILD = '2026-11-25 ro-wh-summary';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1793,7 +1793,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var pre = S.filter.whs;
     openModal('<h2>Create ROs</h2><div class="small muted">Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.</div>' +
       '<div class="small" style="margin-top:10px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
-      '<div style="margin:6px 0 10px">' + whs.map(function (w) {
+      // The warehouse list scrolls by itself, so the file choice and the summary below stay in view.
+      '<div id="cWhList" style="margin:6px 0 10px;max-height:min(34vh,300px);overflow:auto;border:1px solid var(--line);border-radius:10px;padding:0 10px">' + whs.map(function (w) {
         return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (pre.indexOf(w) >= 0 ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span>' +
           '<span class="small muted cwg" data-w="' + esc(w) + '"></span><b class="cwu" data-w="' + esc(w) + '">' + fmt(t.byWh[w].units) + '</b></label>';
       }).join('') + '</div>' +
@@ -1840,10 +1841,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var gs = chosenGroups(), by = {};
       S.plan.forEach(function (r) { if ((S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0) { var g = r.group || '?'; by[g] = by[g] || { u: 0, n: 0 }; by[g].u += S.final[r.key]; by[g].n++; } });
       var inG = gs.filter(function (g) { return by[g]; }), out = Object.keys(by).filter(function (g) { return gs.indexOf(g) < 0; });
-      $('cFileNote').innerHTML = !pick.length ? 'Tick at least one warehouse.' : !inG.length ? '<span style="color:var(--bad)">No lines of ' + esc(gs.join(' / ') || 'any group') + ' in the ticked warehouses.</span>' :
+      // Which warehouses (and their chosen groups' units), so they are named next to the button even when the list
+      // is scrolled.
+      var forWh = pick.map(function (w) {
+        var m = whG[w] || {}, ks = groupList().filter(function (g) { return m[g] && gs.indexOf(g) >= 0; });
+        var u = ks.reduce(function (a, g) { return a + m[g]; }, 0);
+        return '<div>📍 <b>' + esc(w) + '</b>' + (ks.length ? ' · ' + ks.map(function (g) { return g + ' ' + fmt(m[g]); }).join(' · ') + ' = <b>' + fmt(u) + '</b>' : ' · <span style="color:var(--bad)">nothing in the chosen group(s)</span>') + '</div>';
+      }).join('');
+      $('cFileNote').innerHTML = (forWh ? '<div style="margin-bottom:4px;color:var(--ink)">' + forWh + '</div>' : '') + (!pick.length ? 'Tick at least one warehouse.' : !inG.length ? '<span style="color:var(--bad)">No lines of ' + esc(gs.join(' / ') || 'any group') + ' in the ticked warehouses.</span>' :
         'Saves and downloads <b>' + inG.map(function (g) { return g + ' (' + fmt(by[g].u) + ' units, ' + by[g].n + ' lines)'; }).join(', ') + '</b>' +
         (fileMode() === 'separate' && inG.length > 1 ? ' as ' + inG.length + ' files in one ZIP' : '') + '.' +
-        (out.length ? ' <b>' + esc(out.join(', ')) + '</b> lines are not saved and stay in the plan.' : '');
+        (out.length ? ' <b>' + esc(out.join(', ')) + '</b> lines are not saved and stay in the plan.' : ''));
     };
     $('modalBox').addEventListener('change', function (e) { if (e.target.matches('input[name=cMode], .cmg, .cw')) fileNote(); });
     $('modalBox').addEventListener('click', function (e) { if (e.target.id === 'cAll' || e.target.id === 'cNone') setTimeout(fileNote, 0); });
