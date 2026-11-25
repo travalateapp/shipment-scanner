@@ -669,7 +669,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 shipped-col';
+  var PAGE_BUILD = '2026-11-25 shipped-sm';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1394,28 +1394,31 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function sendOfItem(item) { var t = 0; S.plan.forEach(function (x) { if (x.item === item && isConfirmed(x.key)) t += S.final[x.key] || 0; }); return t; }
   /*
    * TI free = TI − what open ROs (all warehouses) still have to take from it. An RO leaves TI when it is shipped (the
-   * Shipment Manager deducts it there), so only ROs not shipped yet are taken off: no shipment found by the Shipment
-   * Manager sync, and dispatch day after today.
+   * Shipment Manager deducts it there), so only ROs not shipped yet (isShipped) are taken off.
    */
   function tiReserved(item) {
     var t = 0, td = today();
     (S.boot.openROs || []).forEach(function (r) {
-      if (Number(r.item) !== Number(item) || (r.status !== 'Created' && r.status !== 'Planned') || r.shippedOn) return;
-      var d = dispatchOf(r); if (d && d <= td) return; // shipped (dispatch day today or earlier): already out of TI
+      if (Number(r.item) !== Number(item) || (r.status !== 'Created' && r.status !== 'Planned') || isShipped(r)) return; // shipped: already out of TI
       t += Number(r.qty) || 0;
     });
     return t;
   }
   /**
-   * Shipped (on the road): open Created ROs whose dispatch day is today or earlier (or that the Shipment Manager has
-   * shipped), not delivered yet — the quantity actually sent. Per warehouse | item. Follows the dispatch day: a moved
-   * RO moves between Shipped and Planned by itself.
+   * Shipped (on the road), not delivered yet. With the Shipment Manager connected (Settings): only ROs it has a
+   * shipment for — an RO whose dispatch day passed without one stays Planned. Without it: dispatch day today or
+   * earlier. Per warehouse | item, the quantity actually sent.
    */
+  function isShipped(r) {
+    if (r.status !== 'Created') return false;
+    if (r.shippedOn) return true;
+    if (S.boot && S.boot.shipLinked) return false;
+    var d = dispatchOf(r); return !!(d && d <= today());
+  }
   function shippedBy(list) {
-    var m = {}, td = today();
+    var m = {};
     (list || []).forEach(function (r) {
-      if (r.status !== 'Created') return;
-      var d = r.shippedOn || dispatchOf(r); if (!d || d > td) return;
+      if (!isShipped(r)) return;
       var k = PlanCore.whNorm(r.wh) + '|' + Number(r.item);
       m[k] = (m[k] || 0) + Math.max(0, (Number(r.qty) || 0) - (Number(r.shortQty) || 0));
     });
@@ -1477,7 +1480,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     rows.forEach(function (r) { var k = r.wh + '||' + (r.group || '?'); (groups[k] = groups[k] || []).push(r); });
     // Send heading of each block: a small "fill all" box and a ↺ reset (both left out of the Tab order).
     var head = function (gi) {
-      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right" title="Stock on Blinkit now: warehouse + in-between + darkstore">Stock</div><div class="right" title="Delivered (marked in the RO Log), not in Blinkit\'s stock yet: counted until Blinkit\'s GRN shows it">Delivered</div><div class="right" title="Shipped, on the road: open ROs whose dispatch day is today or earlier, not delivered yet">Shipped</div><div class="right" title="Planned, not shipped yet: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet, without what is shipped">Planned</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
+      return '<div class="line head"><div>SKU · Item ID</div><div class="right">Sold 7d / 30d</div><div class="right">Per day</div><div class="right" title="Stock on Blinkit now: warehouse + in-between + darkstore">Stock</div><div class="right" title="Delivered (marked in the RO Log), not in Blinkit\'s stock yet: counted until Blinkit\'s GRN shows it">Delivered</div><div class="right" title="Shipped, on the road: ROs the Shipment Manager has a shipment for, not delivered yet">Shipped</div><div class="right" title="Planned, not shipped yet: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet, without what is shipped">Planned</div><div class="right c-days">Days now</div><div class="right c-max">Blinkit max</div>' +
         '<div class="sendH"><span>Send</span><span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
         '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
         '<div class="right" title="Current stock in Travalate Inventory (all warehouses together)">TI</div>' +
@@ -1506,7 +1509,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
           '<div class="right"><span class="lbl">Stock</span>' + fmt(r.whStock + r.dsStock) + '</div>' +
           '<div class="right" title="Delivered, waiting for Blinkit\'s GRN (shipped quantity from the Shipment Manager when known)"><span class="lbl">Delivered</span>' + (r.delivered ? fmt(r.delivered) : '<span class="muted">0</span>') + '</div>' +
-          '<div class="right" title="Shipped, on the road (dispatch day today or earlier), not delivered yet"><span class="lbl">Shipped</span>' + (r.shipped ? fmt(r.shipped) : '<span class="muted">0</span>') + '</div>' +
+          '<div class="right" title="Shipped, on the road (shipment in the Shipment Manager), not delivered yet"><span class="lbl">Shipped</span>' + (r.shipped ? fmt(r.shipped) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right" title="Not shipped yet. Blinkit incoming ' + fmt(r.incoming) + (r.appIncoming ? ' + RO Log ' + fmt(r.appIncoming) + ' (not on Blinkit\'s Incoming yet)' : '') + (r.notSent ? ' · ' + fmt(r.notSent) + ' left out: on the RO but not sent (Shipment Manager)' : '') + '"><span class="lbl">Planned</span>' + (inc ? fmt(inc) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right c-days">' + fmtDays(r.daysNow) + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
@@ -2424,7 +2427,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units delivered, waiting for Blinkit\'s GRN (not in Blinkit\'s stock yet): counted under Has">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right" title="Shipped, on the road (dispatch day today or earlier), not delivered yet">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units delivered, waiting for Blinkit\'s GRN (not in Blinkit\'s stock yet): counted under Has">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right" title="Shipped, on the road (shipment in the Shipment Manager), not delivered yet">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     var dashRows = function () { var m = list.filter(dashMatch); return m.length ? m.slice(0, 300).map(rowHtml).join('') : '<tr><td colspan="10" class="muted">No item matches the search.</td></tr>'; };
     var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
@@ -2838,7 +2841,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         'Paste the Shipment Manager\'s Google Sheet link; the Google account the planner runs as must be able to open it.</div>' +
         '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager sheet link</label><input type="text" id="shUrl" placeholder="Loading…"></div>' +
         '<div style="flex:0 0 auto"><button class="btn p" id="shSave">Save &amp; test</button></div><div style="flex:0 0 auto"><button class="btn" id="shSync" title="Take shipment dates and shipped quantities now">Sync now</button></div></div>' +
-        '<div class="small muted" style="margin-top:6px">Every 3 hours (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div></div>' +
+        '<div class="small muted" style="margin-top:6px">Every 30 minutes (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div></div>' +
       '<div class="card"><h2>Month tabs</h2><div class="small muted">Newest month tabs: ' + esc((S.boot.months || []).join(', ')) + '.<br>' +
       '<b>Start new month</b> creates the tab (copy of the newest month, columns D–H emptied, columns I onwards kept as they are) if it does not exist yet, then copies in open ROs from the last ' + s.carryDays + ' days of the old month. ' +
       'If you create the tab yourself, this only does the copying-in.</div>' +

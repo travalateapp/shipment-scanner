@@ -440,6 +440,7 @@ function getBoot(token) {
     months: tabs.slice(0, 6).map(t => t.name),
     openROs: openROsOf_(bootLog),
     delivered: recentDeliveredOf_(bootLog),
+    shipLinked: !!PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID'), // Shipped = found there
     snapshot: snapshotMeta_(),
   };
 }
@@ -1537,8 +1538,8 @@ function poLinesMap_(roNos) {
  *  - its quantities become the quantities actually shipped (BLINKIT_PO → SHIPPED_QTY); the month tab follows, and an
  *    item not shipped at all is cancelled;
  *  - and it is checked again on every run for 2 days after it was first found (edits / adjustments there), then no more.
- * Runs at most every 3 hours (in the background when the planner is opened), from Settings → Sync now, or from a
- * time-driven trigger on syncFromShipmentManager.
+ * Runs at most every 30 minutes (in the background when the planner is opened), from Settings → Sync now, or from
+ * a time-driven trigger on syncFromShipmentManager.
  */
 const SHIP_SYNC_DAYS = 2;
 function syncShipments_() {
@@ -1637,7 +1638,7 @@ function syncShipments(token, force) {
   auth_(token, force ? 'Admin' : undefined);
   const cache = CacheService.getScriptCache();
   if (!force && cache.get('ship_sync')) return { skipped: 'recent' };
-  cache.put('ship_sync', '1', 3 * 3600);
+  cache.put('ship_sync', '1', 30 * 60); // at most every 30 minutes
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
   try {
