@@ -50,6 +50,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
 - **Days (Dashboard) / Days now (New Plan):**
   - **How long the stock that is there lasts:** (Stock + Delivered) ÷ Per day − days passed since the stock date. Its colour shows real urgency (red under 7, amber under 15).
   - **"Runs out ~"** uses the same figure.
+  - **Never below 0:** stock already used up shows **0**; hover it for how many days ago it ran out. Sorting still uses the real figure, so the items out longest come first.
   - **Hover a number** for the days counting what is on its way (Shipped + Planned).
   - **Suggested still counts everything:** Stock, Delivered, Shipped and Planned. Nothing is ordered twice. Days now, Days after and Suggested count all four, so the split changes nothing in the numbers.
 - **Status names on screen:**

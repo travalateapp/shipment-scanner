@@ -671,7 +671,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 days-on-hand';
+  var PAGE_BUILD = '2026-11-25 days-zero';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1389,6 +1389,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   // Days of cover after sending q more units (null when nothing sells).
   function daysAfter(r, q) { return r.rate > 0 ? (r.position + (q || 0)) / r.rate - r.elapsed : null; }
   // Days are always shown rounded DOWN to whole days (never below 0).
+  /** Days shown never go below 0 (stock already used up); sorting still uses the real value, most out first. */
+  function d0(d) { return d == null || !isFinite(d) ? d : Math.max(0, d); }
   function fmtDays(d) { return d == null || !isFinite(d) ? '–' : fmt(Math.max(0, Math.floor(d))); }
 
   function statusPill(r) {
@@ -2444,7 +2446,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units delivered, waiting for Blinkit\'s GRN (not in Blinkit\'s stock yet): counted under Has">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right" title="Shipped, on the road (shipment in the Shipment Manager), not delivered yet">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '" title="Has lasts ' + fmt(r.days, 1) + ' day(s)' + (r.daysAll != null && r.daysAll !== r.days ? '; counting what is on its way (Shipped + Planned): ' + fmt(r.daysAll, 1) : '') + '">' + fmt(r.days, 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units delivered, waiting for Blinkit\'s GRN (not in Blinkit\'s stock yet): counted under Has">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right" title="Shipped, on the road (shipment in the Shipment Manager), not delivered yet">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" title="How is this planned?">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '" title="Has lasts ' + fmt(d0(r.days), 1) + ' day(s)' + (r.days != null && r.days < 0 ? ' (ran out about ' + fmt(-r.days, 1) + ' day(s) ago)' : '') + (r.daysAll != null && r.daysAll !== r.days ? '; counting what is on its way (Shipped + Planned): ' + fmt(d0(r.daysAll), 1) : '') + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     var dashRows = function () { var m = list.filter(dashMatch); return m.length ? m.slice(0, 300).map(rowHtml).join('') : '<tr><td colspan="10" class="muted">No item matches the search.</td></tr>'; };
     var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
