@@ -230,6 +230,9 @@ Screens are in `production-app/screenshots/`.
   or at once with **Production App → Refresh the app after big changes made here** in the Sheet's menu.
 - **Device:** the last screens are kept on the phone / computer (per user, removed at log out), so after a refresh a
   screen shows at once and is updated a moment later. Google's own start-up time for each request (about 1 s) stays.
+- **Quick menu taps:** when another screen is opened before the last one has loaded (two or three taps on the menu), the
+  late answer of the earlier screen is never drawn over the screen you are on (nor kept as its copy); it is kept for 2
+  minutes, so going back to that screen opens it at once.
 - **Screens loaded in the background:** after the first screen, the other menu screens are fetched one by one in
   the background (and again a few seconds after a save, at most once a minute), so opening them is instant. An
   answer is used once and only within 2 minutes; one asked for while a save was running is never used.

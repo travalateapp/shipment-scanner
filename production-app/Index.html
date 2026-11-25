@@ -189,12 +189,27 @@ function apiUrl() {
 var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|cuttingView|materialRoom|projectionView|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
 var RC = {}, WR = { gen: 0, busy: 0 }; // answers asked for while a save was running are never kept
 function rcKey(fn, args) { return fn + '|' + JSON.stringify(args.slice(1)); }
+/*
+ * Screen loads started by go(): when another screen was opened in the meantime (two or three taps on the menu), the
+ * late answer of the earlier screen is dropped — it never draws over the screen you are on, nor is it kept as its copy.
+ */
+var NAVG = { gen: 0, cur: 0 };
+function navGuard(p, k) {
+  var g = NAVG.cur, wg = WR.gen; if (!g) return p;
+  var stale = function () { return g !== NAVG.gen; };
+  return p.then(function (r) {
+    if (!stale()) return r;
+    // not drawn, but kept (2 minutes, unless something is saved): going back to that screen opens it at once
+    if (k && wg === WR.gen && !RC[k]) RC[k] = { p: Promise.resolve(r), at: Date.now(), gen: WR.gen };
+    return new Promise(function () {});
+  }, function (e) { if (stale()) return new Promise(function () {}); throw e; });
+}
 function api(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
   if (READ_FN.test(fn)) {
     var k = rcKey(fn, args), hit = RC[k];
-    if (hit && Date.now() - hit.at < 120000 && hit.gen === WR.gen) { delete RC[k]; return hit.p; }
-    return apiCall(fn, args);
+    if (hit && Date.now() - hit.at < 120000 && hit.gen === WR.gen) { delete RC[k]; return navGuard(hit.p, k); }
+    return navGuard(apiCall(fn, args), k);
   }
   RC = {}; WR.gen++; WR.busy++;
   if (fn !== 'login' && fn !== 'logout') PF.again();
@@ -419,7 +434,8 @@ function go(view, arg, isBack) {
   loading(!!cached);
   if (cached) findSetup();
   window.scrollTo(0, 0);
-  v(arg);
+  NAVG.gen++; NAVG.cur = NAVG.gen; // this screen's loads; a later go() makes them stale
+  try { v(arg); } finally { NAVG.cur = 0; }
 }
 function render(html) {
   var f = document.activeElement && document.activeElement.id === 'findQ';
