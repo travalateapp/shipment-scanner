@@ -71,6 +71,11 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   Settings ("change shift / days"). Sheet Karigars gets the column **Team**.
 - **📈 Projections** (menu; permission **projections** to change, reports to view): last 30 days of sales → what to make
   in the Jaipur factory or order from a vendor.
+  - **Blinkit comes by itself** (tile "auto"): its last 30 days of sales (all warehouses together) are read from the
+    **Blinkit planner** (its daily Inventory upload in the Formula Sheet), kept 10 minutes. Connect it once: Blinkit →
+    **connect** → paste the planner's web-app link (/exec; Settings "Blinkit Planner URL"). It uses the same shared
+    secret as the Inventory App (the planner's Settings → Travalate Inventory). A Blinkit item's channel SKU is its TI SKU
+    (planner Settings → SKUs), else its SKU; SKUs are matched ignoring spaces, dashes and capitals.
   - **Sales uploads:** one Excel (.xlsx/.xls) or CSV per channel: **Zepto, Swiggy, Amazon, Flipkart** (a new upload
     replaces that channel's last one). The file is read on the phone/computer (SheetJS from cdnjs); you match the columns
     once per channel (product/SKU, quantity sold, optional name and date — remembered): with a date column only the
