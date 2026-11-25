@@ -690,7 +690,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 ro-fit';
+  var PAGE_BUILD = '2026-11-25 instant-load';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -940,7 +940,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   var CACHE_BOOT = 'bp_cache_boot', CACHE_DASH = 'bp_cache_dash';
   function cacheGet(k) { try { var v = JSON.parse(load(k) || 'null'); return v && v.t === S.token ? v.d : null; } catch (e) { return null; } }
   function cachePut(k, d) { store(k, JSON.stringify({ t: S.token, d: d })); }
-  function clearCaches() { store(CACHE_BOOT, null); store(CACHE_DASH, null); S.dash = null; S.logRows = null; S.logKey = null; }
+  function clearCaches() { store(CACHE_BOOT, null); store(CACHE_DASH, null); store('bp_cache_log', null); store('bp_cache_inv', null); store('bp_cache_ti', null); S.dash = null; S.logRows = null; S.logKey = null; }
   function refreshBoot() {
     return api('getBoot', S.token).then(function (b) {
       // Changes still being saved (instant saves) stay as they are on the page.
@@ -991,19 +991,42 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function invIsToday() { return !!(S.inv && String(S.inv.generatedAt || '').slice(0, 10) === today()); }
 
   /** Reads the Inventory that the daily updater pasted into "Formula Sheet". */
+  // The Formula Sheet's rows, kept on this device: New Plan and Projections start from them at once, and the fresh
+  // read replaces them in the background (the plan is worked out again only when the sheet changed).
+  var CACHE_INV = 'bp_cache_inv';
+  function sheetInvRows() {
+    var c = cacheGet(CACHE_INV);
+    var fresh = apiCall('getSheetInventory', [S.token]).then(function (rows) {
+      var changed = !c || JSON.stringify(c) !== JSON.stringify(rows);
+      if (changed) { try { cachePut(CACHE_INV, rows); } catch (e) { /* too big to keep */ } }
+      return { rows: rows, changed: changed };
+    });
+    return { cached: c, fresh: fresh };
+  }
   function loadSheetInventory() {
-    S.invTried = true; S.invLoading = true; S.invErr = '';
-    renderPlan();
-    api('getSheetInventory', S.token).then(function (rows) {
+    S.invTried = true; S.invErr = '';
+    var src = sheetInvRows(), had = false;
+    var use = function (rows, keepEdits) {
       var inv = PlanCore.parseInventory(rows);
       if (!inv) throw new Error('Formula Sheet does not look like a Blinkit Inventory download.');
       inv.fromSheet = true;
-      S.inv = inv; S.invLoading = false; S.final = {};
-      var keep = !!S.keepEditsOnce; S.keepEditsOnce = false;
-      renderPlan(); freshPlan(keep);
-    }, function (e) {
-      S.invLoading = false; S.invErr = 'Could not read the Formula Sheet: ' + e.message + ' Upload the Inventory file instead.';
-      renderPlan();
+      if (S.inv && !S.inv.fromSheet) return; // an Inventory file was uploaded meanwhile: it wins
+      S.inv = inv; S.invLoading = false;
+      if (!keepEdits) S.final = {};
+      renderPlan(); freshPlan(keepEdits);
+    };
+    if (src.cached) {
+      try { var keep0 = !!S.keepEditsOnce; S.keepEditsOnce = false; use(src.cached, keep0); had = true; } catch (e) { had = false; }
+    }
+    if (!had) { S.invLoading = true; renderPlan(); }
+    src.fresh.then(function (res) {
+      if (had && !res.changed) return; // same as shown
+      var keep = had ? true : !!S.keepEditsOnce; S.keepEditsOnce = false;
+      use(res.rows, keep);
+      if (had) toast('Formula Sheet changed since last time: the plan was worked out again with it (your quantities are kept).', 5000);
+    }).catch(function (e) {
+      S.invLoading = false;
+      if (!had) { S.invErr = 'Could not read the Formula Sheet: ' + e.message + ' Upload the Inventory file instead.'; renderPlan(); }
     });
   }
 
@@ -1089,9 +1112,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    */
   function freshPlan(keepEdits) {
     if (!S.inv || !S.bulk) { recompute(keepEdits); return; }
-    if ($('planOut') && !S.plan) $('planOut').innerHTML = '<div class="card muted"><span class="spin"></span> Reading the latest RO Log…</div>';
-    refreshBoot().then(function () { recompute(keepEdits); }, function (e) {
-      recompute(keepEdits);
+    // Instant: the plan is worked out at once with the RO Log the page has; the latest one is read in the
+    // background and, only if it changed, the plan is worked out again (keeping what was typed).
+    var snapDue = !keepEdits || !!S.snapOnce; // the Dashboard's copy is saved again with the newer RO Log
+    recompute(keepEdits);
+    var before = JSON.stringify([S.boot.openROs, S.boot.delivered]);
+    refreshBoot().then(function () {
+      if (JSON.stringify([S.boot.openROs, S.boot.delivered]) !== before && S.inv && S.bulk) { if (snapDue) S.snapOnce = true; recompute(true); }
+    }, function (e) {
       toast('Could not read the latest RO Log (' + e.message + '). The plan uses the one read when the page was opened.', 7000);
     });
   }
@@ -1557,13 +1585,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
   /** Loads TI stock once per page (↻ reloads it); the plan works without it. */
   function loadTi(force) {
-    if (S.tiLoading || (S.ti && !force)) return;
+    if (S.tiLoading || (S.ti && !S.ti.cached && !force)) return;
     S.tiLoading = true;
-    api('getTiStock', S.token).then(function (res) {
+    // The last TI read (kept on this device) shows at once; the fresh one replaces it.
+    if (!S.ti) { var c = cacheGet('bp_cache_ti'); if (c) { S.ti = c; S.ti.cached = true; } }
+    apiCall('getTiStock', [S.token]).then(function (res) {
       var map = {};
       (res.stocks || []).forEach(function (x) { map[tiNorm(x.sku)] = (map[tiNorm(x.sku)] || 0) + (Number(x.qty) || 0); });
       S.ti = { ok: !!res.ok, map: map, updatedAt: res.updatedAt, monthLabel: res.monthLabel, error: res.error, setup: res.setup };
-    }, function (e) { S.ti = { ok: false, map: {}, error: e.message }; })
+      if (S.ti.ok) cachePut('bp_cache_ti', S.ti);
+    }, function (e) { if (!S.ti || !S.ti.cached) S.ti = { ok: false, map: {}, error: e.message }; else S.ti.cached = false; /* keep the last read, no retry loop */ })
       .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); if (S.tab === 'proj') drawProj(); });
   }
   function tiInfoHtml() {
@@ -2072,10 +2103,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         function () { S.projDashLoading = false; });
     }
     if (!S.inv && !S.projInv && !S.projInvLoading) {
-      S.projInvLoading = true;
-      api('getSheetInventory', S.token).then(function (rows) {
-        S.projInv = PlanCore.parseInventory(rows); S.projInvLoading = false; if (S.tab === 'proj') drawProj();
-      }, function (e) { S.projInvLoading = false; S.projInvErr = e.message; if (S.tab === 'proj') drawProj(); });
+      var src = sheetInvRows();
+      if (src.cached) S.projInv = PlanCore.parseInventory(src.cached); else S.projInvLoading = true;
+      src.fresh.then(function (res) {
+        S.projInvLoading = false;
+        if (res.changed || !S.projInv) { S.projInv = PlanCore.parseInventory(res.rows); if (S.tab === 'proj') drawProj(); }
+      }, function (e) { S.projInvLoading = false; if (!S.projInv) { S.projInvErr = e.message; if (S.tab === 'proj') drawProj(); } });
     }
   }
 
@@ -2243,21 +2276,43 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         '<b>Draft</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
         '<b>Planned</b> = on Blinkit, not shipped yet · <b>Shipped</b> = the Shipment Manager has its shipment (set by itself) · ' +
         '<b>Delivered</b> = received at the warehouse (asks for the date; 2 days later its quantities leave the month tab) · <b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
-      '</div><div id="logOut" class="muted card">Loading…</div>';
+      '</div><div id="logState" class="small muted" style="margin:0 4px 6px;min-height:16px"></div><div id="logOut" class="muted card">Loading…</div>';
     ['gFrom', 'gTo', 'gWh', 'gSt'].forEach(function (id) {
       $(id).onchange = function () { f.from = $('gFrom').value; f.to = $('gTo').value; f.wh = $('gWh').value; f.status = $('gSt').value; loadLog(); };
     });
     loadLog();
   }
 
+  /**
+   * RO Log, instant: shown at once from what the page already has — the last read for these filters (kept on this
+   * device), else the open ROs and the recent deliveries loaded with the app — then the fresh list from the sheet
+   * replaces it quietly as soon as it arrives.
+   */
+  var CACHE_LOG = 'bp_cache_log';
+  function logFits(f) {
+    return function (r) { return (!f.from || !r.roDate || r.roDate >= f.from) && (!f.to || !r.roDate || r.roDate <= f.to) && (!f.wh || r.wh === f.wh) && (!f.status || r.status === f.status); };
+  }
+  function localLogRows(f) {
+    var by = {};
+    ((S.boot && S.boot.openROs) || []).concat((S.boot && S.boot.delivered) || []).forEach(function (r) { by[r.key] = r; });
+    return Object.keys(by).map(function (k) { return by[k]; }).filter(logFits(f));
+  }
   function loadLog() {
     var f = S.logFilter, fk = JSON.stringify(f);
-    // Shown at once from the last read for these filters; the fresh list replaces it as soon as it arrives.
-    if (S.logRows && S.logKey === fk) drawLog();
-    api('listROs', S.token, f).then(function (rows) {
+    var st = function (h) { if ($('logState')) $('logState').innerHTML = h; };
+    if (!(S.logRows && S.logKey === fk)) {
+      var c = cacheGet(CACHE_LOG);
+      if (c && c.k === fk) { S.logRows = c.rows; S.logKey = fk; }
+      else { S.logRows = localLogRows(f); S.logKey = fk; }
+    }
+    drawLog();
+    st('<span class="spin" style="width:10px;height:10px;border-width:2px;vertical-align:-1px"></span> Updating from the sheet…');
+    apiCall('listROs', [S.token, f]).then(function (rows) {
       if (JSON.stringify(S.logFilter) !== fk) return; // the filters changed meanwhile
-      S.logRows = rows; S.logKey = fk; drawLog();
-    }, function (e) { if (!S.logRows || S.logKey !== fk) $('logOut').innerHTML = msgs([e.message], 'bad'); else toast(e.message, 5000); });
+      if (SQ.n > 0) { st(''); return; } // a save is on its way: the page's own copy is newer
+      S.logRows = rows; S.logKey = fk; drawLog(); st('');
+      try { if (JSON.stringify(rows).length < 1500000) cachePut(CACHE_LOG, { k: fk, rows: rows }); } catch (e) { /* too big to keep */ }
+    }, function (e) { st(''); if (!S.logRows || !S.logRows.length) $('logOut').innerHTML = msgs([e.message], 'bad'); else toast(e.message, 5000); });
   }
   /** Saved lines back into the RO Log list (a line that no longer matches the filters drops out, as on a reload). */
   function mergeLogRows(rows) {
@@ -2413,13 +2468,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('askQ').oninput = askSugShow;
       $('askQ').onblur = function () { setTimeout(askSugHide, 150); };
       $('askQ').onkeydown = function (e) {
-        var sg = $('askSug'), items = sg.querySelectorAll('div'); if (sg.classList.contains('hidden') || !items.length) return;
+        var sg = $('askSug'), items = sg.querySelectorAll('div[data-v]'); if (sg.classList.contains('hidden') || !items.length) return;
         var on = sg.querySelector('div.on'), i = Array.prototype.indexOf.call(items, on);
         if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
           e.preventDefault(); if (on) on.classList.remove('on');
           i = e.key === 'ArrowDown' ? (i + 1) % items.length : (i <= 0 ? items.length - 1 : i - 1);
           items[i].classList.add('on'); items[i].scrollIntoView({ block: 'nearest' });
-        } else if ((e.key === 'Enter' || e.key === 'Tab') && on) { e.preventDefault(); askSugPick(on); }
+        } else if (e.key === 'Tab' || (e.key === 'Enter' && on)) { e.preventDefault(); askSugPick(on || items[0]); } // Enter alone asks
         else if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); askSugHide(); } // Esc closes the list first, then the box
       };
       $('askSug').onmousedown = function (e) { var d = e.target.closest('div[data-v]'); if (d) { e.preventDefault(); askSugPick(d); } };
@@ -2457,7 +2512,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     found = found.filter(function (c) { return askNorm(c.v) !== askNorm(words.slice(startAt).join(' ')); }).slice(0, 8);
     if (!found.length) { askSugHide(); return; }
     sg.setAttribute('data-start', startAt);
-    sg.innerHTML = found.map(function (c, i) { return '<div data-v="' + esc(c.v) + '"' + (i === 0 ? ' class="on"' : '') + '>' + esc(c.v) + ' <small>' + esc(c.sub) + '</small></div>'; }).join('');
+    sg.innerHTML = found.map(function (c) { return '<div data-v="' + esc(c.v) + '">' + esc(c.v) + ' <small>' + esc(c.sub) + '</small></div>'; }).join('') +
+      '<div class="small muted" style="cursor:default;background:none">Tab fills the first · ↑↓ to choose · Enter asks</div>';
     sg.classList.remove('hidden');
   }
   function askSugPick(d) {
