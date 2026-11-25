@@ -151,7 +151,8 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 #plTipBox{position:fixed;z-index:60;max-width:min(560px,calc(100vw - 16px));background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:10px 12px;font-size:12px;font-weight:400;text-align:left;pointer-events:none;display:none}
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
-.plTip{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
+.plTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
+.hsub{display:block;font-size:9px;font-weight:400;color:var(--muted);line-height:1.15;margin-top:1px;white-space:normal}
 #savePill{position:fixed;left:14px;bottom:84px;z-index:96;background:#111827;color:#fff;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.2);display:flex;gap:8px;align-items:center}
 #savePill.ok{background:var(--ok)}#savePill.bad{background:var(--bad)}
 #busy{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);cursor:progress}
@@ -675,7 +676,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 planned-hover';
+  var PAGE_BUILD = '2026-11-25 hover-underline';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1484,12 +1485,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function tiFree(r) { var q = tiQty(r); return q == null ? null : q - tiReserved(r.item); }
   function tiInner(r) {
     var q = tiFree(r);
-    if (q == null) return '<b title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</b>';
+    if (q == null) return '<b class="hv" title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</b>';
     var send = sendOfItem(r.item), over = send > q, res = tiReserved(r.item);
     var why = 'TI ' + fmt(tiQty(r)) + (res ? ' − ' + fmt(res) + ' on open ROs not shipped yet' : '') + ' = ' + fmt(q) + ' free';
     // "sending N" = confirmed Send boxes of this SKU, all warehouses: grey while within TI, red once it is more.
-    return '<b title="' + why + (over ? ' · the plan sends ' + send + ' of this SKU (all warehouses)' : '') + '">' + fmt(q) + '</b>' +
-      (send > 0 ? '<span class="tiw' + (over ? '' : ' ok') + '" title="Confirmed Send quantity of this SKU, all warehouses together">sending ' + fmt(send) + '</span>' : '');
+    return '<b class="hv" title="' + why + (over ? ' · the plan sends ' + send + ' of this SKU (all warehouses)' : '') + '">' + fmt(q) + '</b>' +
+      (send > 0 ? '<span class="tiw hv' + (over ? '' : ' ok') + '" title="Confirmed Send quantity of this SKU, all warehouses together">sending ' + fmt(send) + '</span>' : '');
   }
   function tiCell(r) {
     var q = tiFree(r), over = q != null && sendOfItem(r.item) > q;
@@ -1568,21 +1569,21 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // Send heading of each block: a small "fill all" box and a ↺ reset (both left out of the Tab order).
     var head = function (gi) {
       // Every heading but Send's boxes sorts the lines; one sort for every block (S.lineSort).
-      var H = function (key, cls, title, label) {
+      var H = function (key, cls, title, label, sub) {
         var on = S.lineSort && S.lineSort.key === key;
-        return '<div class="' + (cls ? cls + ' ' : '') + 'srt' + (on ? ' on' : '') + '" data-s="' + key + '" title="' + (title ? title + ' · ' : '') + 'Click to sort every block by this">' + label + (on ? (S.lineSort.dir > 0 ? ' ▲' : ' ▼') : '') + '</div>';
+        return '<div class="' + (cls ? cls + ' ' : '') + 'srt' + (on ? ' on' : '') + '" data-s="' + key + '" title="' + (title ? title + ' · ' : '') + 'Click to sort every block by this">' + label + (on ? (S.lineSort.dir > 0 ? ' ▲' : ' ▼') : '') + (sub ? '<small class="hsub">' + sub + '</small>' : '') + '</div>';
       };
-      return '<div class="line head">' + H('sku', '', '', 'SKU · Item ID') + H('sold', 'right', '', 'Sold 7d / 30d') + H('rate', 'right', '', 'Per day') +
-        H('stock', 'right', 'Stock on Blinkit now: warehouse + in-between + darkstore', 'Stock') +
-        H('deliv', 'right', 'Delivered (marked in the RO Log), not in Blinkit\'s stock yet: counted until Blinkit\'s GRN shows it', 'Delivered') +
-        H('ship', 'right', 'Shipped, on the road: ROs the Shipment Manager has a shipment for, not delivered yet', 'Shipped') +
-        H('plan', 'right', 'Planned, not shipped yet: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet, without what is shipped', 'Planned') +
-        H('days', 'right c-days', 'Days the stock there lasts: (Stock + Delivered) ÷ Per day − days passed. Hover a number for the days counting what is on its way', 'Days now') +
-        H('max', 'right c-max', '', 'Blinkit max') +
+      return '<div class="line head">' + H('sku', '', '', 'SKU · Item ID', 'tier · runs out') + H('sold', 'right', '', 'Sold 7d / 30d', 'units sold') + H('rate', 'right', 'Average daily sale', 'Per day', 'avg. sale a day') +
+        H('stock', 'right', 'Stock on Blinkit now: warehouse + in-between + darkstore', 'Stock', 'on Blinkit now') +
+        H('deliv', 'right', 'Delivered (marked in the RO Log), not in Blinkit\'s stock yet: counted until Blinkit\'s GRN shows it', 'Delivered', 'waiting for GRN') +
+        H('ship', 'right', 'Shipped, on the road: ROs the Shipment Manager has a shipment for, not delivered yet', 'Shipped', 'on the road') +
+        H('plan', 'right', 'Planned, not shipped yet: Blinkit\'s Incoming + RO Log ROs Blinkit does not show yet, without what is shipped. Hover a number for its ROs', 'Planned', 'RO made, not shipped') +
+        H('days', 'right c-days', 'Days the stock already there lasts: (Stock + Delivered) ÷ Per day − days passed. Hover a number for the days counting what is on its way', 'Days now', 'stock + delivered only') +
+        H('max', 'right c-max', 'The most Blinkit lets you send on this RO', 'Blinkit max', 'Blinkit\'s limit') +
         '<div class="sendH">' + H('send', '', '', 'Send').replace(/^<div/, '<span').replace(/<\/div>$/, '</span>') + '<span class="fillW"><input type="number" min="0" step="1" inputmode="numeric" class="fillQ" data-g="' + gi + '" tabindex="-1" placeholder="All" title="Type a quantity and press Enter: every Send box in this block gets it">' +
         '<button class="fillR" data-g="' + gi + '" tabindex="-1" title="Put every quantity in this block back to the suggestion">↺</button></span></div>' +
-        H('ti', 'right', 'Current stock in Travalate Inventory (all warehouses together)', 'TI') +
-        H('after', 'right', '', 'Days after') + '</div>';
+        H('ti', 'right', 'Stock in Travalate Inventory still free (all warehouses together)', 'TI', 'free in TI') +
+        H('after', 'right', 'Days everything lasts once this RO arrives: (Stock + Delivered + Shipped + Planned + Send) ÷ Per day − days passed', 'Days after', 'all + this Send') + '</div>';
     };
     var blocks = [];
     var html = '';
@@ -1607,10 +1608,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Sold 7d / 30d</span>' + fmt(r.s7) + ' / ' + fmt(r.s30) + '</div>' +
           '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
           '<div class="right"><span class="lbl">Stock</span>' + fmt(r.whStock + r.dsStock) + '</div>' +
-          '<div class="right" title="Delivered, waiting for Blinkit\'s GRN (shipped quantity from the Shipment Manager when known)"><span class="lbl">Delivered</span>' + (r.delivered ? fmt(r.delivered) : '<span class="muted">0</span>') + '</div>' +
-          '<div class="right" title="Shipped, on the road (shipment in the Shipment Manager), not delivered yet"><span class="lbl">Shipped</span>' + (r.shipped ? fmt(r.shipped) : '<span class="muted">0</span>') + '</div>' +
+          '<div class="right"><span class="lbl">Delivered</span>' + (r.delivered ? fmt(r.delivered) : '<span class="muted">0</span>') + '</div>' +
+          '<div class="right"><span class="lbl">Shipped</span>' + (r.shipped ? fmt(r.shipped) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right"><span class="lbl">Planned</span>' + (inc || r.appIncoming || r.incoming ? '<span class="plTip" data-k="' + esc(r.key) + '" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + inc + '">' + fmt(inc) + '</span>' : '<span class="muted">0</span>') + '</div>' +
-          '<div class="right c-days" title="Stock + Delivered last ' + fmtDays(r.daysOnHand) + ' day(s); counting what is on its way (Shipped + Planned): ' + fmtDays(r.daysNow) + '">' + fmtDays(r.daysOnHand) + '</div>' +
+          '<div class="right c-days">' + (r.daysOnHand == null ? fmtDays(r.daysOnHand) : '<span class="hv" title="Stock + Delivered last ' + fmtDays(r.daysOnHand) + ' day(s); counting what is on its way (Shipped + Planned): ' + fmtDays(r.daysNow) + '">' + fmtDays(r.daysOnHand) + '</span>') + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
           '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + (isConfirmed(r.key) ? '' : ' pend') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
           tiCell(r) +
@@ -2516,6 +2517,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // Default: Per day, highest first (then fewest days). Empty values always go last.
     var COLS = [['wh', 'Warehouse', 't'], ['sku', 'SKU', 't'], ['item', 'Item ID', 'n'], ['group', 'Group', 't'], ['rate', 'Per day', 'n'],
       ['has', 'Has', 'n'], ['shipped', 'Shipped', 'n'], ['planned', 'Planned', 'n'], ['days', 'Days', 'n'], ['rec', 'Suggested', 'n']];
+    var SUBS = { rate: 'avg. sale a day', has: 'stock + delivered', shipped: 'on the road', planned: 'RO made, not shipped', days: 'Has ÷ per day', rec: 'to send, all counted' };
     var srt = S.dashSort = S.dashSort || { col: 'rate', dir: -1 };
     var val = function (r, c) {
       if (c === 'sku') return skuOf(r.item) || '';
@@ -2545,7 +2547,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted" title="' + fmt(r.delivAdj) + ' units delivered, waiting for Blinkit\'s GRN (not in Blinkit\'s stock yet): counted under Has">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right" title="Shipped, on the road (shipment in the Shipment Manager), not delivered yet">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill ' + c + '" title="Has lasts ' + fmt(d0(r.days), 1) + ' day(s)' + (r.days != null && r.days < 0 ? ' (ran out about ' + fmt(-r.days, 1) + ' day(s) ago)' : '') + (r.daysAll != null && r.daysAll !== r.days ? '; counting what is on its way (Shipped + Planned): ' + fmt(d0(r.daysAll), 1) : '') + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted hv" title="' + fmt(r.delivAdj) + ' units delivered, waiting for Blinkit\'s GRN (not in Blinkit\'s stock yet): counted under Has">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill hv ' + c + '" title="Has lasts ' + fmt(d0(r.days), 1) + ' day(s)' + (r.days != null && r.days < 0 ? ' (ran out about ' + fmt(-r.days, 1) + ' day(s) ago)' : '') + (r.daysAll != null && r.daysAll !== r.days ? '; counting what is on its way (Shipped + Planned): ' + fmt(d0(r.daysAll), 1) : '') + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     var dashRows = function () { var m = list.filter(dashMatch); return m.length ? m.slice(0, 300).map(rowHtml).join('') : '<tr><td colspan="10" class="muted">No item matches the search.</td></tr>'; };
     var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
@@ -2565,7 +2567,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         '<div style="flex:0 1 280px"><input type="search" id="dQ" placeholder="🔍 Search (Ctrl+F)" title="SKU, item ID, warehouse or group — several words narrow it down" value="' + esc(S.dashQ || '') + '" autocomplete="off"></div></div><div class="scroll"><table class="t" id="dTab"><tr>' +
         COLS.map(function (c) {
           var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
-          return '<th class="sortable' + (c[2] === 'n' && c[0] !== 'item' ? ' right' : '') + (on ? ' on' : '') + '" data-c="' + c[0] + '" title="Sort by ' + c[1] + '">' + c[1] + arrow + '</th>';
+          return '<th class="sortable' + (c[2] === 'n' && c[0] !== 'item' ? ' right' : '') + (on ? ' on' : '') + '" data-c="' + c[0] + '" title="Sort by ' + c[1] + '">' + c[1] + arrow + (SUBS[c[0]] ? '<small class="hsub">' + SUBS[c[0]] + '</small>' : '') + '</th>';
         }).join('') + '</tr>' +
       '<tbody id="dRows">' + dashRows() + '</tbody></table></div><div class="small muted" id="dCount" style="margin-top:6px">' + dashCountText() + '</div></div>';
     box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
