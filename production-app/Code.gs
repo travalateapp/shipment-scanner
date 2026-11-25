@@ -123,6 +123,7 @@ const DEFAULT_SETTINGS = [
   ['Next Job Starts At', 'Count 2', 'Machine Dashboard: a machine\'s next job starts at Count 2 (default) or Count 1 of the job before'],
   ['Shift Hours', 13, 'Man hours: hours in one shift'],
   ['Working Days', 26, 'Man hours: working days in a month'],
+  ['Blinkit Planner URL', '', 'Projections: the Blinkit planner web-app link (/exec); Blinkit sales then come by themselves'],
   ['Projection Days', 30, 'Projections: stock to keep, in days of sales (the suggested quantity fills up to this)'],
   ['Count 2', 'Paused', 'Paused = count 1 is the final count (the job is completed at count 1). On = a second, blind count. Super admins switch it in Staff & permissions'],
 ];
@@ -170,7 +171,7 @@ const API_FUNCTIONS = {
   machineView, saveNextOrder, startNextOrder, removeNextOrder, setOrderTarget, machineSave, machineRemove, machineSetting, setKarigarAway,
   addOrderQty, giveOrderMaterial, setCount2,
   cuttingView, saveCutting, setCuttingStatus, setCuttingActual, materialRoom, placeOrder, completeOrder, removeOrder, setMaterialGroup, setKarigarTeam, setManHourSettings,
-  projectionView, uploadSales, mapSku, setProduct, productOrder, closeProductOrder, setProjectionDays, setMaterialTag,
+  projectionView, uploadSales, mapSku, setBlinkitLink, setProduct, productOrder, closeProductOrder, setProjectionDays, setMaterialTag,
   payroll, payslip, setPayAdvance, approvePay, unapprovePay, markPaid, advances, saveAdvance, topUpAdvance, setAdvancePeriod,
   setAdvanceStatus, karigarList, saveKarigar, resetPin, rateList, saveRate, saveStandardRate, setOrderRate, itemList, saveItem, inventorySkus,
   materialList, addUnit, saveMaterial, setMaterialPrice, changeToMeters, setMaterialCheck, saveBom, staffList, saveStaff, changeLog,
@@ -1698,7 +1699,47 @@ function setMaterialTag(token, code, tag, on) {
 /* Projections: channel sales → what to make in Jaipur / order outside */
 /* ------------------------------------------------------------------ */
 
-const CHANNELS = ['Zepto', 'Swiggy', 'Amazon', 'Flipkart'];
+const CHANNELS = ['Blinkit', 'Zepto', 'Swiggy', 'Amazon', 'Flipkart'];
+const AUTO_CHANNELS = ['Blinkit']; // filled by itself (Blinkit planner), no upload
+
+/** SKUs compared loosely: spaces, dashes, dots and capitals do not matter (TR-2040 Black = tr2040black). */
+function skuLoose_(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+/**
+ * Blinkit's sales from the Blinkit planner (its Inventory upload: last 7 / 15 / 30 days per item, all warehouses), asked
+ * with the shared secret (the same as the Inventory App's), kept 10 minutes. Rows like an upload: channel SKU = the
+ * item's Travalate Inventory name, else its SKU, else its Blinkit Item ID.
+ */
+function blinkitSales_() {
+  const url = String(getSettings_().blinkitUrl || '').trim();
+  if (!url) return { rows: [], error: 'NOLINK', asOf: '' };
+  const hit = cGet_('bk_sales');
+  if (hit) return JSON.parse(hit);
+  let out;
+  try {
+    const res = UrlFetchApp.fetch(url, { method: 'post', contentType: 'text/plain', muteHttpExceptions: true, followRedirects: true,
+      payload: JSON.stringify({ action: 'productionSales', secret: getSettings_().inventorySecret }) });
+    let r; try { r = JSON.parse(res.getContentText()); } catch (e) { throw new Error('The Blinkit planner did not answer (HTTP ' + res.getResponseCode() + '). Is it updated?'); }
+    if (!r || !r.success) throw new Error((r && r.error) || 'The Blinkit planner refused the request.');
+    const to = todayStr_(), from = Utilities.formatDate(new Date(Date.now() - 29 * 864e5), tz_(), 'yyyy-MM-dd');
+    out = { asOf: r.asOf || '', error: '', rows: (r.items || []).filter(x => x.s30 > 0 || x.s7 > 0).map(x => ({ channel: 'Blinkit',
+      csku: String(x.tiSku || x.sku || x.itemId), name: x.name || '', qty: Number(x.s30) || 0, from: from, to: to, file: 'Blinkit planner', at: r.asOf || nowStr_(), by: '' })) };
+    cPut_('bk_sales', JSON.stringify(out), 600);
+  } catch (e) { out = { rows: [], error: String(e.message || e), asOf: '' }; }
+  return out;
+}
+
+/** The Blinkit planner's web-app link (/exec), checked before it is saved. */
+function setBlinkitLink(token, url) {
+  const u = authStaff_(token, 'projections');
+  url = String(url || '').trim();
+  if (url && !/^https:\/\/script\.google\.com\/.+\/exec$/.test(url)) throw new Error('Paste the Blinkit planner\'s web-app link (https://script.google.com/…/exec).');
+  setSetting_('Blinkit Planner URL', url);
+  cDel_('bk_sales');
+  if (url) { const b = blinkitSales_(); if (b.error) { setSetting_('Blinkit Planner URL', ''); cDel_('bk_sales'); throw new Error(b.error); } }
+  log_(u, 'SETTING', 'Blinkit Planner URL', url ? 'set' : 'removed');
+  return projectionView(token);
+}
 
 function readChannelSales_() {
   return memo_('chsales', () => rows_(SHEET.CH_SALES).map(r => ({ channel: String(r[0]).trim(), csku: String(r[1]).trim(), name: String(r[2] || ''),
@@ -1755,13 +1796,16 @@ function projectionView(token) {
   let invSkus = [];
   try { invSkus = JSON.parse(cGet_('inv_skus') || 'null') || inventoryCall_({ action: 'getSkuList' }).skus || []; cPut_('inv_skus', JSON.stringify(invSkus), 600); } catch (e) { invSkus = []; }
   invSkus.forEach(x => { const k = String(x).trim().toUpperCase(); if (k && !ourSkus[k]) ourSkus[k] = String(x).trim(); });
+  const loose = {};
+  Object.keys(ourSkus).forEach(k => { const l = skuLoose_(k); if (l && !loose[l]) loose[l] = ourSkus[k]; });
+  const bk = blinkitSales_();
   // Sales of each channel's last upload, per our SKU (a channel SKU equal to one of our SKUs maps by itself).
   const uploads = {}, by = {}, unmapped = [];
   const row = sku => (by[sku] = by[sku] || { sku: sku, sales: {}, daily: 0 });
-  readChannelSales_().forEach(x => {
-    const up = uploads[x.channel] = uploads[x.channel] || { channel: x.channel, file: x.file, from: x.from, to: x.to, at: x.at, by: staffName_(x.by), lines: 0, qty: 0 };
+  readChannelSales_().filter(x => AUTO_CHANNELS.indexOf(x.channel) < 0).concat(bk.rows).forEach(x => {
+    const up = uploads[x.channel] = uploads[x.channel] || { channel: x.channel, file: x.file, from: x.from, to: x.to, at: x.at, by: x.by ? staffName_(x.by) : '', lines: 0, qty: 0 };
     up.lines++; up.qty += x.qty;
-    const m = map[x.channel + '|' + x.csku.toUpperCase()], sku = m ? m.sku : ourSkus[x.csku.toUpperCase()] || '';
+    const m = map[x.channel + '|' + x.csku.toUpperCase()], sku = m ? m.sku : ourSkus[x.csku.toUpperCase()] || loose[skuLoose_(x.csku)] || '';
     if (!sku) { unmapped.push({ channel: x.channel, csku: x.csku, name: x.name, qty: x.qty }); return; }
     const days = x.from && x.to ? Math.max(1, Math.round((new Date(x.to) - new Date(x.from)) / 864e5) + 1) : 30;
     const r = row(sku); r.sales[x.channel] = (r.sales[x.channel] || 0) + x.qty; r.daily += x.qty / days;
@@ -1788,7 +1832,8 @@ function projectionView(token) {
       jaipur: jaipur, source: p.source === 'VENDOR' || !jaipur ? 'VENDOR' : 'JAIPUR', manMinutes: p.manMinutes || null };
   }).sort((a, b) => (b.suggest > 0) - (a.suggest > 0) || b.daily - a.daily || a.sku.localeCompare(b.sku));
   const st = machineState_().filter(m => m.active);
-  return { channels: CHANNELS, uploads: CHANNELS.map(c => uploads[c] || { channel: c }), unmapped: unmapped.sort((a, b) => b.qty - a.qty), mapped: mapped,
+  const ups = CHANNELS.map(c => Object.assign(uploads[c] || { channel: c }, AUTO_CHANNELS.indexOf(c) >= 0 ? { auto: true, autoError: bk.error, asOf: bk.asOf } : {}));
+  return { channels: CHANNELS, uploads: ups, blinkitLinked: !!s.blinkitUrl, unmapped: unmapped.sort((a, b) => b.qty - a.qty), mapped: mapped,
     list: list, projDays: s.projDays, stockError: fg.error, stockAsOf: fg.asOf, capacity: factoryLoad_(), skus: Object.keys(ourSkus).map(k => ourSkus[k]).sort(),
     colMaps: CHANNELS.reduce((m, c) => { m[c] = parseJson_(pGet_('salescols_' + c), null); return m; }, {}),
     machines: st.map(m => ({ id: m.id, name: m.name, job: m.job ? { id: m.job.id, item: m.job.item, karigarId: m.job.karigarId, karigar: m.job.karigar, remaining: m.job.remaining } : null,
@@ -1801,6 +1846,7 @@ function projectionView(token) {
 function uploadSales(token, channel, data) {
   const u = authStaff_(token, 'projections');
   if (CHANNELS.indexOf(channel) < 0) throw new Error('Choose the channel.');
+  if (AUTO_CHANNELS.indexOf(channel) >= 0) throw new Error(channel + ' sales come by themselves from the ' + channel + ' planner.');
   data = data || {};
   const agg = {};
   (data.lines || []).forEach(l => {
@@ -3535,6 +3581,7 @@ function getSettings_() {
       lowMargin: m['Low Margin %'] === '' || m['Low Margin %'] === undefined ? 20 : Number(m['Low Margin %']) || 0,
       nextAt: /1/.test(String(m['Next Job Starts At'] || '')) ? 'COUNT1' : 'COUNT2', // default: after count 2
       count2: /^(on|yes|true|running|resumed)$/i.test(String(m['Count 2'] || '').trim()), // default: paused (count 1 is final)
+      blinkitUrl: String(m['Blinkit Planner URL'] || '').trim(),
       projDays: Number(m['Projection Days']) > 0 ? Number(m['Projection Days']) : 30,
       shiftHours: Number(m['Shift Hours']) > 0 ? Number(m['Shift Hours']) : 13, workDays: Number(m['Working Days']) > 0 ? Number(m['Working Days']) : 26,
     };

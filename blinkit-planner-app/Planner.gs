@@ -104,6 +104,8 @@ function doPost(e) {
   let json, rid = '';
   try {
     const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    // The Production App's Projections ask for Blinkit's sales with the shared secret (no login).
+    if (req.action === 'productionSales') return ContentService.createTextOutput(JSON.stringify(productionSales_(req.secret))).setMimeType(ContentService.MimeType.JSON);
     // A retried request carries the same id and gets the first answer, so an RO is never logged twice.
     rid = /^[\w-]{8,64}$/.test(String(req.rid || '')) ? 'rid_' + req.rid : '';
     const done = rid ? CacheService.getScriptCache().get(rid) : null;
@@ -1490,6 +1492,38 @@ function saveTiLink(token, url, secret) {
   p.setProperty('TI_SECRET', secret);
   CacheService.getScriptCache().remove('ti_stock');
   return { ok: true, skus: (res.stocks || []).length, monthLabel: res.monthLabel };
+}
+
+
+/* ---------------- Blinkit sales for the Production App ---------------- */
+
+/**
+ * Blinkit's sales per item (all warehouses together) from the Inventory upload in the Formula Sheet: last 7 / 15 / 30
+ * days, with the item's SKU and its Travalate Inventory name. Asked by the Production App's Projections with the
+ * same shared secret as Travalate Inventory (Settings → Travalate Inventory); nothing else is given out.
+ */
+function productionSales_(secret) {
+  const s = PropertiesService.getScriptProperties().getProperty('TI_SECRET');
+  if (!s || String(secret || '') !== s) return { success: false, error: 'Unauthorized.' };
+  const sh = SpreadsheetApp.getActive().getSheetByName(FORMULA_SHEET);
+  if (!sh || sh.getLastRow() < 3) return { success: true, asOf: '', items: [] };
+  const v = sh.getRange(1, FORMULA_FIRST_COL, sh.getLastRow(), FORMULA_COLS).getValues();
+  let h = -1;
+  for (let i = 0; i < Math.min(10, v.length); i++) if (v[i].indexOf('Item ID') >= 0 && v[i].indexOf('Last 30 days') >= 0) { h = i; break; }
+  if (h < 0) return { success: true, asOf: '', items: [] };
+  const col = n => v[h].indexOf(n), ci = col('Item ID'), cn = col('Item Name'), c7 = col('Last 7 days'), c15 = col('Last 15 days'), c30 = col('Last 30 days');
+  const m = String(v[0][0] || '').match(/generated at\s+(.+)$/i), by = {};
+  for (let i = h + 1; i < v.length; i++) {
+    const it = Number(v[i][ci]); if (!it) continue;
+    const x = by[it] = by[it] || { itemId: it, name: cn >= 0 ? String(v[i][cn] || '') : '', s7: 0, s15: 0, s30: 0 };
+    x.s7 += Number(v[i][c7]) || 0; x.s15 += c15 >= 0 ? Number(v[i][c15]) || 0 : 0; x.s30 += Number(v[i][c30]) || 0;
+  }
+  const skus = {};
+  getSkus_().forEach(k => { skus[k.item] = k; });
+  return { success: true, asOf: m ? m[1].trim() : '', items: Object.keys(by).map(k => {
+    const x = by[k], sk = skus[x.itemId] || {};
+    return Object.assign(x, { sku: sk.sku || '', tiSku: sk.tiSku || '', name: x.name || sk.name || '' });
+  }) };
 }
 
 /* ---------------- Delivered, awaiting GRN ---------------- */

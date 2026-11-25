@@ -71,6 +71,11 @@ Karigars make bags and parts for you. This app keeps track of everything from ra
   Settings ("change shift / days"). Sheet Karigars gets the column **Team**.
 - **📈 Projections** (menu; permission **projections** to change, reports to view): last 30 days of sales → what to make
   in the Jaipur factory or order from a vendor.
+  - **Blinkit comes by itself** (tile "auto"): its last 30 days of sales (all warehouses together) are read from the
+    **Blinkit planner** (its daily Inventory upload in the Formula Sheet), kept 10 minutes. Connect it once: Blinkit →
+    **connect** → paste the planner's web-app link (/exec; Settings "Blinkit Planner URL"). It uses the same shared
+    secret as the Inventory App (the planner's Settings → Travalate Inventory). A Blinkit item's channel SKU is its TI SKU
+    (planner Settings → SKUs), else its SKU; SKUs are matched ignoring spaces, dashes and capitals.
   - **Sales uploads:** one Excel (.xlsx/.xls) or CSV per channel: **Zepto, Swiggy, Amazon, Flipkart** (a new upload
     replaces that channel's last one). The file is read on the phone/computer (SheetJS from cdnjs); you match the columns
     once per channel (product/SKU, quantity sold, optional name and date — remembered): with a date column only the
@@ -230,6 +235,9 @@ Screens are in `production-app/screenshots/`.
   or at once with **Production App → Refresh the app after big changes made here** in the Sheet's menu.
 - **Device:** the last screens are kept on the phone / computer (per user, removed at log out), so after a refresh a
   screen shows at once and is updated a moment later. Google's own start-up time for each request (about 1 s) stays.
+- **Quick menu taps:** when another screen is opened before the last one has loaded (two or three taps on the menu), the
+  late answer of the earlier screen is never drawn over the screen you are on (nor kept as its copy); it is kept for 2
+  minutes, so going back to that screen opens it at once.
 - **Screens loaded in the background:** after the first screen, the other menu screens are fetched one by one in
   the background (and again a few seconds after a save, at most once a minute), so opening them is instant. An
   answer is used once and only within 2 minutes; one asked for while a save was running is never used.

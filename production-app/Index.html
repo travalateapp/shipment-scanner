@@ -189,12 +189,27 @@ function apiUrl() {
 var READ_FN = /^(getHome|myAdvances|myWork|myPayslip|adminDashboard|countQueue|batchList|orderList|machineView|cuttingView|materialRoom|projectionView|moveList|materialBalance|payroll|advances|karigarList|itemList|materialList|storeView|alertList|staffList|publicInfo|changeLog|batchDetail|batchPhoto|inventorySkus|rateList|payslip)$/;
 var RC = {}, WR = { gen: 0, busy: 0 }; // answers asked for while a save was running are never kept
 function rcKey(fn, args) { return fn + '|' + JSON.stringify(args.slice(1)); }
+/*
+ * Screen loads started by go(): when another screen was opened in the meantime (two or three taps on the menu), the
+ * late answer of the earlier screen is dropped — it never draws over the screen you are on, nor is it kept as its copy.
+ */
+var NAVG = { gen: 0, cur: 0 };
+function navGuard(p, k) {
+  var g = NAVG.cur, wg = WR.gen; if (!g) return p;
+  var stale = function () { return g !== NAVG.gen; };
+  return p.then(function (r) {
+    if (!stale()) return r;
+    // not drawn, but kept (2 minutes, unless something is saved): going back to that screen opens it at once
+    if (k && wg === WR.gen && !RC[k]) RC[k] = { p: Promise.resolve(r), at: Date.now(), gen: WR.gen };
+    return new Promise(function () {});
+  }, function (e) { if (stale()) return new Promise(function () {}); throw e; });
+}
 function api(fn) {
   var args = Array.prototype.slice.call(arguments, 1);
   if (READ_FN.test(fn)) {
     var k = rcKey(fn, args), hit = RC[k];
-    if (hit && Date.now() - hit.at < 120000 && hit.gen === WR.gen) { delete RC[k]; return hit.p; }
-    return apiCall(fn, args);
+    if (hit && Date.now() - hit.at < 120000 && hit.gen === WR.gen) { delete RC[k]; return navGuard(hit.p, k); }
+    return navGuard(apiCall(fn, args), k);
   }
   RC = {}; WR.gen++; WR.busy++;
   if (fn !== 'login' && fn !== 'logout') PF.again();
@@ -419,7 +434,8 @@ function go(view, arg, isBack) {
   loading(!!cached);
   if (cached) findSetup();
   window.scrollTo(0, 0);
-  v(arg);
+  NAVG.gen++; NAVG.cur = NAVG.gen; // this screen's loads; a later go() makes them stale
+  try { v(arg); } finally { NAVG.cur = 0; }
 }
 function render(html) {
   var f = document.activeElement && document.activeElement.id === 'findQ';
@@ -1334,8 +1350,10 @@ VIEWS.proj = function (f) {
     var has = { jaipur: function (x) { return x.source === 'JAIPUR'; }, vendor: function (x) { return x.source === 'VENDOR'; }, reorder: function (x) { return x.suggest > 0; } };
     var list = f ? r.list.filter(has[f]) : r.list;
     render('<h1 class="page">📈 Projections <small>last 30 days of sales → make in Jaipur or order from a vendor</small></h1>' +
+      (r.list.every(function (x) { return !x.total; }) ? '<div class="msg info">No sales yet: ' + (r.blinkitLinked ? '' : 'connect the Blinkit planner (Blinkit → connect) and ') + 'upload the other channels\' last 30 days. Sold 30 d, a day, cover and suggested fill in from them.</div>' : '') +
       // uploads
-      '<div class="card"><h2>Sales uploads <small class="muted" style="font-weight:400">Excel or CSV of the last 30 days, one per channel (a new upload replaces the last one)</small></h2><div class="pjup">' + r.uploads.map(function (u) {
+      '<div class="card"><h2>Sales <small class="muted" style="font-weight:400">Blinkit by itself; the others: Excel or CSV of the last 30 days, one per channel (a new upload replaces the last one)</small></h2><div class="pjup">' + r.uploads.map(function (u) {
+        if (u.auto) return pjAutoTile(u, r);
         return '<div class="pjch"><b>' + esc(u.channel) + '</b>' + (u.file ? '<div class="muted" style="font-size:12.5px">' + esc(u.file) + '<br>' + (u.from ? d(u.from) + ' – ' + d(u.to) + ' · ' : '') + u.lines + ' SKUs · ' + num(u.qty) + ' pcs<br>uploaded ' + d(u.at) + (u.by ? ' · ' + esc(u.by) : '') + '</div>' : '<div class="muted" style="font-size:12.5px">Not uploaded yet</div>') +
           (r.canEdit ? '<label class="btn sec sm" style="margin-top:6px;display:inline-block">⬆ Upload<input type="file" accept=".xlsx,.xls,.csv" style="display:none" onchange="pjFile(\'' + u.channel + '\',this)"></label>' : '') + '</div>';
       }).join('') + '</div></div>' +
@@ -1360,6 +1378,22 @@ VIEWS.proj = function (f) {
       '<div class="muted" style="margin-top:6px">Cover = (stock + in production + next jobs + on order) ÷ sales a day. Suggested = what fills up to ' + r.projDays + ' days.</div></div>');
   }).catch(function (e) { render('<div class="msg err">' + esc(e.message) + '</div>'); });
 };
+/* Blinkit: no upload, its sales come from the Blinkit planner (its daily Inventory upload: last 30 days). */
+function pjAutoTile(u, r) {
+  var link = r.canEdit ? ' <a class="lnk" style="font-size:12px" onclick="pjLink()">' + (r.blinkitLinked ? 'change link' : 'connect') + '</a>' : '';
+  var body = !r.blinkitLinked ? '<div class="muted" style="font-size:12.5px">Automatic from the Blinkit planner: not connected yet.' + link + '</div>'
+    : u.autoError ? '<div style="font-size:12.5px;color:var(--err)">Could not read the Blinkit planner: ' + esc(u.autoError) + link + '</div>'
+    : '<div class="muted" style="font-size:12.5px">Automatic · Blinkit planner' + (u.asOf ? '<br>Inventory of ' + esc(u.asOf) : '') + '<br>' + (u.lines || 0) + ' SKUs · ' + num(u.qty || 0) + ' pcs in 30 days' + link + '</div>';
+  return '<div class="pjch" style="background:#f0fdf4;border-color:#bbf7d0"><b>' + esc(u.channel) + '</b> <span class="pill ok" style="font-size:10.5px">auto</span>' + body + '</div>';
+}
+function pjLink() {
+  modal('Blinkit planner link', '<div class="muted">The Blinkit planner\'s web-app link (Apps Script → Deploy → Manage deployments → Web app URL, ending in <b>/exec</b>). Its sales are then read by themselves, with the same shared secret as the Inventory App (set in the planner: Settings → Travalate Inventory).</div>' +
+    '<label class="f">Link</label><input id="pjL" placeholder="https://script.google.com/macros/s/…/exec"><button class="btn block" onclick="pjLinkSave(this)">Connect</button>');
+}
+function pjLinkSave(btn) {
+  busy(btn, true);
+  api('setBlinkitLink', S.token, val('pjL').trim()).then(function (r) { toast(val('pjL').trim() ? 'Blinkit planner connected' : 'Link removed'); pjReload(r); }).catch(function (e) { fail(e, btn); });
+}
 function pjTable(list, r) {
   var src = function (x) {
     if (!r.canEdit) return x.source === 'JAIPUR' ? 'Jaipur Factory' : 'Other vendor';
