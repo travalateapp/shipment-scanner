@@ -40,8 +40,9 @@ input[type=text],input[type=number],input[type=date],input[type=month],input[typ
 .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:var(--chip);white-space:nowrap}
 .pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.bad{background:var(--badbg);color:var(--bad)}.pill.info{background:var(--infobg);color:var(--info)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
-.fmode{display:flex;flex-direction:column;gap:6px;margin-top:4px}.fmode>label{display:flex;gap:8px;align-items:center;border:1px solid var(--line);border-radius:10px;padding:8px 10px;cursor:pointer;font-size:13px}
-.fmode>label.on{border-color:var(--brand);background:var(--chip)}.fmode .fsub{display:flex;gap:6px;flex-wrap:wrap;margin:-2px 0 2px 30px}.fmode small{color:var(--muted)}
+.fmode{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.fmode>label{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:6px 12px;cursor:pointer;font-size:13px}
+.fmode>label.on{border-color:var(--brand);background:var(--chip)}.fsub{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px}.fsub .chip{padding:4px 10px}
+.cwrap{display:flex;flex-direction:column;max-height:calc(90vh - 32px)}.cwrap>*{flex:0 0 auto}.cwrap #cWhList{flex:1 1 auto;min-height:96px}
 .chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 10px;cursor:pointer;font-size:12px}
 .chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
 .chip b{margin-left:4px}
@@ -689,7 +690,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 delivered-hover';
+  var PAGE_BUILD = '2026-11-25 ro-fit';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1826,25 +1827,25 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var whs = Object.keys(t.byWh).sort();
     // Only the warehouses picked on the plan are ticked; with "All" nothing is ticked, so you choose.
     var pre = S.filter.whs;
-    openModal('<h2>Create ROs</h2><div class="small muted">Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.</div>' +
-      '<div class="small" style="margin-top:10px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
-      // The warehouse list scrolls by itself, so the file choice and the summary below stay in view.
-      '<div id="cWhList" style="margin:6px 0 10px;max-height:min(34vh,300px);overflow:auto;border:1px solid var(--line);border-radius:10px;padding:0 10px">' + whs.map(function (w) {
+    // The window always fits the screen: only the warehouse list scrolls (it takes the room left), so the date,
+    // status, file choice, the 📍 summary and the buttons are always in view.
+    openModal('<div class="cwrap"><h2 style="margin-bottom:2px">Create ROs</h2><div class="small muted" title="Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.">Saves to the RO Log and the month tab, and downloads Blinkit\'s Bulk RO file.</div>' +
+      '<div class="small" style="margin-top:6px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
+      '<div id="cWhList" style="margin:4px 0 8px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:0 10px">' + whs.map(function (w) {
         return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (pre.indexOf(w) >= 0 ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span>' +
           '<span class="small muted cwg" data-w="' + esc(w) + '"></span><b class="cwu" data-w="' + esc(w) + '">' + fmt(t.byWh[w].units) + '</b></label>';
       }).join('') + '</div>' +
       '<div class="row"><div><label class="f">RO date</label><input type="date" id="cDate" value="' + today() + '"></div>' +
-      '<div><label class="f">Status</label><select id="cStatus"><option value="Created">Planned (upload to Blinkit now)</option><option value="Planned">Draft (not on Blinkit yet)</option></select></div></div>' +
-      '<div class="small muted" style="margin-top:6px">Planned = you will upload the file to Blinkit now. Draft = not on Blinkit yet (still counted in the next plan). It shows as Shipped by itself once the Shipment Manager has its shipment.</div>' +
+      '<div><label class="f">Status</label><select id="cStatus" title="Planned = you will upload the file to Blinkit now. Draft = not on Blinkit yet (still counted in the next plan). It shows as Shipped by itself once the Shipment Manager has its shipment."><option value="Created">Planned (upload to Blinkit now)</option><option value="Planned">Draft (not on Blinkit yet)</option></select></div></div>' +
       // One choice only: Merged (all groups, or the groups ticked under it), All separate (one file per group, in a
       // ZIP), or one group. Only the chosen groups' lines are saved as ROs; the others stay in the plan.
-      '<div style="margin-top:10px"><label class="f">Excel file to download</label><div class="fmode" id="cFiles">' +
-        '<label class="on"><input type="radio" name="cMode" value="merged" checked> <span><b>Merged</b> <small>— one file</small></span></label>' +
-        '<div class="fsub" id="cMergeG">' + groupList().map(function (g) { return '<label class="chip"><input type="checkbox" class="cmg" value="' + g + '" checked> ' + g + '</label>'; }).join('') + '</div>' +
-        '<label><input type="radio" name="cMode" value="separate"> <span><b>All separate</b> <small>— one file per group, in one ZIP folder</small></span></label>' +
-        groupList().map(function (g) { return '<label><input type="radio" name="cMode" value="' + g + '"> <span><b>' + g + '</b> <small>— only ' + g + '</small></span></label>'; }).join('') +
-      '</div><div class="small muted" id="cFileNote" style="margin-top:4px"></div></div>' +
-      '<div id="cOut"></div><div class="row" style="margin-top:12px"><button class="btn" id="cNo">Cancel</button><button class="btn g" id="cGo">Save &amp; download file</button></div>');
+      '<div style="margin-top:8px"><label class="f">Excel file to download</label><div class="fmode" id="cFiles">' +
+        '<label class="on" title="One file"><input type="radio" name="cMode" value="merged" checked> <b>Merged</b></label>' +
+        '<label title="One file per group, in one ZIP folder"><input type="radio" name="cMode" value="separate"> <b>All separate</b> <small class="muted">(ZIP)</small></label>' +
+        groupList().map(function (g) { return '<label title="Only ' + g + '"><input type="radio" name="cMode" value="' + g + '"> <b>' + g + '</b></label>'; }).join('') +
+      '</div><div class="fsub" id="cMergeG"><span class="muted">Merge:</span>' + groupList().map(function (g) { return '<label class="chip"><input type="checkbox" class="cmg" value="' + g + '" checked> ' + g + '</label>'; }).join('') + '</div>' +
+      '<div class="small muted" id="cFileNote" style="margin-top:6px"></div></div>' +
+      '<div id="cOut"></div><div class="row" style="margin-top:10px"><button class="btn" id="cNo">Cancel</button><button class="btn g" id="cGo">Save &amp; download file</button></div></div>');
     $('cNo').onclick = closeModal;
     var tickAll = function (on) { return function (e) { e.preventDefault(); Array.prototype.forEach.call(document.querySelectorAll('.cw'), function (c) { c.checked = on; }); }; };
     $('cAll').onclick = tickAll(true); $('cNone').onclick = tickAll(false);
