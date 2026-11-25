@@ -690,7 +690,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 instant-load';
+  var PAGE_BUILD = '2026-11-25 out-collapsed';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3127,7 +3127,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul class="rls">' + x.disp.map(function (r) { return roRow(r, r.appt ? (r.dispatchFixed ? 'dispatch set by hand' : !can('Planner') ? 'dispatch from appointment' : '') : '', rmBtn(r), mv(r)); }).join('') + '</ul>' : '') +
           (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul class="rls">' + x.pack.map(function (r) { return roRow(r, 'dispatch ' + prettyDate(dispatchOf(r)), '', ''); }).join('') + '</ul>' : '') +
           (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul class="rls">' + x.arr.map(function (r) { return roRow(r, r.appt ? '' : 'expected', '', apptAdd(r) + delv(r)); }).join('') + '</ul>' : '') +
-          (x.out.length ? '<div class="small" style="margin-top:6px"><b>⚠ Running out before the next arrival</b></div><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul>' : '') +
+          (x.out.length ? '<details style="margin-top:6px"><summary class="small" style="cursor:pointer"><b>⚠ Running out before the next arrival</b> <span class="muted">(' + x.out.length + ' item' + (x.out.length > 1 ? 's' : '') + ' · click to show)</span></summary><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul></details>' : '') +
           (x.exp.length ? '<div class="small" style="margin-top:6px"><b>⏳ RO expires (no appointment)</b></div><ul class="rls">' + x.exp.map(function (r) { return roRow(r, '', '', apptAdd(r)); }).join('') + '</ul>' : '') +
           (x.dlv.length ? '<div class="small" style="margin-top:6px"><b>✅ Delivered</b></div><ul class="rls">' + x.dlv.map(function (r) {
             var rm = r.lines[0].removedAt;
