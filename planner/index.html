@@ -669,7 +669,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 shipped-sm';
+  var PAGE_BUILD = '2026-11-25 status-names';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -691,10 +691,18 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * Status as shown (display only; the saved status and the planning are unchanged): a Created RO shows whether
    * its appointment is in — "Created · awaiting appointment" (yellow) or "Created · appt 24 Nov" (green).
    */
-  function roStatusPill(status, appt) {
-    if (status === 'Created') return appt ? '<span class="pill ok">Created · appt ' + prettyDate(appt) + '</span>' : '<span class="pill warn">Created · awaiting appointment</span>';
-    var c = { Planned: 'info', Delivered: 'ok', Cancelled: 'bad' }[status] || '';
-    return '<span class="pill ' + c + '">' + esc(status) + '</span>';
+  /*
+   * Names shown for an RO's status. The RO Log keeps its own values (Planned / Created / Delivered / Cancelled), which
+   * the planner's counting relies on; on screen they read:
+   *   Planned (not on Blinkit yet) → Draft · Created → Planned · Created + shipment in the Shipment Manager → Shipped.
+   */
+  function stLabel(st, shippedOn) { return st === 'Planned' ? 'Draft' : st === 'Created' ? (shippedOn ? 'Shipped' : 'Planned') : st; }
+  var ST_OPTS = [['Planned', 'Draft (not on Blinkit yet)'], ['Created', 'Planned (on Blinkit)'], ['Delivered', 'Delivered'], ['Cancelled', 'Cancelled']];
+  function roStatusPill(status, appt, shippedOn) {
+    if (status === 'Created' && shippedOn) return '<span class="pill info">Shipped · ' + prettyDate(shippedOn) + '</span>';
+    if (status === 'Created') return appt ? '<span class="pill ok">Planned · appt ' + prettyDate(appt) + '</span>' : '<span class="pill warn">Planned · awaiting appointment</span>';
+    var c = { Planned: '', Delivered: 'ok', Cancelled: 'bad' }[status] || '';
+    return '<span class="pill ' + c + '">' + esc(stLabel(status)) + '</span>';
   }
   /* ---- Dispatch: working days, lead times, dispatch / arrival day of an RO (Settings → Dispatch) ---- */
   var DOW = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -724,7 +732,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     (lines || []).forEach(function (r) {
       if (r.status === 'Cancelled') return;
       var k = r.merged ? 'M' + r.merged + r.wh : r.roNo ? 'N' + r.roNo + PlanCore.whNorm(r.wh) : 'B' + r.batch;
-      var x = g[k] = g[k] || { key: k, wh: r.wh, groups: [], batches: [], units: 0, roNo: r.roNo, status: r.status, appt: r.appt, dispatch: r.dispatch, dispatchFixed: !!r.dispatchFixed, roDate: r.roDate, notes: r.notes || '', lines: [] };
+      var x = g[k] = g[k] || { key: k, shippedOn: r.shippedOn || '', wh: r.wh, groups: [], batches: [], units: 0, roNo: r.roNo, status: r.status, appt: r.appt, dispatch: r.dispatch, dispatchFixed: !!r.dispatchFixed, roDate: r.roDate, notes: r.notes || '', lines: [] };
       if (x.groups.indexOf(r.group) < 0) x.groups.push(r.group);
       if (x.batches.indexOf(r.batch) < 0) x.batches.push(r.batch);
       x.units += Number(r.qty) || 0; x.lines.push(r);
@@ -835,6 +843,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function openModal(html) { $('modalBox').innerHTML = html; $('modal').classList.remove('hidden'); }
   function closeModal() { $('modal').classList.add('hidden'); $('modalBox').innerHTML = ''; $('modalBox').style.maxWidth = ''; }
   $('modal').addEventListener('click', function (e) { if (e.target === $('modal')) closeModal(); });
+  // Escape closes the pop-up (a list open inside it, like the RO picker, closes first).
+  document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !$('modal').classList.contains('hidden')) closeModal(); });
 
   /* ---------------- login ---------------- */
   function showLogin(note) {
@@ -1667,8 +1677,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (pre.indexOf(w) >= 0 ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span><b>' + fmt(t.byWh[w].units) + '</b><span class="small muted">' + t.byWh[w].lines + ' lines</span></label>';
       }).join('') + '</div>' +
       '<div class="row"><div><label class="f">RO date</label><input type="date" id="cDate" value="' + today() + '"></div>' +
-      '<div><label class="f">Status</label><select id="cStatus"><option>Created</option><option>Planned</option></select></div></div>' +
-      '<div class="small muted" style="margin-top:6px">Created = you will upload the file to Blinkit now. Planned = not on Blinkit yet (still counted in the next plan).</div>' +
+      '<div><label class="f">Status</label><select id="cStatus"><option value="Created">Planned (upload to Blinkit now)</option><option value="Planned">Draft (not on Blinkit yet)</option></select></div></div>' +
+      '<div class="small muted" style="margin-top:6px">Planned = you will upload the file to Blinkit now. Draft = not on Blinkit yet (still counted in the next plan). It shows as Shipped by itself once the Shipment Manager has its shipment.</div>' +
       '<div style="margin-top:10px"><label class="f">Excel file(s) to download</label><div class="chips" id="cFiles">' +
         '<label class="chip"><input type="checkbox" class="cf" value="ALL" checked> Merged (all groups)</label>' +
         groupList().map(function (g) { return '<label class="chip"><input type="checkbox" class="cf" value="' + g + '"> ' + g + ' only</label>'; }).join('') +
@@ -1814,9 +1824,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="row" style="align-items:flex-end">' +
         '<div style="flex:0 0 auto"><label class="f">View</label><div class="seg" id="pView"><button data-v="total" class="' + (P.view === 'total' ? 'on' : '') + '">Total</button><button data-v="wh" class="' + (P.view === 'wh' ? 'on' : '') + '">Warehouse-wise</button></div></div>' +
         '<div><label class="f">ROs</label><select id="pScope">' +
-          '<option value="created"' + (P.scope === 'created' ? ' selected' : '') + '>Created, not shipped yet</option>' +
-          '<option value="createdAll"' + (P.scope === 'createdAll' ? ' selected' : '') + '>All Created (not delivered)</option>' +
-          '<option value="open"' + (P.scope === 'open' ? ' selected' : '') + '>Created + Planned, not shipped yet</option></select></div>' +
+          '<option value="created"' + (P.scope === 'created' ? ' selected' : '') + '>Planned, not shipped yet</option>' +
+          '<option value="createdAll"' + (P.scope === 'createdAll' ? ' selected' : '') + '>Planned + Shipped (not delivered)</option>' +
+          '<option value="open"' + (P.scope === 'open' ? ' selected' : '') + '>Planned + Draft, not shipped yet</option></select></div>' +
         '<div><label class="f">Group</label><select id="pGroup"><option value="">All groups</option>' + groupList().map(function (g) { return '<option value="' + g + '"' + (P.group === g ? ' selected' : '') + '>' + esc(groupName(g)) + '</option>'; }).join('') + '</select></div>' +
         '<div><label class="f">Search</label><input type="text" id="pQ" autocomplete="off" placeholder="SKU, item ID or name" value="' + esc(P.q) + '"></div>' +
         '<div style="flex:0 0 auto"><button class="btn" id="pXls">⬇ Excel</button></div>' +
@@ -1857,8 +1867,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (r.status === 'Planned') { if (P.scope !== 'open') return false; }
       else if (r.status !== 'Created') return false;
       if (P.scope === 'createdAll') return true;
-      var d = dispatchOf(r);
-      return !d || d >= td; // not shipped yet: dispatch day today or later, or none yet
+      return !isShipped(r); // not shipped yet (Shipment Manager; without it, dispatch day not reached)
     });
     var inv = S.inv || S.projInv, sale = {}, saleWh = {}, stockWh = {};
     // The Inventory names a warehouse by its facility; with the Bulk RO file on New Plan the exact names are known.
@@ -1924,7 +1933,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var box = $('pOut'); if (!box) return;
     var P = S.proj, d = projData(), wv = P.view === 'wh';
     var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
-    $('pNote').innerHTML = (P.scope === 'createdAll' ? 'All Created ROs that are not delivered' : P.scope === 'open' ? 'Created and Planned ROs whose dispatch day is today or later (or not set yet)' : 'Created ROs whose dispatch day is today or later (or not set yet)') +
+    $('pNote').innerHTML = (P.scope === 'createdAll' ? 'Planned and Shipped ROs (not delivered)' : P.scope === 'open' ? 'Planned and Draft ROs not shipped yet' : 'Planned ROs not shipped yet') +
       ' · ' + d.nRo + ' RO' + (d.nRo === 1 ? '' : 's') + '. <b>TI stock</b> = Travalate Inventory now' +
       (S.ti ? (S.ti.ok ? '' : ' (' + esc(S.ti.error || 'could not be read') + ')') : ' (reading…)') + '; red when it is less than the total quantity. ' +
       '<b>Current inventory</b> = Total sellable on Blinkit today' + (wv ? '' : ', all warehouses') + '. <b>Blinkit incoming</b> = ROs Blinkit already shows as on their way (' +
@@ -2006,10 +2015,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">From</label><input type="date" id="gFrom" value="' + f.from + '"></div>' +
       '<div><label class="f">To</label><input type="date" id="gTo" value="' + f.to + '"></div>' +
       '<div><label class="f">Warehouse</label><select id="gWh"><option value="">All</option>' + whs.map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
-      '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ['Planned', 'Created', 'Delivered', 'Cancelled'].map(function (s) { return '<option' + (f.status === s ? ' selected' : '') + '>' + s + '</option>'; }).join('') + '</select></div>' +
+      '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ST_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (f.status === o[0] ? ' selected' : '') + '>' + o[1].replace(' (on Blinkit)', ' / Shipped') + '</option>'; }).join('') + '</select></div>' +
       '</div><div class="small muted" style="margin-top:8px"><b>From / To</b> = RO date. <b>Status:</b> ' +
-        '<b>Planned</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
-        '<b>Created</b> = uploaded to Blinkit (counted until Blinkit\'s own Bulk RO file shows it as incoming) · ' +
+        '<b>Draft</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
+        '<b>Planned</b> = on Blinkit, not shipped yet · <b>Shipped</b> = the Shipment Manager has its shipment (set by itself) · ' +
         '<b>Delivered</b> = received at the warehouse (asks for the date; 2 days later its quantities leave the month tab) · <b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
       '</div><div id="logOut" class="muted card">Loading…</div>';
     ['gFrom', 'gTo', 'gWh', 'gSt'].forEach(function (id) {
@@ -2081,11 +2090,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var units = rs.reduce(function (a, r) { return a + (r.status === 'Cancelled' ? 0 : r.qty); }, 0);
       var edit = can('Planner'), multi = groups.length > 1;
       return '<div class="ro' + (c.batches.some(function (b) { return open[b]; }) ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
-        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : st === 'Delivered' ? deliveredPill(r0) : roStatusPill(st, r0.appt)) +
+        '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : st === 'Delivered' ? deliveredPill(r0) : roStatusPill(st, r0.appt, r0.shippedOn)) +
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
         (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (dispatchOf(cg) ? '<span class="small">🚚 ' + prettyDate(dispatchOf(cg)) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
         (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
-        (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ['Planned', 'Created', 'Delivered', 'Cancelled'].map(function (s) { return '<option>' + s + '</option>'; }).join('') + '</select></div>' +
+        (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ST_OPTS.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('') + '</select></div>' +
           '<div class="bDelW hidden"><label class="f">Delivered on</label><input type="date" class="bDel" value="' + today() + '" max="' + today() + '"></div>' +
           '<div><label class="f">Appointment</label><input type="date" class="bAp" value="' + esc(r0.appt) + '"></div>' +
           '<div><label class="f">Dispatch day' + (cg.appt ? (cg.dispatchFixed ? ' (set by hand)' : ' (from appointment)') : '') + '</label><input type="date" class="bDs" value="' + esc(dispatchOf(cg)) + '"' + (cg.appt ? ' title="' + (cg.dispatchFixed ? 'Set by hand. Empty it and save to follow the appointment again.' : 'Worked out from the appointment. Change it to set it by hand.') + '"' : '') + '></div>' +
@@ -2097,7 +2106,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
             (multi ? '<td>' + esc(r.group) + '</td>' : '') +
             '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) +
               (r.shortQty ? '<div class="small" style="color:var(--bad)" title="Shipment Manager: not all was sent; the planner counts only what was shipped">shipped ' + fmt(r.shippedQty) + ' · ' + fmt(r.shortQty) + ' not sent</div>' : '') + '</td>' +
-            '<td><span class="pill ' + pc[r.status] + '">' + r.status + '</span></td>' +
+            '<td><span class="pill ' + pc[r.status] + '">' + esc(stLabel(r.status, r.shippedOn)) + '</span></td>' +
             (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
         }).join('') + '</table></div><div class="bmsg"></div></div></div>';
     }).join('');
@@ -2207,7 +2216,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (noGroup.length) notes.push(['bad', 'No ' + groupList().join('/') + ' group yet for ' + noGroup.map(function (l) { return skuText((m[l.item] || {}).sku, l.item); }).join(', ') + '. An admin sets it in Settings → SKUs, then save.']);
       if (mt) notes.push(['info', 'This is the planner\'s RO of ' + prettyDate(mt.roDate) + ' for this warehouse: the RO number is added to it, no new RO.' +
         (mt.diffs.length ? ' Quantities change to the PDF\'s: ' + mt.diffs.map(function (x) { return skuText((m[x.item] || {}).sku, x.item) + ' ' + x.from + ' → ' + x.to; }).join(', ') + '.' : '')]);
-      else if (d.wh && e.state === 'ready') notes.push(['info', 'Saved as a new RO (Created) dated ' + prettyDate(d.roDate) + (S.pdfLogOnly ? ' — RO Log only (Log only is ticked).' : ' — into the RO Log and the month tab.')]);
+      else if (d.wh && e.state === 'ready') notes.push(['info', 'Saved as a new RO (Planned) dated ' + prettyDate(d.roDate) + (S.pdfLogOnly ? ' — RO Log only (Log only is ticked).' : ' — into the RO Log and the month tab.')]);
       var done = e.state === 'saved' || e.state === 'skipped';
       // Collapsed by default (click the header to open). A PDF that needs something fixed opens by itself.
       var attention = !done && (!d.wh || noGroup.length > 0 || !d.totalOk);
@@ -2252,7 +2261,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!S.manual.length) S.manual = [{ item: '', qty: '' }];
     S.pdfs = S.pdfs || [];
     $('app').innerHTML = '<div class="card"><h2>Upload Blinkit R.O. PDFs</h2>' +
-      '<div class="small muted">Read the same way as in the Shipment Manager. Each RO goes into the RO Log and the month tab as <b>Created</b>. A planner RO without an RO number gets the number instead of a second RO. An RO number already in the log is skipped.</div>' +
+      '<div class="small muted">Read the same way as in the Shipment Manager. Each RO goes into the RO Log and the month tab as <b>Planned</b>. A planner RO without an RO number gets the number instead of a second RO. An RO number already in the log is skipped.</div>' +
       '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="pdfIn"><b>Choose R.O. PDFs</b><span class="small muted">one or more</span></label>' +
       '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="pdfLogOnly"' + (S.pdfLogOnly ? ' checked' : '') + '> <b>Log only</b> — these ROs are already typed into the month tab by hand (don\'t write them there again)</label>' +
       '<div style="margin:10px 0"><button class="btn g hidden" id="pdfAll">Save all</button></div><div id="pdfList"></div></div>' +
@@ -2261,7 +2270,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Warehouse</label><select id="mWh"><option value="">Choose…</option>' + whs.map(function (w) { return '<option>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
       '<div><label class="f">RO date</label><input type="date" id="mDate" value="' + today() + '"></div>' +
-      '<div><label class="f">Status</label><select id="mSt"><option>Created</option><option>Planned</option></select></div></div>' +
+      '<div><label class="f">Status</label><select id="mSt"><option value="Created">Planned (on Blinkit)</option><option value="Planned">Draft (not on Blinkit yet)</option></select></div></div>' +
       '<div class="row" style="margin-top:8px"><div><label class="f">Appointment (optional)</label><input type="date" id="mAp"></div>' +
       '<div><label class="f">Blinkit RO No. (optional)</label><input type="text" id="mNo"></div>' +
       '<div><label class="f">Notes</label><input type="text" id="mNote"></div></div>' +
@@ -2495,7 +2504,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<h3 style="margin-top:12px">Open ROs for this item here (RO Log, now)</h3>' +
       (ros.length ? '<div class="scroll"><table class="t"><tr><th>RO date</th><th>RO No.</th><th>Status</th><th class="right">Qty</th><th>Appointment</th><th>In the RO Log part?</th></tr>' +
         ros.map(function (x) {
-          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + roStatusPill(x.status, x.appt) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + apptCell(x) + '</td>' +
+          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + roStatusPill(x.status, x.appt, x.shippedOn) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + apptCell(x) + '</td>' +
             '<td class="small">' + (counted(x) ? 'Yes' : gapLeft > 0 && isRecent(x) ? 'Yes — Blinkit\'s Incoming did not show it yet' : 'No — Blinkit\'s file already shows it') + '</td></tr>';
         }).join('') + '</table></div>'
         : '<div class="small muted">No open ROs for this item at this warehouse in the RO Log. ' + (split && r.plBlinkit ? 'The ' + fmt(r.plBlinkit) + ' are ROs on Blinkit that are not in the RO Log (e.g. made on Blinkit directly).' : '') + '</div>') +
@@ -2572,7 +2581,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return { days: days, warn: warn };
     };
     var roLine = function (x, extra) {
-      return '<li>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · #' + esc(x.roNo) : '') + ' ' + roStatusPill(x.status, x.appt) + (extra || '') + '</li>';
+      return '<li>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · #' + esc(x.roNo) : '') + ' ' + roStatusPill(x.status, x.appt, x.shippedOn) + (extra || '') + '</li>';
     };
     var draw = function () {
       var B = build(), days = B.days, W = B.warn;
@@ -2603,7 +2612,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         // One RO in the pop-up, on two lines: what it is (✕ at the right end), then its date boxes and buttons.
         var roRow = function (r, infoExtra, right, actions) {
           return '<li><div class="rl1"><span>' + esc(short(r.wh)) + ' · ' + esc(r.groups.join(' + ')) + ' · <b>' + fmt(r.units) + '</b> units' + (r.roNo ? ' · #' + esc(r.roNo) : '') + '</span>' +
-            roStatusPill(r.status, r.appt) + (infoExtra ? '<span class="small muted">' + infoExtra + '</span>' : '') + (right ? '<span class="rlx">' + right + '</span>' : '') + '</div>' +
+            roStatusPill(r.status, r.appt, r.shippedOn) + (infoExtra ? '<span class="small muted">' + infoExtra + '</span>' : '') + (right ? '<span class="rlx">' + right + '</span>' : '') + '</div>' +
             (actions ? '<div class="rl2">' + actions + '</div>' : '') + '</li>';
         };
         var ag = function (label, inner) { return '<span class="ag"><span class="agl">' + label + '</span>' + inner + '</span>'; };
