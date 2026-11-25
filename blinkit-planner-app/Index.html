@@ -153,6 +153,16 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
 .plTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 .hsub{display:block;font-size:9px;font-weight:400;color:var(--muted);line-height:1.15;margin-top:1px;white-space:normal}
+#askBtn{position:fixed;right:16px;bottom:84px;z-index:40;border:0;border-radius:999px;background:var(--brand);color:#fff;font-weight:700;padding:10px 16px;box-shadow:0 6px 18px rgba(0,0,0,.2);cursor:pointer;font-size:14px}
+#askBox{position:fixed;right:16px;bottom:136px;z-index:45;width:min(420px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.25);overflow:hidden}
+#askBox .ah{display:flex;align-items:center;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line);font-weight:700}#askBox .ah button{margin-left:auto;border:0;background:none;font-size:18px;cursor:pointer;color:var(--muted)}
+#askMsgs{flex:1;overflow:auto;padding:10px 12px;display:flex;flex-direction:column;gap:8px;font-size:13px}
+#askMsgs .me{align-self:flex-end;background:var(--brand);color:#fff;border-radius:12px 12px 2px 12px;padding:7px 10px;max-width:85%}
+#askMsgs .bot{align-self:flex-start;background:var(--chip);border-radius:12px 12px 12px 2px;padding:8px 10px;max-width:95%}
+#askMsgs .bot ul{margin:4px 0 0 16px;padding:0}#askMsgs .bot li{margin:2px 0}
+#askMsgs .ex{display:flex;flex-wrap:wrap;gap:6px}#askMsgs .ex button{border:1px solid var(--line);background:var(--card);border-radius:999px;padding:4px 10px;font-size:12px;cursor:pointer}
+#askF{display:flex;gap:6px;padding:8px;border-top:1px solid var(--line)}#askF input{flex:1}
+.shortNote{margin-top:4px;width:100%;min-width:180px;font-size:12px;padding:4px 6px}
 #savePill{position:fixed;left:14px;bottom:84px;z-index:96;background:#111827;color:#fff;border-radius:999px;padding:7px 14px;font-size:13px;font-weight:600;box-shadow:0 6px 18px rgba(0,0,0,.2);display:flex;gap:8px;align-items:center}
 #savePill.ok{background:var(--ok)}#savePill.bad{background:var(--bad)}
 #busy{position:fixed;inset:0;z-index:95;display:flex;align-items:center;justify-content:center;background:rgba(15,23,42,.22);backdrop-filter:blur(4px);-webkit-backdrop-filter:blur(4px);cursor:progress}
@@ -676,7 +686,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 hover-underline';
+  var PAGE_BUILD = '2026-11-25 short-note-ask';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -890,6 +900,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('nav').onclick = function (e) { var t = e.target.getAttribute('data-t'); if (t) go(t); };
     go(S.tab);
     syncShipmentsBg();
+    initAsk();
   }
 
   /**
@@ -1184,6 +1195,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         if (ch.dispatch !== undefined) { r.dispatch = ch.dispatch || ''; r.dispatchFixed = !!(ch.dispatch && r.appt); }
         if (ch.status) { if (ch.status === 'Delivered') r.deliveredOn = ch.deliveredOn; else if (r.status === 'Delivered') r.deliveredOn = ''; r.status = ch.status; }
         if (ch.qty !== undefined) r.qty = ch.qty;
+        if (ch.shortNote !== undefined) r.shortNote = ch.shortNote;
         if (!touched.some(function (t) { return t.key === r.key; })) touched.push(r);
       });
     });
@@ -2209,12 +2221,21 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           return '<tr data-k="' + esc(r.key) + '"><td>' + esc(r.sku || 'No SKU') + '<div class="small muted">by ' + esc(r.createdBy) + (r.source && r.source !== 'Plan' ? ' · ' + esc(r.source === 'PDF' ? 'from PDF' : 'manual') : '') + '</div></td><td>' + r.item + '</td>' +
             (multi ? '<td>' + esc(r.group) + '</td>' : '') +
             '<td class="right">' + (edit && r.status !== 'Cancelled' ? '<input type="number" class="lQ" min="1" value="' + r.qty + '" style="width:80px;text-align:right">' : fmt(r.qty)) +
-              (r.shortQty ? '<div class="small" style="color:var(--bad)" title="Shipment Manager: not all was sent; the planner counts only what was shipped">shipped ' + fmt(r.shippedQty) + ' · ' + fmt(r.shortQty) + ' not sent</div>' : '') + '</td>' +
+              (r.shortQty ? '<div class="small" style="color:var(--bad)" title="Shipment Manager: not all was sent; the planner counts only what was shipped">shipped ' + fmt(r.shippedQty) + ' · ' + fmt(r.shortQty) + ' not sent</div>' +
+                (edit ? '<input type="text" class="shortNote" maxlength="500" placeholder="Why not sent? (shows in the month tab)" value="' + esc(r.shortNote || '') + '" title="Why these ' + fmt(r.shortQty) + ' were not sent. Saved when you press Enter or leave the box; added to the red cell\'s note in the month tab.">'
+                  : r.shortNote ? '<div class="small">Why: ' + esc(r.shortNote) + '</div>' : '') : '') + '</td>' +
             '<td><span class="pill ' + pc[r.status] + '">' + esc(stLabel(r.status, r.shippedOn)) + '</span></td>' +
             (edit ? '<td class="nowrap">' + (r.status !== 'Cancelled' ? '<button class="btn sm lSave">Save</button> <button class="btn sm r lCan">Cancel line</button>' : '') + '</td>' : '') + '</tr>';
         }).join('') + '</table></div><div class="bmsg"></div></div></div>';
     }).join('');
     box.onchange = function (e) {
+      if (e.target.classList.contains('shortNote')) {
+        // Why the not-sent part was not sent: saved in the background, shown in the month tab's red cell note.
+        var tr0 = e.target.closest('tr'), k0 = tr0.getAttribute('data-k'), v0 = e.target.value.trim();
+        mergeLogRows(applyLocal(function (r) { return r.key === k0; }, { shortNote: v0 }));
+        bgSave('updateROLine', [S.token, k0, { shortNote: v0 }]);
+        return;
+      }
       if (!e.target.classList.contains('bSt')) return;
       e.target.closest('.ro').querySelector('.bDelW').classList.toggle('hidden', e.target.value !== 'Delivered');
     };
@@ -2256,6 +2277,146 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         bgSave('updateROLine', [S.token, k, { status: 'Cancelled' }]);
       }
     };
+  }
+
+  /* ======================= 💬 Ask: answers from the RO Log (no AI) ======================= */
+  /**
+   * Finds the SKU and the warehouse named in a question ("Why was 2 in 1 Belt not sent in Mumbai?") and answers
+   * from the RO Log (last 120 days): each RO with ordered / shipped / not-sent quantities, the "why not sent" note,
+   * status and dates; plus what the last plan said about it (stock, suggested, locked).
+   */
+  var ASK = { rows: null, at: 0, log: [] };
+  function initAsk() {
+    if ($('askBtn')) return;
+    var b = document.createElement('button'); b.id = 'askBtn'; b.textContent = '💬 Ask'; b.title = 'Ask about an SKU at a warehouse, e.g. why it was not sent';
+    document.body.appendChild(b);
+    b.onclick = function () { $('askBox') && !$('askBox').classList.contains('hidden') ? closeAsk() : openAsk(); };
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && $('askBox') && !$('askBox').classList.contains('hidden')) closeAsk(); });
+  }
+  function closeAsk() { $('askBox').classList.add('hidden'); }
+  function openAsk() {
+    var box = $('askBox');
+    if (!box) {
+      box = document.createElement('div'); box.id = 'askBox';
+      box.innerHTML = '<div class="ah">💬 Ask the planner<button title="Close (Esc)">✕</button></div><div id="askMsgs"></div>' +
+        '<form id="askF"><input type="text" id="askQ" placeholder="e.g. Why was 2 in 1 Belt not sent in Mumbai?" autocomplete="off"><button class="btn p">Ask</button></form>';
+      document.body.appendChild(box);
+      box.querySelector('.ah button').onclick = closeAsk;
+      $('askF').onsubmit = function (e) { e.preventDefault(); var q = $('askQ').value.trim(); if (q) { $('askQ').value = ''; askQuestion(q); } };
+      $('askMsgs').onclick = function (e) { var x = e.target.closest('.ex button'); if (x) askQuestion(x.textContent); };
+      askSay('bot', 'Ask about an SKU, optionally at a warehouse. I answer from the RO Log (last 120 days) and the last plan.' +
+        '<div class="ex" style="margin-top:6px"><button type="button">Why was 2 in 1 Belt not sent in Mumbai?</button><button type="button">What is not sent?</button><button type="button">When does 1323 arrive in Kundli?</button></div>');
+    }
+    box.classList.remove('hidden');
+    setTimeout(function () { $('askQ').focus(); }, 0);
+  }
+  function askSay(who, html) {
+    var m = $('askMsgs'), d = document.createElement('div'); d.className = who; d.innerHTML = html; m.appendChild(d); m.scrollTop = m.scrollHeight; return d;
+  }
+  /** RO Log rows of the last 120 days (read again after 3 minutes), with this page's newer open ROs on top. */
+  function askRows() {
+    if (ASK.rows && Date.now() - ASK.at < 180000) return Promise.resolve(askMerge(ASK.rows));
+    return apiCall('listROs', [S.token, { from: addDays(today(), -120) }]).then(function (rows) { ASK.rows = rows || []; ASK.at = Date.now(); return askMerge(ASK.rows); });
+  }
+  function askMerge(rows) {
+    var by = {}; rows.forEach(function (r) { by[r.key] = r; });
+    ((S.boot && S.boot.openROs) || []).concat(S.logRows || []).forEach(function (r) { by[r.key] = Object.assign({}, by[r.key] || {}, r); });
+    return Object.keys(by).map(function (k) { return by[k]; });
+  }
+  function askNorm(s) { return String(s || '').toLowerCase().replace(/[^a-z0-9]/g, ''); }
+  function askWords(s) { return String(s || '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean); }
+  var ASK_WH_SKIP = { feeder: 1, warehouse: 1, wh: 1, fc: 1, the: 1, and: 1, new: 1 };
+  /** SKUs named in the question: the whole name (spaces / dots ignored), the item ID, or most of the name's words. */
+  function askSkus(q) {
+    var nq = askNorm(q), qw = askWords(q), skus = (S.boot.skus || []);
+    var hit = skus.filter(function (s) { var n = askNorm(s.sku); return (n.length >= 3 && nq.indexOf(n) >= 0) || nq.indexOf(String(s.item)) >= 0; });
+    if (hit.length) { var L0 = Math.max.apply(null, hit.map(function (s) { return askNorm(s.sku).length; })); return hit.filter(function (s) { return askNorm(s.sku).length === L0 || nq.indexOf(String(s.item)) >= 0; }); }
+    var best = 0, out = [];
+    skus.forEach(function (s) {
+      var w = askWords(s.sku).filter(function (x) { return x.length >= 3; }); if (!w.length) return;
+      var sc = w.filter(function (x) { return qw.indexOf(x) >= 0; }).length / w.length;
+      if (sc > best) { best = sc; out = [s]; } else if (sc === best && sc > 0) out.push(s);
+    });
+    return best >= 0.5 ? out.slice(0, 5) : [];
+  }
+  /** Warehouses named in the question (any word of the name but "Feeder", "Warehouse"…). */
+  function askWhs(q, rows) {
+    var qw = askWords(q), names = {}, best = 0, out = [];
+    rows.forEach(function (r) { names[r.wh] = 1; });
+    ((S.dash && S.dash.rows) || []).forEach(function (r) { names[r[0]] = 1; });
+    Object.keys(names).forEach(function (w) {
+      var sc = askWords(w).filter(function (x) { return !ASK_WH_SKIP[x] && x.length >= 2 && qw.indexOf(x) >= 0; }).length;
+      if (sc > best) { best = sc; out = [w]; } else if (sc === best && sc > 0) out.push(w);
+    });
+    return out;
+  }
+  function askRoLine(r) {
+    var bits = [prettyDate(r.roDate) ? 'RO ' + prettyDate(r.roDate) : '', r.roNo ? '#' + esc(r.roNo) : 'no RO number yet', '<b>' + esc(stLabel(r.status, r.shippedOn)) + '</b>', 'ordered ' + fmt(r.qty)];
+    if (r.shippedQty != null && r.shippedOn) bits.push('shipped ' + fmt(r.shippedQty) + ' on ' + prettyDate(r.shippedOn));
+    if (r.status === 'Delivered' && r.deliveredOn) bits.push('delivered ' + prettyDate(r.deliveredOn));
+    else if (r.status === 'Created' || r.status === 'Planned') { var d = dispatchOf(r); if (d && !r.shippedOn) bits.push('dispatch ' + prettyDate(d)); bits.push(r.appt ? 'appointment ' + prettyDate(r.appt) : 'no appointment yet'); }
+    if (r.status === 'Cancelled') bits.push('cancelled' + (r.updatedBy ? ' by ' + esc(r.updatedBy) : '') + (r.updatedAt ? ' on ' + new Date(r.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' }) : ''));
+    var s = bits.filter(Boolean).join(' · ');
+    if (r.shortQty) s += '<br><span style="color:var(--bad)"><b>' + fmt(r.shortQty) + ' not sent</b></span> — ' + (r.shortNote ? 'Why: <b>' + esc(r.shortNote) + '</b>' : '<span class="muted">no reason noted yet (RO Log → this RO → "Why not sent?")</span>');
+    if (r.notes) s += '<br><span class="muted">Note: ' + esc(r.notes) + '</span>';
+    return s;
+  }
+  /** What the last plan says about an item at a warehouse (Dashboard snapshot). */
+  function askPlanInfo(wh, item) {
+    var d = S.dash; if (!d || !d.rows) return '';
+    var r = d.rows.filter(function (x) { return PlanCore.whNorm(x[0]) === PlanCore.whNorm(wh) && Number(x[1]) === Number(item); })[0];
+    if (!r) return '';
+    var rate = Number(r[5]) || 0, has = Number(r[6]) || 0, rec = Number(r[8]) || 0, locked = r[9] === 'Yes';
+    return 'Last plan: stock ' + fmt(has) + ', sells ' + fmt(rate, 1) + '/day' + (rate > 0 ? ' (~' + fmt(Math.max(0, Math.floor(has / rate))) + ' days)' : '') + ', suggested ' + fmt(rec) + (locked ? ' · <b>locked on Blinkit</b> (cannot be sent)' : '') + '.';
+  }
+  function askQuestion(q) {
+    askSay('me', esc(q));
+    var wait = askSay('bot', '<span class="spin"></span> Looking in the RO Log…');
+    askRows().then(function (rows) { wait.innerHTML = askAnswer(q, rows); $('askMsgs').scrollTop = $('askMsgs').scrollHeight; },
+      function (e) { wait.innerHTML = '<span style="color:var(--bad)">Could not read the RO Log: ' + esc(e.message) + '</span>'; });
+  }
+  function askAnswer(q, rows) {
+    var ql = q.toLowerCase(), skus = askSkus(q), whs = askWhs(q, rows);
+    var wantShort = /not sent|short|less|missing|why|kam|nahi|didn|did not/.test(ql);
+    var inWh = function (r) { return !whs.length || whs.some(function (w) { return PlanCore.whNorm(w) === PlanCore.whNorm(r.wh); }); };
+    if (!skus.length) {
+      // No SKU: "what is not sent (in Mumbai)?" lists the not-sent lines; otherwise ask for an SKU.
+      if (wantShort || /not sent|short/.test(ql)) {
+        var sl = rows.filter(function (r) { return r.shortQty > 0 && inWh(r); }).sort(function (a, b) { return String(b.shippedOn).localeCompare(String(a.shippedOn)); });
+        if (!sl.length) return 'Nothing short-shipped' + (whs.length ? ' at ' + esc(whs.join(', ')) : '') + ' in the last 120 days: every RO the Shipment Manager has a shipment for was sent in full.';
+        return '<b>Not sent in full' + (whs.length ? ' · ' + esc(whs.join(', ')) : '') + '</b> (last 120 days):<ul>' + sl.slice(0, 15).map(function (r) { return '<li><b>' + esc(r.sku || r.item) + '</b> · ' + esc(r.wh) + '<br>' + askRoLine(r) + '</li>'; }).join('') + '</ul>' + (sl.length > 15 ? '…and ' + (sl.length - 15) + ' more.' : '');
+      }
+      return 'I could not find an SKU in that. Name the SKU (as in the SKU list, or its item ID), e.g. <i>Why was 2 in 1 Belt not sent in Mumbai?</i>';
+    }
+    var out = [];
+    skus.forEach(function (s) {
+      var mine = rows.filter(function (r) { return Number(r.item) === Number(s.item) && inWh(r); })
+        .sort(function (a, b) { return String(b.roDate).localeCompare(String(a.roDate)); });
+      var head = '<b>' + esc(skuText(s.sku, s.item)) + '</b>' + (whs.length ? ' · ' + esc(whs.join(', ')) : ' · all warehouses');
+      if (!mine.length) {
+        var why = whs.map(function (w) { return askPlanInfo(w, s.item); }).filter(Boolean).join('<br>');
+        out.push(head + '<br>No RO for it' + (whs.length ? ' there' : '') + ' in the RO Log (last 120 days), so nothing was sent.' + (why ? '<br>' + why : ''));
+        return;
+      }
+      var short = mine.filter(function (r) { return r.shortQty > 0; }), canc = mine.filter(function (r) { return r.status === 'Cancelled'; });
+      var lead = '';
+      if (wantShort) {
+        if (short.length) lead = '<b style="color:var(--bad)">' + fmt(short.reduce(function (a, r) { return a + r.shortQty; }, 0)) + ' not sent</b> on ' + short.length + ' RO' + (short.length > 1 ? 's' : '') + '.' + (short.some(function (r) { return !r.shortNote; }) ? ' Where no reason is noted, add it in the RO Log.' : '');
+        else if (canc.length) lead = 'Not sent because the line was <b>cancelled</b> (see below).';
+        else if (mine.some(function (r) { return (r.status === 'Created' || r.status === 'Planned') && !r.shippedOn; })) lead = 'Not sent <b>yet</b>: the RO is still waiting to be shipped (see dispatch / appointment below).';
+        else lead = 'Everything on its ROs was sent.';
+      }
+      var byWh = {};
+      mine.forEach(function (r) { (byWh[r.wh] = byWh[r.wh] || []).push(r); });
+      var body = Object.keys(byWh).map(function (w) {
+        var info = askPlanInfo(w, s.item);
+        return (Object.keys(byWh).length > 1 || !whs.length ? '<div style="margin-top:6px"><b>' + esc(w) + '</b></div>' : '') +
+          '<ul>' + byWh[w].slice(0, 6).map(function (r) { return '<li>' + askRoLine(r) + '</li>'; }).join('') + '</ul>' + (byWh[w].length > 6 ? '<div class="small muted">…and ' + (byWh[w].length - 6) + ' older ROs.</div>' : '') +
+          (info ? '<div class="small muted">' + info + '</div>' : '');
+      }).join('');
+      out.push(head + (lead ? '<br>' + lead : '') + body);
+    });
+    return out.join('<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">');
   }
 
   /* ======================= Upload Blinkit R.O. PDFs ======================= */

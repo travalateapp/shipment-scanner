@@ -25,7 +25,7 @@ const TAB = {
 const LOG_HEAD = ['RO Key', 'Batch', 'Created At', 'Created By', 'RO Date', 'Warehouse', 'Group', 'Item ID', 'SKU',
   'Item Name', 'Qty', 'Status', 'Appointment Date', 'Blinkit RO No.', 'Source', 'Month Tab', 'Notes', 'Updated At',
   'Updated By', 'Tab Refs', 'Blinkit Created At', 'Merged RO', 'Dispatch Date', 'Delivered On', 'Removed From Tab', 'Dispatch Fixed',
-  'Shipped Qty', 'GRN Base', 'Shipped On', 'Ship Sync Until'];
+  'Shipped Qty', 'GRN Base', 'Shipped On', 'Ship Sync Until', 'Short Note'];
 const L = {}; LOG_HEAD.forEach((h, i) => { L[h] = i; });
 
 // 'TI SKU' = the SKU's name in the Travalate Inventory (TI) app, when it differs from 'SKU' (blank = same as SKU).
@@ -535,7 +535,7 @@ function getDashboard(token) {
 /* ---------------- RO Log ---------------- */
 
 function readLog_() {
-  const sh = sheet_(TAB.LOG);
+  const sh = ensureLog_(); // a newer heading (e.g. Short Note) is added before reading that many columns
   if (sh.getLastRow() < 2) return [];
   const v = sh.getRange(2, 1, sh.getLastRow() - 1, LOG_HEAD.length).getValues();
   return v.map((r, i) => ({
@@ -547,15 +547,21 @@ function readLog_() {
     notes: String(r[L['Notes']]), refs: parseRefs_(r[L['Tab Refs']]), logOnly: String(r[L['Month Tab']]) === LOG_ONLY,
     blinkitAt: r[L['Blinkit Created At']], merged: String(r[L['Merged RO']] == null ? '' : r[L['Merged RO']]),
     dispatch: r[L['Dispatch Date']], deliveredOn: r[L['Delivered On']], removedAt: r[L['Removed From Tab']],
-    dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', updatedAt: r[L['Updated At']],
+    dispatchFixed: String(r[L['Dispatch Fixed']] || '') === 'Yes', updatedAt: r[L['Updated At']], updatedBy: String(r[L['Updated By']] || ''),
     shippedQty: r[L['Shipped Qty']] === '' || r[L['Shipped Qty']] == null ? null : Number(r[L['Shipped Qty']]),
     grnBase: r[L['GRN Base']] === '' || r[L['GRN Base']] == null ? null : Number(r[L['GRN Base']]),
     shippedOn: r[L['Shipped On']], shipSyncUntil: r[L['Ship Sync Until']], // a dispatch day set by hand: used even with an appointment
+    shortNote: String(r[L['Short Note']] == null ? '' : r[L['Short Note']]), // why the not-sent part was not sent
   })).filter(r => r.key);
 }
 
 function parseRefs_(s) {
   try { const v = JSON.parse(String(s || '[]')); return Array.isArray(v) ? v.map(x => mkRef_(x.t, x.c)) : []; } catch (e) { return []; }
+}
+
+/** Units of the RO line the Shipment Manager says were not sent (0 until it has a shipment for it). */
+function shortOf_(r) {
+  return r.shippedOn instanceof Date && r.shippedQty != null && r.status !== 'Cancelled' ? Math.max(0, r.qty - r.shippedQty) : 0;
 }
 
 function publicRo_(r) {
@@ -564,7 +570,7 @@ function publicRo_(r) {
     wh: r.wh, group: r.group, item: r.item, sku: r.sku, name: r.name, qty: r.qty, status: r.status,
     appt: fmtDate_(r.appt), roNo: r.roNo, source: r.source, notes: r.notes, blinkitAt: fmtStamp_(r.blinkitAt), merged: r.merged, dispatch: fmtDate_(r.dispatch), dispatchFixed: !!r.dispatchFixed, updatedAt: fmtStamp_(r.updatedAt),
     shippedQty: r.shippedQty, grnBase: r.grnBase, shippedOn: fmtDate_(r.shippedOn),
-    shortQty: r.shippedOn instanceof Date && r.shippedQty != null && r.status !== 'Cancelled' ? Math.max(0, r.qty - r.shippedQty) : 0,
+    shortQty: shortOf_(r), shortNote: r.shortNote || '', updatedBy: r.updatedBy || '',
     deliveredOn: fmtDate_(r.deliveredOn), removedAt: fmtDate_(r.removedAt),
     tabs: r.logOnly ? LOG_ONLY : r.refs.map(x => x.t + ' (' + x.c + ')').join(', '),
   };
@@ -964,6 +970,15 @@ function updateROLine(token, key, changes) {
     log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[new Date(), u.name || u.id]]);
     r.qty = qty; r.status = status;
     if (changes.notes !== undefined) r.notes = String(changes.notes);
+    if (changes.shortNote !== undefined) {
+      // Why the not-sent part was not sent: kept in the RO Log and shown in the red cell's note in the month tab.
+      r.shortNote = String(changes.shortNote || '').trim().slice(0, 500);
+      log.getRange(r.row, L['Short Note'] + 1).setValue(r.shortNote);
+      const short = shortOf_(r);
+      if (short > 0 && !r.removedAt) {
+        try { markShort_(r, short, r.shippedQty, r.qty); } catch (e) { warnings.push('The note could not be added to the month tab: ' + e.message); }
+      }
+    }
     return { warnings: warnings, rows: [publicRo_(r)], openROs: openROsOf_(all) };
   } finally {
     lock.releaseLock();
@@ -1309,7 +1324,8 @@ function markShort_(r, short, shipped, ordered) {
     const ci = roCols_(sh).indexOf(ref.c), v = tabValues_(sh), b = blockFor_(v, r.wh, r.group);
     if (ci < 0 || !b || b.items[r.item] === undefined) return;
     const cell = sh.getRange(b.items[r.item] + 1, FIRST_RO_COL + ci);
-    if (short > 0) cell.setFontColor('#d00000').setFontWeight('bold').setNote('Shipped ' + shipped + ' of ' + ordered + ' — ' + short + ' not sent (Shipment Manager). Not counted by the planner.');
+    if (short > 0) cell.setFontColor('#d00000').setFontWeight('bold').setNote('Shipped ' + shipped + ' of ' + ordered + ' — ' + short + ' not sent (Shipment Manager). Not counted by the planner.' +
+      (r.shortNote ? '\nWhy: ' + r.shortNote : ''));
     else cell.setFontColor(null).setFontWeight(null).setNote('');
   });
 }
