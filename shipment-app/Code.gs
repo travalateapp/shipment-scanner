@@ -2517,6 +2517,97 @@ function cancelDummyPo(platform, poNumber) {
   } catch (err) { return { success: false, message: err.message }; }
 }
 
+// ════════════════════════════════════════════════════════════════
+//  DUMMY RO INVOICE FOR THE BLINKIT PLANNER (one click, from an RO PDF)
+// ════════════════════════════════════════════════════════════════
+// The Blinkit Planner (a separate Apps Script app) sends an RO PDF's text here
+// and gets back a Dummy RO Invoice, built exactly like the Dummy Order flow in
+// this app: the RO is added as a Dummy Order PO (unless it is already uploaded
+// here), boxes come from packing history (Suggest Boxes, AI or statistical) —
+// items with no packing history are left out — the invoice is made with the next
+// dummy number SI/2026-27/D001, D002, … and the dummy PO is cancelled again. No
+// shipment is saved and nothing touches Inventory.
+//
+// Called through this app's web-app doPost: add this line at the top of doPost
+// (in the Apps Script editor), before its own secret check:
+//   const __p = plannerDummyRoFromPost_(e); if (__p) return __p;
+// The Planner's key is Script Property PLANNER_API_SECRET (same value in the
+// Planner's Settings → Shipment Manager); never in GitHub.
+const DUMMY_RO_PREFIX_ = 'SI/2026-27/D';
+const DUMMY_RO_SEQ_PROP_ = 'DUMMY_RO_INVOICE_SEQ';
+
+/** doPost hook: answers only the Planner's action; returns null for every other request. */
+function plannerDummyRoFromPost_(e) {
+  let body;
+  try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return null; }
+  if (!body || body.action !== 'plannerDummyRoInvoice') return null;
+  const out = plannerDummyRoInvoice_(body);
+  out.from = 'plannerDummyRo'; // tells the Planner this hook answered (not the scanner's own doPost)
+  return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** "Dec 1, 2026" / a date / "2026-12-01" → "2026-12-01" ('' when it can't be read). */
+function dummyRoYmd_(v) {
+  if (!v) return '';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(String(v))) return String(v);
+  const d = v instanceof Date ? v : new Date(String(v).replace(/\./g, ''));
+  return isNaN(d) ? '' : toDateString_(d);
+}
+
+function plannerDummyRoInvoice_(body) {
+  const key = PropertiesService.getScriptProperties().getProperty('PLANNER_API_SECRET');
+  if (!key || String(body.secret || '') !== key) return { success: false, message: 'The Shipment Manager did not accept the Planner\'s key (Script Property PLANNER_API_SECRET).' };
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return { success: false, message: 'The Shipment Manager is busy — try again in a moment.' };
+  try {
+    const rawText = String(body.rawText || '');
+    const parsed = parseBlinkitRoPdf_(rawText);
+    if (!parsed.success) return { success: false, message: parsed.message || 'Could not read the RO PDF.' };
+    const det = parsed.detectedWarehouse || {};
+    const wh = (body.warehouseName && getWarehouseByName_(body.warehouseName)) ? body.warehouseName : (det.matched ? det.name : '');
+    if (!wh) return { success: false, message: 'Could not tell which Blinkit warehouse this RO is for (' + (det.facilityCode || 'no facility line') + '). Add it in the Shipment Manager\'s warehouses first.' };
+    const poNumber = parsed.poNumber;
+    // 1. The RO as a Dummy Order PO — unless it is already uploaded here (then that PO is used as it is).
+    let addedDummy = false;
+    const dup = checkPoAlreadyUploaded_(ensurePoSheet_('blinkit'), poNumber, 'blinkit');
+    if (!dup.duplicate) {
+      const up = uploadBlinkitPo({ rawText: rawText, warehouseName: wh, uploadedBy: 'Blinkit Planner (dummy RO invoice)', isDummy: true });
+      if (!up.success) return { success: false, message: up.message || 'Could not add the RO as a Dummy Order.' };
+      addedDummy = true;
+    }
+    try {
+      // 2. Boxes from packing history ("Suggest Boxes" → apply); items with no history are left out.
+      const sug = getAiSuggestedBoxLayout(poNumber, 'blinkit');
+      if (!sug || !sug.success) return { success: false, message: 'No boxes could be suggested: ' + ((sug && sug.message) || 'no packing history for these items.') };
+      const boxes = (sug.boxes || []).filter(b => (b.items || []).some(it => Number(it.qty) > 0));
+      if (!boxes.length) return { success: false, message: 'None of this RO\'s items has packing history, so no box could be made.' };
+      // 3. The Dummy RO Invoice with the next dummy number (only used up when the invoice is made).
+      const props = PropertiesService.getScriptProperties();
+      const n = (Number(props.getProperty(DUMMY_RO_SEQ_PROP_)) || 0) + 1;
+      const invNo = DUMMY_RO_PREFIX_ + String(n).padStart(3, '0');
+      const today = toDateString_(new Date());
+      const res = createDummyRoInvoice_impl_({
+        platform: 'blinkit', boxes: boxes, city: wh, poNumber: poNumber, roNumber: poNumber,
+        roInvoiceNumber: invNo, invoiceDate: today, deliveryDate: dummyRoYmd_(parsed.expiryDate) || today
+      });
+      if (!res.success) return res;
+      props.setProperty(DUMMY_RO_SEQ_PROP_, String(n));
+      res.warehouse = wh;
+      res.boxCount = boxes.length;
+      res.leftOut = (sug.unassigned || []).map(u => ({ sku: u.sku || u.itemCode || '', qty: u.qty || 0 }));
+      res.aiUsed = !!sug.aiUsed;
+      return res;
+    } finally {
+      // 4. The dummy PO goes again (a PO that was already here is left alone).
+      if (addedDummy) { try { cancelDummyPo('blinkit', poNumber); } catch (e) { /* stays as a cancelled-able dummy PO */ } }
+    }
+  } catch (err) {
+    return { success: false, message: err.message };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /** Lightweight fetch of just the E-way Bill Number and Delivery
  *  Partner for an already-created RO Invoice — used to pre-fill the
  *  "Edit E-way Bill / Delivery Partner" modal from the shipments list,

@@ -7,6 +7,8 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 :root{--bg:#f4f6fa;--card:#fff;--ink:#1a2233;--muted:#64748b;--line:#e2e8f0;--brand:#0f3460;--brand2:#16213e;--accent:#f8cb2e;
 --ok:#15803d;--okbg:#dcfce7;--warn:#a16207;--warnbg:#fef9c3;--bad:#b91c1c;--badbg:#fee2e2;--info:#1d4ed8;--infobg:#dbeafe;--chip:#eef2f7}
@@ -698,7 +700,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 send-confirmed-only';
+  var PAGE_BUILD = '2026-11-26 dummy-ro-invoice';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -828,7 +830,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * clicked twice meanwhile. (Background saves such as the Dashboard copy of the plan do not.)
    */
   var SAVES = { login: 'Logging in…', changePin: 1, createROs: 1, updateROLine: 1, updateBatch: 1, importPdfRO: 1, saveSettings: 1, saveSkus: 1,
-    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', compactMonthTabs: 'Tidying the month tabs…', saveTiLink: 1, saveShipLink: 'Checking the Shipment Manager…', syncShipments: 0, setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
+    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', compactMonthTabs: 'Tidying the month tabs…', saveTiLink: 1, saveShipLink: 'Checking the Shipment Manager…', saveSmApi: 'Checking the Shipment Manager…', syncShipments: 0, setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
   var busyN = 0;
   function busy(on, text) {
     busyN = Math.max(0, busyN + (on ? 1 : -1));
@@ -2726,6 +2728,273 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     return out.join('<hr style="border:0;border-top:1px solid var(--line);margin:8px 0">');
   }
 
+  /** Each chosen RO PDF → text → the Shipment Manager makes the Dummy RO Invoice → the PDF downloads here. */
+  function makeDummyInvoices(files) {
+    var out = $('dummyOut'); if (!out || !files.length) return;
+    out.innerHTML = '';
+    files.reduce(function (p, f) {
+      return p.then(function () {
+        var row = document.createElement('div'); row.className = 'msg info'; row.style.marginTop = '8px';
+        row.innerHTML = '<span class="spin"></span> ' + esc(f.name) + ': reading the PDF…'; out.appendChild(row);
+        return f.arrayBuffer().then(extractPdfText).then(function (text) {
+          row.innerHTML = '<span class="spin"></span> ' + esc(f.name) + ': the Shipment Manager is making the dummy invoice (boxes from packing history)…';
+          return apiCall('dummyRoInvoice', [S.token, text]);
+        }).then(function (r) {
+          row.innerHTML = '<span class="spin"></span> ' + esc(f.name) + ': making the PDF…';
+          return RoInvoice.pdfBlob(r.invoice).then(function (blob) {
+            var inv = r.invoice, name = 'Invoice-' + String(inv.roInvoiceNumber || 'dummy').replace(/[^\w-]+/g, '-') + '-RO' + (inv.roNumber || '') + '.pdf';
+            saveBlob(blob, name);
+            row.className = 'msg ok';
+            row.innerHTML = '✅ <b>' + esc(inv.roInvoiceNumber) + '</b> · RO ' + esc(inv.roNumber) + ' · ' + esc(r.warehouse) + ' · ' + fmt(inv.totalQuantity) + ' units in ' + r.boxCount + ' box(es) · downloaded as ' + esc(name) +
+              (r.leftOut && r.leftOut.length ? '<br><span style="color:var(--warn)">Left out (no packing history): ' + esc(r.leftOut.map(function (u) { return u.sku + ' × ' + u.qty; }).join(', ')) + '</span>' : '');
+          });
+        }).catch(function (e) {
+          row.className = 'msg bad'; row.innerHTML = '❌ ' + esc(f.name) + ': ' + esc(e.message || String(e));
+        });
+      });
+    }, Promise.resolve());
+  }
+
+  /* ======================= RO Invoice PDF (layout copied from the Shipment Manager) ======================= */
+  /**
+   * The Shipment Manager's RO Invoice layout, copied unchanged (buildRoInvoiceHtml_ and its helpers, the styles), so
+   * a Dummy RO Invoice made from the Planner looks exactly like one made there. pdfBlob(invoice) renders each A4 page
+   * with html2canvas into one jsPDF document.
+   */
+  var RoInvoice = (function () {
+function buildRoInvoiceHtml_(invoice, shipment) {
+  const fmt = n => (Math.round((Number(n)||0) * 100) / 100).toFixed(2);
+
+  const s = invoice.settings;
+  const headerBlockHtml = `
+    <div class="ro-header-grid">
+      <div class="ro-header-cell">
+        <div><strong>Seller Name -</strong> ${s.sellerName||''}</div>
+        <div><strong>Seller Shipping GST-</strong> ${s.sellerGst||''}</div>
+        <div><strong>Seller Shipping Address -</strong> ${s.sellerAddress||''}</div>
+        <div style="margin-top:10px"><strong>Consignee Details:</strong></div>
+        <div><strong>Consignee Name :</strong> ${s.consigneeName||''}</div>
+        <div><strong>Consignee GST of receiving warehouse :</strong> ${s.consigneeGst||''}</div>
+        <div><strong>Consignee Address:</strong> ${s.consigneeAddress||''}</div>
+        <div style="margin-top:10px"><strong>Billed To</strong></div>
+        <div>${s.billedToName||''}</div>
+        <div>${s.billedToAddress||''}</div>
+      </div>
+      <div class="ro-header-cell">
+        <div><strong>RO Number :</strong> ${invoice.roNumber}</div>
+        <div><strong>Invoice Number :</strong> ${invoice.roInvoiceNumber}</div>
+        <div><strong>Invoice Date (DD-MM-YYYY) :</strong> ${formatDDMMYYYY_(invoice.invoiceDate)}</div>
+        <div style="margin-top:10px"><strong>Delivery Date (DD-MM-YYYY) :</strong> ${formatDDMMYYYY_(invoice.deliveryDate)}</div>
+        <div><strong>Total Quantity :</strong> ${invoice.totalQuantity}</div>
+        <div><strong>Item Count :</strong> ${invoice.itemCount}</div>
+        <div style="margin-top:10px"><strong>SHIPMENT DETAILS (Optional)</strong></div>
+        <div><strong>E-way Bill Number:</strong> ${invoice.ewayBillNumber}</div>
+        <div><strong>Delivery Partner:</strong> ${invoice.deliveryPartner}</div>
+      </div>
+    </div>`;
+
+  // -- Pagination ----------------------------------------------
+  // Rows per page tuned to fit comfortably on A4 alongside the header
+  // (page 1 only) and the totals/declaration block (last page only)  - 
+  // multi-page output is fine; what matters is the totals/declaration
+  // section is NEVER cut off or split apart from itself.
+  const ROWS_PER_PAGE_WITH_HEADER = 11; // page 1 also carries the header block
+  const ROWS_PER_PAGE_PLAIN       = 17; // subsequent pages, table only
+
+  const allRowsHtml = invoice.rows.map(r => `
+    <tr>
+      <td>${r.blinkitItemId}</td>
+      <td style="text-align:left">${r.description}</td>
+      <td>${r.upc}</td>
+      <td>${r.hsn}</td>
+      <td>₹${fmt(r.mrp)}</td>
+      <td>${r.box}</td>
+      <td>${r.unitsInBox}</td>
+      <td>${r.totalUnits}</td>
+      <td>${r.gstRatePct}%</td>
+      <td>₹${fmt(r.landingPrice)}</td>
+      <td>₹${fmt(r.totalAmtInr)}</td>
+    </tr>`);
+
+  const tableHead = `<thead><tr>
+        <th>Blinkit Item ID</th><th>Description of Goods/Services</th><th>UPC</th><th>HSN No</th>
+        <th>MRP</th><th>Box</th><th>Units in Box</th><th>Total Units</th>
+        <th>GST Rate</th><th>Landing Price</th><th>Total Amt INR<br>(Landing price x Total units)</th>
+      </tr></thead>`;
+
+  // Intra-state (Rajasthan → Rajasthan) shipments split tax into CGST +
+  // SGST instead of a single IGST line  -  server already computed both
+  // via buildRoInvoiceRows_, so this just picks which to display.
+  const taxRowsHtml = invoice.taxType === 'CGST_SGST'
+    ? `<tr><td>CGST</td><td>₹${fmt(invoice.totals.cgst)}</td></tr>
+       <tr><td>SGST</td><td>₹${fmt(invoice.totals.sgst)}</td></tr>`
+    : `<tr><td>IGST</td><td>₹${fmt(invoice.totals.igst)}</td></tr>`;
+
+  const totalsBlockHtml = `
+    <table class="ro-table" style="border-top:none">
+      <tfoot>
+        <tr class="ro-total-row">
+          <td colspan="5" style="text-align:center">Total</td>
+          <td>${invoice.totals.box}</td>
+          <td></td>
+          <td>${invoice.totals.totalUnits}</td>
+          <td colspan="3"></td>
+        </tr>
+      </tfoot>
+    </table>
+    <div class="ro-bottom-grid">
+      <div class="ro-amount-words">
+        <strong>Amount in Words</strong> Rs. ${numberToWords_(Math.round(invoice.totals.total))}
+        <div class="ro-declaration"><strong>Declaration:</strong> We declare that this invoice shows the actual price of the goods described and that all particulars are true and correct.</div>
+      </div>
+      <table class="ro-totals-table">
+        <tr><td>Gross Total</td><td>₹${fmt(invoice.totals.grossTotal)}</td></tr>
+        ${taxRowsHtml}
+        <tr><td>Round off</td><td>₹${fmt(invoice.totals.roundOff)}</td></tr>
+        <tr class="ro-total-row"><td>Total</td><td>₹${fmt(invoice.totals.total)}</td></tr>
+      </table>
+    </div>`;
+
+  // Chunk the rows across as many pages as needed.
+  const chunks = [];
+  let i = 0;
+  let firstPage = true;
+  while (i < allRowsHtml.length || chunks.length === 0) {
+    const size = firstPage ? ROWS_PER_PAGE_WITH_HEADER : ROWS_PER_PAGE_PLAIN;
+    chunks.push(allRowsHtml.slice(i, i + size));
+    i += size;
+    firstPage = false;
+  }
+
+  // If the totals block won't comfortably fit after the last chunk of
+  // rows, give it a page of its own instead of risking a tight squeeze  - 
+  // simplest safe rule: only share a page with row data if that last
+  // chunk has room to spare (fewer than the plain-page row limit).
+  const lastChunk = chunks[chunks.length - 1];
+  const totalsNeedsOwnPage = lastChunk.length >= ROWS_PER_PAGE_PLAIN;
+  if (totalsNeedsOwnPage) chunks.push([]);
+
+  const pages = chunks.map((chunkRows, pageIdx) => {
+    const isFirst = pageIdx === 0;
+    const isLast = pageIdx === chunks.length - 1;
+    const headerHtml = isFirst ? headerBlockHtml : '';
+    const tableHtml = `<table class="ro-table">${tableHead}<tbody>${chunkRows.join('')}</tbody></table>`;
+    const totalsHtml = isLast ? totalsBlockHtml : '';
+    return `<div class="ro-page">
+      ${isFirst ? '<div class="ro-title">TAX INVOICE</div>' : `<div class="ro-page-cont">TAX INVOICE  -  Page ${pageIdx + 1} (continued)</div>`}
+      ${headerHtml}
+      ${tableHtml}
+      ${totalsHtml}
+    </div>`;
+  });
+
+  return pages;
+}
+
+/** HTML-attribute-safe escaping for values interpolated into
+ *  `<td>`/`<option value="...">`/onclick-string-literal template
+ *  contexts throughout this file (cancelled-invoice rows, the Live
+ *  Inventory Snapshot table, the QZ Tray printer dropdown, etc.) — was
+ *  called in 9 places but never actually defined anywhere in this
+ *  file, which silently broke all of them (ReferenceError, caught by
+ *  whichever try/catch or .catch() happened to wrap that call site —
+ *  e.g. it's what made a successful QZ Tray connection still show as
+ *  "QZ Tray not connected", since populating the printer <select> is
+ *  what actually threw). */
+function escAttr_(val) {
+  return String(val == null ? '' : val)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function formatDDMMYYYY_(isoDate) {
+  if (!isoDate) return '';
+  const d = new Date(isoDate + 'T00:00:00');
+  if (isNaN(d.getTime())) return isoDate;
+  const dd = String(d.getDate()).padStart(2,'0');
+  const mm = String(d.getMonth()+1).padStart(2,'0');
+  return dd + '-' + mm + '-' + d.getFullYear();
+}
+
+/** Minimal Indian-numbering amount-in-words, e.g. 19960 -> "Nineteen
+ *  Thousand Nine Hundred Sixty Only". Good enough for an invoice
+ *  declaration line; not meant to handle paise/decimals. */
+function numberToWords_(num) {
+  if (!num || num <= 0) return 'Zero Only';
+  const ones = ['','One','Two','Three','Four','Five','Six','Seven','Eight','Nine','Ten',
+    'Eleven','Twelve','Thirteen','Fourteen','Fifteen','Sixteen','Seventeen','Eighteen','Nineteen'];
+  const tens = ['','','Twenty','Thirty','Forty','Fifty','Sixty','Seventy','Eighty','Ninety'];
+  function twoDigit(n) {
+    if (n < 20) return ones[n];
+    return tens[Math.floor(n/10)] + (n%10 ? ' ' + ones[n%10] : '');
+  }
+  function threeDigit(n) {
+    if (n < 100) return twoDigit(n);
+    return ones[Math.floor(n/100)] + ' Hundred' + (n%100 ? ' ' + twoDigit(n%100) : '');
+  }
+  let n = Math.floor(num);
+  const crore = Math.floor(n / 10000000); n %= 10000000;
+  const lakh = Math.floor(n / 100000); n %= 100000;
+  const thousand = Math.floor(n / 1000); n %= 1000;
+  const rest = n;
+  let parts = [];
+  if (crore) parts.push(threeDigit(crore) + ' Crore');
+  if (lakh) parts.push(threeDigit(lakh) + ' Lakh');
+  if (thousand) parts.push(threeDigit(thousand) + ' Thousand');
+  if (rest) parts.push(threeDigit(rest));
+  return (parts.join(' ') || 'Zero') + ' Only';
+}
+
+function getRoInvoiceStyles_() {
+  return `
+  .ro-page{width:8in;padding:0.3in;font-family:Arial,sans-serif;font-size:10.5pt;background:#fff;border:2px solid #000;margin-bottom:14px}
+  .ro-title{text-align:center;font-size:26pt;font-weight:700;border-bottom:2px solid #000;padding-bottom:10px;margin-bottom:10px}
+  .ro-page-cont{text-align:center;font-size:13pt;font-weight:700;border-bottom:2px solid #000;padding-bottom:8px;margin-bottom:10px;color:#444}
+  .ro-header-grid{display:grid;grid-template-columns:1fr 1fr;border:1.5px solid #000;margin-bottom:0}
+  .ro-header-cell{padding:8px 12px;font-size:9.5pt;line-height:1.6;border-right:1.5px solid #000}
+  .ro-header-cell:last-child{border-right:none}
+  .ro-table{width:100%;border-collapse:collapse;border:1.5px solid #000;font-size:8.5pt}
+  .ro-table th{background:#f1f5f9;border:1px solid #000;padding:5px 4px;font-weight:700}
+  .ro-table td{border:1px solid #000;padding:4px;text-align:center}
+  .ro-total-row td{font-weight:700;background:#f8fafc}
+  .ro-bottom-grid{display:grid;grid-template-columns:1.6fr 1fr;border:1.5px solid #000;border-top:none}
+  .ro-amount-words{padding:8px 12px;font-size:9pt;border-right:1.5px solid #000}
+  .ro-declaration{margin-top:14px;font-size:8pt;color:#444}
+  .ro-totals-table{width:100%;border-collapse:collapse;font-size:9.5pt}
+  .ro-totals-table td{border:1px solid #000;padding:5px 10px}
+  .ro-totals-table td:first-child{font-weight:700}
+  `;
+}
+
+    function pdfBlob(invoice) {
+      return new Promise(function (resolve, reject) {
+        if (typeof html2canvas === 'undefined' || !window.jspdf) { reject(new Error('The PDF tools did not load (no internet?). Reload the page.')); return; }
+        var stage = document.createElement('div');
+        stage.style.cssText = 'position:fixed;left:-99999px;top:0;z-index:-1;background:#fff';
+        document.body.appendChild(stage);
+        stage.innerHTML = '<style>' + getRoInvoiceStyles_() + '</style>' + buildRoInvoiceHtml_(invoice, {}).join('');
+        var pages = Array.prototype.slice.call(stage.querySelectorAll('.ro-page'));
+        if (!pages.length) { stage.remove(); reject(new Error('Could not lay out the RO Invoice.')); return; }
+        var pdf = new window.jspdf.jsPDF({ unit: 'in', format: 'a4', orientation: 'portrait' }), W = 8.27, H = 11.69, i = 0;
+        (function next() {
+          if (i >= pages.length) { stage.remove(); resolve(pdf.output('blob')); return; }
+          var el = pages[i];
+          html2canvas(el, { scale: 2, backgroundColor: '#ffffff', useCORS: true, windowWidth: el.scrollWidth, windowHeight: el.scrollHeight }).then(function (canvas) {
+            if (i > 0) pdf.addPage('a4', 'portrait');
+            var w = W, h = (canvas.height / canvas.width) * W;
+            if (h > H) { w *= H / h; h = H; }
+            pdf.addImage(canvas.toDataURL('image/jpeg', 0.95), 'JPEG', (W - w) / 2, 0, w, h);
+            i++; next();
+          }, function (e) { stage.remove(); reject(e); });
+        })();
+      });
+    }
+    return { pdfBlob: pdfBlob };
+  })();
+
   /* ======================= Upload Blinkit R.O. PDFs ======================= */
   /** PDF text the way the Shipment Manager's extractPdfText_ builds it (text items grouped into lines by y). */
   function extractPdfText(buf) {
@@ -2837,6 +3106,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="pdfIn"><b>Choose R.O. PDFs</b><span class="small muted">one or more</span></label>' +
       '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="pdfLogOnly"' + (S.pdfLogOnly ? ' checked' : '') + '> <b>Log only</b> — these ROs are already typed into the month tab by hand (don\'t write them there again)</label>' +
       '<div style="margin:10px 0"><button class="btn g hidden" id="pdfAll">Save all</button></div><div id="pdfList"></div></div>' +
+      '<div class="card"><h2>🧾 Dummy RO Invoice</h2><div class="small muted">Pick a Blinkit R.O. PDF: the Shipment Manager adds it as a Dummy Order, packs boxes from its packing history (items without history are left out), makes the RO Invoice with the next dummy number (<b>SI/2026-27/D001</b>, D002, …; invoice date today, delivery date = the RO\'s expiry) and cancels the dummy order again. Only the invoice PDF downloads here; nothing is saved in the RO Log.</div>' +
+        '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="dummyIn"><b>Choose R.O. PDF(s) → Dummy RO Invoice</b><span class="small muted">one invoice per RO</span></label><div id="dummyOut"></div></div>' +
       '<details class="card"><summary style="cursor:pointer;font-weight:700">Add an RO by hand instead</summary><div style="margin-top:10px">' +
       '<div class="small muted">It goes into the RO Log and the month tab like the planner\'s ROs. Items of different groups (' + groupList().join(' / ') + ') split into one RO per group automatically.</div>' +
       '<div class="row" style="margin-top:10px">' +
@@ -2851,6 +3122,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div id="mOut"></div><div style="margin-top:12px"><button class="btn g" id="mSave">Save RO</button></div></div></details>';
     if (typeof pdfjsLib === 'undefined') $('pdfList').innerHTML = msgs(['The PDF reader did not load (no internet?). Reload the page.'], 'bad');
     $('pdfIn').onchange = function () { addPdfFiles(this.files); this.value = ''; };
+    $('dummyIn').onchange = function () { makeDummyInvoices(Array.prototype.slice.call(this.files)); this.value = ''; };
     $('pdfLogOnly').onchange = function () { S.pdfLogOnly = this.checked; drawPdfs(); };
     $('pdfAll').onclick = function () {
       var idx = S.pdfs.map(function (e, i) { return e.state === 'ready' && e.d.wh ? i : -1; }).filter(function (i) { return i >= 0; });
@@ -3472,7 +3744,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         'Paste the Shipment Manager\'s Google Sheet link; the Google account the planner runs as must be able to open it.</div>' +
         '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager sheet link <a href="#" class="showLink" data-for="shUrl">Show</a></label><input type="password" id="shUrl" placeholder="Loading…" autocomplete="off"></div>' +
         '<div style="flex:0 0 auto"><button class="btn p" id="shSave">Save &amp; test</button></div><div style="flex:0 0 auto"><button class="btn" id="shSync" title="Take shipment dates and shipped quantities now">Sync now</button></div></div>' +
-        '<div class="small muted" style="margin-top:6px">Every 30 minutes (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div></details>' +
+        '<div class="small muted" style="margin-top:6px">Every 30 minutes (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div>' +
+        // Dummy RO Invoice: the Planner asks the Shipment Manager's web app with a private key.
+        '<h3 style="margin-top:14px">Dummy RO Invoice (RO PDF tab)</h3><div class="small muted">The Shipment Manager makes the invoice. One-time setup: (1) in the Shipment Manager\'s Apps Script, open the file with <code>function doPost(e)</code> and add this as its first line: <code>const __p = plannerDummyRoFromPost_(e); if (__p) return __p;</code> then Deploy → Manage deployments → Edit → New version; (2) make a key (🎲) and put the same key in the Shipment Manager\'s Project Settings → Script Properties as <code>PLANNER_API_SECRET</code>; (3) paste its web-app link (/exec) here and Save &amp; test.</div>' +
+        '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager web-app link (/exec) <a href="#" class="showLink" data-for="smApiUrl">Show</a></label><input type="password" id="smApiUrl" placeholder="Loading…" autocomplete="off"></div>' +
+        '<div style="flex:2 1 200px"><label class="f">Planner key <a href="#" class="showLink" data-for="smApiKey">Show</a> · <a href="#" id="smKeyNew">🎲 New key</a></label><input type="password" id="smApiKey" autocomplete="off" placeholder="…"></div>' +
+        '<div style="flex:0 0 auto"><button class="btn p" id="smApiSave">Save &amp; test</button></div></div><div id="smApiOut"></div></details>' +
       '<div class="card"><h2>Month tabs</h2><div class="small muted">Newest month tabs: ' + esc((S.boot.months || []).join(', ')) + '.<br>' +
       '<b>Start new month</b> creates the tab (copy of the newest month, columns D–H emptied, columns I onwards kept as they are) if it does not exist yet, then copies in open ROs from the last ' + s.carryDays + ' days of the old month. ' +
       'If you create the tab yourself, this only does the copying-in.</div>' +
@@ -3487,6 +3764,21 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     api('getTiLink', S.token).then(function (t) {
       $('tiUrl').value = t.url; $('tiSec').placeholder = t.hasSecret ? 'saved — leave empty to keep it' : 'not set yet';
     }, function (e) { $('tiOut').innerHTML = msgs([e.message], 'bad'); });
+    api('getSmApi', S.token).then(function (t) { $('smApiUrl').value = t.url; $('smApiUrl').placeholder = 'https://script.google.com/macros/s/…/exec'; $('smApiKey').placeholder = t.hasKey ? 'saved — leave empty to keep it' : 'make one with 🎲'; }, function () {});
+    $('smKeyNew').onclick = function (e) {
+      e.preventDefault();
+      var a = new Uint8Array(18); (window.crypto || window.msCrypto).getRandomValues(a);
+      var k = Array.prototype.map.call(a, function (b) { return 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789'[b % 57]; }).join('');
+      $('smApiKey').value = k; $('smApiKey').type = 'text';
+      $('smApiOut').innerHTML = msgs(['New key made. Copy it into the Shipment Manager\'s Script Properties as PLANNER_API_SECRET, then Save & test here. It is not shown again after saving.'], 'info');
+    };
+    $('smApiSave').onclick = function () {
+      $('smApiOut').innerHTML = '';
+      api('saveSmApi', S.token, $('smApiUrl').value.trim(), $('smApiKey').value.trim()).then(function () {
+        $('smApiKey').value = ''; $('smApiKey').type = 'password'; $('smApiKey').placeholder = 'saved — leave empty to keep it';
+        $('smApiOut').innerHTML = msgs(['✅ The Shipment Manager answers: Dummy RO Invoices can be made from the RO PDF tab.'], 'ok');
+      }, function (e) { $('smApiOut').innerHTML = msgs([e.message], 'bad'); });
+    };
     api('getShipLink', S.token).then(function (t) { $('shUrl').value = t.url; $('shUrl').placeholder = 'https://docs.google.com/spreadsheets/d/…'; }, function (e) { $('shOut').innerHTML = msgs([e.message], 'bad'); });
     $('shSync').onclick = function () {
       busy(true, 'Syncing with the Shipment Manager…');
