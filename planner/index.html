@@ -700,10 +700,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 chips-suggested';
+  var PAGE_BUILD = '2026-11-26 show-all-items';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
-    plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
+    plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
   // New Plan sort picked by clicking a heading ({key, dir}); kept on this device, the same for every block.
   try { S.lineSort = JSON.parse(load('bp_line_sort') || 'null'); } catch (e) { S.lineSort = null; }
 
@@ -1097,7 +1097,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     store(DRAFT_FILES, null); store(DRAFT_STATE, null);
     S.inv = null; S.invBuf = null; S.invTried = false; S.invErr = ''; S.bulk = null; S.bulkBuf = null; S.bulkAt = null; S.bulkName = '';
     S.plan = null; S.final = {}; S.edited = {}; S.confirmed = {}; S.cover = null; S.starters = !!S.boot.settings.starters;
-    S.filter = { whs: [], group: '', only: true, q: '', picks: [] };
+    S.filter = { whs: [], group: '', only: false, q: '', picks: [] };
   }
   /** Puts back the uploaded files, typed quantities and filters saved before the page was refreshed. */
   function restoreDraft() {
@@ -1111,7 +1111,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (st && st.user === draftUser()) {
       S.edited = st.edited || {};
       S.confirmed = st.confirmed || {};
-      if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; S.filter.whs = S.filter.whs || (S.filter.wh ? [S.filter.wh] : []); delete S.filter.wh; }
+      if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; S.filter.whs = S.filter.whs || (S.filter.wh ? [S.filter.wh] : []); delete S.filter.wh; if (!S.filter.onlyChosen) S.filter.only = false; }
       if (st.cover) S.cover = st.cover;
       if (st.starters != null) S.starters = st.starters;
     }
@@ -1368,7 +1368,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         fmt(S.filter.whs.reduce(function (a, w) { return a + (c.byWh[w] ? c.byWh[w].units : 0); }, 0)) + '</span> units — click more to add, click a ticked one to remove, <b>All</b> to clear.</div>' : '<div class="small muted" style="margin-top:4px">Click warehouses to pick one or more.</div>') +
       '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Group</label><select id="fGroup"><option value="">' + esc(groupList().join(' + ')) + '</option>' + groupList().map(function (g) { return '<option value="' + g + '"' + (S.filter.group === g ? ' selected' : '') + '>' + esc(groupName(g)) + '</option>'; }).join('') + '<option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
-      '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (!S.filter.only && !S.filter.startersOnly ? ' selected' : '') + '>All items</option>' +
+      '<div><label class="f">Show</label><select id="fOnly"><option value="0">All items</option><option value="1"' + (S.filter.only && !S.filter.startersOnly ? ' selected' : '') + '>Lines to send (+ locked)</option>' +
         '<option value="s"' + (S.filter.startersOnly ? ' selected' : '') + '>New-listing starters only</option></select></div>' +
       '<div class="srch"><label class="f">Search — pick one or more SKUs</label><input type="text" id="fQ" autocomplete="off" placeholder="SKU or item ID, Enter to add" value="' + esc(S.filter.q) + '"><div class="sugg hidden" id="fSugg"></div></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bClr" title="Clear all filters">✕ Clear</button></div>' +
@@ -1393,9 +1393,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       renderPlanOut();
     };
     $('fGroup').onchange = function () { S.filter.group = this.value; renderLines(); };
-    $('fOnly').onchange = function () { S.filter.only = this.value === '1'; S.filter.startersOnly = this.value === 's'; renderPlanOut(); };
+    $('fOnly').onchange = function () { S.filter.only = this.value === '1'; S.filter.onlyChosen = true; S.filter.startersOnly = this.value === 's'; renderPlanOut(); };
     initSkuPicker();
-    $('bClr').onclick = function () { S.filter = { whs: [], group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
+    $('bClr').onclick = function () { S.filter = { whs: [], group: '', only: false, q: '', picks: [] }; renderPlanOut(); };
     $('bXls').onclick = exportPlan;
     renderPicks();
     if ($('tiRe')) $('tiRe').onclick = function (e) { e.preventDefault(); S.ti = null; renderPlanOut(); loadTi(true); };
