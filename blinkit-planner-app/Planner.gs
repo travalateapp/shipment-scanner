@@ -451,7 +451,7 @@ function compactMonthTabs_() {
   monthTabs_().filter(x => keys.indexOf(x.key) >= 0).forEach(x => {
     const r = compactTab_(x.sheet);
     try { r.rowsFixed = repairItemRows_(x.sheet); } catch (e) { r.rowsFixed = 0; }
-    if (r.moved || r.deleted || r.rowsFixed) out[x.name] = r;
+    if (r.moved || r.deleted || r.rowsFixed || r.cleaned) out[x.name] = r;
   });
   return out;
 }
@@ -461,7 +461,8 @@ function compactTab_(sh) {
   delete TABV_[name]; delete RO_N_[name];
   const n = roColCount_(sh), v = readBlockValues_(sh);
   const filled = x => x !== '' && x !== null && x !== undefined;
-  // Every warehouse block and, per block, which RO columns are used (a heading or any quantity).
+  const all = readLog_();
+  // Every warehouse block and, per block, which RO columns hold an RO (any quantity; a heading alone is left over).
   const blocks = [];
   v.forEach((row, i) => {
     const a = typeof row[0] === 'string' ? row[0].trim() : '', m = a.match(BLOCK_RE);
@@ -469,35 +470,80 @@ function compactTab_(sh) {
     const b = findBlock_(v, m[1].trim(), m[2]);
     if (!b || b.start !== i) return;
     b.wh = m[1].trim(); b.group = m[2];
-    b.rows = [b.headRow].concat(Object.keys(b.items).map(it => b.items[it])).filter((x, k, arr) => arr.indexOf(x) === k).sort((p, q) => p - q);
+    b.itemRows = Object.keys(b.items).map(it => b.items[it]).filter((x, k, arr) => arr.indexOf(x) === k).sort((p, q) => p - q);
+    b.rows = [b.headRow].concat(b.itemRows.filter(x => x !== b.headRow)).sort((p, q) => p - q);
     b.used = [];
-    for (let k = 0; k < n; k++) b.used.push(b.rows.some(rr => filled(v[rr][FIRST_RO_COL - 1 + k])));
+    for (let k = 0; k < n; k++) b.used.push(b.itemRows.some(rr => filled(v[rr][FIRST_RO_COL - 1 + k])));
     blocks.push(b);
   });
-  // 1. Move used columns left within each block.
-  const remap = []; // { block, from: letter, to: letter }
+  // When each RO column's RO was made: its RO Log lines' RO date (then when they were saved); else the date in its
+  // heading ("RO 21 NOV"); else it keeps its place after the dated ones.
+  const when = {};
+  const live = r => r.status !== 'Cancelled' && !r.removedAt; // lines whose quantities are in the tab
+  all.forEach(r => r.refs.forEach(ref => {
+    if (ref.t !== name || !(r.roDate instanceof Date) || !live(r)) return;
+    const b = blockFor_(v, r.wh, r.group); if (!b) return;
+    const k = b.start + '|' + ref.c, d = r.roDate.getTime(), c = r.createdAt instanceof Date ? r.createdAt.getTime() : 0;
+    if (!when[k] || d < when[k].d || (d === when[k].d && c < when[k].c)) when[k] = { d: d, c: c };
+  }));
+  const tabKey = (monthTabs_().filter(x => x.name === name)[0] || {}).key;
+  const headDate = label => {
+    const m = String(label || '').match(/^\s*RO\s+(\d{1,2})\s+([A-Za-z]{3})/i); if (!m) return null;
+    const mi = MONTHS.findIndex(x => x.slice(0, 3).toLowerCase() === m[2].toLowerCase()); if (mi < 0) return null;
+    let y = tabKey ? Math.floor(tabKey / 12) : new Date().getFullYear();
+    if (tabKey && mi > tabKey % 12 + 1) y--; // e.g. a December RO carried into the January tab
+    return new Date(y, mi, Number(m[1])).getTime();
+  };
+  const temp = [];   // the RO columns being re-placed are parked here (same rows) while their block is rewritten
+  let tempSh = null;
+  const remap = []; // { b: block, from: letter, to: letter }
   let moved = 0;
   blocks.forEach(b => {
-    let free = 0;
-    for (let k = 0; k < n; k++) {
-      if (!b.used[k]) continue;
-      if (k !== free) {
-        // Consecutive rows of the block's heading + item rows are copied in runs, then the old cells are cleared.
-        runsOf_(b.rows).forEach(run => {
-          const src = sh.getRange(run[0] + 1, FIRST_RO_COL + k, run.length, 1), dst = sh.getRange(run[0] + 1, FIRST_RO_COL + free, run.length, 1);
-          src.copyTo(dst);
-          src.clearContent(); src.clearNote(); src.setFontColor(null).setFontWeight(null);
-        });
-        remap.push({ b: b, from: colLetter_(FIRST_RO_COL + k), to: colLetter_(FIRST_RO_COL + free) });
-        b.used[free] = true; b.used[k] = false; moved++;
-      }
-      free++;
+    const usedCols = [];
+    for (let k = 0; k < n; k++) if (b.used[k]) usedCols.push(k);
+    const key = k => {
+      const w = when[b.start + '|' + colLetter_(FIRST_RO_COL + k)];
+      if (w) return [w.d, w.c, k];
+      const hd = headDate(v[b.headRow][FIRST_RO_COL - 1 + k]);
+      return [hd == null ? Infinity : hd, 0, k];
+    };
+    const order = usedCols.slice().sort((p, q) => { const a = key(p), c = key(q); return a[0] - c[0] || a[1] - c[1] || a[2] - c[2]; });
+    const inPlace = order.every((k, p) => k === p);
+    // Leftovers: a heading (or note / colour) in a column with no quantities in this block.
+    const leftovers = [];
+    for (let k = order.length; k < n; k++) if (filled(v[b.headRow][FIRST_RO_COL - 1 + k])) leftovers.push(k);
+    if (inPlace && !leftovers.length) return;
+    if (!inPlace) {
+      if (!tempSh) tempSh = tempSheet_();
+      const runs = runsOf_(b.rows);
+      // 1. Park every RO column of the block (values, formats, notes) in the temp sheet, in the new order.
+      order.forEach((k, p) => runs.forEach(run => {
+        sh.getRange(run[0] + 1, FIRST_RO_COL + k, run.length, 1).copyTo(tempSh.getRange(run[0] + 1, p + 1, run.length, 1));
+        const notes = sh.getRange(run[0] + 1, FIRST_RO_COL + k, run.length, 1).getNotes();
+        tempSh.getRange(run[0] + 1, p + 1, run.length, 1).setNotes(notes);
+      }));
+      // 2. Empty the block's RO cells, 3. bring them back left to right: earliest RO first.
+      clearRoCells_(sh, b, 0, n);
+      order.forEach((k, p) => runs.forEach(run => {
+        const src = tempSh.getRange(run[0] + 1, p + 1, run.length, 1), dst = sh.getRange(run[0] + 1, FIRST_RO_COL + p, run.length, 1);
+        src.copyTo(dst); dst.setNotes(src.getNotes());
+      }));
+      tempSh.getRange(1, 1, tempSh.getMaxRows(), Math.max(1, order.length)).clearNote();
+      tempSh.clear();
+      order.forEach((k, p) => {
+        if (k !== p) { remap.push({ b: b, from: colLetter_(FIRST_RO_COL + k), to: colLetter_(FIRST_RO_COL + p) }); moved++; }
+      });
+      for (let k = 0; k < n; k++) b.used[k] = k < order.length;
+    } else {
+      leftovers.forEach(k => clearRoCells_(sh, b, k, 1));
     }
+    temp.push(b);
   });
   if (remap.length) {
-    // The RO Log follows: a line's reference to this tab moves when its block's column moved.
+    // The RO Log follows: a line's reference to this tab moves when its block's column moved (all at once).
     const log = ensureLog_();
     readLog_().forEach(r => {
+      if (!live(r)) return; // a cancelled / delivered-and-removed line no longer owns a column
       let ch = false;
       r.refs.forEach(ref => {
         if (ref.t !== name) return;
@@ -510,7 +556,7 @@ function compactTab_(sh) {
       log.getRange(r.row, L['Tab Refs'] + 1).setValue(JSON.stringify(r.refs));
     });
   }
-  // 2. Added RO columns (beyond D–H) empty in every block: deleted from the right end of the RO columns.
+  // Added RO columns (beyond D–H) empty in every block: deleted from the right end of the RO columns.
   const keep = Math.max(BASE_RO_COLS, blocks.reduce((mx, b) => Math.max(mx, b.used.lastIndexOf(true) + 1), 0));
   let deleted = 0;
   for (let k = n - 1; k >= keep; k--) {
@@ -532,7 +578,28 @@ function compactTab_(sh) {
   }
   delete TABV_[name];
   if (deleted) RO_N_[name] = keep; else delete RO_N_[name];
-  return { moved: moved, deleted: deleted };
+  return { moved: moved, deleted: deleted, cleaned: temp.length };
+}
+
+/**
+ * Empties RO columns k0 … k0+cnt−1 of a block: item cells lose their value, note and formatting; the heading cell
+ * loses its value, note and font colour / bold (the heading row keeps its own background and borders).
+ */
+function clearRoCells_(sh, b, k0, cnt) {
+  runsOf_(b.itemRows).forEach(run => {
+    const r = sh.getRange(run[0] + 1, FIRST_RO_COL + k0, run.length, cnt);
+    r.clearContent(); r.clearNote(); r.clearFormat();
+  });
+  const h = sh.getRange(b.headRow + 1, FIRST_RO_COL + k0, 1, cnt);
+  h.clearContent(); h.clearNote(); h.setFontColor(null).setFontWeight(null);
+}
+
+/** A hidden scratch tab where RO columns are parked while a block is rewritten (emptied after each use). */
+function tempSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName('_PlannerTemp');
+  if (!sh) { sh = ss.insertSheet('_PlannerTemp', ss.getSheets().length); try { sh.hideSheet(); } catch (e) { /* shown is fine too */ } }
+  return sh;
 }
 
 /** Sorted row numbers → runs of consecutive rows. */
@@ -1542,7 +1609,7 @@ function adjustCell_(sh, wh, group, item, sku, colLetter, delta) {
   const i = b.items[item], c = FIRST_RO_COL - 1 + ci;
   const next = (Number(v[i][c]) || 0) + delta;
   setTabValue_(sh, i, c, next > 0 ? next : '');
-  if (!(next > 0)) sh.getRange(i + 1, c + 1).setFontColor(null).setFontWeight(null).setNote(''); // no "not sent" mark left
+  if (!(next > 0)) { const cell = sh.getRange(i + 1, c + 1); cell.clearNote(); cell.clearFormat(); } // the RO left this cell: no mark or formatting left
   return '';
 }
 
