@@ -693,7 +693,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 tidy-tabs';
+  var PAGE_BUILD = '2026-11-26 new-row-fix';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3486,7 +3486,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('sTidy').onclick = function () {
       api('compactMonthTabs', S.token).then(function (r) {
         var ks = Object.keys(r || {});
-        $('mOut2').innerHTML = msgs([ks.length ? ks.map(function (k) { return k + ': ' + r[k].moved + ' RO column(s) moved left, ' + r[k].deleted + ' empty column(s) deleted'; }).join(' · ') + '.' : 'The month tabs are already tidy.'], 'ok');
+        $('mOut2').innerHTML = msgs([ks.length ? ks.map(function (k) { return k + ': ' + r[k].moved + ' RO column(s) moved left, ' + r[k].deleted + ' empty column(s) deleted' + (r[k].rowsFixed ? ', ' + r[k].rowsFixed + ' item row(s) with #ERROR! fixed' : ''); }).join(' · ') + '.' : 'The month tabs are already tidy.'], 'ok');
       }, function (e) { $('mOut2').innerHTML = msgs([e.message], 'bad'); });
     };
     $('sSync').onclick = function () {

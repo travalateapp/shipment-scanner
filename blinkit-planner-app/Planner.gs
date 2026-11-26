@@ -450,7 +450,8 @@ function compactMonthTabs_() {
   const keys = [now.getFullYear() * 12 + now.getMonth(), now.getFullYear() * 12 + now.getMonth() - 1];
   monthTabs_().filter(x => keys.indexOf(x.key) >= 0).forEach(x => {
     const r = compactTab_(x.sheet);
-    if (r.moved || r.deleted) out[x.name] = r;
+    try { r.rowsFixed = repairItemRows_(x.sheet); } catch (e) { r.rowsFixed = 0; }
+    if (r.moved || r.deleted || r.rowsFixed) out[x.name] = r;
   });
   return out;
 }
@@ -1438,16 +1439,92 @@ function insertItemRow_(sh, b, item, sku) {
   delete TABV_[sh.getName()]; // rows move: read the tab again next time
   const after = (b.lastItem >= 0 ? b.lastItem : b.headRow) + 1; // 1-based row to insert after
   sh.insertRowAfter(after);
-  if (b.lastItem >= 0) {
-    // Copy the formatting and the formulas of the item row above, not its numbers (the daily columns from
-    // L onwards hold that item's own figures).
-    const width = sh.getMaxColumns();
-    const src = sh.getRange(after, 1, 1, width), dst = sh.getRange(after + 1, 1, 1, width);
-    src.copyTo(dst, SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
-    dst.setFormulasR1C1(src.getFormulasR1C1());
-  }
+  if (b.lastItem >= 0) fillNewItemRow_(sh, after, after + 1);
   sh.getRange(after + 1, 1, 1, 2).setValues([[item, sku || '']]);
-  sh.getRange(after + 1, FIRST_RO_COL, 1, roColCount_(sh)).clearContent();
+  const n = roColCount_(sh), ro = sh.getRange(after + 1, FIRST_RO_COL, 1, n);
+  ro.clearContent(); ro.clearNote(); ro.setFontColor(null).setFontWeight(null);
+}
+
+// A day column's heading (rows above the first block): a date, or text such as "26/11", "26-11-2026", "26 Nov".
+const DAY_HEAD_RE = /^\s*\d{1,2}\s*[\/\-. ]\s*(\d{1,2}|[A-Za-z]{3,})/;
+/**
+ * The columns right of the RO columns: which are day columns (their heading is a date) and which day column is the
+ * current one (the rightmost day column the row `srcRow` has something in — where the daily updater's formula is).
+ */
+function dayLayout_(sh, srcRow) {
+  const width = sh.getLastColumn(), roEnd = FIRST_RO_COL + roColCount_(sh) - 1; // 1-based last RO column
+  const headRows = Math.max(1, Math.min(5, srcRow - 1));
+  const head = sh.getRange(1, 1, headRows, width).getValues();
+  const isDay = c => head.some(r => { const v = r[c - 1]; return v instanceof Date || DAY_HEAD_RE.test(String(v == null ? '' : v)); });
+  const src = sh.getRange(srcRow, 1, 1, width), vals = src.getValues()[0], forms = src.getFormulas()[0];
+  let current = 0, anyDay = false;
+  for (let c = roEnd + 1; c <= width; c++) {
+    if (!isDay(c)) continue;
+    anyDay = true;
+    if (forms[c - 1] || (vals[c - 1] !== '' && vals[c - 1] !== null)) current = c;
+  }
+  if (!anyDay) for (let c = width; c > roEnd; c--) if (forms[c - 1]) { current = c; break; } // no dated headings: the last formula
+  return { width: width, roEnd: roEnd, isDay: isDay, anyDay: anyDay, current: current, forms: forms };
+}
+
+/**
+ * A new item row (`row`, just inserted under `srcRow`, the item row above) gets the row above's layout: formats and
+ * formulas copied like a normal copy-paste (so they keep working), then: every earlier day 0, the current day the
+ * formula from the row above, later days empty; other columns keep only formulas (no copied numbers of the other
+ * item). Anything still showing an error (except the current day) becomes 0.
+ */
+function fillNewItemRow_(sh, srcRow, row) {
+  const L0 = dayLayout_(sh, srcRow), w = L0.width;
+  sh.getRange(srcRow, 1, 1, w).copyTo(sh.getRange(row, 1, 1, w));
+  const out = sh.getRange(row, 1, 1, w), vals = out.getValues()[0], forms = out.getFormulas()[0];
+  const next = vals.map((v, i) => forms[i] ? null : v); // null = keep the copied formula
+  for (let c = 3; c <= w; c++) {
+    if (c >= FIRST_RO_COL && c <= L0.roEnd) { next[c - 1] = ''; continue; }        // RO columns: cleared
+    const day = L0.anyDay ? L0.isDay(c) : (c > L0.roEnd && c < L0.current);
+    if (day && L0.current && c < L0.current) next[c - 1] = 0;                        // earlier days: 0
+    else if (day && c > L0.current) next[c - 1] = '';                                // later days: empty
+    else if (c === L0.current) next[c - 1] = null;                                   // the current day: formula
+    else if (!forms[c - 1]) next[c - 1] = '';                                        // other columns: no copied numbers
+  }
+  // One write: a kept formula is written back as its (already adjusted) formula text.
+  out.setValues([next.map((v, i) => v === null ? forms[i] : v)]);
+  SpreadsheetApp.flush();
+  // Safety net: an error left in any column but the current day becomes 0.
+  const shown = sh.getRange(row, 1, 1, w).getDisplayValues()[0];
+  shown.forEach((s, i) => { if (i + 1 > L0.roEnd && i + 1 !== L0.current && /^#[A-Z0-9\/!?]+/.test(String(s))) sh.getRange(row, i + 1).setValue(0); });
+}
+
+/**
+ * Once per month tab: item rows added earlier whose day columns show an error (#ERROR!, #N/A, #REF!…) — earlier days
+ * become 0, and the current day (and a total-type column) with an error gets the formula of the item row above again.
+ */
+function repairItemRows_(sh) {
+  const props = PropertiesService.getScriptProperties(), key = 'ROWFIX1_' + sh.getName();
+  if (props.getProperty(key)) return 0;
+  const last = sh.getLastRow(), w = sh.getLastColumn();
+  if (last < 2) return 0;
+  const vals = sh.getRange(1, 1, last, w).getValues(), shown = sh.getRange(1, 1, last, w).getDisplayValues();
+  const isErr = s => /^#[A-Z0-9\/!?]+/.test(String(s));
+  let fixed = 0, layout = null;
+  for (let i = 1; i < last; i++) {
+    if (!(typeof vals[i][0] === 'number' && vals[i][0] > 1000)) continue;
+    if (!shown[i].some((s, c) => c >= FIRST_RO_COL && isErr(s))) continue;
+    // The nearest item row above without errors gives the layout and the current day's formula.
+    let src = -1;
+    for (let k = i - 1; k >= 1; k--) if (typeof vals[k][0] === 'number' && vals[k][0] > 1000 && !shown[k].some(isErr)) { src = k; break; }
+    if (src < 0) continue;
+    layout = dayLayout_(sh, src + 1);
+    for (let c = layout.roEnd + 1; c <= w; c++) {
+      if (!isErr(shown[i][c - 1])) continue;
+      // The current day, and a non-day column with a formula above (e.g. a total): that formula again; a day: 0.
+      const dayCol = layout.anyDay ? layout.isDay(c) : c < layout.current;
+      if (c === layout.current || (!dayCol && layout.forms[c - 1])) sh.getRange(src + 1, c).copyTo(sh.getRange(i + 1, c));
+      else sh.getRange(i + 1, c).setValue(0);
+    }
+    fixed++;
+  }
+  props.setProperty(key, String(new Date().getTime()));
+  return fixed;
 }
 
 /** Adds delta to an item's cell in an RO column (to change or cancel a line). Returns a warning or ''. */
