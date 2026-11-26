@@ -698,7 +698,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 search-all-private';
+  var PAGE_BUILD = '2026-11-26 send-confirmed-only';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1309,7 +1309,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var byWh = {}, units = 0, lines = 0, bad = 0;
     S.plan.forEach(function (r) {
       if (!inScope(r)) return;
-      var q = S.final[r.key] || 0;
+      var q = sendQ(r);
       if (q > 0) { units += q; lines++; (byWh[r.wh] = byWh[r.wh] || { units: 0, lines: 0 }); byWh[r.wh].units += q; byWh[r.wh].lines++; }
       if (q > r.max || (q > 0 && r.locked)) bad++;
     });
@@ -1326,7 +1326,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     S.plan.forEach(function (r) { if (whs.indexOf(r.wh) < 0) whs.push(r.wh); });
     whs.sort();
     var locked = S.plan.filter(function (r) { return r.locked && r.note; });
-    var noGroup = S.plan.filter(function (r) { return !r.group && (S.final[r.key] || 0) > 0; });
+    var noGroup = S.plan.filter(function (r) { return !r.group && sendQ(r) > 0; });
     var info = [];
     var si = stockInfoNow();
     if (si) info.push('Stock as of ' + prettyDate(si.stockDate) + ' (Inventory generated ' + prettyDate(String(S.inv.generatedAt).slice(0, 10)) + '). ' +
@@ -1473,6 +1473,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   // A Send box counts in TI's "sending" only once confirmed: clicked into, typed in or filled (All). Until then it is
   // the planner's suggestion and shown grey.
   function isConfirmed(k) { return !!((S.confirmed && S.confirmed[k]) || (S.edited && k in S.edited)); }
+  // What a line sends: its Send box once confirmed (clicked into, typed in or filled); a grey suggestion counts as 0
+  // everywhere — block and bar totals, Create ROs, the RO file and the Excel.
+  function sendQk(k) { return isConfirmed(k) ? (S.final[k] || 0) : 0; }
+  function sendQ(r) { return sendQk(r.key); }
   function sendOfItem(item) { var t = 0; S.plan.forEach(function (x) { if (x.item === item && isConfirmed(x.key)) t += S.final[x.key] || 0; }); return t; }
   /*
    * TI free = TI − what open ROs (all warehouses) still have to take from it. An RO leaves TI when it is shipped (the
@@ -1624,7 +1628,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (!S.ti) return '<div class="msg info"><span class="spin"></span> Reading stock from Travalate Inventory (TI)…</div>';
     if (!S.ti.ok) return '<div class="msg warn">TI column: ' + esc(S.ti.error || 'Travalate Inventory could not be read.') + (S.ti.setup ? '' : ' <a href="#" id="tiRe">Try again</a>') + '</div>';
     var miss = [], seen = {};
-    S.plan.forEach(function (r) { if (!seen[r.item] && (S.final[r.key] || 0) > 0 && tiQty(r) == null) { seen[r.item] = 1; miss.push(skuText(r.sku, r.item)); } });
+    S.plan.forEach(function (r) { if (!seen[r.item] && sendQ(r) > 0 && tiQty(r) == null) { seen[r.item] = 1; miss.push(skuText(r.sku, r.item)); } });
     return '<div class="msg info">TI = stock in Travalate Inventory <b>still free</b>: minus the open ROs not shipped yet (shipped ones are already out of TI)' + (S.ti.updatedAt ? ' · read ' + new Date(S.ti.updatedAt).toLocaleString('en-IN') : '') + ' · <a href="#" id="tiRe">↻ refresh</a>' +
       '<br>The TI number is what stays free <b>after this plan</b>: it goes down as you type a Send quantity (below it: free now − sending). Send boxes in <span style="color:var(--muted)">grey</span> are suggestions: they count once you click into them (or type / fill a quantity). It turns red when the plan sends more than TI has.' +
       (miss.length ? '<br><b>' + miss.length + ' SKU(s) to send are not found in TI:</b> ' + esc(miss.slice(0, 8).join(', ')) + (miss.length > 8 ? '…' : '') + '. An admin sets their name in TI under Settings → SKUs → TI SKU.' : '') + '</div>';
@@ -1633,7 +1637,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /** A block heading's "260 units · 6 lines": the units and the lines being sent (quantity above 0) in it. */
   function blkSumText(keys) {
     var u = 0, n = 0;
-    keys.forEach(function (k) { var q = S.final[k] || 0; if (q > 0) { u += q; n++; } });
+    keys.forEach(function (k) { var q = sendQk(k); if (q > 0) { u += q; n++; } });
     return fmt(u) + ' units · ' + n + (n === 1 ? ' line' : ' lines');
   }
   /** Value of a New Plan column for sorting (S.lineSort.key); null sorts last either way. */
@@ -1706,7 +1710,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var q = S.final[r.key] || 0, after = daysAfter(r, q);
         var over = q > r.max || (q > 0 && r.locked);
         var inc = r.incoming + r.appIncoming - (r.shipped || 0); // planned, not shipped yet
-        html += '<div class="line' + (q > 0 ? ' send' : '') + (r.locked ? ' lock' : '') + '" data-k="' + esc(r.key) + '">' +
+        html += '<div class="line' + (sendQ(r) > 0 ? ' send' : '') + (r.locked ? ' lock' : '') + '" data-k="' + esc(r.key) + '">' +
           '<div class="nm">' + (r.sku ? esc(r.sku) : '<span class="pill warn">No SKU</span>') + ' <span class="muted" style="font-weight:400">· ' + r.item + '</span> ' + statusPill(r) +
           '<small>' + [r.tier ? esc(r.tier) : '', r.daysOnHand != null && r.daysOnHand < 60 ? 'runs out ~' + prettyDate(addDays(today(), Math.max(0, Math.floor(r.daysOnHand)))) : '',
             r.note ? '<b>' + esc(r.note) + '</b>' : r.locked ? 'Locked: ' + esc(r.remarks) : '', r.starter && !r.locked ? 'starter ' + r.starter : '']
@@ -1828,9 +1832,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (ck && S.plan && !isConfirmed(ck)) {
       (S.confirmed = S.confirmed || {})[ck] = true;
       el.classList.remove('pend');
+      ln.classList.toggle('send', (S.final[ck] || 0) > 0);
       var rr = S.plan.filter(function (x) { return x.key === ck; })[0];
       if (rr) refreshTiCells(rr.item);
       saveDraftState();
+      renderBar(); // it now counts: block and bar totals follow
     }
     requestAnimationFrame(function () { keepVisible(el); }); // after the browser's own scroll-into-view
   });
@@ -1913,7 +1919,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // What will be saved and downloaded, and what stays in the plan.
     // Per warehouse and group: the units to send (for the small TBI / TBO / TBG figures next to a ticked warehouse).
     var whG = {};
-    S.plan.forEach(function (r) { var q = S.final[r.key] || 0; if (q > 0 && inScope(r)) { var m = whG[r.wh] = whG[r.wh] || {}; m[r.group || '?'] = (m[r.group || '?'] || 0) + q; } });
+    S.plan.forEach(function (r) { var q = sendQ(r); if (q > 0 && inScope(r)) { var m = whG[r.wh] = whG[r.wh] || {}; m[r.group || '?'] = (m[r.group || '?'] || 0) + q; } });
     var fileNote = function () {
       Array.prototype.forEach.call(document.querySelectorAll('#cFiles > label'), function (l) { l.classList.toggle('on', l.querySelector('input').checked); });
       // A ticked warehouse shows its TBI / TBO / TBG units (groups not in the chosen file struck through) and, as
@@ -1930,7 +1936,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('cMergeG').style.display = fileMode() === 'merged' ? '' : 'none';
       var pick = Array.prototype.filter.call(document.querySelectorAll('.cw'), function (c) { return c.checked; }).map(function (c) { return c.value; });
       var gs = chosenGroups(), by = {};
-      S.plan.forEach(function (r) { if ((S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0 && inScope(r)) { var g = r.group || '?'; by[g] = by[g] || { u: 0, n: 0 }; by[g].u += S.final[r.key]; by[g].n++; } });
+      S.plan.forEach(function (r) { if (sendQ(r) > 0 && pick.indexOf(r.wh) >= 0 && inScope(r)) { var g = r.group || '?'; by[g] = by[g] || { u: 0, n: 0 }; by[g].u += sendQ(r); by[g].n++; } });
       var inG = gs.filter(function (g) { return by[g]; }), out = Object.keys(by).filter(function (g) { return gs.indexOf(g) < 0; });
       // Which warehouses (and their chosen groups' units), so they are named next to the button even when the list
       // is scrolled.
@@ -1950,7 +1956,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('cGo').onclick = function () {
       var pick = Array.prototype.filter.call(document.querySelectorAll('.cw'), function (c) { return c.checked; }).map(function (c) { return c.value; });
       if (!pick.length) { $('cOut').innerHTML = msgs(['Tick at least one warehouse.'], 'warn'); return; }
-      var lines = S.plan.filter(function (r) { return (S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0 && inScope(r); });
+      var lines = S.plan.filter(function (r) { return sendQ(r) > 0 && pick.indexOf(r.wh) >= 0 && inScope(r); });
       if (!lines.length) return;
       var noGroup = lines.filter(function (r) { return !r.group; });
       var mode = fileMode(), gs = chosenGroups();
@@ -1965,7 +1971,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var savedKeys = lines.map(function (r) { return r.key; });
       $('cGo').disabled = true; $('cGo').innerHTML = '<span class="spin"></span> Saving…';
       api('createROs', S.token, {
-        lines: lines.map(function (r) { return { wh: r.wh, item: r.item, sku: r.sku, name: r.name, group: r.group, qty: S.final[r.key] }; }),
+        lines: lines.map(function (r) { return { wh: r.wh, item: r.item, sku: r.sku, name: r.name, group: r.group, qty: sendQ(r) }; }),
         roDate: $('cDate').value || today(), status: $('cStatus').value, source: 'Plan',
         merged: mode === 'merged' // one Blinkit file per warehouse = one RO in the RO Log
       }).then(function (res) {
@@ -2019,7 +2025,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var ls = k === 'ALL' ? lines : lines.filter(function (r) { return r.group === k; });
       if (!ls.length) return;
       out.push({ name: 'Blinkit_Bulk_RO_' + today() + wh + (k === 'ALL' ? '' : '_' + k) + '.xlsx', base: 'Blinkit_Bulk_RO_' + today() + wh, lines: ls,
-        units: ls.reduce(function (a, r) { return a + (S.final[r.key] || 0); }, 0) });
+        units: ls.reduce(function (a, r) { return a + sendQ(r); }, 0) });
     });
     return out;
   }
@@ -2042,7 +2048,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function buildBlinkitFile(lines) {
     var head = S.bulk.head;
     var qCol = PlanCore.colLetter(head.indexOf('RO Quantity')), aCol = PlanCore.colLetter(head.indexOf('Shipping Address'));
-    var fills = {}; lines.forEach(function (r) { fills[r.row] = S.final[r.key]; });
+    var fills = {}; lines.forEach(function (r) { fills[r.row] = sendQ(r); });
     return JSZip.loadAsync(S.bulkBuf).then(function (zip) {
       return zip.file('xl/workbook.xml').async('string').then(function (wbx) {
         var m = wbx.match(/<sheet [^>]*name="Bulk RO"[^>]*r:id="([^"]+)"/) || wbx.match(/<sheet [^>]*r:id="([^"]+)"[^>]*name="Bulk RO"/);
@@ -2081,7 +2087,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         'Sold 7d': r.s7, 'Sold 15d': r.s15, 'Sold 30d': r.s30, 'Per day': Math.round(r.rate * 10) / 10,
         'WH stock': r.whStock, 'Darkstore + transit': r.dsStock, 'Blinkit incoming': r.incoming, 'RO Log incoming': r.appIncoming,
         'Stock': r.whStock + r.dsStock, 'Delivered (awaiting GRN)': r.delivered || 0, 'Shipped': r.shipped || 0, 'Planned': r.incoming + r.appIncoming - (r.shipped || 0), 'Days now': r.daysNow == null ? '' : Math.max(0, Math.floor(r.daysNow)), 'Days since stock date': r.elapsed,
-        Suggested: r.rec, Starter: r.starter, Send: S.final[r.key] || 0, 'Blinkit max': r.max, 'TI stock': tiQty(r) == null ? '' : tiQty(r), 'TI free': tiFree(r) == null ? '' : tiFree(r), Note: r.note, Locked: r.locked ? r.remarks : '' };
+        Suggested: r.rec, Starter: r.starter, Send: sendQ(r), 'Blinkit max': r.max, 'TI stock': tiQty(r) == null ? '' : tiQty(r), 'TI free': tiFree(r) == null ? '' : tiFree(r), Note: r.note, Locked: r.locked ? r.remarks : '' };
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), 'Plan');
