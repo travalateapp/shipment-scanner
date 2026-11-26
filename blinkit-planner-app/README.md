@@ -53,6 +53,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - the RO Log line shows "shipped X · Z not sent";
   - when the RO is delivered, the whole quantity (red part included) leaves the month tab 2 days later like any other, and the red mark goes with it.
 
+  - **Not shipped by its dispatch day:** an open RO (Draft / Planned) whose dispatch day has passed and that the Shipment Manager has no shipment for is **not** marked Shipped; right after the sync its dispatch day moves to **today** (or the next dispatch day, Settings → Dispatch), and its month-tab heading follows. Every day it is still not shipped, it moves again. Once the Shipment Manager has its shipment, the real shipment date replaces it. (With an appointment, the moved day is kept as set by hand; the daily capacity is not re-balanced.)
   The sync runs at most every 30 minutes, in the background when the planner is opened, from **Settings → Shipment Manager → Sync now**, or from a time-driven trigger on `syncFromShipmentManager`. Each RO is checked again for **2 days** after its shipment is first found (RO Log *Ship Sync Until*), then left alone.
 - **Appointment passed — reminder:** when the calendar opens, ROs whose appointment date has passed and are not marked Delivered pop up: **Mark delivered** (with the date), **New appointment**, or **⏰ Remind me later** (3 hours, on that device).
 - **Plan columns** (New Plan and Dashboard), from left to right:
