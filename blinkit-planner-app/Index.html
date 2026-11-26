@@ -693,7 +693,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 tidy-10am-fix';
+  var PAGE_BUILD = '2026-11-26 ro-picked-skus';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1295,9 +1295,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     });
   }
 
+  /**
+   * The lines that go into the RO file: with SKUs picked in the search box, only those SKUs (in the warehouses
+   * ticked in Create ROs); without picks, every line with a quantity.
+   */
+  function inScope(r) { var p = (S.filter && S.filter.picks) || []; return !p.length || p.indexOf(Number(r.item)) >= 0; }
   function totals() {
     var byWh = {}, units = 0, lines = 0, bad = 0;
     S.plan.forEach(function (r) {
+      if (!inScope(r)) return;
       var q = S.final[r.key] || 0;
       if (q > 0) { units += q; lines++; (byWh[r.wh] = byWh[r.wh] || { units: 0, lines: 0 }); byWh[r.wh].units += q; byWh[r.wh].lines++; }
       if (q > r.max || (q > 0 && r.locked)) bad++;
@@ -1387,7 +1393,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function addPicks(items) {
     var changed = false;
     items.forEach(function (it) { it = Number(it); if (it && S.filter.picks.indexOf(it) < 0) { S.filter.picks.push(it); changed = true; } });
-    if (changed) { S.filter.q = ''; $('fQ').value = ''; renderPicks(); renderLines(); }
+    if (changed) { S.filter.q = ''; $('fQ').value = ''; renderPicks(); renderLines(); renderBar(); }
     return changed;
   }
   function renderPicks() {
@@ -1401,7 +1407,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var b = e.target.closest('button[data-it]'); if (!b) return;
       var it = Number(b.getAttribute('data-it'));
       S.filter.picks = S.filter.picks.filter(function (x) { return x !== it; });
-      renderPicks(); renderLines();
+      renderPicks(); renderLines(); renderBar();
     };
   }
   function initSkuPicker() {
@@ -1873,6 +1879,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // The window always fits the screen: only the warehouse list scrolls (it takes the room left), so the date,
     // status, file choice, the 📍 summary and the buttons are always in view.
     openModal('<div class="cwrap"><h2 style="margin-bottom:2px">Create ROs</h2><div class="small muted" title="Saves these lines in the RO Log, writes them into the month tab (next free column D–H of each warehouse block) and downloads Blinkit\'s Bulk RO file, ready to upload.">Saves to the RO Log and the month tab, and downloads Blinkit\'s Bulk RO file.</div>' +
+      ((S.filter.picks || []).length ? '<div class="msg info" style="margin:6px 0 0">Only the <b>' + S.filter.picks.length + ' SKU(s) picked</b> in the search box (' + esc(S.filter.picks.map(function (it) { return skuText(skuOf(it), it); }).slice(0, 6).join(', ')) + (S.filter.picks.length > 6 ? '…' : '') + ') are saved and put in the file. Clear the picks to include every SKU.</div>' : '') +
       '<div class="small" style="margin-top:6px"><a href="#" id="cAll">Select all</a> · <a href="#" id="cNone">Select none</a></div>' +
       '<div id="cWhList" style="margin:4px 0 8px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:0 10px">' + whs.map(function (w) {
         return '<label style="display:flex;gap:8px;align-items:center;padding:6px 0;border-bottom:1px solid var(--line)"><input type="checkbox" class="cw" value="' + esc(w) + '"' + (pre.indexOf(w) >= 0 ? ' checked' : '') + '> <span style="flex:1">' + esc(w) + '</span>' +
@@ -1901,7 +1908,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     // What will be saved and downloaded, and what stays in the plan.
     // Per warehouse and group: the units to send (for the small TBI / TBO / TBG figures next to a ticked warehouse).
     var whG = {};
-    S.plan.forEach(function (r) { var q = S.final[r.key] || 0; if (q > 0) { var m = whG[r.wh] = whG[r.wh] || {}; m[r.group || '?'] = (m[r.group || '?'] || 0) + q; } });
+    S.plan.forEach(function (r) { var q = S.final[r.key] || 0; if (q > 0 && inScope(r)) { var m = whG[r.wh] = whG[r.wh] || {}; m[r.group || '?'] = (m[r.group || '?'] || 0) + q; } });
     var fileNote = function () {
       Array.prototype.forEach.call(document.querySelectorAll('#cFiles > label'), function (l) { l.classList.toggle('on', l.querySelector('input').checked); });
       // A ticked warehouse shows its TBI / TBO / TBG units (groups not in the chosen file struck through) and, as
@@ -1918,7 +1925,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('cMergeG').style.display = fileMode() === 'merged' ? '' : 'none';
       var pick = Array.prototype.filter.call(document.querySelectorAll('.cw'), function (c) { return c.checked; }).map(function (c) { return c.value; });
       var gs = chosenGroups(), by = {};
-      S.plan.forEach(function (r) { if ((S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0) { var g = r.group || '?'; by[g] = by[g] || { u: 0, n: 0 }; by[g].u += S.final[r.key]; by[g].n++; } });
+      S.plan.forEach(function (r) { if ((S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0 && inScope(r)) { var g = r.group || '?'; by[g] = by[g] || { u: 0, n: 0 }; by[g].u += S.final[r.key]; by[g].n++; } });
       var inG = gs.filter(function (g) { return by[g]; }), out = Object.keys(by).filter(function (g) { return gs.indexOf(g) < 0; });
       // Which warehouses (and their chosen groups' units), so they are named next to the button even when the list
       // is scrolled.
@@ -1938,7 +1945,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('cGo').onclick = function () {
       var pick = Array.prototype.filter.call(document.querySelectorAll('.cw'), function (c) { return c.checked; }).map(function (c) { return c.value; });
       if (!pick.length) { $('cOut').innerHTML = msgs(['Tick at least one warehouse.'], 'warn'); return; }
-      var lines = S.plan.filter(function (r) { return (S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0; });
+      var lines = S.plan.filter(function (r) { return (S.final[r.key] || 0) > 0 && pick.indexOf(r.wh) >= 0 && inScope(r); });
       if (!lines.length) return;
       var noGroup = lines.filter(function (r) { return !r.group; });
       var mode = fileMode(), gs = chosenGroups();
