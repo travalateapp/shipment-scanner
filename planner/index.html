@@ -40,6 +40,7 @@ input[type=text],input[type=search],input[type=number],input[type=date],input[ty
 .pill{display:inline-block;padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;background:var(--chip);white-space:nowrap}
 .pill.ok{background:var(--okbg);color:var(--ok)}.pill.warn{background:var(--warnbg);color:var(--warn)}.pill.bad{background:var(--badbg);color:var(--bad)}.pill.info{background:var(--infobg);color:var(--info)}
 .chips{display:flex;gap:6px;flex-wrap:wrap}
+.conn summary{cursor:pointer;list-style:revert}.showLink{font-weight:400;font-size:12px;margin-left:6px}
 .fmode{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}.fmode>label{display:flex;gap:6px;align-items:center;border:1px solid var(--line);border-radius:99px;padding:6px 12px;cursor:pointer;font-size:13px}
 .fmode>label.on{border-color:var(--brand);background:var(--chip)}.fsub{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-top:6px;font-size:12px}.fsub .chip{padding:4px 10px}
 .cwrap{display:flex;flex-direction:column;max-height:calc(90vh - 32px)}.cwrap>*{flex:0 0 auto}.cwrap #cWhList{flex:1 1 auto;min-height:96px}
@@ -697,7 +698,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 delivered-not-planned';
+  var PAGE_BUILD = '2026-11-26 search-all-private';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -950,7 +951,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   var CACHE_BOOT = 'bp_cache_boot', CACHE_DASH = 'bp_cache_dash';
   function cacheGet(k) { try { var v = JSON.parse(load(k) || 'null'); return v && v.t === S.token ? v.d : null; } catch (e) { return null; } }
   function cachePut(k, d) { store(k, JSON.stringify({ t: S.token, d: d })); }
-  function clearCaches() { store(CACHE_BOOT, null); store(CACHE_DASH, null); store('bp_cache_log', null); store('bp_cache_inv', null); store('bp_cache_ti', null); S.dash = null; S.logRows = null; S.logKey = null; }
+  function clearCaches() { store(CACHE_BOOT, null); store(CACHE_DASH, null); store('bp_cache_log', null); store('bp_cache_inv', null); store('bp_cache_ti', null); S.dash = null; S.logRows = null; S.logKey = null; S.logAll = null; }
   function refreshBoot() {
     return api('getBoot', S.token).then(function (b) {
       // Changes still being saved (instant saves) stay as they are on the page.
@@ -1228,7 +1229,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    */
   function applyLocal(match, ch) {
     var seen = [], touched = [];
-    [S.boot && S.boot.openROs, S.dash && S.dash.openROs, S.logRows].forEach(function (list) {
+    [S.boot && S.boot.openROs, S.dash && S.dash.openROs, S.logRows, S.logAll].forEach(function (list) {
       (list || []).forEach(function (r) {
         if (!match(r) || seen.indexOf(r) >= 0) return;
         seen.push(r);
@@ -1716,7 +1717,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Delivered</span>' + (r.delivered ? '<span class="dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivered + '" data-s="' + (r.whStock + r.dsStock) + '" data-sd="' + esc((stockInfoNow() || {}).stockDate || '') + '">' + fmt(r.delivered) + '</span>' : '<span class="muted">0</span>') + '</div>' +
           '<div class="right"><span class="lbl">Shipped</span>' + (r.shipped ? fmt(r.shipped) : '<span class="muted">0</span>') + '</div>' +
           '<div class="right"><span class="lbl">Planned</span>' + (inc || r.appIncoming || r.incoming ? '<span class="plTip" data-k="' + esc(r.key) + '" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + inc + '">' + fmt(inc) + '</span>' : '<span class="muted">0</span>') + '</div>' +
-          '<div class="right c-days">' + (r.daysOnHand == null ? fmtDays(r.daysOnHand) : '<span class="hv" title="Stock + Delivered last ' + fmtDays(r.daysOnHand) + ' day(s); counting what is on its way (Shipped + Planned): ' + fmtDays(r.daysNow) + '">' + fmtDays(r.daysOnHand) + '</span>') + '</div>' +
+          '<div class="right c-days">' + (r.daysOnHand == null ? fmtDays(r.daysOnHand) : '<span class="hv" title="Days now = (Stock ' + fmt(r.whStock + r.dsStock) + ' + Delivered ' + fmt(r.delivered || 0) + ') ÷ ' + fmt(r.rate, 1) + ' per day' + (r.elapsed ? ' − ' + r.elapsed + ' day' + (r.elapsed === 1 ? '' : 's') + ' since the stock date' : '') + ' = ' + fmtDays(r.daysOnHand) + '&#10;With Shipped + Planned on their way too: ' + fmtDays(r.daysNow) + ' days">' + fmtDays(r.daysOnHand) + '</span>') + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
           '<div><span class="lbl">Send (max ' + fmt(r.max) + ')</span><input type="number" min="0" step="1" inputmode="numeric" class="q' + (over ? ' over' : '') + (isConfirmed(r.key) ? '' : ' pend') + '" value="' + (q || '') + '" placeholder="0"' + (r.locked || !can('Planner') ? ' disabled' : '') + '></div>' +
           tiCell(r) +
@@ -2325,7 +2326,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">To</label><input type="date" id="gTo" value="' + f.to + '"></div>' +
       '<div><label class="f">Warehouse</label><select id="gWh"><option value="">All</option>' + whs.map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
       '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ST_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (f.status === o[0] ? ' selected' : '') + '>' + o[1].replace(' (on Blinkit)', ' / Shipped') + '</option>'; }).join('') + '</select></div>' +
-      '<div style="flex:1 1 240px"><label class="f">Search (Ctrl+F)</label><input type="search" id="gQ" placeholder="🔍 SKU, item ID, RO no., warehouse…" value="' + esc(S.logQ || '') + '" autocomplete="off" title="Every word must match: SKU, item ID, RO number, warehouse, group, status or a date (e.g. 25 Nov)"></div>' +
+      '<div style="flex:1 1 240px"><label class="f">Search (Ctrl+F)</label><input type="search" id="gQ" placeholder="🔍 RO no., SKU, item ID, warehouse… (searches all ROs)" value="' + esc(S.logQ || '') + '" autocomplete="off" title="Every word must match: SKU, item ID, RO number, warehouse, group, status or a date (e.g. 25 Nov)"></div>' +
       '</div><div class="small muted" style="margin-top:8px"><b>From / To</b> = RO date. <b>Status:</b> ' +
         '<b>Draft</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
         '<b>Planned</b> = on Blinkit, not shipped yet · <b>Shipped</b> = the Shipment Manager has its shipment (set by itself) · ' +
@@ -2373,7 +2374,20 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     }, function (e) { st(''); if (!S.logRows || !S.logRows.length) $('logOut').innerHTML = msgs([e.message], 'bad'); else toast(e.message, 5000); });
   }
   /** Saved lines back into the RO Log list (a line that no longer matches the filters drops out, as on a reload). */
+  /** Every RO for the search: the whole RO Log (read once, again after 3 minutes) with the page's newer copies on top. */
+  function logSearchRows() {
+    if ((!S.logAll || Date.now() - S.logAllAt > 180000) && !S.logAllLoading) {
+      S.logAllLoading = true;
+      apiCall('listROs', [S.token, {}]).then(function (rows) { S.logAll = rows || []; S.logAllAt = Date.now(); S.logAllLoading = false; if (S.tab === 'log' && S.logQ) drawLog(); },
+        function () { S.logAllLoading = false; });
+    }
+    var by = {};
+    (S.logAll || []).concat(localLogRows({}), S.logRows || []).forEach(function (r) { by[r.key] = r; });
+    return Object.keys(by).map(function (k) { return by[k]; });
+  }
   function mergeLogRows(rows) {
+    // The full list the search uses gets the saved lines too.
+    if (S.logAll) { var ak = {}; S.logAll.forEach(function (r, i) { ak[r.key] = i; }); rows.forEach(function (r) { if (ak[r.key] !== undefined) S.logAll[ak[r.key]] = r; else S.logAll.push(r); }); }
     var f = S.logFilter || {}, keys = {};
     rows.forEach(function (r) { keys[r.key] = 1; });
     var fits = function (r) {
@@ -2412,10 +2426,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
 
   function drawLog() {
     var box = $('logOut'); if (!box) return;
-    var cs = cardsOf(S.logRows || []), all = cs.length;
     // Search (Ctrl+F): every word must appear somewhere in the RO card (warehouse, groups, RO no., SKUs, item IDs,
-    // status, RO / appointment / dispatch / delivery dates); a matching RO is shown whole.
+    // status, RO / appointment / dispatch / delivery dates); a matching RO is shown whole. A search looks through ALL
+    // ROs — any date, warehouse or status — not only the ones the filters show.
     var words = String(S.logQ || '').toLowerCase().split(/\s+/).filter(Boolean);
+    var cs = cardsOf(words.length ? logSearchRows() : (S.logRows || [])), all = cs.length;
     if (words.length) cs = cs.filter(function (c) {
       var hay = c.rows.map(function (r) {
         return [r.wh, r.group, r.roNo, r.sku, r.item, r.batch, r.merged, stLabel(r.status, r.shippedOn), r.status, r.notes, r.shortNote,
@@ -2423,7 +2438,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       }).join(' ').toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) >= 0; });
     });
-    if ($('logState') && words.length && !/spin/.test($('logState').innerHTML)) $('logState').textContent = cs.length + ' of ' + all + ' ROs match "' + S.logQ.trim() + '"';
+    if ($('logState') && words.length && !/spin/.test($('logState').innerHTML)) $('logState').textContent = cs.length + ' of ' + all + ' ROs match "' + S.logQ.trim() + '" — searched all ROs (any date, warehouse, status)' + (S.logAll ? '' : '; reading the older ones…');
     else if ($('logState') && !words.length && /match "/.test($('logState').textContent)) $('logState').textContent = '';
     if ($('logPager')) $('logPager').innerHTML = '';
     if (!cs.length) { box.className = 'card muted'; box.innerHTML = words.length && all ? 'No RO matches "' + esc(S.logQ.trim()) + '" — Esc clears the search.' : 'No ROs for these filters.'; return; }
@@ -2951,6 +2966,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       r.daysAll = r.days;
       if (r.has != null && r.rate > 0) r.days = r.has / r.rate - el;
     });
+    // The Days hover: the sum itself, e.g. "Days = Has 395 (stock 54 + delivered 341) ÷ 37.0 per day − 1 day since the
+    // stock date = 9.7".
+    var daysWhy = function (r) {
+      if (r.days == null || !(r.rate > 0)) return '';
+      var has = r.has == null ? r.pos : r.has, dl = r.delivAdj || 0;
+      return 'Days = Has ' + fmt(has) + (dl ? ' (stock ' + fmt(has - dl) + ' + delivered ' + fmt(dl) + ')' : '') + ' ÷ ' + fmt(r.rate, 1) + ' per day' +
+        (el ? ' − ' + el + ' day' + (el === 1 ? '' : 's') + ' since the stock date' : '') + ' = ' + fmt(d0(r.days), 1) +
+        (r.days < 0 ? ' (ran out about ' + fmt(-r.days, 1) + ' day(s) ago)' : '') +
+        (r.daysAll != null && r.daysAll !== r.days ? '&#10;With Shipped + Planned on their way too: ' + fmt(d0(r.daysAll), 1) + ' days' : '');
+    };
     var byWh = {};
     rows.forEach(function (r) {
       var w = byWh[r.wh] = byWh[r.wh] || { red: 0, amber: 0, items: 0, open: 0 };
@@ -2994,7 +3019,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivAdj + '" data-s="' + (r.has == null ? '' : r.has - r.delivAdj) + '" data-sd="' + esc(((S.dash && S.dash.meta && PlanCore.stockInfo(S.dash.meta.inventoryAt, today())) || {}).stockDate || '') + '">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill hv ' + c + '" title="Has lasts ' + fmt(d0(r.days), 1) + ' day(s)' + (r.days != null && r.days < 0 ? ' (ran out about ' + fmt(-r.days, 1) + ' day(s) ago)' : '') + (r.daysAll != null && r.daysAll !== r.days ? '; counting what is on its way (Shipped + Planned): ' + fmt(d0(r.daysAll), 1) : '') + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivAdj + '" data-s="' + (r.has == null ? '' : r.has - r.delivAdj) + '" data-sd="' + esc(((S.dash && S.dash.meta && PlanCore.stockInfo(S.dash.meta.inventoryAt, today())) || {}).stockDate || '') + '">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill hv ' + c + '" title="' + daysWhy(r) + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     // 25 items a page (Prev / Next below the table); a new search, sort or filter goes back to page 1.
     var PER = 25;
@@ -3431,16 +3456,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         '<div class="row" style="margin-top:8px"><div style="flex:2 1 300px"><label class="f">Warehouses with the short lead days (comma separated)</label><input type="text" id="dpShortWh" value="' + esc(s.shortLeadWh || '') + '"></div>' +
         '<div style="flex:2 1 300px"><label class="f">Dispatch days</label><div class="chips">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<label class="chip"><input type="checkbox" class="dpDay" value="' + w + '"' + (String(s.dispatchDays || 'Mon,Tue,Wed,Thu,Fri,Sat').indexOf(w) >= 0 ? ' checked' : '') + '> ' + w + '</label>'; }).join('') + '</div></div></div>' +
         '<div id="dpOut"></div><div style="margin-top:10px"><button class="btn p" id="dpSave">Save dispatch settings</button></div></div>' +
-      '<div class="card"><h2>Travalate Inventory (TI)</h2><div class="small muted">Gives New Plan its <b>TI</b> column: your current stock per SKU, read from the Travalate Inventory app (the same connection the Shipment Manager uses). ' +
+      // The two connections hold private links: collapsed, and the links hidden until "Show" is clicked.
+      '<details class="card conn"><summary><b style="font-size:17px">Travalate Inventory (TI)</b> <span class="small muted">— connection (private, click to open)</span></summary><div class="small muted" style="margin-top:8px">Gives New Plan its <b>TI</b> column: your current stock per SKU, read from the Travalate Inventory app (the same connection the Shipment Manager uses). ' +
         'The shared secret is the Inventory app\'s <code>SHARED_SECRET</code>; it is kept only in this script\'s settings, never on GitHub.</div>' +
-        '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Inventory web-app link (/exec)</label><input type="text" id="tiUrl" placeholder="Loading…"></div>' +
+        '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Inventory web-app link (/exec) <a href="#" class="showLink" data-for="tiUrl">Show</a></label><input type="password" id="tiUrl" placeholder="Loading…" autocomplete="off"></div>' +
         '<div><label class="f">Shared secret</label><input type="password" id="tiSec" autocomplete="off" placeholder="…"></div>' +
-        '<div style="flex:0 0 auto"><button class="btn p" id="tiSave">Save &amp; test</button></div></div><div id="tiOut"></div></div>' +
-      '<div class="card"><h2>Shipment Manager</h2><div class="small muted">When an RO is marked <b>Delivered</b>, the planner takes the quantities <b>actually shipped</b> from the Shipment Manager (tab BLINKIT_PO, by RO number and item) and counts them as <b>Delivered</b> until Blinkit\'s stock shows them (GRN). ' +
+        '<div style="flex:0 0 auto"><button class="btn p" id="tiSave">Save &amp; test</button></div></div><div id="tiOut"></div></details>' +
+      '<details class="card conn"><summary><b style="font-size:17px">Shipment Manager</b> <span class="small muted">— connection (private, click to open)</span></summary><div class="small muted" style="margin-top:8px">When an RO is marked <b>Delivered</b>, the planner takes the quantities <b>actually shipped</b> from the Shipment Manager (tab BLINKIT_PO, by RO number and item) and counts them as <b>Delivered</b> until Blinkit\'s stock shows them (GRN). ' +
         'Paste the Shipment Manager\'s Google Sheet link; the Google account the planner runs as must be able to open it.</div>' +
-        '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager sheet link</label><input type="text" id="shUrl" placeholder="Loading…"></div>' +
+        '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager sheet link <a href="#" class="showLink" data-for="shUrl">Show</a></label><input type="password" id="shUrl" placeholder="Loading…" autocomplete="off"></div>' +
         '<div style="flex:0 0 auto"><button class="btn p" id="shSave">Save &amp; test</button></div><div style="flex:0 0 auto"><button class="btn" id="shSync" title="Take shipment dates and shipped quantities now">Sync now</button></div></div>' +
-        '<div class="small muted" style="margin-top:6px">Every 30 minutes (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div></div>' +
+        '<div class="small muted" style="margin-top:6px">Every 30 minutes (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div></details>' +
       '<div class="card"><h2>Month tabs</h2><div class="small muted">Newest month tabs: ' + esc((S.boot.months || []).join(', ')) + '.<br>' +
       '<b>Start new month</b> creates the tab (copy of the newest month, columns D–H emptied, columns I onwards kept as they are) if it does not exist yet, then copies in open ROs from the last ' + s.carryDays + ' days of the old month. ' +
       'If you create the tab yourself, this only does the copying-in.</div>' +
@@ -3463,6 +3489,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         $('shOut').innerHTML = msgs([r.skipped ? r.skipped : 'Synced: ' + (r.ros || 0) + ' RO(s) found in the Shipment Manager; ' + (r.dates || 0) + ' dispatch day(s), ' + (r.qty || 0) + ' quantity(ies) updated' + (r.short ? ', ' + r.short + ' line(s) shipped short (red in the month tab)' : '') + '.'], r.skipped ? 'warn' : 'ok') + msgs(r.warnings, 'warn');
       }, function (e) { busy(false); $('shOut').innerHTML = msgs([e.message], 'bad'); });
     };
+    // "Show" / "Hide" next to a private link.
+    Array.prototype.forEach.call(document.querySelectorAll('.showLink'), function (a) {
+      a.onclick = function (e) { e.preventDefault(); var i = $(a.getAttribute('data-for')), show = i.type === 'password'; i.type = show ? 'text' : 'password'; a.textContent = show ? 'Hide' : 'Show'; };
+    });
     $('shSave').onclick = function () {
       var b = this; b.disabled = true;
       api('saveShipLink', S.token, $('shUrl').value.trim()).then(function (r) {
