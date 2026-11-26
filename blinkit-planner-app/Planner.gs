@@ -1738,7 +1738,11 @@ function syncShipments_() {
 function syncFromShipmentManager() {
   const lock = LockService.getScriptLock();
   lock.waitLock(60000);
-  try { return syncShipments_(); } finally { lock.releaseLock(); }
+  try {
+    const res = syncShipments_();
+    if (!res.skipped) res.moved = rollOverdueDispatch_();
+    return res;
+  } finally { lock.releaseLock(); }
 }
 
 /**
@@ -1755,12 +1759,42 @@ function syncShipments(token, force) {
   try {
     const res = syncShipments_();
     try { res.cells = refreshShortCells_(); } catch (e) { /* tried again next sync */ }
-    if (res.dates || res.qty || res.short) {
+    if (!res.skipped) { try { res.moved = rollOverdueDispatch_(); } catch (e) { /* tried again next sync */ } }
+    if (res.dates || res.qty || res.short || res.moved) {
       const all = readLog_();
       res.openROs = openROsOf_(all); res.delivered = recentDeliveredOf_(all);
     }
     return res;
   } finally { lock.releaseLock(); }
+}
+
+/**
+ * Open ROs (Draft / Planned) whose dispatch day has passed but that the Shipment Manager has no shipment for: they
+ * were not sent, so their dispatch day moves to today (or the next dispatch day, Settings → Dispatch) and the
+ * month-tab heading follows. Runs right after a successful Shipment Manager sync, so an RO shipped late is picked up
+ * there first (its real shipment date then replaces the moved day). Returns how many ROs moved.
+ */
+function rollOverdueDispatch_() {
+  if (!PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID')) return 0; // without it "Shipped" = dispatch day passed
+  const today = ymd_(new Date());
+  let target = today;
+  for (let i = 0; i < 14 && !isDispatchDay_(target); i++) target = addDaysYmd_(target, 1);
+  const all = readLog_(), rows = [], fixedRows = [], changed = [], batches = {};
+  all.forEach(r => {
+    if (OPEN_STATUSES.indexOf(r.status) < 0 || r.logOnly || r.shippedOn instanceof Date) return;
+    const appt = r.appt instanceof Date ? ymd_(r.appt) : '', cur = dispatchDay_(r.wh, appt, r.dispatch instanceof Date ? ymd_(r.dispatch) : '', r.dispatchFixed);
+    if (!cur || cur >= today) return;
+    const d = parseDate_(target);
+    r.dispatch = d; r.dispatchFixed = !!appt; // with an appointment the moved day is kept instead of the appointment's
+    rows.push({ row: r.row, v: d }); fixedRows.push({ row: r.row, v: r.dispatchFixed ? 'Yes' : '' });
+    changed.push(r); batches[r.batch] = 1;
+  });
+  if (!rows.length) return 0;
+  const log = ensureLog_();
+  writeRuns_(log, rows, L['Dispatch Date']);
+  writeRuns_(log, fixedRows, L['Dispatch Fixed']);
+  try { refreshHeadings_(changed); } catch (e) { /* the dates are saved either way */ }
+  return Object.keys(batches).length;
 }
 
 function getShipLink(token) {

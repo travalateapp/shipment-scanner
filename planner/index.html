@@ -693,7 +693,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 totals-pages';
+  var PAGE_BUILD = '2026-11-26 dispatch-roll';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -924,7 +924,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (S.dash) { S.dash.openROs = r.openROs; S.dash.delivered = r.delivered || S.dash.delivered; }
     refreshPlanAfterRoChange();
     if (S.tab === 'dash' && S.dash && $('dashOut')) drawDash();
-    toast('Shipment Manager: ' + [r.dates ? r.dates + ' dispatch day(s)' : '', r.qty ? r.qty + ' quantity(ies)' : '', r.short ? r.short + ' line(s) shipped short' : ''].filter(Boolean).join(', ') + ' updated.', 5000);
+    toast('Shipment Manager: ' + [r.dates ? r.dates + ' dispatch day(s)' : '', r.qty ? r.qty + ' quantity(ies)' : '', r.short ? r.short + ' line(s) shipped short' : ''].filter(Boolean).join(', ') + (r.dates || r.qty || r.short ? ' updated.' : '') +
+      (r.moved ? (r.dates || r.qty || r.short ? ' ' : '') + r.moved + ' RO(s) not shipped by their dispatch day moved to the next dispatch day.' : ''), 6000);
     return r;
   }
 
