@@ -693,7 +693,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 dispatch-roll';
+  var PAGE_BUILD = '2026-11-26 tidy-tabs';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -823,7 +823,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * clicked twice meanwhile. (Background saves such as the Dashboard copy of the plan do not.)
    */
   var SAVES = { login: 'Logging in…', changePin: 1, createROs: 1, updateROLine: 1, updateBatch: 1, importPdfRO: 1, saveSettings: 1, saveSkus: 1,
-    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', saveTiLink: 1, saveShipLink: 'Checking the Shipment Manager…', syncShipments: 0, setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
+    saveUser: 1, resetUserPin: 1, startMonth: 1, syncMonthTabs: 'Syncing month tabs…', compactMonthTabs: 'Tidying the month tabs…', saveTiLink: 1, saveShipLink: 'Checking the Shipment Manager…', syncShipments: 0, setDispatchDates: 1, groupsFromMonthTab: 'Reading the month tab…' };
   var busyN = 0;
   function busy(on, text) {
     busyN = Math.max(0, busyN + (on ? 1 : -1));
@@ -3433,7 +3433,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       'If you create the tab yourself, this only does the copying-in.</div>' +
       '<div class="row" style="margin-top:10px"><div><label class="f">Month</label><input type="month" id="sMonth" value="' + nextMonth + '"></div>' +
       '<div style="flex:0 0 auto"><button class="btn p" id="sStartM">Start new month</button></div>' +
-      '<div style="flex:0 0 auto"><button class="btn" id="sSync">Sync month tabs</button></div></div><div id="mOut2"></div></div>' +
+      '<div style="flex:0 0 auto"><button class="btn" id="sSync">Sync month tabs</button></div>' +
+      '<div style="flex:0 0 auto"><button class="btn" id="sTidy" title="Moves ROs left into empty RO columns of each warehouse block and deletes added RO columns (from I on) that are then empty everywhere. Also runs by itself every 30 minutes when the planner is opened.">Tidy month tabs now</button></div></div><div id="mOut2"></div></div>' +
       '<div class="card"><h2>SKUs</h2><div class="small muted">Group decides the ' + esc(groupList().join(' / ')) + ' block an item goes into. New items from Blinkit are added here automatically with no group.</div>' +
       '<div class="row" style="margin:8px 0"><div style="flex:0 0 auto"><button class="btn" id="kFromTab">Take groups &amp; tiers from the month tab</button></div><div class="small muted" style="align-self:center">Reads each item\'s block (group) and tier from the newest month tab, and lists SKUs that are in two groups of the same warehouse. Shows the changes before saving.</div></div><div id="kTabOut"></div>' +
       '<div class="row" style="margin:8px 0"><div><input type="text" id="kQ" placeholder="Search"></div><div style="flex:0 0 auto"><label class="small"><input type="checkbox" id="kNo"> only items with no group</label></div></div>' +
@@ -3481,6 +3482,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         $('mOut2').innerHTML = msgs([(r.created ? 'Created tab ' : 'Tab ') + r.tab + '. Copied in ' + r.carried + ' open RO line(s) from the old month, wrote ' + r.written + ' line(s) of this month.'], 'ok') + msgs(r.warnings, 'warn');
         refreshBoot();
       }, function (e) { b.disabled = false; b.textContent = 'Start new month'; $('mOut2').innerHTML = msgs([e.message], 'bad'); });
+    };
+    $('sTidy').onclick = function () {
+      api('compactMonthTabs', S.token).then(function (r) {
+        var ks = Object.keys(r || {});
+        $('mOut2').innerHTML = msgs([ks.length ? ks.map(function (k) { return k + ': ' + r[k].moved + ' RO column(s) moved left, ' + r[k].deleted + ' empty column(s) deleted'; }).join(' · ') + '.' : 'The month tabs are already tidy.'], 'ok');
+      }, function (e) { $('mOut2').innerHTML = msgs([e.message], 'bad'); });
     };
     $('sSync').onclick = function () {
       api('syncMonthTabs', S.token).then(function (r) { $('mOut2').innerHTML = msgs([(r.ros ? 'Wrote ' + r.ros + ' RO(s) into their month tab.' : 'Everything is already in its month tab.') + (r.headings ? ' Updated ' + r.headings + ' RO heading(s).' : '')], 'ok') + msgs(r.warnings, 'warn'); }, function (e) { $('mOut2').innerHTML = msgs([e.message], 'bad'); });
