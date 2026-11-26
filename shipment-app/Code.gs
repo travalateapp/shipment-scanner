@@ -2528,8 +2528,8 @@ function cancelDummyPo(platform, poNumber) {
 // dummy number SI/2026-27/D001, D002, … and the dummy PO is cancelled again. No
 // shipment is saved and nothing touches Inventory.
 //
-// Called through this app's web-app doPost: add this line at the top of doPost
-// (in the Apps Script editor), before its own secret check:
+// Called through this app's web-app doPost. doPost lives in a file that is only in
+// Apps Script; the automatic deploy (deploy-shipment.yml, post_hook) makes its first line:
 //   const __p = plannerDummyRoFromPost_(e); if (__p) return __p;
 // The Planner's key is Script Property PLANNER_API_SECRET (same value in the
 // Planner's Settings → Shipment Manager); never in GitHub.

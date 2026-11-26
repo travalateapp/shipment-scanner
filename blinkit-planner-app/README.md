@@ -173,13 +173,14 @@ final file:
 4. **Download** `Invoice-<number>-RO<RO number>.pdf`, laid out exactly like the Shipment Manager's RO Invoice.
 5. **Clean up.** The dummy PO is cancelled in the Shipment Manager. No shipment is saved there.
 
-**One-time setup:**
-1. In the Shipment Manager's Apps Script, make this the **first line of `doPost(e)`**:
-   `const __p = plannerDummyRoFromPost_(e); if (__p) return __p;`
-2. In the planner, open **Settings → Shipment Manager details → Dummy RO Invoice**. Tap 🎲 to make a key and copy it.
-3. In the Shipment Manager's **Project Settings → Script Properties**, add `PLANNER_API_SECRET` with that key.
-4. Deploy the Shipment Manager: **Deploy → Manage deployments → edit → New version**.
-5. Back in the planner, paste the Shipment Manager's web-app link (ending in `/exec`), then tap **Save & test**.
+The Shipment Manager side deploys by itself from GitHub. Its automatic deploy also makes the first line of its
+`doPost` (which lives in a file that is only in Apps Script) call the planner hook.
+
+**One-time setup (keys only):**
+1. In the planner, open **Settings → Shipment Manager details → Dummy RO Invoice**. Tap 🎲 to make a key and copy it.
+2. In the Shipment Manager's **Project Settings → Script Properties**, add `PLANNER_API_SECRET` with that key. No
+   redeploy is needed.
+3. Back in the planner, paste the Shipment Manager's web-app link (ending in `/exec`), then tap **Save & test**.
 
 The link and key are kept only in the planner's Script Properties (`SM_WEBAPP_URL`, `SM_API_SECRET`), never in this repo.
 

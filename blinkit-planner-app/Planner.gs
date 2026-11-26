@@ -2174,7 +2174,7 @@ function smCall_(extra) {
     return { success: false, notHooked: true, message: 'The Shipment Manager did not answer (HTTP ' + resp.getResponseCode() + '). Check its web-app link.' };
   }
   // An answer without our fields: the Shipment Manager's doPost does not pass this request on yet.
-  if (!res || res.from !== 'plannerDummyRo') return { success: false, notHooked: true, message: 'The Shipment Manager does not know this request yet: add the one line to the top of its doPost (see Settings → Shipment Manager).' };
+  if (!res || res.from !== 'plannerDummyRo') return { success: false, notHooked: true, message: 'The Shipment Manager does not know this request yet: its automatic deploy has not run yet (GitHub → Actions → Deploy Shipment Manager).' };
   return res;
 }
 

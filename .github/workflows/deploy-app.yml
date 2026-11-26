@@ -4,7 +4,8 @@
 # What it does: downloads the app's current Apps Script project, puts in every .gs and .html file from the app's
 # folder (matched by file name; an unknown file name stops the deploy so nothing is duplicated), fills in the
 # shared secret where the repo has "XXXX", uploads, and updates the existing web-app deployment to a new version
-# (same /exec link). Files that are only in Apps Script are left as they are.
+# (same /exec link). Files that are only in Apps Script are left as they are, except that with post_hook set the
+# first line of doPost (wherever it lives) is made to call that hook function.
 name: Deploy an Apps Script app (shared steps)
 
 on:
@@ -21,6 +22,10 @@ on:
       dry_run:
         type: boolean
         default: false
+      post_hook:
+        description: 'Function name; doPost(e) is made to start with: const __p = <name>(e); if (__p) return __p;'
+        type: string
+        default: ''
     secrets:
       CLASPRC_JSON:
         required: false
@@ -39,6 +44,7 @@ jobs:
       FOLDER: ${{ inputs.folder }}
       FILL_SECRET: ${{ inputs.fill_shared_secret }}
       DRY_RUN: ${{ inputs.dry_run }}
+      POST_HOOK: ${{ inputs.post_hook }}
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
       SCRIPT_ID: ${{ secrets.SCRIPT_ID }}
       DEPLOYMENT_ID: ${{ secrets.DEPLOYMENT_ID }}
@@ -119,6 +125,32 @@ jobs:
           }
           if (fill && filled === 0) { console.log('::error::Expected a "XXXX" to fill with the shared secret, found none.'); process.exit(1); }
           if (fill) console.log(`Shared secret filled in at ${filled} place(s).`);
+          // post_hook: make doPost (which may live in a file that is only in Apps Script) call the hook first.
+          const hook = (process.env.POST_HOOK || '').trim();
+          if (hook) {
+            if (!/^[A-Za-z_$][\w$]*$/.test(hook)) { console.log('::error::post_hook must be a function name.'); process.exit(1); }
+            const re = /function\s+doPost\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{/g;
+            const hits = [];
+            for (const f of fs.readdirSync(gas).filter(f => /\.(js|gs)$/.test(f))) {
+              const text = fs.readFileSync(path.join(gas, f), 'utf8');
+              re.lastIndex = 0;
+              let m; while ((m = re.exec(text))) hits.push({ f, text, m });
+            }
+            if (hits.length !== 1) {
+              console.log(`::error::post_hook: expected exactly one "function doPost(e) {" in the Apps Script project, found ${hits.length}. Add the line by hand: const __p = ${hook}(e); if (__p) return __p;`);
+              process.exit(1);
+            }
+            const { f, text, m } = hits[0];
+            const end = m.index + m[0].length;
+            if (new RegExp('^\\s*(const|let|var)\\s+__p\\s*=\\s*' + hook + '\\(').test(text.slice(end))) {
+              console.log(`post_hook: doPost in ${f} already calls ${hook}.`);
+            } else {
+              if (!fs.existsSync(path.join('orig', f))) { fs.mkdirSync('orig', { recursive: true }); fs.writeFileSync(path.join('orig', f), text); }
+              const line = `\n  const __p = ${hook}(${m[1]}); if (__p) return __p;`;
+              fs.writeFileSync(path.join(gas, f), text.slice(0, end) + line + text.slice(end));
+              console.log(`post_hook: added the ${hook} line to the top of doPost in ${f}.`);
+            }
+          }
           const m = JSON.parse(fs.readFileSync(path.join(gas, 'appsscript.json'), 'utf8'));
           if (!m.webapp) {
             console.log('::error::appsscript.json in Apps Script has no web-app settings, so the deploy could change who can open the app. Deploy it once by hand (Deploy → Manage deployments → Edit → New version) and run this again.');
