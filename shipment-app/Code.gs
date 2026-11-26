@@ -2528,8 +2528,8 @@ function cancelDummyPo(platform, poNumber) {
 // dummy number SI/2026-27/D001, D002, … and the dummy PO is cancelled again. No
 // shipment is saved and nothing touches Inventory.
 //
-// Called through this app's web-app doPost. doPost lives in a file that is only in
-// Apps Script; the automatic deploy (deploy-shipment.yml, post_hook) makes its first line:
+// Called through this app's web-app doPost, which is defined just below (this
+// project had no doPost before). If doPost ever moves, keep its first line:
 //   const __p = plannerDummyRoFromPost_(e); if (__p) return __p;
 // The Planner's key is Script Property PLANNER_API_SECRET (same value in the
 // Planner's Settings → Shipment Manager); never in GitHub.
@@ -2542,8 +2542,15 @@ function plannerDummyRoFromPost_(e) {
   try { body = JSON.parse((e && e.postData && e.postData.contents) || '{}'); } catch (err) { return null; }
   if (!body || body.action !== 'plannerDummyRoInvoice') return null;
   const out = plannerDummyRoInvoice_(body);
-  out.from = 'plannerDummyRo'; // tells the Planner this hook answered (not the scanner's own doPost)
+  out.from = 'plannerDummyRo'; // tells the Planner this hook answered (not some other web app)
   return ContentService.createTextOutput(JSON.stringify(out)).setMimeType(ContentService.MimeType.JSON);
+}
+
+/** Web-app POST entry point. Only the Blinkit Planner's Dummy RO Invoice uses it so far. */
+function doPost(e) {
+  const __p = plannerDummyRoFromPost_(e); if (__p) return __p;
+  return ContentService.createTextOutput(JSON.stringify({ success: false, message: 'Unknown request.' }))
+    .setMimeType(ContentService.MimeType.JSON);
 }
 
 /** "Dec 1, 2026" / a date / "2026-12-01" → "2026-12-01" ('' when it can't be read). */

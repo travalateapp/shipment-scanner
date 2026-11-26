@@ -19,9 +19,9 @@ Apps Script, keep the real value that is already there. The automatic deploy fil
 The Blinkit Planner's **RO PDF → 🧾 Dummy RO Invoice** button calls this web app. `plannerDummyRoInvoice_` in
 `Code.gs` uploads the R.O. PDF as a dummy PO (unless that PO is already here), applies the suggested boxes, creates the
 RO Invoice with the next number `SI/2026-27/D001`, `D002`, … and then cancels the dummy PO. No shipment is saved.
-- **Hook:** `doPost(e)` lives in a file that is only in Apps Script. The automatic deploy (`post_hook` in
-  `deploy-shipment.yml`) makes its first line `const __p = plannerDummyRoFromPost_(e); if (__p) return __p;`, once.
-  The deploy stops with a message if it finds no `doPost(e)` or more than one.
+- **doPost:** in `Code.gs` (the project had none before). Its first line hands the Planner's request to
+  `plannerDummyRoFromPost_`; anything else gets `Unknown request`. The deploy (`post_hook` in `deploy-shipment.yml`)
+  checks that line is there and warns if a second `doPost` ever appears in a file that is only in Apps Script.
 - **Key:** Script Property `PLANNER_API_SECRET`. It must match the key saved in the planner's Settings. The real value
   stays only in Script Properties.
 - **Counter:** Script Property `DUMMY_RO_INVOICE_SEQ` (the last D number used). Change it there to restart or skip numbers.
