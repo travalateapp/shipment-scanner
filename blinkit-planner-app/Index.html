@@ -114,6 +114,8 @@ table.t th{font-size:11px;color:var(--muted)}
 .seg button{border:0;background:transparent;padding:8px 14px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer}
 .seg button.on{background:var(--brand);color:#fff}
 .scroll{overflow-x:auto}
+.dScroll{max-height:max(320px,calc(100vh - 170px));overflow:auto}#dTab tr:first-child th{position:sticky;top:0;background:var(--card);z-index:2;box-shadow:0 1px 0 var(--line)}
+.pager{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:8px}.pager button[disabled]{opacity:.4;cursor:default}
 .ro{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
 .ro .h{padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;cursor:pointer;background:var(--chip)}
 .ro .h .w{font-weight:700;flex:1 1 220px}
@@ -690,7 +692,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-25 log-search';
+  var PAGE_BUILD = '2026-11-26 dash-pages';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -863,7 +865,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   /* ---------------- modal ---------------- */
-  function openModal(html) { $('modalBox').innerHTML = html; $('modal').classList.remove('hidden'); }
+  function openModal(html) { if (typeof hidePlTip === 'function') hidePlTip(); $('modalBox').innerHTML = html; $('modal').classList.remove('hidden'); }
   function closeModal() { $('modal').classList.add('hidden'); $('modalBox').innerHTML = ''; $('modalBox').style.maxWidth = ''; }
   $('modal').addEventListener('click', function (e) { if (e.target === $('modal')) closeModal(); });
   // Escape closes the pop-up (a list open inside it, like the RO picker, closes first).
@@ -1559,7 +1561,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     box.style.left = left + 'px'; box.style.top = Math.max(8, top) + 'px';
   }
   function hidePlTip() { var box = $('plTipBox'); if (box) box.style.display = 'none'; }
-  document.addEventListener('mouseover', function (e) { var el = e.target.closest && e.target.closest('.plTip, .dlTip'); if (el) showPlTip(el); else hidePlTip(); });
+  // Mouse: shows on hover. Touch (phone app): a tap shows it too, except on a Planned number that opens its own
+  // pop-up when tapped (Dashboard) — there only the pop-up opens.
+  document.addEventListener('pointerover', function (e) {
+    var el = e.target.closest && e.target.closest('.plTip, .dlTip');
+    if (el && e.pointerType && e.pointerType !== 'mouse' && el.closest('.plk')) { hidePlTip(); return; }
+    if (el) showPlTip(el); else hidePlTip();
+  });
   document.addEventListener('scroll', hidePlTip, true);
   function tiFree(r) { var q = tiQty(r); return q == null ? null : q - tiReserved(r.item); }
   function tiInner(r) {
@@ -2937,8 +2945,20 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
         return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivAdj + '" data-s="' + (r.has == null ? '' : r.has - r.delivAdj) + '" data-sd="' + esc(((S.dash && S.dash.meta && PlanCore.stockInfo(S.dash.meta.inventoryAt, today())) || {}).stockDate || '') + '">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill hv ' + c + '" title="Has lasts ' + fmt(d0(r.days), 1) + ' day(s)' + (r.days != null && r.days < 0 ? ' (ran out about ' + fmt(-r.days, 1) + ' day(s) ago)' : '') + (r.daysAll != null && r.daysAll !== r.days ? '; counting what is on its way (Shipped + Planned): ' + fmt(d0(r.daysAll), 1) : '') + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
-    var dashRows = function () { var m = list.filter(dashMatch); return m.length ? m.slice(0, 300).map(rowHtml).join('') : '<tr><td colspan="10" class="muted">No item matches the search.</td></tr>'; };
-    var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + (n > 300 ? ' · first 300 shown' : ''); };
+    // 25 items a page (Prev / Next below the table); a new search, sort or filter goes back to page 1.
+    var PER = 25;
+    var pageInfo = function () { var n = list.filter(dashMatch).length, pages = Math.max(1, Math.ceil(n / PER)); S.dashPage = Math.min(Math.max(1, S.dashPage || 1), pages); return { n: n, pages: pages, p: S.dashPage }; };
+    var dashRows = function () {
+      var m = list.filter(dashMatch), pi = pageInfo();
+      return m.length ? m.slice((pi.p - 1) * PER, pi.p * PER).map(rowHtml).join('') : '<tr><td colspan="10" class="muted">No item matches the search.</td></tr>';
+    };
+    var pagerHtml = function () {
+      var pi = pageInfo(); if (pi.pages <= 1) return '';
+      return '<button class="btn sm" data-pg="1"' + (pi.p === 1 ? ' disabled' : '') + ' title="First page">«</button><button class="btn sm" data-pg="' + (pi.p - 1) + '"' + (pi.p === 1 ? ' disabled' : '') + '>‹ Prev</button>' +
+        '<span class="small">Page <b>' + pi.p + '</b> of ' + pi.pages + ' · items ' + ((pi.p - 1) * PER + 1) + '–' + Math.min(pi.n, pi.p * PER) + ' of ' + pi.n + '</span>' +
+        '<button class="btn sm" data-pg="' + (pi.p + 1) + '"' + (pi.p === pi.pages ? ' disabled' : '') + '>Next ›</button><button class="btn sm" data-pg="' + pi.pages + '"' + (pi.p === pi.pages ? ' disabled' : '') + ' title="Last page">»</button>';
+    };
+    var dashCountText = function () { var n = list.filter(dashMatch).length; return (S.dashQ || S.dashNoRo ? n + ' of ' + list.length + ' items match' + (S.dashNoRo ? ' (Planned without RO)' : '') : list.length + ' items') + ''; };
     var sortHint = COLS.filter(function (c) { return c[0] === srt.col; })[0][1] + ', ' + (isText ? (srt.dir > 0 ? 'A → Z' : 'Z → A') : (srt.dir > 0 ? 'lowest first' : 'highest first'));
     box.innerHTML = '<div class="card"><h2>Days of cover</h2><div class="small muted">From the plan made ' + new Date(d.meta.at).toLocaleString('en-IN') + ' by ' + esc(d.meta.by) +
       (d.meta.inventoryAt ? ' · Blinkit inventory of ' + esc(d.meta.inventoryAt) : '') + (dsi ? ' · stock as of ' + prettyDate(dsi.stockDate) + ', so Days count from today (' + el + ' day' + (el === 1 ? '' : 's') + ' of sales taken off)' : '') + '. ROs created since then are not counted here.</div>' +
@@ -2952,20 +2972,28 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— dispatch plan, last 7 days + next 30: 🚚 load per day, 📦 packing, 📍 arrivals, ⚠ warnings' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
       '<div class="card"><div class="row" style="align-items:center;margin-bottom:8px"><h3 style="flex:1 1 300px;margin:0">' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'Items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3>' +
         '<div style="flex:0 0 auto"><label class="chip' + (S.dashNoRo ? ' on' : '') + '" title="Items whose Planned (on its way) has no open RO in the RO Log"><input type="checkbox" id="dNoRo"' + (S.dashNoRo ? ' checked' : '') + ' style="display:none">Planned without RO <b>' + noRoCount + '</b></label></div>' +
-        '<div style="flex:0 1 280px"><input type="search" id="dQ" placeholder="🔍 Search (Ctrl+F)" title="SKU, item ID, warehouse or group — several words narrow it down" value="' + esc(S.dashQ || '') + '" autocomplete="off"></div></div><div class="scroll"><table class="t" id="dTab"><tr>' +
+        '<div style="flex:0 1 280px"><input type="search" id="dQ" placeholder="🔍 Search (Ctrl+F)" title="SKU, item ID, warehouse or group — several words narrow it down" value="' + esc(S.dashQ || '') + '" autocomplete="off"></div></div><div class="scroll dScroll" id="dScroll"><table class="t" id="dTab"><tr>' +
         COLS.map(function (c) {
           var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
           return '<th class="sortable' + (c[2] === 'n' && c[0] !== 'item' ? ' right' : '') + (on ? ' on' : '') + '" data-c="' + c[0] + '" title="Sort by ' + c[1] + '">' + c[1] + arrow + (SUBS[c[0]] ? '<small class="hsub">' + SUBS[c[0]] + '</small>' : '') + '</th>';
         }).join('') + '</tr>' +
-      '<tbody id="dRows">' + dashRows() + '</tbody></table></div><div class="small muted" id="dCount" style="margin-top:6px">' + dashCountText() + '</div></div>';
-    box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; drawDash(); };
-    $('dNoRo').onchange = function () { S.dashNoRo = this.checked; drawDash(); };
-    $('dQ').oninput = function () { S.dashQ = this.value; $('dRows').innerHTML = dashRows(); $('dCount').textContent = dashCountText(); };
+      '<tbody id="dRows">' + dashRows() + '</tbody></table></div><div class="pager" id="dPager">' + pagerHtml() + '</div><div class="small muted" id="dCount" style="margin-top:6px">' + dashCountText() + '</div></div>';
+    var redrawRows = function () { $('dRows').innerHTML = dashRows(); $('dCount').textContent = dashCountText(); $('dPager').innerHTML = pagerHtml(); };
+    $('dPager').onclick = function (e) {
+      var b = e.target.closest('button[data-pg]'); if (!b || b.disabled) return;
+      S.dashPage = Number(b.getAttribute('data-pg')); redrawRows();
+      $('dScroll').scrollTop = 0;
+      var tb = $('dTab').getBoundingClientRect(); if (tb.top < 0) $('dScroll').scrollIntoView({ block: 'start' });
+    };
+    box.querySelector('.stats').onclick = function (e) { var s = e.target.closest('.stat'); if (!s) return; var w = s.getAttribute('data-wh'); S.dashWh = S.dashWh === w ? '' : w; S.dashPage = 1; drawDash(); };
+    $('dNoRo').onchange = function () { S.dashNoRo = this.checked; S.dashPage = 1; drawDash(); };
+    $('dQ').oninput = function () { S.dashQ = this.value; S.dashPage = 1; redrawRows(); };
     $('dQ').onkeydown = function (e) { if (e.key === 'Escape') { this.value = ''; this.oninput(); } };
     $('dTab').querySelector('tr').onclick = function (e) {
       var th = e.target.closest('th[data-c]'); if (!th) return;
       var c = th.getAttribute('data-c');
       S.dashSort = srt.col === c ? { col: c, dir: -srt.dir } : { col: c, dir: 1 };
+      S.dashPage = 1;
       drawDash();
     };
     initDashCal(d, rows, el);
