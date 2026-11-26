@@ -115,6 +115,7 @@ table.t th{font-size:11px;color:var(--muted)}
 .seg button.on{background:var(--brand);color:#fff}
 .scroll{overflow-x:auto}
 .dScroll{max-height:max(320px,calc(100vh - 170px));overflow:auto}#dTab tr:first-child th{position:sticky;top:0;background:var(--card);z-index:2;box-shadow:0 1px 0 var(--line)}
+#dTab tr.dTot th{position:sticky;top:var(--dTotTop,40px);background:var(--chip);z-index:2;font-weight:700;color:var(--ink);font-size:13px;box-shadow:0 1px 0 var(--line)}
 .pager{display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;margin-top:8px}.pager button[disabled]{opacity:.4;cursor:default}
 .ro{border:1px solid var(--line);border-radius:10px;margin-bottom:10px;overflow:hidden}
 .ro .h{padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;cursor:pointer;background:var(--chip)}
@@ -692,7 +693,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 dash-pages';
+  var PAGE_BUILD = '2026-11-26 totals-pages';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2220,10 +2221,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return x.ti == null ? '<td class="right z" title="' + (S.ti && S.ti.ok ? 'Not found in Travalate Inventory — set its TI SKU in Settings → SKUs' : 'Travalate Inventory not loaded') + '">–</td>'
         : '<td class="right"' + (x.ti < x.total ? ' style="color:var(--bad);font-weight:700" title="TI has ' + x.ti + ', the open ROs need ' + x.total + '"' : '') + '>' + fmt(x.ti) + '</td>';
     };
+    // 25 SKUs a page; the Total row still counts all of them. New choices (view, ROs, group, search…) → page 1.
+    var pk = JSON.stringify(P); if (S.projKey !== pk) { S.projKey = pk; S.projPage = 1; }
+    var ppg = page('projPage', d.rows.length);
     var html = '<div class="scroll"><table class="t proj' + (wv ? ' pwh' : '') + '"><tr><th>SKU · Item ID</th>' + (wv ? '' : '<th>Name</th>') + '<th>Group</th>' +
       (wv ? d.whs.map(function (w) { return '<th class="right" title="' + esc(w) + '">' + esc(short(w)) + '</th>'; }).join('') : '<th class="right">ROs</th>') +
       '<th class="right">Total qty</th><th class="right">TI stock</th><th class="right">Current inventory</th><th class="right">Blinkit incoming</th><th class="right">Monthly sale</th><th class="right">Projection 30 days</th></tr>' +
-      d.rows.map(function (x) {
+      d.rows.slice(ppg.start, ppg.end).map(function (x) {
         var main = '<tr class="' + (wv ? 'pm' : '') + '"><td><b>' + esc(x.sku || '—') + '</b> <span class="small muted">' + x.item + '</span>' + (wv && x.name ? '<div class="small muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</div>' : '') + '</td>' +
           (wv ? '' : '<td class="small" style="max-width:280px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</td>') + '<td>' + esc(x.group || '—') + '</td>' +
           (wv ? d.whs.map(function (w) { return x.wh[w] ? '<td class="right">' + fmt(x.wh[w]) + '</td>' : '<td class="right z">–</td>'; }).join('') : '<td class="right">' + x.nRo + '</td>') +
@@ -2246,8 +2250,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         .concat([['Monthly sale', tot.saleWh, ''], ['Projection 30 days (× ' + PROJ_X + ')', tot.projWh, 'pl']]).map(function (t) {
           return '<tr class="ps tot2 ' + t[2] + '"><td class="small">↳ ' + t[0] + '</td><td></td>' + d.whs.map(function (w) { return '<td class="right small">' + fmt(t[1][w]) + '</td>'; }).join('') + '<td colspan="6"></td></tr>';
         }).join('') : '') +
-      '</table></div>';
+      '</table></div><div class="pager" id="pPager" style="padding:0 0 10px">' + pagerBar(ppg, d.rows.length, 'SKUs') + '</div>';
     box.innerHTML = html;
+    wirePager($('pPager'), 'projPage', drawProj, box);
   }
 
   function exportProj() {
@@ -2271,6 +2276,32 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       'Projections_' + (wv ? 'warehouse_' : '') + today() + '.xlsx');
   }
 
+  /**
+   * Pages of 25: the « ‹ Prev · Page x of y · Next › » bar (buttons carry data-pg) and the page number kept in range.
+   * page(key, n) → { p, pages, start, end }; pagerBar(pg, n, unit) → HTML ('' for one page).
+   */
+  var PER_PAGE = 25;
+  function page(key, n) {
+    var pages = Math.max(1, Math.ceil(n / PER_PAGE));
+    S[key] = Math.min(Math.max(1, S[key] || 1), pages);
+    return { p: S[key], pages: pages, start: (S[key] - 1) * PER_PAGE, end: Math.min(n, S[key] * PER_PAGE) };
+  }
+  function pagerBar(pg, n, unit) {
+    if (pg.pages <= 1) return '';
+    return '<button class="btn sm" data-pg="1"' + (pg.p === 1 ? ' disabled' : '') + ' title="First page">«</button><button class="btn sm" data-pg="' + (pg.p - 1) + '"' + (pg.p === 1 ? ' disabled' : '') + '>‹ Prev</button>' +
+      '<span class="small">Page <b>' + pg.p + '</b> of ' + pg.pages + ' · ' + unit + ' ' + (pg.start + 1) + '–' + pg.end + ' of ' + n + '</span>' +
+      '<button class="btn sm" data-pg="' + (pg.p + 1) + '"' + (pg.p === pg.pages ? ' disabled' : '') + '>Next ›</button><button class="btn sm" data-pg="' + pg.pages + '"' + (pg.p === pg.pages ? ' disabled' : '') + ' title="Last page">»</button>';
+  }
+  /** Wires a pager element: a click sets S[key] and calls redraw, then brings the top of `topEl` into view. */
+  function wirePager(el, key, redraw, topEl) {
+    if (!el) return;
+    el.onclick = function (e) {
+      var b = e.target.closest('button[data-pg]'); if (!b || b.disabled) return;
+      S[key] = Number(b.getAttribute('data-pg')); redraw();
+      var tEl = topEl || el; if (tEl.getBoundingClientRect().top < 0 || tEl.getBoundingClientRect().top > window.innerHeight) tEl.scrollIntoView({ block: 'start' });
+    };
+  }
+
   /* ======================= RO Log ======================= */
   function renderLog() {
     var f = S.logFilter = S.logFilter || { from: addDays(today(), -45), to: '', wh: '', status: 'Created' }; // opens on Created ROs
@@ -2285,12 +2316,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         '<b>Draft</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
         '<b>Planned</b> = on Blinkit, not shipped yet · <b>Shipped</b> = the Shipment Manager has its shipment (set by itself) · ' +
         '<b>Delivered</b> = received at the warehouse (asks for the date; 2 days later its quantities leave the month tab) · <b>Cancelled</b> = dropped (taken out of the month tab).</div>' +
-      '</div><div id="logState" class="small muted" style="margin:0 4px 6px;min-height:16px"></div><div id="logOut" class="muted card">Loading…</div>';
+      '</div><div id="logState" class="small muted" style="margin:0 4px 6px;min-height:16px"></div><div id="logOut" class="muted card">Loading…</div><div class="pager" id="logPager"></div>';
     // Search: narrows the ROs already shown, at once (no reading from the sheet).
-    $('gQ').oninput = function () { S.logQ = this.value; drawLog(); };
+    $('gQ').oninput = function () { S.logQ = this.value; S.logPage = 1; drawLog(); };
+    wirePager($('logPager'), 'logPage', drawLog, $('logState'));
     $('gQ').onkeydown = function (e) { if (e.key === 'Escape' && this.value) { e.stopPropagation(); this.value = ''; S.logQ = ''; drawLog(); } };
     ['gFrom', 'gTo', 'gWh', 'gSt'].forEach(function (id) {
-      $(id).onchange = function () { f.from = $('gFrom').value; f.to = $('gTo').value; f.wh = $('gWh').value; f.status = $('gSt').value; loadLog(); };
+      $(id).onchange = function () { f.from = $('gFrom').value; f.to = $('gTo').value; f.wh = $('gWh').value; f.status = $('gSt').value; S.logPage = 1; loadLog(); };
     });
     loadLog();
   }
@@ -2379,12 +2411,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     });
     if ($('logState') && words.length && !/spin/.test($('logState').innerHTML)) $('logState').textContent = cs.length + ' of ' + all + ' ROs match "' + S.logQ.trim() + '"';
     else if ($('logState') && !words.length && /match "/.test($('logState').textContent)) $('logState').textContent = '';
+    if ($('logPager')) $('logPager').innerHTML = '';
     if (!cs.length) { box.className = 'card muted'; box.innerHTML = words.length && all ? 'No RO matches "' + esc(S.logQ.trim()) + '" — Esc clears the search.' : 'No ROs for these filters.'; return; }
     box.className = '';
     var open = S.openBatch || {};
     var pc = { Planned: 'info', Created: 'warn', Delivered: 'ok', Cancelled: 'bad', Mixed: '' };
     var gOrder = groupList();
-    box.innerHTML = cs.map(function (c, ci) {
+    // 25 ROs a page (the pager under the list); ci stays the RO's place in the whole list.
+    var lpg = page('logPage', cs.length);
+    if ($('logPager')) $('logPager').innerHTML = pagerBar(lpg, cs.length, 'ROs');
+    box.innerHTML = cs.slice(lpg.start, lpg.end).map(function (c, ci) {
+      ci += lpg.start;
       var rs = c.rows.slice().sort(function (a, b) { return gOrder.indexOf(a.group) - gOrder.indexOf(b.group); });
       var r0 = rs[0], st = batchStatus(rs), cg = roGroups(rs)[0] || { wh: r0.wh, appt: r0.appt, dispatch: r0.dispatch };
       var groups = []; rs.forEach(function (r) { if (groups.indexOf(r.group) < 0) groups.push(r.group); });
@@ -2952,6 +2989,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var m = list.filter(dashMatch), pi = pageInfo();
       return m.length ? m.slice((pi.p - 1) * PER, pi.p * PER).map(rowHtml).join('') : '<tr><td colspan="10" class="muted">No item matches the search.</td></tr>';
     };
+    // Total row under the headings: every item that passes the search / warehouse / "Planned without RO" filters
+    // (all pages), so it changes with them. Days = total Has ÷ total per day.
+    var totHtml = function () {
+      var m = list.filter(dashMatch), s = { rate: 0, has: 0, deliv: 0, shipped: 0, planned: 0, rec: 0 };
+      m.forEach(function (r) { s.rate += r.rate || 0; s.has += (r.has == null ? r.pos : r.has) || 0; s.deliv += r.delivAdj || 0; s.shipped += r.shipped || 0; s.planned += r.planned || 0; s.rec += r.rec || 0; });
+      var days = s.rate > 0 ? s.has / s.rate : null;
+      return '<th colspan="4">Total · ' + fmt(m.length) + ' item' + (m.length === 1 ? '' : 's') + (m.length !== list.length ? ' <span class="small muted" style="font-weight:400">(filtered)</span>' : '') + '</th>' +
+        '<th class="right">' + fmt(s.rate, 1) + '</th><th class="right">' + fmt(s.has) + (s.deliv ? ' <span class="small muted" style="font-weight:400">(+' + fmt(s.deliv) + ' delivered)</span>' : '') + '</th>' +
+        '<th class="right">' + fmt(s.shipped) + '</th><th class="right">' + fmt(s.planned) + '</th><th class="right">' + (days == null ? '–' : fmt(d0(days), 1)) + '</th><th class="right">' + fmt(s.rec) + '</th>';
+    };
     var pagerHtml = function () {
       var pi = pageInfo(); if (pi.pages <= 1) return '';
       return '<button class="btn sm" data-pg="1"' + (pi.p === 1 ? ' disabled' : '') + ' title="First page">«</button><button class="btn sm" data-pg="' + (pi.p - 1) + '"' + (pi.p === 1 ? ' disabled' : '') + '>‹ Prev</button>' +
@@ -2976,9 +3023,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         COLS.map(function (c) {
           var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
           return '<th class="sortable' + (c[2] === 'n' && c[0] !== 'item' ? ' right' : '') + (on ? ' on' : '') + '" data-c="' + c[0] + '" title="Sort by ' + c[1] + '">' + c[1] + arrow + (SUBS[c[0]] ? '<small class="hsub">' + SUBS[c[0]] + '</small>' : '') + '</th>';
-        }).join('') + '</tr>' +
+        }).join('') + '</tr><tr class="dTot" id="dTot">' + totHtml() + '</tr>' +
       '<tbody id="dRows">' + dashRows() + '</tbody></table></div><div class="pager" id="dPager">' + pagerHtml() + '</div><div class="small muted" id="dCount" style="margin-top:6px">' + dashCountText() + '</div></div>';
-    var redrawRows = function () { $('dRows').innerHTML = dashRows(); $('dCount').textContent = dashCountText(); $('dPager').innerHTML = pagerHtml(); };
+    var redrawRows = function () { $('dRows').innerHTML = dashRows(); $('dTot').innerHTML = totHtml(); $('dCount').textContent = dashCountText(); $('dPager').innerHTML = pagerHtml(); };
+    // The total row sticks right under the heading row.
+    var h0 = $('dTab').querySelector('tr').getBoundingClientRect().height; if (h0) $('dTab').style.setProperty('--dTotTop', Math.round(h0) + 'px');
     $('dPager').onclick = function (e) {
       var b = e.target.closest('button[data-pg]'); if (!b || b.disabled) return;
       S.dashPage = Number(b.getAttribute('data-pg')); redrawRows();
