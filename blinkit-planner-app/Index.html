@@ -343,8 +343,12 @@ var PlanCore = (function () {
           : !!(stockDate && stockDate < plusDays(l.on, 2));
         if (waiting) dq += l.q;
       });
-      // …unless Blinkit's Incoming still has it (after the older and recent open ROs): never counted twice.
-      var deliv = Math.max(0, dq - Math.max(0, inc - (older[kk] || 0) - (recent[kk] || 0)));
+      // Delivered, waiting for GRN: counted under Delivered even when Blinkit's Incoming still lists it — that part of
+      // Blinkit's Incoming (what is left after the older and recent open ROs) is taken off Incoming instead, so the
+      // units show as Delivered, not as Planned "without RO", and are never counted twice.
+      var dOver = Math.min(dq, Math.max(0, inc - (older[kk] || 0) - (recent[kk] || 0)));
+      var deliv = dq;
+      inc -= dOver;
       var pos = wh + ds + deliv + inc + app;
       var drr = dailyRate(s7, s15, s30), status, kind;
       if (s30 === 0) { drr = 0; status = pos === 0 ? 'Not live here' : 'In stock, no sales yet'; kind = pos === 0 ? 'notlive' : 'nosale'; }
@@ -693,7 +697,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 ro-picked-skus';
+  var PAGE_BUILD = '2026-11-26 delivered-not-planned';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
