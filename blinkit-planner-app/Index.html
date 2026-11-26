@@ -700,7 +700,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 dummy-ro-autohook';
+  var PAGE_BUILD = '2026-11-26 dummy-ro-on-top';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3101,13 +3101,13 @@ function getRoInvoiceStyles_() {
     var skus = (S.boot.skus || []).filter(function (s) { return s.active; });
     if (!S.manual.length) S.manual = [{ item: '', qty: '' }];
     S.pdfs = S.pdfs || [];
-    $('app').innerHTML = '<div class="card"><h2>Upload Blinkit R.O. PDFs</h2>' +
+    $('app').innerHTML = '<div class="card"><h2>🧾 Dummy RO Invoice</h2><div class="small muted">Pick a Blinkit R.O. PDF: the Shipment Manager adds it as a Dummy Order, packs boxes from its packing history (items without history are left out), makes the RO Invoice with the next dummy number (<b>SI/2026-27/D001</b>, D002, …; invoice date today, delivery date = the RO\'s expiry) and cancels the dummy order again. Only the invoice PDF downloads here; nothing is saved in the RO Log.</div>' +
+        '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="dummyIn"><b>Choose R.O. PDF(s) → Dummy RO Invoice</b><span class="small muted">one invoice per RO</span></label><div id="dummyOut"></div></div>' +
+      '<details class="card" id="pdfUpCard"' + (S.pdfs.length ? ' open' : '') + '><summary style="cursor:pointer"><h2 style="display:inline">Upload Blinkit R.O. PDFs</h2></summary><div style="margin-top:8px"></div>' +
       '<div class="small muted">Read the same way as in the Shipment Manager. Each RO goes into the RO Log and the month tab as <b>Planned</b>. A planner RO without an RO number gets the number instead of a second RO. An RO number already in the log is skipped.</div>' +
       '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="pdfIn"><b>Choose R.O. PDFs</b><span class="small muted">one or more</span></label>' +
       '<label class="small" style="display:block;margin-top:10px"><input type="checkbox" id="pdfLogOnly"' + (S.pdfLogOnly ? ' checked' : '') + '> <b>Log only</b> — these ROs are already typed into the month tab by hand (don\'t write them there again)</label>' +
-      '<div style="margin:10px 0"><button class="btn g hidden" id="pdfAll">Save all</button></div><div id="pdfList"></div></div>' +
-      '<div class="card"><h2>🧾 Dummy RO Invoice</h2><div class="small muted">Pick a Blinkit R.O. PDF: the Shipment Manager adds it as a Dummy Order, packs boxes from its packing history (items without history are left out), makes the RO Invoice with the next dummy number (<b>SI/2026-27/D001</b>, D002, …; invoice date today, delivery date = the RO\'s expiry) and cancels the dummy order again. Only the invoice PDF downloads here; nothing is saved in the RO Log.</div>' +
-        '<label class="drop" style="margin-top:10px"><input type="file" accept="application/pdf,.pdf" multiple id="dummyIn"><b>Choose R.O. PDF(s) → Dummy RO Invoice</b><span class="small muted">one invoice per RO</span></label><div id="dummyOut"></div></div>' +
+      '<div style="margin:10px 0"><button class="btn g hidden" id="pdfAll">Save all</button></div><div id="pdfList"></div></details>' +
       '<details class="card"><summary style="cursor:pointer;font-weight:700">Add an RO by hand instead</summary><div style="margin-top:10px">' +
       '<div class="small muted">It goes into the RO Log and the month tab like the planner\'s ROs. Items of different groups (' + groupList().join(' / ') + ') split into one RO per group automatically.</div>' +
       '<div class="row" style="margin-top:10px">' +
