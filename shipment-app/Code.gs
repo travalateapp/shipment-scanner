@@ -3430,6 +3430,8 @@ const PO_COLS = {
   UPLOADED_BY:5, ITEM_CODE:6, UPC:7, DESCRIPTION:8,
   MRP:9, LANDING_RATE:10, GST_PCT:11, PO_QTY:12,
   SHIPPED_QTY:13, STATUS:14,
+  SHORT_REASON:16, // Blinkit: why a line was shipped short (asked on Box Details / JPG); the Blinkit Planner copies it into its month-tab cell note
+  SHORT_REASON_QTY:17, // how many were short when that reason was given: a different shortfall (shipment edited) asks again
   IS_DUMMY:15 // Blinkit-only "Dummy Order" flag set at PO upload time — see uploadBlinkitPo. Always blank/false for Zepto/Swiggy.
 };
 
@@ -3470,6 +3472,86 @@ function ensurePoSheet_(platform) {
     sheet.getRange(1, PO_COLS.IS_DUMMY).setValue("IS_DUMMY");
   }
   return sheet;
+}
+
+// ── SHORT-SHIPPED REASONS (Blinkit) ─────────────────────────────
+// When a Blinkit shipment sends less than the PO quantity of a line, the
+// Box Details / JPG buttons first ask why (popup in Index.html). The reason
+// is kept on the PO line (BLINKIT_PO → SHORT_REASON). The Blinkit Planner
+// reads it with its Shipment Manager sync and puts it in the red cell's note
+// in its month tab. Once an edit ships the line in full, the reason is
+// cleared here (applyPoShipment_) and the Planner removes its note.
+
+/** Adds the SHORT_REASON / SHORT_REASON_QTY headings to BLINKIT_PO if they are not there yet. */
+function ensureShortReasonCol_(sheet) {
+  if (sheet.getMaxColumns() < PO_COLS.SHORT_REASON_QTY) sheet.insertColumnsAfter(sheet.getMaxColumns(), PO_COLS.SHORT_REASON_QTY - sheet.getMaxColumns());
+  const h = sheet.getRange(1, PO_COLS.SHORT_REASON, 1, 2);
+  const v = h.getValues()[0];
+  if (String(v[0] || '').trim() !== 'SHORT_REASON' || String(v[1] || '').trim() !== 'SHORT_REASON_QTY') h.setValues([['SHORT_REASON', 'SHORT_REASON_QTY']]);
+}
+
+/** poNumbers → JSON { po: [{ itemCode, sku, description, poQty, shippedQty, short, reason, reasonShort }] } — only the lines
+ *  shipped short (less than the PO quantity, not cancelled) of non-dummy Blinkit POs. Returned as a JSON string
+ *  (see getPoLineItems: arrays of objects can arrive corrupted otherwise). */
+function getBlinkitShortLines(poNumbers) {
+  return JSON.stringify(getBlinkitShortLines_(poNumbers));
+}
+function getBlinkitShortLines_(poNumbers) {
+  const want = {};
+  (poNumbers || []).forEach(p => { const k = String(p || '').trim(); if (k) want[k] = 1; });
+  const out = {};
+  if (!Object.keys(want).length) return out;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_BLINKIT_PO);
+  if (!sheet || sheet.getLastRow() < 2) return out;
+  const width = Math.min(sheet.getLastColumn(), PO_COLS.SHORT_REASON_QTY); // no SHORT_REASON column yet = no reasons yet
+  const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getValues();
+  const cfg = poPlatformConfig_('blinkit') || PO_PLATFORM_CONFIG.blinkit;
+  const skuOf = {};
+  try { getSkuData().forEach(s => { if (s.sku && s[cfg.itemIdField]) skuOf[s[cfg.itemIdField].toString().trim()] = s.sku; }); } catch (e) { /* names fall back to the PO description */ }
+  data.forEach(r => {
+    const po = String(r[PO_COLS.PO_NUMBER - 1] || '').trim();
+    if (!want[po]) return;
+    if (String(r[PO_COLS.STATUS - 1] || '').trim().toUpperCase() === 'CANCELLED') return;
+    if (r[PO_COLS.IS_DUMMY - 1] === true || String(r[PO_COLS.IS_DUMMY - 1]).toUpperCase() === 'TRUE') return;
+    const poQty = parseInt(r[PO_COLS.PO_QTY - 1], 10) || 0, shipped = parseInt(r[PO_COLS.SHIPPED_QTY - 1], 10) || 0;
+    if (poQty <= 0 || shipped >= poQty) return;
+    const itemCode = String(r[PO_COLS.UPC - 1] || r[PO_COLS.ITEM_CODE - 1] || '').trim(); // UPC column holds the Item Code (see uploadBlinkitPo)
+    (out[po] = out[po] || []).push({
+      itemCode: itemCode, sku: skuOf[itemCode] || '', description: String(r[PO_COLS.DESCRIPTION - 1] || '').trim(),
+      poQty: poQty, shippedQty: shipped, short: poQty - shipped, reason: String(r[PO_COLS.SHORT_REASON - 1] == null ? '' : r[PO_COLS.SHORT_REASON - 1]).trim(),
+      reasonShort: parseInt(r[PO_COLS.SHORT_REASON_QTY - 1], 10) || 0 // a reason counts only while the shortfall is the same
+    });
+  });
+  return out;
+}
+
+/** Saves why lines were shipped short: reasons = [{ itemCode, reason }]. Only lines still short are written. */
+function saveBlinkitShortReasons(poNumber, reasons, employee) {
+  const po = String(poNumber || '').trim();
+  if (!po || !Array.isArray(reasons) || !reasons.length) return { success: false, message: 'Nothing to save.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_BLINKIT_PO);
+    if (!sheet) return { success: false, message: 'No BLINKIT_PO sheet.' };
+    ensureShortReasonCol_(sheet);
+    const want = {};
+    reasons.forEach(x => { const k = String(x && x.itemCode || '').trim(); if (k) want[k] = String(x.reason || '').trim().slice(0, 300); });
+    const data = sheet.getRange(2, 1, Math.max(1, sheet.getLastRow() - 1), PO_COLS.SHORT_REASON_QTY).getValues();
+    const cells = [];
+    data.forEach((r, i) => {
+      if (String(r[PO_COLS.PO_NUMBER - 1] || '').trim() !== po) return;
+      if (String(r[PO_COLS.STATUS - 1] || '').trim().toUpperCase() === 'CANCELLED') return;
+      const itemCode = String(r[PO_COLS.UPC - 1] || r[PO_COLS.ITEM_CODE - 1] || '').trim();
+      if (!(itemCode in want)) return;
+      const poQty = parseInt(r[PO_COLS.PO_QTY - 1], 10) || 0, shipped = parseInt(r[PO_COLS.SHIPPED_QTY - 1], 10) || 0;
+      if (shipped >= poQty) return;
+      if (!want[itemCode]) return; // a reason is required
+      cells.push({ row: i + 2, v: [want[itemCode], poQty - shipped] });
+    });
+    cells.forEach(c => sheet.getRange(c.row, PO_COLS.SHORT_REASON, 1, 2).setValues([c.v]));
+    return { success: true, saved: cells.length, by: String(employee || '') };
+  } finally { lock.releaseLock(); }
 }
 
 function toDateString_(val) {
@@ -4724,6 +4806,14 @@ function validateAndUpdatePoShipped_(platform, poNumber, boxes, oldBoxes, isEdit
     }
 
     sheet.getRange(2, PO_COLS.SHIPPED_QTY, numDataRows, 2).setValues(valuesBlock);
+    // Short-shipped reasons (Blinkit): a line now shipped in full no longer needs one.
+    if (sheet.getLastColumn() >= PO_COLS.SHORT_REASON) {
+      const clear = updateRowIdxs.filter(rowIdx => {
+        const poQty = parseInt(data[rowIdx-1][PO_COLS.PO_QTY-1], 10) || 0;
+        return poQty > 0 && updates[rowIdx] >= poQty && String(data[rowIdx-1][PO_COLS.SHORT_REASON-1] || '').trim();
+      });
+      if (clear.length) sheet.getRangeList(clear.map(rowIdx => sheet.getRange(rowIdx, PO_COLS.SHORT_REASON, 1, Math.min(2, sheet.getLastColumn() - PO_COLS.SHORT_REASON + 1)).getA1Notation())).setValue('');
+    }
     for (const color of Object.keys(bgByColor)) {
       const ranges = bgByColor[color].map(rowIdx => sheet.getRange(rowIdx, PO_COLS.SHIPPED_QTY).getA1Notation());
       sheet.getRangeList(ranges).setBackground(color);
