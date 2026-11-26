@@ -129,26 +129,34 @@ jobs:
           const hook = (process.env.POST_HOOK || '').trim();
           if (hook) {
             if (!/^[A-Za-z_$][\w$]*$/.test(hook)) { console.log('::error::post_hook must be a function name.'); process.exit(1); }
-            const re = /function\s+doPost\s*\(\s*([A-Za-z_$][\w$]*)\s*\)\s*\{/g;
-            const hits = [];
+            // doPost written as a function, or as var/let/const doPost = function (e) { / (e) => {
+            const re = /(?:function\s+doPost\s*\(\s*([A-Za-z_$][\w$]*)[^)]*\)\s*\{)|(?:(?:var|let|const)\s+doPost\s*=\s*(?:function\s*[\w$]*\s*)?\(\s*([A-Za-z_$][\w$]*)[^)]*\)\s*(?:=>\s*)?\{)/g;
+            const hits = [], seen = [];
             for (const f of fs.readdirSync(gas).filter(f => /\.(js|gs)$/.test(f))) {
               const text = fs.readFileSync(path.join(gas, f), 'utf8');
+              text.split('\n').forEach((ln, i) => {
+                if (!/\bdoPost\b/.test(ln)) return;
+                // Only the doPost signature is shown (no quotes = no text values), never other code.
+                const shape = /['"`]/.test(ln) ? '(line with text, not shown)' : ln.trim().slice(0, 100);
+                seen.push(`${f}:${i + 1}: ${shape}`);
+              });
               re.lastIndex = 0;
-              let m; while ((m = re.exec(text))) hits.push({ f, text, m });
+              let m; while ((m = re.exec(text))) hits.push({ f, text, m, arg: m[1] || m[2] });
             }
             if (hits.length !== 1) {
-              console.log(`::error::post_hook: expected exactly one "function doPost(e) {" in the Apps Script project, found ${hits.length}. Add the line by hand: const __p = ${hook}(e); if (__p) return __p;`);
-              process.exit(1);
-            }
-            const { f, text, m } = hits[0];
-            const end = m.index + m[0].length;
-            if (new RegExp('^\\s*(const|let|var)\\s+__p\\s*=\\s*' + hook + '\\(').test(text.slice(end))) {
-              console.log(`post_hook: doPost in ${f} already calls ${hook}.`);
+              console.log(`::warning::post_hook: expected one doPost(e) in the Apps Script project, found ${hits.length}; the hook line was NOT added (the rest is deployed). Lines with "doPost":`);
+              seen.forEach(s => console.log('   ' + s));
             } else {
-              if (!fs.existsSync(path.join('orig', f))) { fs.mkdirSync('orig', { recursive: true }); fs.writeFileSync(path.join('orig', f), text); }
-              const line = `\n  const __p = ${hook}(${m[1]}); if (__p) return __p;`;
-              fs.writeFileSync(path.join(gas, f), text.slice(0, end) + line + text.slice(end));
-              console.log(`post_hook: added the ${hook} line to the top of doPost in ${f}.`);
+              const { f, text, m, arg } = hits[0];
+              const end = m.index + m[0].length;
+              if (new RegExp('^\\s*(const|let|var)\\s+__p\\s*=\\s*' + hook + '\\(').test(text.slice(end))) {
+                console.log(`post_hook: doPost in ${f} already calls ${hook}.`);
+              } else {
+                if (!fs.existsSync(path.join('orig', f))) { fs.mkdirSync('orig', { recursive: true }); fs.writeFileSync(path.join('orig', f), text); }
+                const line = `\n  const __p = ${hook}(${arg}); if (__p) return __p;`;
+                fs.writeFileSync(path.join(gas, f), text.slice(0, end) + line + text.slice(end));
+                console.log(`post_hook: added the ${hook} line to the top of doPost in ${f}.`);
+              }
             }
           }
           const m = JSON.parse(fs.readFileSync(path.join(gas, 'appsscript.json'), 'utf8'));
