@@ -96,6 +96,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
+  compactMonthTabs,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -417,11 +418,139 @@ function cleanupDelivered_() {
   return due.length;
 }
 
-/** For a time-driven trigger (Apps Script → Triggers → cleanupDeliveredROs, daily). */
+/** For a time-driven trigger (Apps Script → Triggers → cleanupDeliveredROs, daily). Also tidies the month tabs. */
 function cleanupDeliveredROs() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
-  try { return cleanupDelivered_(); } finally { lock.releaseLock(); }
+  try {
+    const n = cleanupDelivered_();
+    try { compactMonthTabs_(); } catch (e) { /* tried again next time */ }
+    return n;
+  } finally { lock.releaseLock(); }
+}
+
+/** Settings → "Tidy month tabs now" (Admin): the same tidy-up at once. */
+function compactMonthTabs(token) {
+  auth_(token, 'Admin');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try { return compactMonthTabs_(); } finally { lock.releaseLock(); }
+}
+
+/**
+ * Tidies the current and the previous month tab (any tab still holding open ROs is one of these):
+ *  1. In every warehouse block (TBI / TBO / TBG), RO columns move left into empty RO columns before them, in order,
+ *     with their quantities, heading, red "not sent" marks and notes; the RO Log follows (Month Tab / Tab Refs).
+ *  2. RO columns added by the planner (from I on) that are then empty in every block are deleted, so the tab
+ *     doesn't keep growing; D–H always stay. The daily updater's "Undo Last Upload" letters move along.
+ * Returns { tab: { moved, deleted } } for the tabs that changed.
+ */
+function compactMonthTabs_() {
+  const now = new Date(), out = {};
+  const keys = [now.getFullYear() * 12 + now.getMonth(), now.getFullYear() * 12 + now.getMonth() - 1];
+  monthTabs_().filter(x => keys.indexOf(x.key) >= 0).forEach(x => {
+    const r = compactTab_(x.sheet);
+    if (r.moved || r.deleted) out[x.name] = r;
+  });
+  return out;
+}
+
+function compactTab_(sh) {
+  const name = sh.getName();
+  delete TABV_[name]; delete RO_N_[name];
+  const n = roColCount_(sh), v = readBlockValues_(sh);
+  const filled = x => x !== '' && x !== null && x !== undefined;
+  // Every warehouse block and, per block, which RO columns are used (a heading or any quantity).
+  const blocks = [];
+  v.forEach((row, i) => {
+    const a = typeof row[0] === 'string' ? row[0].trim() : '', m = a.match(BLOCK_RE);
+    if (!m) return;
+    const b = findBlock_(v, m[1].trim(), m[2]);
+    if (!b || b.start !== i) return;
+    b.wh = m[1].trim(); b.group = m[2];
+    b.rows = [b.headRow].concat(Object.keys(b.items).map(it => b.items[it])).filter((x, k, arr) => arr.indexOf(x) === k).sort((p, q) => p - q);
+    b.used = [];
+    for (let k = 0; k < n; k++) b.used.push(b.rows.some(rr => filled(v[rr][FIRST_RO_COL - 1 + k])));
+    blocks.push(b);
+  });
+  // 1. Move used columns left within each block.
+  const remap = []; // { block, from: letter, to: letter }
+  let moved = 0;
+  blocks.forEach(b => {
+    let free = 0;
+    for (let k = 0; k < n; k++) {
+      if (!b.used[k]) continue;
+      if (k !== free) {
+        // Consecutive rows of the block's heading + item rows are copied in runs, then the old cells are cleared.
+        runsOf_(b.rows).forEach(run => {
+          const src = sh.getRange(run[0] + 1, FIRST_RO_COL + k, run.length, 1), dst = sh.getRange(run[0] + 1, FIRST_RO_COL + free, run.length, 1);
+          src.copyTo(dst);
+          src.clearContent(); src.clearNote(); src.setFontColor(null).setFontWeight(null);
+        });
+        remap.push({ b: b, from: colLetter_(FIRST_RO_COL + k), to: colLetter_(FIRST_RO_COL + free) });
+        b.used[free] = true; b.used[k] = false; moved++;
+      }
+      free++;
+    }
+  });
+  if (remap.length) {
+    // The RO Log follows: a line's reference to this tab moves when its block's column moved.
+    const log = ensureLog_();
+    readLog_().forEach(r => {
+      let ch = false;
+      r.refs.forEach(ref => {
+        if (ref.t !== name) return;
+        const b = blockFor_(v, r.wh, r.group);
+        const mv = b && remap.filter(x => x.b.start === b.start && x.from === ref.c)[0];
+        if (mv) { ref.c = mv.to; ch = true; }
+      });
+      if (!ch) return;
+      log.getRange(r.row, L['Month Tab'] + 1).setValue(refsText_(r.refs));
+      log.getRange(r.row, L['Tab Refs'] + 1).setValue(JSON.stringify(r.refs));
+    });
+  }
+  // 2. Added RO columns (beyond D–H) empty in every block: deleted from the right end of the RO columns.
+  const keep = Math.max(BASE_RO_COLS, blocks.reduce((mx, b) => Math.max(mx, b.used.lastIndexOf(true) + 1), 0));
+  let deleted = 0;
+  for (let k = n - 1; k >= keep; k--) {
+    const col = FIRST_RO_COL + k;
+    sh.deleteColumn(col);
+    deleted++;
+    shiftUndoMeta_(name, col);
+  }
+  if (deleted) {
+    // Row 1 marks the added columns: keep exactly (RO columns − 5) marks.
+    const notes = sh.getRange(1, FIRST_RO_COL, 1, keep).getNotes()[0];
+    let marks = notes.filter(x => String(x || '').indexOf(RO_COL_NOTE) === 0).length;
+    for (let k = keep - 1; k >= 0 && marks > keep - BASE_RO_COLS; k--) {
+      if (String(notes[k] || '').indexOf(RO_COL_NOTE) === 0) { sh.getRange(1, FIRST_RO_COL + k).clearNote(); marks--; }
+    }
+    for (let k = keep - 1; k >= BASE_RO_COLS && marks < keep - BASE_RO_COLS; k--) { // (a mark removed by hand: put one back)
+      if (String(notes[k] || '').indexOf(RO_COL_NOTE) !== 0) { sh.getRange(1, FIRST_RO_COL + k).setNote(RO_COL_NOTE); marks++; }
+    }
+  }
+  delete TABV_[name];
+  if (deleted) RO_N_[name] = keep; else delete RO_N_[name];
+  return { moved: moved, deleted: deleted };
+}
+
+/** Sorted row numbers → runs of consecutive rows. */
+function runsOf_(rows) {
+  const out = [];
+  rows.forEach(r => { const last = out[out.length - 1]; if (last && r === last[last.length - 1] + 1) last.push(r); else out.push([r]); });
+  return out;
+}
+
+/** A column of this tab was deleted: the daily updater's remembered Undo columns right of it move one left. */
+function shiftUndoMeta_(name, col) {
+  try {
+    const dp = PropertiesService.getDocumentProperties(), raw = dp.getProperty('BLINKIT_UNDO_META');
+    if (!raw) return;
+    const um = JSON.parse(raw);
+    if (!um || um.mainSheetName !== name) return;
+    ['sourceCol', 'targetCol'].forEach(k => { if (um[k] && colNumber_(um[k]) > col) um[k] = colLetter_(colNumber_(um[k]) - 1); });
+    dp.setProperty('BLINKIT_UNDO_META', JSON.stringify(um));
+  } catch (e) { /* the column is deleted either way */ }
 }
 
 function getBoot(token) {
