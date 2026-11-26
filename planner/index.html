@@ -693,7 +693,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 new-row-fix';
+  var PAGE_BUILD = '2026-11-26 tidy-10am';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3434,7 +3434,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="row" style="margin-top:10px"><div><label class="f">Month</label><input type="month" id="sMonth" value="' + nextMonth + '"></div>' +
       '<div style="flex:0 0 auto"><button class="btn p" id="sStartM">Start new month</button></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="sSync">Sync month tabs</button></div>' +
-      '<div style="flex:0 0 auto"><button class="btn" id="sTidy" title="Moves ROs left into empty RO columns of each warehouse block and deletes added RO columns (from I on) that are then empty everywhere. Also runs by itself every 30 minutes when the planner is opened.">Tidy month tabs now</button></div></div><div id="mOut2"></div></div>' +
+      '<div style="flex:0 0 auto"><button class="btn" id="sTidy" title="Puts each warehouse block's ROs in RO-date order (earliest left), deletes added RO columns (from I on) that are empty everywhere and fixes #ERROR! item rows. Also runs by itself once a day at 10 AM.">Tidy month tabs now</button></div></div><div id="mOut2"></div></div>' +
       '<div class="card"><h2>SKUs</h2><div class="small muted">Group decides the ' + esc(groupList().join(' / ')) + ' block an item goes into. New items from Blinkit are added here automatically with no group.</div>' +
       '<div class="row" style="margin:8px 0"><div style="flex:0 0 auto"><button class="btn" id="kFromTab">Take groups &amp; tiers from the month tab</button></div><div class="small muted" style="align-self:center">Reads each item\'s block (group) and tier from the newest month tab, and lists SKUs that are in two groups of the same warehouse. Shows the changes before saving.</div></div><div id="kTabOut"></div>' +
       '<div class="row" style="margin:8px 0"><div><input type="text" id="kQ" placeholder="Search"></div><div style="flex:0 0 auto"><label class="small"><input type="checkbox" id="kNo"> only items with no group</label></div></div>' +
