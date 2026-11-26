@@ -1573,6 +1573,30 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
   </div>
 </div>
 
+<!-- ====== SHIPPED SHORT: WHY? (Blinkit, before Box Details / JPG) ====== -->
+<div id="shortModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center">
+  <div style="background:#fff;border-radius:14px;width:min(620px,94vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)">
+    <div style="background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:#fff;padding:14px 20px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700;font-size:16px">⚠️ Shipped less than the PO — why?</span>
+      <button onclick="closeShortModal_()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:14px">✕</button>
+    </div>
+    <div style="padding:14px 20px;overflow:auto">
+      <p id="shortModalSub" style="font-size:13px;color:#475569;margin:0 0 10px"></p>
+      <div id="shortModalRows"></div>
+      <datalist id="shortReasonList">
+        <option value="Out of stock"></option><option value="Not enough stock in inventory"></option>
+        <option value="Damaged / quality issue"></option><option value="Blinkit max / case limit"></option>
+        <option value="Short packed — will send in next RO"></option><option value="Item not ready (production)"></option>
+      </datalist>
+      <div id="shortModalErr" style="color:#dc2626;font-size:12px;margin-top:6px"></div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-secondary" onclick="skipShortModal_()" title="Continue without a reason now; you will be asked again next time">Skip for now</button>
+      <button class="btn btn-primary" onclick="saveShortModal_()">Save &amp; continue</button>
+    </div>
+  </div>
+</div>
+
 <!-- ====== INVOICE NUMBER REQUIRED MODAL ====== -->
 <div id="invoiceModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center" onclick="if(event.target===this)closeInvoiceModal()">
   <div style="background:#fff;border-radius:14px;width:min(420px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.4)">
@@ -6096,6 +6120,7 @@ function buildLabel(boxLabel, items, payload, isMain) {
    filter by date.
 ============================================== */
 function loadShipments(dateFilter, dateFilterEnd) {
+  shortLinesCache_ = {}; // shipments may have been edited: ask again which lines are short
   currentDateFilter = dateFilter || '';
   currentDateFilterEnd = dateFilterEnd || '';
   const rangeHint = document.getElementById('shipmentsRangeHint');
@@ -6313,8 +6338,8 @@ function renderShipmentsList() {
         </div>
         <div class="shipment-actions">
           ${hasModule_('SHIPMENT_BOX_DETAILS') && !s.isDummy ? `<div class="action-group ag-box">
-            <button class="btn btn-secondary btn-sm" onclick="downloadShipment(${i},'boxDetails')">📊 Box Details</button>
-            <button class="btn btn-secondary btn-sm" onclick="downloadJpg(${i})" title="Download Box Details as JPG">📥 JPG</button>
+            <button class="btn btn-secondary btn-sm" onclick="withShortReasons_(${i}, function(){ downloadShipment(${i},'boxDetails'); })">📊 Box Details</button>
+            <button class="btn btn-secondary btn-sm" onclick="withShortReasons_(${i}, function(){ downloadJpg(${i}); })" title="Download Box Details as JPG">📥 JPG</button>
           </div>` : ''}
           ${hasModule_('SHIPMENT_LABELS') && !s.isDummy ? `<div class="action-group ag-labels">
             <button class="btn btn-secondary btn-sm" onclick="downloadShipment(${i},'labels')">🏷️ Labels${s.invoiceNumber ? '' : ' <span style="opacity:.7;font-weight:400">(needs inv #)</span>'}</button>
@@ -6417,6 +6442,7 @@ function renderShipmentsList() {
         pagEl.innerHTML = btns.join('');
       }
     }
+    prefetchShortLines_(pageItems);
   } catch (err) {
     el.innerHTML = '<div style="color:#dc2626;font-size:13px;text-align:center;padding:30px">Error rendering shipments list: ' + err.message + '</div>';
   }
@@ -6436,6 +6462,86 @@ function formatTimestamp(ts) {
     if (isNaN(d.getTime())) return ts;
     return d.toLocaleString();
   } catch (e) { return ts; }
+}
+
+/* ==============================================
+   SHIPPED SHORT → WHY? (Blinkit)
+   Before Box Details / JPG of a Blinkit shipment that sent less than its
+   PO quantity on some line, a popup lists those SKUs with the quantity not
+   sent and asks why. The reason is saved on the PO line (BLINKIT_PO →
+   SHORT_REASON) and the Blinkit Planner puts it in its month-tab cell note.
+   Short lines are fetched in the background when the list is shown, so the
+   click itself opens the popup (or Box Details) at once (a window opened
+   after a server round-trip would be blocked as a pop-up).
+============================================== */
+var shortLinesCache_ = {};      // PO number → short lines ([] = none)
+var shortModalCtx_ = null;      // { s, lines, go }
+function isBlinkitShipment_(s) { return !!s && !s.isDummy && /blinkit/i.test(s.platform || '') && !!String(s.poNumber || '').trim(); }
+function prefetchShortLines_(items, force) {
+  const pos = [];
+  (items || []).forEach(s => {
+    const po = isBlinkitShipment_(s) ? String(s.poNumber).trim() : '';
+    if (po && (force || shortLinesCache_[po] === undefined) && pos.indexOf(po) < 0) pos.push(po);
+  });
+  if (!pos.length) return;
+  pos.forEach(po => { if (shortLinesCache_[po] === undefined) shortLinesCache_[po] = null; }); // null = loading
+  google.script.run
+    .withSuccessHandler(raw => {
+      let map = {};
+      try { map = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); } catch (e) { map = {}; }
+      pos.forEach(po => { shortLinesCache_[po] = map[po] || []; });
+    })
+    .withFailureHandler(() => { pos.forEach(po => { if (shortLinesCache_[po] === null) delete shortLinesCache_[po]; }); })
+    .getBlinkitShortLines(pos);
+}
+/** Runs go() at once, or first asks why lines were shipped short when any of them has no reason yet. */
+function withShortReasons_(i, go) {
+  const s = savedShipments[i];
+  if (!isBlinkitShipment_(s)) { go(); return; }
+  const lines = shortLinesCache_[String(s.poNumber).trim()];
+  if (!lines || !lines.length || lines.every(l => l.reason)) { go(); return; }
+  openShortModal_(s, lines, go);
+}
+function openShortModal_(s, lines, go) {
+  shortModalCtx_ = { s: s, lines: lines, go: go };
+  const units = lines.reduce((a, l) => a + l.short, 0);
+  document.getElementById('shortModalSub').innerHTML = 'PO <b>' + escHtmlShort_(s.poNumber) + '</b> · ' + escHtmlShort_(s.city || '') +
+    ' — <b style="color:#b91c1c">' + units + ' unit(s)</b> on ' + lines.length + ' SKU(s) were not sent. Say why for each; it is noted in the Blinkit Planner.';
+  document.getElementById('shortModalRows').innerHTML = lines.map((l, k) =>
+    '<div style="border:1px solid #fecaca;background:#fef2f2;border-radius:8px;padding:8px 10px;margin-bottom:8px">' +
+      '<div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;font-size:13px">' +
+        '<b>' + escHtmlShort_(l.sku || l.description || l.itemCode) + '</b>' +
+        '<span style="color:#475569">Item ' + escHtmlShort_(l.itemCode) + ' · PO ' + l.poQty + ' · sent ' + l.shippedQty + ' · <b style="color:#b91c1c">' + l.short + ' less</b></span>' +
+      '</div>' +
+      (l.sku && l.description ? '<div style="font-size:11px;color:#64748b">' + escHtmlShort_(l.description) + '</div>' : '') +
+      '<input type="text" list="shortReasonList" maxlength="300" data-k="' + k + '" class="shortReasonIn" placeholder="Why was this sent less? (pick or type)" value="' + escHtmlShort_(l.reason || '') + '"' +
+        ' style="width:100%;margin-top:6px;padding:8px 10px;border:2px solid #e2e8f0;border-radius:8px;font-size:13px;box-sizing:border-box">' +
+    '</div>').join('');
+  document.getElementById('shortModalErr').textContent = '';
+  document.getElementById('shortModal').style.display = 'flex';
+  const first = document.querySelector('#shortModal .shortReasonIn');
+  if (first) first.focus();
+}
+function escHtmlShort_(v) { return String(v == null ? '' : v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function closeShortModal_() { document.getElementById('shortModal').style.display = 'none'; shortModalCtx_ = null; }
+function skipShortModal_() { const c = shortModalCtx_; closeShortModal_(); if (c) c.go(); }
+function saveShortModal_() {
+  const c = shortModalCtx_; if (!c) return;
+  const ins = Array.prototype.slice.call(document.querySelectorAll('#shortModal .shortReasonIn'));
+  const missing = ins.filter(x => !x.value.trim());
+  if (missing.length) {
+    document.getElementById('shortModalErr').textContent = 'Give a reason for every SKU (or tap "Skip for now").';
+    missing[0].focus(); return;
+  }
+  const reasons = ins.map(x => ({ itemCode: c.lines[+x.getAttribute('data-k')].itemCode, reason: x.value.trim() }));
+  reasons.forEach((r, k) => { c.lines[k].reason = r.reason; }); // the cache: not asked again for this PO
+  const po = String(c.s.poNumber).trim();
+  google.script.run
+    .withSuccessHandler(res => { if (!res || !res.success) alert('The reasons could not be saved: ' + ((res && res.message) || 'unknown error')); })
+    .withFailureHandler(err => { delete shortLinesCache_[po]; alert('The reasons could not be saved: ' + (err && err.message ? err.message : err)); })
+    .saveBlinkitShortReasons(po, reasons, currentUser ? currentUser.name : '');
+  closeShortModal_();
+  c.go(); // straight away, inside this click, so Box Details' window is not blocked
 }
 
 function downloadShipment(i, type) {

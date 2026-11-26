@@ -1932,14 +1932,17 @@ function poLinesMap_(roNos) {
   const want = {}; roNos.forEach(n => { want[String(n).trim()] = 1; });
   const sh = SpreadsheetApp.openById(id).getSheetByName('BLINKIT_PO');
   if (!sh) throw new Error('no BLINKIT_PO tab in the Shipment Manager sheet');
-  const v = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), 14).getValues();
+  // A … N, and P SHORT_REASON (why a line was shipped short, asked on the Shipment Manager's Box Details / JPG).
+  const v = sh.getRange(2, 1, Math.max(1, sh.getLastRow() - 1), Math.max(14, Math.min(16, sh.getLastColumn()))).getValues();
   const out = {};
   v.forEach(r => {
     const po = String(r[0] || '').trim(); if (!want[po]) return;
     if (String(r[13] || '').trim().toUpperCase() === 'CANCELLED') return;
     const k = po + '|' + Number(r[5]);
-    const x = out[k] = out[k] || { ordered: 0, shipped: 0 };
+    const x = out[k] = out[k] || { ordered: 0, shipped: 0, reason: '' };
     x.ordered += parseInt(r[11], 10) || 0; x.shipped += parseInt(r[12], 10) || 0;
+    const why = String(r[15] == null ? '' : r[15]).trim();
+    if (why && x.reason.indexOf(why) < 0) x.reason = x.reason ? x.reason + '; ' + why : why;
   });
   return out;
 }
@@ -1960,8 +1963,10 @@ function syncShipments_() {
   if (!id) return { skipped: 'Shipment Manager link not set (Settings).' };
   const now = new Date(), log = ensureLog_(), all = readLog_();
   const NOT_SHIPPED = 'Not shipped (Shipment Manager)';
+  // Lines shipped short stay checked after the 2 days too: a reason given later in the Shipment Manager, or an edit
+  // that sends the rest, still reaches the RO Log and the month tab.
   const due = all.filter(r => r.roNo && (r.status !== 'Cancelled' || String(r.notes).indexOf(NOT_SHIPPED) >= 0) && !r.logOnly &&
-    !(r.shipSyncUntil instanceof Date && r.shipSyncUntil.getTime() < now.getTime()) &&
+    (shortOf_(r) > 0 || !(r.shipSyncUntil instanceof Date && r.shipSyncUntil.getTime() < now.getTime())) &&
     r.roDate instanceof Date && r.roDate.getTime() >= now.getTime() - 60 * 864e5);
   if (!due.length) return { ros: 0, qty: 0, dates: 0 };
   const ss = SpreadsheetApp.openById(id);
@@ -2024,6 +2029,15 @@ function syncShipments_() {
         log.getRange(r.row, L['Status'] + 1).setValue('Created');
         log.getRange(r.row, L['Notes'] + 1).setValue(r.notes);
       }
+      touched = true;
+    }
+    // Why it was shipped short: the reason given in the Shipment Manager (Box Details / JPG popup) becomes the RO
+    // Log's Short Note and the month-tab cell's note; a reason typed in the planner stays when the Shipment Manager
+    // has none. Shipped in full (e.g. after an edit): the note goes.
+    const shortNow = Math.max(0, ordered - sq), why = shortNow > 0 ? String(pl.reason || '') : '';
+    if (shortNow > 0 ? (why && why !== r.shortNote) : !!r.shortNote) {
+      r.shortNote = why.slice(0, 500);
+      log.getRange(r.row, L['Short Note'] + 1).setValue(r.shortNote);
       touched = true;
     }
     if (!touched && !firstFound) return;

@@ -158,6 +158,17 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 | Limits | Rounded up to multiples of 5, at least 10 units per line, never above Blinkit's max. Locked rows get 0 and are listed with Blinkit's reason. |
 | Not live yet | Not sent unless **New-listing starters** is on. Then a small starter qty is suggested (half a typical warehouse's need, up to Blinkit's suggested min) for items that sell 1+ a day elsewhere. On the plan, **Show → New-listing starters only** lists just those lines. |
 
+### Why a line was shipped short
+When a Blinkit RO is shipped with less than the RO quantity, the Shipment Manager asks why when someone opens its
+**Box Details** or **JPG** (it is kept there in `BLINKIT_PO` → `SHORT_REASON`). The Shipment Manager sync copies the
+reason into the RO Log's **Short Note** and into the note of the red cell in the month tab
+(*Ordered … — shipped …, … not sent … Why: …*).
+- **Edited later:** if the shipment is edited and the line is shipped in full, the red cell, its note and the Short
+  Note are cleared. If it is still short, they stay.
+- **Checked until settled:** lines shipped short are checked on every sync, not only for the first 2 days, so a reason
+  given later or a later edit still arrives.
+- **Typed in the planner:** a reason typed in the RO Log (*Why not sent?*) is kept while the Shipment Manager has none.
+
 ### Dummy RO Invoice (RO PDF tab)
 
 The **🧾 Dummy RO Invoice** card on the RO PDF tab makes an RO Invoice for one or more Blinkit R.O. PDFs without you
