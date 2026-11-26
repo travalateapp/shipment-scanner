@@ -158,6 +158,31 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 | Limits | Rounded up to multiples of 5, at least 10 units per line, never above Blinkit's max. Locked rows get 0 and are listed with Blinkit's reason. |
 | Not live yet | Not sent unless **New-listing starters** is on. Then a small starter qty is suggested (half a typical warehouse's need, up to Blinkit's suggested min) for items that sell 1+ a day elsewhere. On the plan, **Show → New-listing starters only** lists just those lines. |
 
+### Dummy RO Invoice (RO PDF tab)
+
+The **🧾 Dummy RO Invoice** card on the RO PDF tab makes an RO Invoice for one or more Blinkit R.O. PDFs without you
+touching the Shipment Manager. For each PDF, the Shipment Manager does the work and the planner only downloads the
+final file:
+
+1. **Upload the PO.** If the RO is not in the Shipment Manager yet, it is uploaded there as a **dummy** PO. An RO that is
+   already there as a real PO is used as it is.
+2. **Apply boxes.** The suggested box layout is used. Items without box details (no case size) are left out and listed.
+3. **Generate the output and create the RO Invoice** with the next dummy number: `SI/2026-27/D001`, then `D002`, and so
+   on. The counter is kept in the Shipment Manager (Script Property `DUMMY_RO_INVOICE_SEQ`) and only goes up when an
+   invoice is made. Invoice date is **today**, and the delivery date is the RO's **expiry / appointment**.
+4. **Download** `Invoice-<number>-RO<RO number>.pdf`, laid out exactly like the Shipment Manager's RO Invoice.
+5. **Clean up.** The dummy PO is cancelled in the Shipment Manager. No shipment is saved there.
+
+**One-time setup:**
+1. In the Shipment Manager's Apps Script, make this the **first line of `doPost(e)`**:
+   `const __p = plannerDummyRoFromPost_(e); if (__p) return __p;`
+2. In the planner, open **Settings → Shipment Manager details → Dummy RO Invoice**. Tap 🎲 to make a key and copy it.
+3. In the Shipment Manager's **Project Settings → Script Properties**, add `PLANNER_API_SECRET` with that key.
+4. Deploy the Shipment Manager: **Deploy → Manage deployments → edit → New version**.
+5. Back in the planner, paste the Shipment Manager's web-app link (ending in `/exec`), then tap **Save & test**.
+
+The link and key are kept only in the planner's Script Properties (`SM_WEBAPP_URL`, `SM_API_SECRET`), never in this repo.
+
 ---
 
 ## 3. Month tabs

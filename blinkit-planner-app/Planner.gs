@@ -96,7 +96,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
-  compactMonthTabs, tidyIfDue,
+  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -2132,6 +2132,59 @@ function saveShipLink(token, url) {
   } finally {
     lock.releaseLock();
   }
+}
+
+/* ---------------- Dummy RO Invoice (made by the Shipment Manager) ---------------- */
+
+// The Shipment Manager's web-app link (/exec) and the key it expects from the Planner (its Script Property
+// PLANNER_API_SECRET) are kept only in this script's Script Properties: SM_WEBAPP_URL, SM_API_SECRET.
+const SM_URL_RE_ = /^https:\/\/script\.google\.com\/macros\/s\/[\w-]{20,}\/exec$/;
+
+function getSmApi(token) {
+  auth_(token, 'Admin');
+  const p = PropertiesService.getScriptProperties();
+  return { url: p.getProperty('SM_WEBAPP_URL') || '', hasKey: !!p.getProperty('SM_API_SECRET') };
+}
+
+/** Saves the link (and key, when given) and checks the Shipment Manager answers with that key. */
+function saveSmApi(token, url, key) {
+  auth_(token, 'Admin');
+  url = String(url || '').trim();
+  if (!SM_URL_RE_.test(url)) throw new Error('Paste the Shipment Manager web-app link: https://script.google.com/macros/s/…/exec');
+  const p = PropertiesService.getScriptProperties();
+  p.setProperty('SM_WEBAPP_URL', url);
+  if (key) p.setProperty('SM_API_SECRET', String(key).trim());
+  if (!p.getProperty('SM_API_SECRET')) throw new Error('Enter the Planner key too.');
+  // A test with no RO: a working setup answers "could not read the RO PDF".
+  const r = smCall_({ rawText: '' });
+  if (/did not accept/i.test(r.message || '')) throw new Error(r.message);
+  if (r.notHooked) throw new Error(r.message);
+  return { ok: true };
+}
+
+function smCall_(extra) {
+  const p = PropertiesService.getScriptProperties(), url = p.getProperty('SM_WEBAPP_URL'), key = p.getProperty('SM_API_SECRET');
+  if (!url || !key) return { success: false, message: 'Set the Shipment Manager web-app link and the Planner key in Settings → Shipment Manager first.' };
+  const resp = UrlFetchApp.fetch(url, {
+    method: 'post', contentType: 'text/plain', muteHttpExceptions: true, followRedirects: true,
+    payload: JSON.stringify(Object.assign({ action: 'plannerDummyRoInvoice', secret: key }, extra || {})),
+  });
+  let res;
+  try { res = JSON.parse(resp.getContentText()); } catch (e) {
+    return { success: false, notHooked: true, message: 'The Shipment Manager did not answer (HTTP ' + resp.getResponseCode() + '). Check its web-app link.' };
+  }
+  // An answer without our fields: the Shipment Manager's doPost does not pass this request on yet.
+  if (!res || res.from !== 'plannerDummyRo') return { success: false, notHooked: true, message: 'The Shipment Manager does not know this request yet: add the one line to the top of its doPost (see Settings → Shipment Manager).' };
+  return res;
+}
+
+/** RO PDF text → the Shipment Manager makes a Dummy RO Invoice (SI/2026-27/D001…) and returns it for the PDF. */
+function dummyRoInvoice(token, rawText) {
+  auth_(token, 'Planner');
+  if (!String(rawText || '').trim()) throw new Error('The RO PDF had no text.');
+  const r = smCall_({ rawText: String(rawText) });
+  if (!r.success) throw new Error(r.message || 'The Shipment Manager could not make the invoice.');
+  return { invoice: r.invoice, warehouse: r.warehouse || '', boxCount: r.boxCount || 0, leftOut: r.leftOut || [], aiUsed: !!r.aiUsed };
 }
 
 /* ---------------- Settings & SKUs ---------------- */
