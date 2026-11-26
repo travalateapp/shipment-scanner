@@ -700,7 +700,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 dummy-ro-invoice';
+  var PAGE_BUILD = '2026-11-26 dummy-ro-autohook';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3746,7 +3746,7 @@ function getRoInvoiceStyles_() {
         '<div style="flex:0 0 auto"><button class="btn p" id="shSave">Save &amp; test</button></div><div style="flex:0 0 auto"><button class="btn" id="shSync" title="Take shipment dates and shipped quantities now">Sync now</button></div></div>' +
         '<div class="small muted" style="margin-top:6px">Every 30 minutes (when the planner is opened, or by a time-driven trigger on <code>syncFromShipmentManager</code>), each RO with a shipment in the Shipment Manager gets the shipment <b>date as its dispatch day</b> and the <b>shipped quantities</b> (an item not shipped is cancelled; the month tab follows). It is checked again for 2 days after the shipment is first found.</div><div id="shOut"></div>' +
         // Dummy RO Invoice: the Planner asks the Shipment Manager's web app with a private key.
-        '<h3 style="margin-top:14px">Dummy RO Invoice (RO PDF tab)</h3><div class="small muted">The Shipment Manager makes the invoice. One-time setup: (1) in the Shipment Manager\'s Apps Script, open the file with <code>function doPost(e)</code> and add this as its first line: <code>const __p = plannerDummyRoFromPost_(e); if (__p) return __p;</code> then Deploy → Manage deployments → Edit → New version; (2) make a key (🎲) and put the same key in the Shipment Manager\'s Project Settings → Script Properties as <code>PLANNER_API_SECRET</code>; (3) paste its web-app link (/exec) here and Save &amp; test.</div>' +
+        '<h3 style="margin-top:14px">Dummy RO Invoice (RO PDF tab)</h3><div class="small muted">The Shipment Manager makes the invoice. Its code deploys by itself from GitHub. One-time setup: (1) make a key (🎲) and put the same key in the Shipment Manager\'s Project Settings → Script Properties as <code>PLANNER_API_SECRET</code>; (2) paste its web-app link (/exec) here and Save &amp; test.</div>' +
         '<div class="row" style="margin-top:8px"><div style="flex:3 1 300px"><label class="f">Shipment Manager web-app link (/exec) <a href="#" class="showLink" data-for="smApiUrl">Show</a></label><input type="password" id="smApiUrl" placeholder="Loading…" autocomplete="off"></div>' +
         '<div style="flex:2 1 200px"><label class="f">Planner key <a href="#" class="showLink" data-for="smApiKey">Show</a> · <a href="#" id="smKeyNew">🎲 New key</a></label><input type="password" id="smApiKey" autocomplete="off" placeholder="…"></div>' +
         '<div style="flex:0 0 auto"><button class="btn p" id="smApiSave">Save &amp; test</button></div></div><div id="smApiOut"></div></details>' +

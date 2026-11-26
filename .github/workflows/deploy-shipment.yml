@@ -26,6 +26,8 @@ jobs:
     with:
       folder: shipment-app
       fill_shared_secret: true
+      # doPost lives in a file that is only in Apps Script; the deploy makes it call the Blinkit Planner hook first.
+      post_hook: plannerDummyRoFromPost_
       dry_run: ${{ inputs.dry_run || false }}
     secrets:
       CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
