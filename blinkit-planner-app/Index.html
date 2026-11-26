@@ -48,7 +48,7 @@ input[type=text],input[type=search],input[type=number],input[type=date],input[ty
 .cwrap{display:flex;flex-direction:column;max-height:calc(90vh - 32px)}.cwrap>*{flex:0 0 auto}.cwrap #cWhList{flex:1 1 auto;min-height:96px}
 .chip{border:1px solid var(--line);background:var(--card);border-radius:99px;padding:6px 10px;cursor:pointer;font-size:12px}
 .chip.on{background:var(--brand);color:#fff;border-color:var(--brand)}
-.chip b{margin-left:4px}
+.chip b{margin-left:4px}.chip b.sug{font-weight:500;font-style:italic;opacity:.75}
 .stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .stat{background:var(--chip);border-radius:10px;padding:10px}.stat .v{font-size:20px;font-weight:800}.stat .k{font-size:11px;color:var(--muted)}
 .grp{margin:14px 0 6px;font-weight:800;font-size:13px;display:flex;justify-content:space-between;gap:8px}
@@ -700,10 +700,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 dummy-ro-on-top';
+  var PAGE_BUILD = '2026-11-26 show-all-items';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
-    plan: null, final: {}, filter: { whs: [], group: '', only: true, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
+    plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
   // New Plan sort picked by clicking a heading ({key, dir}); kept on this device, the same for every block.
   try { S.lineSort = JSON.parse(load('bp_line_sort') || 'null'); } catch (e) { S.lineSort = null; }
 
@@ -1097,7 +1097,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     store(DRAFT_FILES, null); store(DRAFT_STATE, null);
     S.inv = null; S.invBuf = null; S.invTried = false; S.invErr = ''; S.bulk = null; S.bulkBuf = null; S.bulkAt = null; S.bulkName = '';
     S.plan = null; S.final = {}; S.edited = {}; S.confirmed = {}; S.cover = null; S.starters = !!S.boot.settings.starters;
-    S.filter = { whs: [], group: '', only: true, q: '', picks: [] };
+    S.filter = { whs: [], group: '', only: false, q: '', picks: [] };
   }
   /** Puts back the uploaded files, typed quantities and filters saved before the page was refreshed. */
   function restoreDraft() {
@@ -1111,7 +1111,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (st && st.user === draftUser()) {
       S.edited = st.edited || {};
       S.confirmed = st.confirmed || {};
-      if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; S.filter.whs = S.filter.whs || (S.filter.wh ? [S.filter.wh] : []); delete S.filter.wh; }
+      if (st.filter) { S.filter = st.filter; S.filter.picks = S.filter.picks || []; S.filter.whs = S.filter.whs || (S.filter.wh ? [S.filter.wh] : []); delete S.filter.wh; if (!S.filter.onlyChosen) S.filter.only = false; }
       if (st.cover) S.cover = st.cover;
       if (st.starters != null) S.starters = st.starters;
     }
@@ -1317,6 +1317,28 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     });
     return { byWh: byWh, units: units, lines: lines, bad: bad };
   }
+  /*
+   * What the warehouse chips and the plan heading show. A warehouse where nothing is picked yet (no Send box clicked,
+   * typed or filled) shows its suggested units; once its plan is started it shows only what is picked there. Display
+   * only: Create ROs, the bar and the file still count picked lines only (totals()).
+   */
+  function chipTotals() {
+    var started = {}, byWh = {}, units = 0, lines = 0, sug = 0;
+    S.plan.forEach(function (r) { if (isConfirmed(r.key)) started[r.wh] = 1; });
+    S.plan.forEach(function (r) {
+      if (!inScope(r)) return;
+      var q = started[r.wh] ? sendQ(r) : (r.locked ? 0 : (S.final[r.key] || 0));
+      if (q <= 0) return;
+      var x = byWh[r.wh] = byWh[r.wh] || { units: 0, lines: 0, sug: !started[r.wh] };
+      x.units += q; x.lines++; units += q; lines++; if (!started[r.wh]) sug += q;
+    });
+    return { byWh: byWh, units: units, lines: lines, sug: sug, anyStarted: Object.keys(started).length > 0 };
+  }
+  function chipB(x) { return x ? (x.sug ? '<b class="sug" title="Suggested: nothing picked in this warehouse yet">' : '<b title="Picked">') + fmt(x.units) + '</b>' : '<b>0</b>'; }
+  function planHeadText(c) {
+    return '2. Plan — ' + fmt(c.units) + ' units on ' + c.lines + ' lines' +
+      (!c.sug ? '' : c.sug === c.units ? ' (suggested)' : ' (' + fmt(c.sug) + ' suggested in warehouses not started)');
+  }
 
   function renderPlanOut() {
     var out = $('planOut'); if (!out) return;
@@ -1338,14 +1360,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (inApp) info.push('Counted ' + fmt(inApp) + ' units from the RO Log that Blinkit\'s file cannot show yet (Planned, or created after this file was downloaded).');
     var gapAll = S.plan.reduce(function (a, r) { return a + (r.blinkitGap || 0); }, 0);
     if (gapAll) info.push('Of these, ' + fmt(gapAll) + ' units are from ROs created on Blinkit before this Bulk RO file (in the last 3 days, or with no appointment yet) that its Incoming does not show yet — counted so they are not sent twice.');
-    var html = '<div class="card"><h2>2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines</h2>' +
-      '<div class="chips" id="whChips"><span class="chip' + (S.filter.whs.length ? '' : ' on') + '" data-wh="" title="All warehouses">All<b>' + fmt(t.units) + '</b></span>' +
-      whs.map(function (w) { var x = t.byWh[w]; return '<span class="chip' + (S.filter.whs.indexOf(w) >= 0 ? ' on' : '') + '" title="Click to add or remove this warehouse" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '<b>' + (x ? fmt(x.units) : 0) + '</b></span>'; }).join('') +
+    var c = chipTotals();
+    var html = '<div class="card"><h2>' + planHeadText(c) + '</h2>' +
+      '<div class="chips" id="whChips"><span class="chip' + (S.filter.whs.length ? '' : ' on') + '" data-wh="" title="All warehouses">All' + chipB({ units: c.units, sug: c.sug === c.units && c.units > 0 }) + '</span>' +
+      whs.map(function (w) { return '<span class="chip' + (S.filter.whs.indexOf(w) >= 0 ? ' on' : '') + '" title="Click to add or remove this warehouse" data-wh="' + esc(w) + '">' + esc(w.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + chipB(c.byWh[w]) + '</span>'; }).join('') +
       '</div>' + (S.filter.whs.length ? '<div class="small muted" style="margin-top:4px">Showing ' + S.filter.whs.length + ' warehouse' + (S.filter.whs.length > 1 ? 's' : '') + ' · <span id="whPickU">' +
-        fmt(S.filter.whs.reduce(function (a, w) { return a + (t.byWh[w] ? t.byWh[w].units : 0); }, 0)) + '</span> units — click more to add, click a ticked one to remove, <b>All</b> to clear.</div>' : '<div class="small muted" style="margin-top:4px">Click warehouses to pick one or more.</div>') +
+        fmt(S.filter.whs.reduce(function (a, w) { return a + (c.byWh[w] ? c.byWh[w].units : 0); }, 0)) + '</span> units — click more to add, click a ticked one to remove, <b>All</b> to clear.</div>' : '<div class="small muted" style="margin-top:4px">Click warehouses to pick one or more.</div>') +
       '<div class="row" style="margin-top:10px">' +
       '<div><label class="f">Group</label><select id="fGroup"><option value="">' + esc(groupList().join(' + ')) + '</option>' + groupList().map(function (g) { return '<option value="' + g + '"' + (S.filter.group === g ? ' selected' : '') + '>' + esc(groupName(g)) + '</option>'; }).join('') + '<option value="?"' + (S.filter.group === '?' ? ' selected' : '') + '>No group set</option></select></div>' +
-      '<div><label class="f">Show</label><select id="fOnly"><option value="1">Lines to send (+ locked)</option><option value="0"' + (!S.filter.only && !S.filter.startersOnly ? ' selected' : '') + '>All items</option>' +
+      '<div><label class="f">Show</label><select id="fOnly"><option value="0">All items</option><option value="1"' + (S.filter.only && !S.filter.startersOnly ? ' selected' : '') + '>Lines to send (+ locked)</option>' +
         '<option value="s"' + (S.filter.startersOnly ? ' selected' : '') + '>New-listing starters only</option></select></div>' +
       '<div class="srch"><label class="f">Search — pick one or more SKUs</label><input type="text" id="fQ" autocomplete="off" placeholder="SKU or item ID, Enter to add" value="' + esc(S.filter.q) + '"><div class="sugg hidden" id="fSugg"></div></div>' +
       '<div style="flex:0 0 auto"><button class="btn" id="bClr" title="Clear all filters">✕ Clear</button></div>' +
@@ -1370,9 +1393,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       renderPlanOut();
     };
     $('fGroup').onchange = function () { S.filter.group = this.value; renderLines(); };
-    $('fOnly').onchange = function () { S.filter.only = this.value === '1'; S.filter.startersOnly = this.value === 's'; renderPlanOut(); };
+    $('fOnly').onchange = function () { S.filter.only = this.value === '1'; S.filter.onlyChosen = true; S.filter.startersOnly = this.value === 's'; renderPlanOut(); };
     initSkuPicker();
-    $('bClr').onclick = function () { S.filter = { whs: [], group: '', only: true, q: '', picks: [] }; renderPlanOut(); };
+    $('bClr').onclick = function () { S.filter = { whs: [], group: '', only: false, q: '', picks: [] }; renderPlanOut(); };
     $('bXls').onclick = exportPlan;
     renderPicks();
     if ($('tiRe')) $('tiRe').onclick = function (e) { e.preventDefault(); S.ti = null; renderPlanOut(); loadTi(true); };
@@ -1862,11 +1885,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function renderBar() {
     saveDraftState();
     if (!S.plan || !can('Planner')) { $('bar').classList.add('hidden'); return; }
-    var t = totals();
-    // Keep the warehouse chips' unit totals in step with every change (typing, fill, ↺).
+    var t = totals(), ct = chipTotals();
+    // Keep the warehouse chips' unit totals in step with every change (typing, fill, ↺): suggested until a
+    // warehouse's plan is started, then only what is picked there.
     Array.prototype.forEach.call(document.querySelectorAll('#whChips .chip'), function (c) {
       var w = c.getAttribute('data-wh'), b = c.querySelector('b');
-      if (b) b.textContent = fmt(w ? (t.byWh[w] ? t.byWh[w].units : 0) : t.units);
+      if (b) b.outerHTML = chipB(w ? ct.byWh[w] : { units: ct.units, sug: ct.sug === ct.units && ct.units > 0 });
     });
     // …and each block heading's units / lines, and the picked-warehouses total under the chips.
     Array.prototype.forEach.call(document.querySelectorAll('#lines .whsec'), function (sec) {
@@ -1874,9 +1898,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       el.textContent = blkSumText(Array.prototype.map.call(sec.querySelectorAll('.line[data-k]'), function (l) { return l.getAttribute('data-k'); }));
     });
     var wu = $('whPickU');
-    if (wu) wu.textContent = fmt(S.filter.whs.reduce(function (a, w) { return a + (t.byWh[w] ? t.byWh[w].units : 0); }, 0));
+    if (wu) wu.textContent = fmt(S.filter.whs.reduce(function (a, w) { return a + (ct.byWh[w] ? ct.byWh[w].units : 0); }, 0));
     var h2 = document.querySelector('#planOut h2');
-    if (h2) h2.textContent = '2. Plan — ' + fmt(t.units) + ' units on ' + t.lines + ' lines';
+    if (h2) h2.textContent = planHeadText(ct);
     $('bar').innerHTML = '<div class="sum"><b>' + fmt(t.units) + '</b> units · ' + t.lines + ' lines · ' + Object.keys(t.byWh).length + ' warehouses' +
       (t.bad ? ' · <span style="color:var(--bad)">' + t.bad + ' above Blinkit max</span>' : '') + '</div>' +
       '<button class="btn g" id="bCreate"' + (t.lines && !t.bad ? '' : ' disabled') + '>Create RO file</button>';

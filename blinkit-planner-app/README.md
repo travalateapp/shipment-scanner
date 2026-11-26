@@ -142,7 +142,7 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 1. In the sheet, run **📦 Blinkit Inventory → Upload Today's Inventory** as you do every day. The planner reads the Inventory from **Formula Sheet**, so you don't upload it again.
 2. On the Blinkit seller portal, download the **Bulk RO input** (*SELLER_BULK_SHIPMENT_INPUT_….xlsx*), fresh every time, because max limits and locks change during the day. Open **New Plan** and pick it.
    - The Inventory box turns **yellow** if Formula Sheet doesn't hold today's inventory. Upload today's inventory in the sheet and tap *read it again*, or tap the box to upload the Inventory file directly.
-3. Check the plan. Filter by warehouse, group or search, and change quantities if you need to. Lines above Blinkit's max are shown in red, and the RO can't be created until they're fixed.
+3. Check the plan. It opens on **Show: All items** (every item of each warehouse, also those with nothing to send); pick *Lines to send (+ locked)* to see only lines with a quantity. Filter by warehouse, group or search, and change quantities if you need to. The warehouse chips (and the *2. Plan* heading) show each warehouse's **suggested** units, in grey italics, until you start its plan (click, type or fill a Send box there); from then on that warehouse shows only what you picked. The bar at the bottom, Create RO file and the file always count picked lines only. Lines above Blinkit's max are shown in red, and the RO can't be created until they're fixed.
 4. Click **Create RO file**, untick any warehouses you don't want, pick the date and status, then click **Save & download file**.
 5. Upload the downloaded file on Blinkit. Then open the **RO Log** and add the RO number and appointment date.
 
