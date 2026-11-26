@@ -28,13 +28,20 @@ RO Invoice with the next number `SI/2026-27/D001`, `D002`, … and then cancels 
 
 ## Shipped short → why? (Blinkit)
 When a Blinkit shipment sent less than the PO quantity on some lines, **Box Details** and **📥 JPG** (Shipments tab)
-first open a popup. It lists each of those SKUs with the PO quantity, what was sent and how many less, and asks why.
-The reason can be picked from a list or typed. **Save & continue** needs a reason for every SKU. **Skip for now**
-continues without one, and the popup comes back next time.
-- **Where it is kept:** `BLINKIT_PO` → column P `SHORT_REASON`, on the PO line. The column is added the first time a
-  reason is saved.
+open only once every such line has a reason. A popup lists those SKUs: the PO quantity, what was sent and how many
+less, with a reason beside each. The reason is one of:
+- **Not Enough Quantity**
+- **Management Decided**
+- **Other**, which needs the reason typed in.
+
+**Save & continue** saves the reasons and opens the file. If the shortfalls are not loaded yet, the popup first shows
+*Checking…*.
+- **Where it is kept:** `BLINKIT_PO`, on the PO line.
+  - Column P `SHORT_REASON` holds the reason.
+  - Column Q `SHORT_REASON_QTY` holds how many were short when the reason was given.
+  - Both columns are added the first time a reason is saved.
+- **Asked again after an edit:** if the shipment is edited and a line's shortfall changes, or another line becomes
+  short, the popup asks again. It shows the earlier reason, which can be picked again.
+- **Shipped in full:** if an edit ships a line in full, its reason is cleared.
 - **Planner:** its Shipment Manager sync copies the reason into the RO Log's *Short Note* and into the note of the red
-  cell in its month tab.
-- **Edited later:** if the shipment is edited and the line is now shipped in full, the reason is cleared here and the
-  Planner removes its note. If it is still short, the note stays. Once every short line has a reason, the buttons no
-  longer ask.
+  cell in its month tab. Once the line is shipped in full, the note goes.

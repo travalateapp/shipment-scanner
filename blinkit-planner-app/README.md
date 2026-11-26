@@ -159,8 +159,9 @@ The workflow `.github/workflows/deploy-blinkit-planner.yml` pushes `Planner.gs` 
 | Not live yet | Not sent unless **New-listing starters** is on. Then a small starter qty is suggested (half a typical warehouse's need, up to Blinkit's suggested min) for items that sell 1+ a day elsewhere. On the plan, **Show → New-listing starters only** lists just those lines. |
 
 ### Why a line was shipped short
-When a Blinkit RO is shipped with less than the RO quantity, the Shipment Manager asks why when someone opens its
-**Box Details** or **JPG** (it is kept there in `BLINKIT_PO` → `SHORT_REASON`). The Shipment Manager sync copies the
+When a Blinkit RO is shipped with less than the RO quantity, the Shipment Manager's **Box Details** and **JPG** open
+only after a reason is given for each SKU sent less: *Not Enough Quantity*, *Management Decided* or *Other: …*. It is
+asked again when an edit changes the shortfall. The reason is kept in `BLINKIT_PO` → `SHORT_REASON`. The Shipment Manager sync copies the
 reason into the RO Log's **Short Note** and into the note of the red cell in the month tab
 (*Ordered … — shipped …, … not sent … Why: …*).
 - **Edited later:** if the shipment is edited and the line is shipped in full, the red cell, its note and the Short
