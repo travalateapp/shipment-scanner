@@ -96,7 +96,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
-  compactMonthTabs,
+  compactMonthTabs, tidyIfDue,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -441,6 +441,13 @@ function maybeDailyTidy_() {
   props.setProperty('TIDY_DAY', day);
   return compactMonthTabs_();
 }
+/** From the page, in the background after it opened: the daily tidy if it is due (after 10 AM, not done today). */
+function tidyIfDue(token) {
+  auth_(token);
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) return null; // busy: the next opening tries again
+  try { return maybeDailyTidy_(); } finally { lock.releaseLock(); }
+}
 /** For a time-driven trigger: Apps Script → Triggers → dailyTidy, Day timer, 10am to 11am. */
 function dailyTidy() {
   const lock = LockService.getScriptLock();
@@ -645,7 +652,10 @@ function getBoot(token) {
   const cache = CacheService.getScriptCache();
   if (!cache.get('deliv_clean')) {
     cache.put('deliv_clean', '1', 1800);
-    try { cleanupDeliveredROs(); } catch (e) { /* never blocks opening the planner */ }
+    try { // delivered clean-up only; the daily tidy runs after the page has opened (tidyIfDue)
+      const lock = LockService.getScriptLock(); lock.waitLock(30000);
+      try { cleanupDelivered_(); } finally { lock.releaseLock(); }
+    } catch (e) { /* never blocks opening the planner */ }
   }
   const tabs = monthTabs_(), latest = tabs[0], bootLog = readLog_();
   return {
