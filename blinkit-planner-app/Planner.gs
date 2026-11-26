@@ -418,15 +418,34 @@ function cleanupDelivered_() {
   return due.length;
 }
 
-/** For a time-driven trigger (Apps Script → Triggers → cleanupDeliveredROs, daily). Also tidies the month tabs. */
+/** For a time-driven trigger (Apps Script → Triggers → cleanupDeliveredROs, daily). */
 function cleanupDeliveredROs() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
     const n = cleanupDelivered_();
-    try { compactMonthTabs_(); } catch (e) { /* tried again next time */ }
+    try { maybeDailyTidy_(); } catch (e) { /* tried again next time */ }
     return n;
   } finally { lock.releaseLock(); }
+}
+
+const TIDY_HOUR = 10; // the month tabs are tidied once a day, from 10 AM (sheet's time zone)
+/**
+ * The daily tidy-up: once a day, at or after 10 AM — run by the dailyTidy trigger (Apps Script → Triggers →
+ * dailyTidy, Day timer, 10am to 11am), or else by the first opening of the planner after 10 AM.
+ */
+function maybeDailyTidy_() {
+  const props = PropertiesService.getScriptProperties(), now = new Date();
+  const day = ymd_(now), hour = Number(Utilities.formatDate(now, tz_(), 'H'));
+  if (hour < TIDY_HOUR || props.getProperty('TIDY_DAY') === day) return null;
+  props.setProperty('TIDY_DAY', day);
+  return compactMonthTabs_();
+}
+/** For a time-driven trigger: Apps Script → Triggers → dailyTidy, Day timer, 10am to 11am. */
+function dailyTidy() {
+  const lock = LockService.getScriptLock();
+  lock.waitLock(60000);
+  try { return maybeDailyTidy_(); } finally { lock.releaseLock(); }
 }
 
 /** Settings → "Tidy month tabs now" (Admin): the same tidy-up at once. */
