@@ -173,8 +173,7 @@ final file:
 4. **Download** `Invoice-<number>-RO<RO number>.pdf`, laid out exactly like the Shipment Manager's RO Invoice.
 5. **Clean up.** The dummy PO is cancelled in the Shipment Manager. No shipment is saved there.
 
-The Shipment Manager side deploys by itself from GitHub. Its automatic deploy also makes the first line of its
-`doPost` (which lives in a file that is only in Apps Script) call the planner hook.
+The Shipment Manager side (its `doPost` and the invoice code, all in its `Code.gs`) deploys by itself from GitHub.
 
 **One-time setup (keys only):**
 1. In the planner, open **Settings → Shipment Manager details → Dummy RO Invoice**. Tap 🎲 to make a key and copy it.
