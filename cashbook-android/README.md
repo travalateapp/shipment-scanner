@@ -19,8 +19,10 @@ goes to the Book tab; press Back twice there to leave.
 ## Updates
 
 The app carries the Cash Book page inside it. Whenever `cashbook-app/Index.html` (or this app) changes on `main`,
-the **Build Cash Book APK** workflow builds a new APK and puts it on the `cashbook-apk` release. Installed apps check
-every few hours and offer **Update** (you stay logged in). Server changes (`Code.gs`) need no new APK.
+the **Build Cash Book APK** workflow builds a new APK and puts it on the `cashbook-apk` release (about a minute
+after the merge). Installed apps check every time they are opened or come back to the screen (at most once per
+3 minutes) and every 10 minutes while open, then offer **Update** (you stay logged in). **Later** asks again after
+30 minutes. Settings → **Check for update** looks right away. Server changes (`Code.gs`) need no new APK.
 
 ## How it's built
 
