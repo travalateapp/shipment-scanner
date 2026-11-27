@@ -67,7 +67,8 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
     - **Older shipments:** shipments entered before 26-11-2026 still count from their shipment date.
   - **Marked shipped by hand:** in the RO Log, open the RO and set **Status → Shipped (on a date)**. Pick the day it
     left and click **Save RO**. That day becomes its shipped day and dispatch day. Use this for an RO that has no
-    shipment in the Shipment Manager. If it does have one, the Shipment Manager's date wins at the next sync.
+    shipment in the Shipment Manager, or one still shown there as *Not dispatched yet*. A date set by hand stays
+    until the Shipment Manager has a 🚚 Dispatch Date for the shipment. From then on, that date is used.
     Choosing *Planned (on Blinkit)* un-ships it.
   - **Log-only ROs** (typed into the month tab by hand) are synced with the Shipment Manager too. They get their
     shipped day and quantities in the RO Log. Nothing is written to the month tab for them.

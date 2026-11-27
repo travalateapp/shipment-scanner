@@ -1299,8 +1299,10 @@ function updateBatch(token, batch, changes) {
         r.status = changes.status;
       }
       if (shipOn) {
-        r.shippedOn = shipOn;
+        // Set by hand: no sync window, so the sync keeps it until the Shipment Manager has a Dispatch Date.
+        r.shippedOn = shipOn; r.shipSyncUntil = '';
         log.getRange(r.row, L['Shipped On'] + 1).setValue(shipOn);
+        log.getRange(r.row, L['Ship Sync Until'] + 1).setValue('');
       } else if (changes.status === 'Created' && r.shippedOn instanceof Date) {
         r.shippedOn = ''; r.shipSyncUntil = '';
         log.getRange(r.row, L['Shipped On'] + 1).setValue('');
@@ -2086,14 +2088,15 @@ function syncShipments_() {
     }
     if (d) shipDate[po] = d;
   });
-  // ROs marked shipped from a shipment that has no dispatch date yet (e.g. by the DATE, before this change): not
-  // shipped after all. Shipped On / Shipped Qty / the 2-day window are cleared and red "not sent" marks undone; the
-  // dispatch day then moves on each day (rollOverdueDispatch_) until the Dispatch Date is set.
+  // ROs the sync marked shipped from a shipment that has no dispatch date yet (e.g. by the DATE, before this change):
+  // not shipped after all. Shipped On / Shipped Qty / the 2-day window are cleared and red "not sent" marks undone;
+  // the dispatch day then moves on each day (rollOverdueDispatch_) until the Dispatch Date is set. A shipped day set
+  // by hand in the RO Log (no sync window) is kept until the Shipment Manager has a Dispatch Date, which then wins.
   const out = { ros: 0, qty: 0, dates: 0, short: 0, reverted: 0, waiting: Object.keys(waiting).filter(po => !shipDate[po]).length, warnings: [] };
   const changedRos = [], seenRo = {};
   due.forEach(r => {
     const po = String(r.roNo).trim();
-    if (!waiting[po] || shipDate[po] || !(r.shippedOn instanceof Date)) return;
+    if (!waiting[po] || shipDate[po] || !(r.shippedOn instanceof Date) || !(r.shipSyncUntil instanceof Date)) return;
     r.shippedOn = ''; r.shipSyncUntil = '';
     log.getRange(r.row, L['Shipped On'] + 1).setValue('');
     log.getRange(r.row, L['Ship Sync Until'] + 1).setValue('');
