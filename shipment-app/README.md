@@ -62,3 +62,24 @@ at about the same time share **one** server call, `getInventoryStockForSkus`. Th
 `getStockSnapshot` request, and the result is kept for 30 seconds. Before this, each row made its own call. Opening or
 editing a shipment with many SKUs then started dozens of script runs at once, and Google stops every app of an account
 when about 30 run at the same time.
+
+## Confirm before saving
+
+Every button that saves something asks first, so an accidental tap or click changes nothing. The question appears in
+the app's own dialog and names the shipment, PO, date or invoice number where there is one. The buttons:
+
+- Generate Outputs, and the suggested-boxes Generate
+- Save Changes on a shipment
+- Dispatch Date Save and Clear date
+- the short-quantity reasons
+- Generate Labels (invoice number)
+- RO Invoice and RO details
+- Adjustment
+- warehouse, SKU, UPC and inventory mapping
+- PO upload, POD and settings
+- profile, employee and Add Employee
+- Logout
+
+Buttons that already asked (Delete, Remove, Deactivate, Switch Platform, Restore invoice number) ask only once. The
+Enter-key shortcuts are not affected. One click listener (`SAVE_GUARDS_` in `Index.html`) does this: on the dialog's
+action button it clicks the original button again, so each button's own code is unchanged.
