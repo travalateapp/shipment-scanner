@@ -1300,7 +1300,11 @@ async function reportPdf(btn) {
 
 /* ═════════ settings ═════════ */
 async function renderSettings() {
-  const pinCard = `<div class="card"><h3>Change my PIN</h3>
+  // In the Android app: its version and a button to look for a newer one right now.
+  const appCard = window.CashBookApp && window.CashBookApp.checkUpdate ? `<div class="card"><h3>App</h3>
+    <div class="acts" style="margin:0"><span class="muted" style="flex:1">Version ${esc(window.CashBookApp.version ? window.CashBookApp.version() : '')}</span>
+    <button class="btn sm" onclick="window.CashBookApp.checkUpdate()">Check for update</button></div></div>` : '';
+  const pinCard = appCard + `<div class="card"><h3>Change my PIN</h3>
     <div class="row2"><div class="field"><label>Current PIN</label><input id="cpOld" type="password" inputmode="numeric" maxlength="6"></div>
     <div class="field"><label>New PIN</label><input id="cpNew" type="password" inputmode="numeric" maxlength="6"></div></div>
     <button class="btn sm" id="cpBtn" onclick="changePin()">Change PIN</button></div>`;

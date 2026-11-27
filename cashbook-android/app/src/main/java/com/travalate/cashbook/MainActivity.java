@@ -64,7 +64,7 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         setContentView(web);
         updater = new Updater(this);
-        updater.check(false); // newer APK on GitHub? Ask once, download, open the installer
+        // Newer APK on GitHub? Checked in onResume (every open / return to the screen, and every 10 min while open).
 
         assets = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
@@ -250,6 +250,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        updater.onPause();
         web.onPause();
         super.onPause();
     }

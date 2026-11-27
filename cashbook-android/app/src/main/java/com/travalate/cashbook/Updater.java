@@ -35,7 +35,16 @@ import java.util.regex.Pattern;
  */
 final class Updater {
 
-    private static final long CHECK_EVERY_MS = 6L * 60 * 60 * 1000;
+    // A new version is on GitHub about a minute after a merge, so phones look often: every time the app opens or
+    // comes back to the screen (at most once per 3 minutes) and every 10 minutes while it stays open. That is far
+    // below GitHub's limit (60 checks an hour per network), even with several phones on the same Wi-Fi.
+    private static final long CHECK_EVERY_MS = 3L * 60 * 1000;
+    private static final long CHECK_WHILE_OPEN_MS = 10L * 60 * 1000;
+    private static final long LATER_MS = 30L * 60 * 1000; // "Later" → ask again after 30 minutes
+    private final android.os.Handler timer = new android.os.Handler(android.os.Looper.getMainLooper());
+    private final Runnable tick = new Runnable() {
+        @Override public void run() { check(false); timer.postDelayed(this, CHECK_WHILE_OPEN_MS); }
+    };
     private static final String APK = "application/vnd.android.package-archive";
     static final String TAG = "cashbook-apk";
 
@@ -80,7 +89,10 @@ final class Updater {
                 }
                 if (url == null) return;
                 final String u = url, name = rel.optString("name", "A new version");
-                activity.runOnUiThread(() -> ask(u, name));
+                final int ver = versionFromTag(name);
+                if (!force && prefs.getInt("laterVersion", 0) == ver
+                        && System.currentTimeMillis() - prefs.getLong("laterAt", 0) < LATER_MS) return;
+                activity.runOnUiThread(() -> ask(u, name, ver));
             } catch (Exception ignored) {
                 // No internet or GitHub not reachable: try again next time.
             }
@@ -92,13 +104,17 @@ final class Updater {
         return m.find() ? Integer.parseInt(m.group(1)) : 0;
     }
 
-    private void ask(String url, String name) {
-        if (activity.isFinishing()) return;
-        new AlertDialog.Builder(activity)
+    private AlertDialog asking; // only one "Update available" at a time
+
+    private void ask(String url, String name, int ver) {
+        if (activity.isFinishing() || (asking != null && asking.isShowing())) return;
+        final SharedPreferences prefs = activity.getSharedPreferences("updates", Context.MODE_PRIVATE);
+        asking = new AlertDialog.Builder(activity)
                 .setTitle("Update available")
-                .setMessage(name + " is ready. Update now? It takes a few seconds; you stay logged in and your plan is kept.")
+                .setMessage(name + " is ready. Update now? It takes a few seconds; you stay logged in and your entries are safe.")
                 .setPositiveButton("Update", (d, w) -> start(url))
-                .setNegativeButton("Later", null)
+                .setNegativeButton("Later", (d, w) -> prefs.edit().putInt("laterVersion", ver)
+                        .putLong("laterAt", System.currentTimeMillis()).apply())
                 .show();
     }
 
@@ -113,7 +129,10 @@ final class Updater {
         download(url);
     }
 
+    /** App on screen: check now (if not checked in the last 3 minutes) and every 10 minutes while it stays open. */
     void onResume() {
+        timer.removeCallbacks(tick);
+        timer.post(tick);
         if (pendingUrl == null) return;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !activity.getPackageManager().canRequestPackageInstalls()) return;
         String u = pendingUrl;
@@ -164,7 +183,13 @@ final class Updater {
         }
     }
 
+    /** App left the screen: stop the 10-minute checks. */
+    void onPause() {
+        timer.removeCallbacks(tick);
+    }
+
     void destroy() {
+        timer.removeCallbacks(tick);
         if (receiver != null) {
             try { activity.unregisterReceiver(receiver); } catch (Exception ignored) { }
             receiver = null;
