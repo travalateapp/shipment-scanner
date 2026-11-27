@@ -159,6 +159,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .ag input[type=date]{width:140px;padding:4px 6px}
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 #plTipBox{position:fixed;z-index:60;max-width:min(560px,calc(100vw - 16px));background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:10px 12px;font-size:12px;font-weight:400;text-align:left;pointer-events:none;display:none}
+table.askq{border-collapse:collapse;width:100%;margin:6px 0 2px;font-size:12px}table.askq th,table.askq td{padding:3px 5px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}table.askq .r{text-align:right}
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
 .plTip,.dlTip,.shTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 .hsub{display:block;font-size:9px;font-weight:400;color:var(--muted);line-height:1.15;margin-top:1px;white-space:normal}
@@ -700,7 +701,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 log-shipped-filter';
+  var PAGE_BUILD = '2026-11-27 ask-quantities';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2720,7 +2721,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       $('askSug').onmousedown = function (e) { var d = e.target.closest('div[data-v]'); if (d) { e.preventDefault(); askSugPick(d); } };
       $('askMsgs').onclick = function (e) { var x = e.target.closest('.ex button'); if (x) askQuestion(x.textContent); };
       askSay('bot', 'Ask about an SKU, optionally at a warehouse. I answer from the RO Log (last 120 days) and the last plan.' +
-        '<div class="ex" style="margin-top:6px"><button type="button">Why was 2 in 1 Belt not sent in Mumbai?</button><button type="button">What is not sent?</button><button type="button">When does 1323 arrive in Kundli?</button></div>');
+        '<div class="ex" style="margin-top:6px"><button type="button">Why was 2 in 1 Belt not sent in Mumbai?</button><button type="button">What is not sent?</button><button type="button">When does 1323 arrive in Kundli?</button><button type="button">How much 1323 is there?</button></div>');
     }
     box.classList.remove('hidden');
     setTimeout(function () { $('askQ').focus(); }, 0);
@@ -2820,10 +2821,39 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var rate = Number(r[5]) || 0, has = Number(r[6]) || 0, rec = Number(r[8]) || 0, locked = r[9] === 'Yes';
     return 'Last plan: stock ' + fmt(has) + ', sells ' + fmt(rate, 1) + '/day' + (rate > 0 ? ' (~' + fmt(Math.max(0, Math.floor(has / rate))) + ' days)' : '') + ', suggested ' + fmt(rec) + (locked ? ' · <b>locked on Blinkit</b> (cannot be sent)' : '') + '.';
   }
+  /** The Dashboard data (for the Stock / Delivered / Shipped / Planned figures): the copy on the page, or read once. */
+  function askDash() {
+    if (S.dash && S.dash.rows) return Promise.resolve(S.dash);
+    var c = cacheGet(CACHE_DASH); if (c && c.rows) { S.dash = c; return Promise.resolve(c); }
+    return apiCall('getDashboard', [S.token]).then(function (d) { if (d && d.rows) { S.dash = d; cachePut(CACHE_DASH, d); } return d; }, function () { return null; });
+  }
+  /**
+   * An item's quantities now, per warehouse (all, or the ones named): Stock on Blinkit, Delivered (waiting for GRN),
+   * Shipped (on the road), Planned (RO made, not shipped), Per day and Days, the same as the Dashboard.
+   */
+  function askFigures(item, whs) {
+    var d = S.dash; if (!d || !d.rows || !d.meta) return '';
+    var rs = dashCalc(d).rows.filter(function (r) {
+      return Number(r.item) === Number(item) && (!whs.length || whs.some(function (w) { return PlanCore.whNorm(w) === PlanCore.whNorm(r.wh); }));
+    }).sort(function (a, b) { return whCmp(a.wh, b.wh); });
+    if (!rs.length) return '';
+    var tot = { stock: 0, dl: 0, sh: 0, pl: 0, rate: 0 };
+    var line = function (r) {
+      var dl = r.delivAdj || 0, stock = r.has == null ? r.pos : r.has - dl, pl = r.planned == null ? null : r.planned;
+      tot.stock += stock || 0; tot.dl += dl; tot.sh += r.shipped || 0; tot.pl += pl || 0; tot.rate += r.rate || 0;
+      return '<tr><td>' + esc(r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '</td><td class="r">' + fmt(stock) + '</td><td class="r">' + fmt(dl) + '</td><td class="r">' + fmt(r.shipped || 0) +
+        '</td><td class="r">' + (pl == null ? '–' : fmt(pl)) + '</td><td class="r">' + fmt(r.rate, 1) + '</td><td class="r">' + fmtDays(r.days) + '</td></tr>';
+    };
+    var body = rs.map(line).join('');
+    var at = new Date(d.meta.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
+    return '<table class="askq"><tr><th>Warehouse</th><th class="r">Stock</th><th class="r">Delivered</th><th class="r">Shipped</th><th class="r">Planned</th><th class="r">Per day</th><th class="r">Days</th></tr>' + body +
+      (rs.length > 1 ? '<tr><th>Total</th><th class="r">' + fmt(tot.stock) + '</th><th class="r">' + fmt(tot.dl) + '</th><th class="r">' + fmt(tot.sh) + '</th><th class="r">' + fmt(tot.pl) + '</th><th class="r">' + fmt(tot.rate, 1) + '</th><th></th></tr>' : '') +
+      '</table><div class="small muted">Stock on Blinkit from the last plan (' + at + '); Delivered = waiting for Blinkit\'s GRN · Shipped = on the road · Planned = RO made, not shipped yet (RO Log now).</div>';
+  }
   function askQuestion(q) {
     askSay('me', esc(q));
     var wait = askSay('bot', '<span class="spin"></span> Looking in the RO Log…');
-    askRows().then(function (rows) { wait.innerHTML = askAnswer(q, rows); $('askMsgs').scrollTop = $('askMsgs').scrollHeight; },
+    Promise.all([askRows(), askDash()]).then(function (res) { return res[0]; }).then(function (rows) { wait.innerHTML = askAnswer(q, rows); $('askMsgs').scrollTop = $('askMsgs').scrollHeight; },
       function (e) { wait.innerHTML = '<span style="color:var(--bad)">Could not read the RO Log: ' + esc(e.message) + '</span>'; });
   }
   function askAnswer(q, rows) {
@@ -2844,9 +2874,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var mine = rows.filter(function (r) { return Number(r.item) === Number(s.item) && inWh(r); })
         .sort(function (a, b) { return String(b.roDate).localeCompare(String(a.roDate)); });
       var head = '<b>' + esc(skuText(s.sku, s.item)) + '</b>' + (whs.length ? ' · ' + esc(whs.join(', ')) : ' · all warehouses');
+      // First the quantities now (Stock, Delivered, Shipped, Planned), then the ROs.
+      var figs = askFigures(s.item, whs);
+      if (figs) head += figs + '<div style="margin-top:6px"><b>ROs</b> <span class="small muted">(last 120 days)</span></div>';
       if (!mine.length) {
-        var why = whs.map(function (w) { return askPlanInfo(w, s.item); }).filter(Boolean).join('<br>');
-        out.push(head + '<br>No RO for it' + (whs.length ? ' there' : '') + ' in the RO Log (last 120 days), so nothing was sent.' + (why ? '<br>' + why : ''));
+        var why = figs ? '' : whs.map(function (w) { return askPlanInfo(w, s.item); }).filter(Boolean).join('<br>');
+        out.push(head + (figs ? '' : '<br>') + 'No RO for it' + (whs.length ? ' there' : '') + ' in the RO Log (last 120 days), so nothing was sent.' + (why ? '<br>' + why : ''));
         return;
       }
       var short = mine.filter(function (r) { return r.shortQty > 0; }), canc = mine.filter(function (r) { return r.status === 'Cancelled'; });
@@ -2860,7 +2893,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var byWh = {};
       mine.forEach(function (r) { (byWh[r.wh] = byWh[r.wh] || []).push(r); });
       var body = Object.keys(byWh).map(function (w) {
-        var info = askPlanInfo(w, s.item);
+        var info = figs ? '' : askPlanInfo(w, s.item);
         return (Object.keys(byWh).length > 1 || !whs.length ? '<div style="margin-top:6px"><b>' + esc(w) + '</b></div>' : '') +
           '<ul>' + byWh[w].slice(0, 6).map(function (r) { return '<li>' + askRoLine(r) + '</li>'; }).join('') + '</ul>' + (byWh[w].length > 6 ? '<div class="small muted">…and ' + (byWh[w].length - 6) + ' older ROs.</div>' : '') +
           (info ? '<div class="small muted">' + info + '</div>' : '');
@@ -3349,9 +3382,11 @@ function getRoInvoiceStyles_() {
     }, function (e) { if (!last) $('dashOut').innerHTML = msgs([e.message], 'bad'); else toast('Could not refresh the Dashboard: ' + e.message, 5000); });
   }
 
-  function drawDash() {
-    var d = S.dash, box = $('dashOut'); box.className = '';
-    if (!d.meta || !d.rows.length) { box.className = 'card muted'; box.innerHTML = 'No data yet. Make a plan once (New Plan → upload the two files) and the dashboard fills from it.'; return; }
+  /**
+   * The Dashboard's figures per warehouse + item from the last plan, brought up to date with the RO Log now: Has (stock +
+   * delivered), Delivered, Shipped, Planned, Per day and Days. Used by the Dashboard and by 💬 Ask.
+   */
+  function dashCalc(d) {
     var rows = d.rows.map(function (r) { return { wh: r[0], item: r[1], name: r[2], group: r[3], status: r[4], rate: Number(r[5]) || 0, pos: Number(r[6]) || 0, days: r[7] === '' ? null : Number(r[7]), rec: Number(r[8]) || 0, locked: r[9] === 'Yes',
       // Has = stock (Total sellable); Planned = on ROs not received yet. A snapshot from before the split has only the sum.
       has: r[10] === '' || r[10] === undefined ? null : Number(r[10]), planned: r[11] === '' || r[11] === undefined ? null : Number(r[11]),
@@ -3376,7 +3411,6 @@ function getRoInvoiceStyles_() {
       if (r.planned == null || !(r.planned > 0)) { r.shipped = 0; return; }
       r.shipped = Math.min(r.planned, shp[PlanCore.whNorm(r.wh) + '|' + Number(r.item)] || 0); r.planned -= r.shipped;
     });
-    var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
     // "Days" counts down every day from the stock date of the plan the dashboard was made from.
     var dsi = PlanCore.stockInfo(d.meta.inventoryAt, today()), el = dsi ? dsi.elapsed : 0;
     // Days = what is there (Has: stock + delivered) ÷ Per day − days passed. With what is on its way (Shipped + Planned)
@@ -3386,6 +3420,14 @@ function getRoInvoiceStyles_() {
       r.daysAll = r.days;
       if (r.has != null && r.rate > 0) r.days = r.has / r.rate - el;
     });
+    return { rows: rows, dsi: dsi, el: el };
+  }
+
+  function drawDash() {
+    var d = S.dash, box = $('dashOut'); box.className = '';
+    if (!d.meta || !d.rows.length) { box.className = 'card muted'; box.innerHTML = 'No data yet. Make a plan once (New Plan → upload the two files) and the dashboard fills from it.'; return; }
+    var ageDays = Math.floor((Date.now() - d.meta.at) / 864e5);
+    var cc = dashCalc(d), rows = cc.rows, dsi = cc.dsi, el = cc.el;
     // The Days hover: the sum itself, e.g. "Days = Has 395 (stock 54 + delivered 341) ÷ 37.0 per day − 1 day since the
     // stock date = 9.7".
     var daysWhy = function (r) {
