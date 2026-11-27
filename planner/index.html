@@ -159,7 +159,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .ag input[type=date]{width:140px;padding:4px 6px}
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 #plTipBox{position:fixed;z-index:60;max-width:min(560px,calc(100vw - 16px));background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:10px 12px;font-size:12px;font-weight:400;text-align:left;pointer-events:none;display:none}
-table.askq{border-collapse:collapse;width:100%;margin:6px 0 2px;font-size:12px}table.askq th,table.askq td{padding:3px 5px;border-bottom:1px solid var(--line);text-align:left;white-space:nowrap}table.askq .r{text-align:right}
+table.askq{border-collapse:collapse;width:100%;margin:6px 0 2px;font-size:11.5px;table-layout:auto}table.askq th,table.askq td{padding:3px 3px;border-bottom:1px solid var(--line);text-align:left}table.askq td.r,table.askq th.r{text-align:right;white-space:nowrap}table.askq th{font-size:10.5px;color:var(--muted)}table.askq td:first-child{word-break:break-word}
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
 .plTip,.dlTip,.shTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 .hsub{display:block;font-size:9px;font-weight:400;color:var(--muted);line-height:1.15;margin-top:1px;white-space:normal}
@@ -701,7 +701,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 ask-quantities';
+  var PAGE_BUILD = '2026-11-27 ask-table-fit';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1625,7 +1625,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * Blinkit that are not in the RO Log) is shown as one more row.
    */
   function plannedTipHtml(wh, item, total, r) {
-    var ros = ((S.boot && S.boot.openROs) || []).filter(function (x) {
+    var ros = openRosAll().filter(function (x) {
       return PlanCore.whNorm(x.wh) === PlanCore.whNorm(wh) && Number(x.item) === Number(item) && (x.status === 'Planned' || x.status === 'Created') && !isShipped(x);
     }).sort(function (a, b) { return String(dispatchOf(a) || a.roDate || '9').localeCompare(String(dispatchOf(b) || b.roDate || '9')); });
     var sum = ros.reduce(function (a, x) { return a + Math.max(0, (Number(x.qty) || 0) - (Number(x.shortQty) || 0)); }, 0);
@@ -1678,8 +1678,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * Hover card for a "Shipped" number (New Plan and Dashboard): the open ROs for that warehouse + item that are
    * shipped (on the road, not delivered yet), with RO number, shipped day, appointment and the quantity sent.
    */
+  /** Open ROs known to the page (start-up data and the Dashboard's), each once. */
+  function openRosAll() {
+    var by = {};
+    ((S.dash && S.dash.openROs) || []).concat((S.boot && S.boot.openROs) || []).forEach(function (r) { by[r.key] = r; });
+    return Object.keys(by).map(function (k) { return by[k]; });
+  }
   function shippedTipHtml(wh, item, total) {
-    var ros = ((S.boot && S.boot.openROs) || []).filter(function (x) {
+    var ros = openRosAll().filter(function (x) {
       return PlanCore.whNorm(x.wh) === PlanCore.whNorm(wh) && Number(x.item) === Number(item) && isShipped(x);
     }).sort(function (a, b) { return String(a.shippedOn || dispatchOf(a) || '').localeCompare(String(b.shippedOn || dispatchOf(b) || '')); });
     var h = '<b>Shipped ' + fmt(total) + '</b> · ' + esc(skuText(skuOf(item), item)) + ' · ' + esc(wh) +
@@ -2833,7 +2839,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    */
   function askFigures(item, whs) {
     var d = S.dash; if (!d || !d.rows || !d.meta) return '';
-    var rs = dashCalc(d).rows.filter(function (r) {
+    var cc = dashCalc(d), dsi = cc.dsi;
+    var rs = cc.rows.filter(function (r) {
       return Number(r.item) === Number(item) && (!whs.length || whs.some(function (w) { return PlanCore.whNorm(w) === PlanCore.whNorm(r.wh); }));
     }).sort(function (a, b) { return whCmp(a.wh, b.wh); });
     if (!rs.length) return '';
@@ -2841,14 +2848,18 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var line = function (r) {
       var dl = r.delivAdj || 0, stock = r.has == null ? r.pos : r.has - dl, pl = r.planned == null ? null : r.planned;
       tot.stock += stock || 0; tot.dl += dl; tot.sh += r.shipped || 0; tot.pl += pl || 0; tot.rate += r.rate || 0;
-      return '<tr><td>' + esc(r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '</td><td class="r">' + fmt(stock) + '</td><td class="r">' + fmt(dl) + '</td><td class="r">' + fmt(r.shipped || 0) +
-        '</td><td class="r">' + (pl == null ? '–' : fmt(pl)) + '</td><td class="r">' + fmt(r.rate, 1) + '</td><td class="r">' + fmtDays(r.days) + '</td></tr>';
+      // Delivered, Shipped and Planned open the same hover card as on the Dashboard (a tap on a phone).
+      var at = ' data-wh="' + esc(r.wh) + '" data-it="' + r.item + '"';
+      return '<tr><td>' + esc(r.wh.replace(/ - Feeder( Warehouse)?| Feeder$/, '')) + '</td><td class="r">' + fmt(stock) + '</td><td class="r">' +
+        (dl ? '<span class="dlTip"' + at + ' data-n="' + dl + '" data-s="' + (r.has == null ? '' : r.has - dl) + '" data-sd="' + esc((dsi || {}).stockDate || '') + '">' + fmt(dl) + '</span>' : '0') + '</td><td class="r">' +
+        (r.shipped ? '<span class="shTip"' + at + ' data-n="' + r.shipped + '">' + fmt(r.shipped) + '</span>' : '0') + '</td><td class="r">' +
+        (pl == null ? '–' : pl ? '<span class="plTip"' + at + ' data-n="' + pl + '">' + fmt(pl) + '</span>' : '0') + '</td><td class="r">' + fmt(r.rate, 1) + '</td><td class="r">' + fmtDays(r.days) + '</td></tr>';
     };
     var body = rs.map(line).join('');
     var at = new Date(d.meta.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
-    return '<table class="askq"><tr><th>Warehouse</th><th class="r">Stock</th><th class="r">Delivered</th><th class="r">Shipped</th><th class="r">Planned</th><th class="r">Per day</th><th class="r">Days</th></tr>' + body +
+    return '<table class="askq"><tr><th>Warehouse</th><th class="r">Stock</th><th class="r" title="Delivered, waiting for Blinkit\'s GRN">Deliv.</th><th class="r" title="Shipped, on the road">Shipped</th><th class="r" title="RO made, not shipped yet">Planned</th><th class="r" title="Sold per day">/day</th><th class="r">Days</th></tr>' + body +
       (rs.length > 1 ? '<tr><th>Total</th><th class="r">' + fmt(tot.stock) + '</th><th class="r">' + fmt(tot.dl) + '</th><th class="r">' + fmt(tot.sh) + '</th><th class="r">' + fmt(tot.pl) + '</th><th class="r">' + fmt(tot.rate, 1) + '</th><th></th></tr>' : '') +
-      '</table><div class="small muted">Stock on Blinkit from the last plan (' + at + '); Delivered = waiting for Blinkit\'s GRN · Shipped = on the road · Planned = RO made, not shipped yet (RO Log now).</div>';
+      '</table><div class="small muted">Stock on Blinkit from the last plan (' + at + '); Deliv. = waiting for Blinkit\'s GRN · Shipped = on the road · Planned = RO made, not shipped yet (RO Log now). Hover (or tap) an underlined number for its ROs.</div>';
   }
   function askQuestion(q) {
     askSay('me', esc(q));
