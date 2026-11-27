@@ -71,7 +71,7 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
 - **Plan columns** (New Plan and Dashboard), from left to right:
   - **Stock:** on Blinkit now (warehouse + in-between + darkstore).
   - **Delivered:** at the warehouse, waiting for Blinkit's GRN.
-  - **Shipped:** on the road. These are open ROs whose Shipment Manager shipment is **dispatched** (🚚 Dispatch Date set, for shipments entered from 26-11-2026), not delivered yet. An RO whose dispatch day has passed without a dispatched shipment there stays Planned. (Without a Shipment Manager link in Settings, the dispatch day decides: today or earlier counts as shipped.)
+  - **Shipped:** on the road (hover the number for its ROs: RO number, RO date, shipped day, appointment and the quantity sent). These are open ROs whose Shipment Manager shipment is **dispatched** (🚚 Dispatch Date set, for shipments entered from 26-11-2026), not delivered yet. An RO whose dispatch day has passed without a dispatched shipment there stays Planned. (Without a Shipment Manager link in Settings, the dispatch day decides: today or earlier counts as shipped.)
   - **Planned:** on its way but **not shipped yet** (Blinkit's Incoming + RO Log ROs Blinkit does not show yet, minus Shipped; hover for the split).
 
   Shipped and Planned follow the Shipment Manager: once it has the shipment, the RO moves to Shipped.
