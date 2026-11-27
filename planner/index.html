@@ -165,7 +165,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .cfmBtns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
 table.askq{border-collapse:collapse;width:100%;margin:6px 0 2px;font-size:11.5px;table-layout:auto}table.askq th,table.askq td{padding:3px 3px;border-bottom:1px solid var(--line);text-align:left}table.askq td.r,table.askq th.r{text-align:right;white-space:nowrap}table.askq th{font-size:10.5px;color:var(--muted)}table.askq td:first-child{word-break:break-word}
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
-.plTip,.dlTip,.shTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
+.plTip,.dlTip,.shTip,.roTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 .hsub{display:block;font-size:9px;font-weight:400;color:var(--muted);line-height:1.15;margin-top:1px;white-space:normal}
 #askBtn{position:fixed;right:16px;bottom:84px;z-index:40;border:0;border-radius:999px;background:var(--brand);color:#fff;font-weight:700;padding:10px 16px;box-shadow:0 6px 18px rgba(0,0,0,.2);cursor:pointer;font-size:14px}
 #askBox{position:fixed;right:16px;bottom:136px;z-index:45;width:min(420px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.25);overflow:hidden}
@@ -705,7 +705,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 app-dialogs';
+  var PAGE_BUILD = '2026-11-27 ro-balance-hover';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1720,6 +1720,31 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * Hover card for a "Shipped" number (New Plan and Dashboard): the open ROs for that warehouse + item that are
    * shipped (on the road, not delivered yet), with RO number, shipped day, appointment and the quantity sent.
    */
+  /*
+   * Hover an RO number (calendar, RO Log, Ask, pop-ups): its balance in the Shipment Manager, the same as its 📊 Balance
+   * there: each PO line with PO qty, packed, short (Adjustments), remaining and why it was sent short, and the RO's
+   * shipments with their 🚚 Dispatch Date. Read when first hovered and kept for 2 minutes.
+   */
+  S.poBal = {};
+  function roNoHtml(no, bare) { no = String(no || ''); return no ? '<span class="roTip" data-ro="' + esc(no) + '">' + (bare ? '' : '#') + esc(no) + '</span>' : ''; }
+  function balanceHtml(b) {
+    var h = '<b>📋 PO ' + esc(b.po) + '</b> · remaining balance' + (b.wh ? ' · ' + esc(b.wh) : '');
+    if (!b.linked) return h + '<div class="muted" style="margin-top:6px">The Shipment Manager is not linked (Settings → Shipment Manager).</div>';
+    if (!b.lines.length) return h + '<div class="muted" style="margin-top:6px">This RO is not in the Shipment Manager (no PO uploaded there).</div>';
+    h += '<div class="small" style="margin-top:4px">' + (b.shipments.length ? b.shipments.map(function (s) {
+      return 'Shipment ' + (s.date ? prettyDate(s.date) : '') + ' · ' + s.boxes + ' box(es)' + (s.invoice ? ' · ' + esc(s.invoice) : '') + ' · ' +
+        (s.dispatch ? '<b style="color:var(--ok,#047857)">🚚 Dispatched ' + prettyDate(s.dispatch) + '</b>' : '<b style="color:var(--warn,#b45309)">🚚 Not dispatched yet</b>');
+    }).join('<br>') : '<span class="muted">No shipment yet: nothing packed.</span>') + '</div>';
+    var anyShort = b.lines.some(function (l) { return l.short > 0; }), cols = anyShort ? 6 : 5, tq = 0, tp = 0, ts = 0, tr = 0;
+    h += '<table><tr><th>Item</th><th>SKU</th><th class="r">PO Qty</th><th class="r">Packed</th>' + (anyShort ? '<th class="r">Short</th>' : '') + '<th class="r">Remaining</th></tr>' +
+      b.lines.map(function (l) {
+        var rem = l.poQty - l.packed; tq += l.poQty; tp += l.packed; ts += l.short; tr += rem;
+        return '<tr><td>' + esc(l.item) + '</td><td style="white-space:normal">' + esc(skuOf(l.item) || l.desc) + '</td><td class="r">' + fmt(l.poQty) + '</td><td class="r">' + fmt(l.packed) + '</td>' +
+          (anyShort ? '<td class="r">' + (l.short ? fmt(l.short) : '') + '</td>' : '') + '<td class="r"' + (rem > 0 && b.shipments.length ? ' style="color:var(--bad);font-weight:700"' : '') + '>' + fmt(rem) + '</td></tr>' +
+          (l.reason && rem > 0 ? '<tr><td colspan="' + cols + '" class="small muted" style="white-space:normal">Why: ' + esc(l.reason) + '</td></tr>' : '');
+      }).join('') + '<tr><th colspan="2">Total</th><th class="r">' + fmt(tq) + '</th><th class="r">' + fmt(tp) + '</th>' + (anyShort ? '<th class="r">' + fmt(ts) + '</th>' : '') + '<th class="r">' + fmt(tr) + '</th></tr></table>';
+    return h;
+  }
   /** Open ROs known to the page (start-up data and the Dashboard's), each once. */
   function openRosAll() {
     var by = {};
@@ -1747,13 +1772,28 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var box = $('plTipBox');
     if (!box) { box = document.createElement('div'); box.id = 'plTipBox'; document.body.appendChild(box); }
     var k = el.getAttribute('data-k'), r = k && S.plan ? S.plan.filter(function (x) { return x.key === k; })[0] : null;
-    if (el.classList.contains('shTip')) {
+    box._ro = null;
+    if (el.classList.contains('roTip')) {
+      var ro = el.getAttribute('data-ro'), c = S.poBal[ro];
+      box._ro = ro;
+      if (c && Date.now() - c.at < 120000) box.innerHTML = balanceHtml(c.b);
+      else {
+        box.innerHTML = '<b>📋 PO ' + esc(ro) + '</b><div class="muted" style="margin-top:6px"><span class="spin" style="width:10px;height:10px;border-width:2px"></span> Reading its balance from the Shipment Manager…</div>';
+        apiCall('poBalance', [S.token, ro]).then(function (b) {
+          S.poBal[ro] = { b: b, at: Date.now() };
+          if (box._ro === ro && box.style.display === 'block') { box.innerHTML = balanceHtml(b); placeTip(box, el); }
+        }, function (e) { if (box._ro === ro) box.innerHTML = '<b>📋 PO ' + esc(ro) + '</b><div style="color:var(--bad);margin-top:6px">Could not read the balance: ' + esc(e.message) + '</div>'; });
+      }
+    } else if (el.classList.contains('shTip')) {
       box.innerHTML = shippedTipHtml(el.getAttribute('data-wh'), el.getAttribute('data-it'), Number(el.getAttribute('data-n')) || 0);
     } else if (el.classList.contains('dlTip')) {
       var sv = el.getAttribute('data-s');
       box.innerHTML = deliveredTipHtml(el.getAttribute('data-wh'), el.getAttribute('data-it'), Number(el.getAttribute('data-n')) || 0, sv === '' || sv == null ? null : Number(sv), el.getAttribute('data-sd') || '');
     } else box.innerHTML = plannedTipHtml(el.getAttribute('data-wh'), el.getAttribute('data-it'), Number(el.getAttribute('data-n')) || 0, r);
     box.style.display = 'block';
+    placeTip(box, el);
+  }
+  function placeTip(box, el) {
     var b = el.getBoundingClientRect(), w = box.offsetWidth, hgt = box.offsetHeight;
     var left = Math.max(8, Math.min(window.innerWidth - w - 8, b.right - w));
     var top = b.bottom + 6 + hgt > window.innerHeight ? b.top - hgt - 6 : b.bottom + 6;
@@ -1763,7 +1803,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   // Mouse: shows on hover. Touch (phone app): a tap shows it too, except on a Planned number that opens its own
   // pop-up when tapped (Dashboard) — there only the pop-up opens.
   document.addEventListener('pointerover', function (e) {
-    var el = e.target.closest && e.target.closest('.plTip, .dlTip, .shTip');
+    var el = e.target.closest && e.target.closest('.plTip, .dlTip, .shTip, .roTip');
     if (el && e.pointerType && e.pointerType !== 'mouse' && el.closest('.plk')) { hidePlTip(); return; }
     if (el) showPlTip(el); else hidePlTip();
   });
@@ -2651,7 +2691,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return '<div class="ro' + (c.batches.some(function (b) { return open[b]; }) ? ' open' : '') + '" data-c="' + ci + '"><div class="h">' +
         '<span class="w">' + esc(r0.wh) + ' · ' + esc(groups.join(' + ')) + (multi ? ' <span class="pill info">Merged</span>' : '') + '</span>' + (st === 'Mixed' ? '<span class="pill">Mixed</span>' : st === 'Delivered' ? deliveredPill(r0) : roStatusPill(st, r0.appt, r0.shippedOn)) +
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
-        (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (dispatchOf(cg) ? '<span class="small">🚚 ' + prettyDate(dispatchOf(cg)) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
+        (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (dispatchOf(cg) ? '<span class="small">🚚 ' + prettyDate(dispatchOf(cg)) + '</span>' : '') + (r0.roNo ? '<span class="small">' + roNoHtml(r0.roNo) + '</span>' : '') +
         (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
         (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ST_OPTS.slice(0, 2).concat([['Shipped', 'Shipped (on a date)']], ST_OPTS.slice(2)).map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('') + '</select></div>' +
           '<div class="bDelW hidden"><label class="f">Delivered on</label><input type="date" class="bDel" value="' + today() + '" max="' + today() + '"></div>' +
@@ -2860,7 +2900,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     return out;
   }
   function askRoLine(r) {
-    var bits = [prettyDate(r.roDate) ? 'RO ' + prettyDate(r.roDate) : '', r.roNo ? '#' + esc(r.roNo) : 'no RO number yet', '<b>' + esc(stLabel(r.status, r.shippedOn)) + '</b>', 'ordered ' + fmt(r.qty)];
+    var bits = [prettyDate(r.roDate) ? 'RO ' + prettyDate(r.roDate) : '', r.roNo ? roNoHtml(r.roNo) : 'no RO number yet', '<b>' + esc(stLabel(r.status, r.shippedOn)) + '</b>', 'ordered ' + fmt(r.qty)];
     if (r.shippedQty != null && r.shippedOn) bits.push('shipped ' + fmt(r.shippedQty) + ' on ' + prettyDate(r.shippedOn));
     if (r.status === 'Delivered' && r.deliveredOn) bits.push('delivered ' + prettyDate(r.deliveredOn));
     else if (r.status === 'Created' || r.status === 'Planned') { var d = dispatchOf(r); if (d && !r.shippedOn) bits.push('dispatch ' + prettyDate(d)); bits.push(r.appt ? 'appointment ' + prettyDate(r.appt) : 'no appointment yet'); }
@@ -3643,7 +3683,7 @@ function getRoInvoiceStyles_() {
       '<h3 style="margin-top:12px">Open ROs for this item here (RO Log, now)</h3>' +
       (ros.length ? '<div class="scroll"><table class="t"><tr><th>RO date</th><th>RO No.</th><th>Status</th><th class="right">Qty</th><th>Appointment</th><th>In the RO Log part?</th></tr>' +
         ros.map(function (x) {
-          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + esc(x.roNo || '—') + '</td><td>' + roStatusPill(x.status, x.appt, x.shippedOn) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + apptCell(x) + '</td>' +
+          return '<tr><td>' + prettyDate(x.roDate) + '</td><td>' + (x.roNo ? roNoHtml(x.roNo, true) : '—') + '</td><td>' + roStatusPill(x.status, x.appt, x.shippedOn) + '</td><td class="right">' + fmt(x.qty) + '</td><td>' + apptCell(x) + '</td>' +
             '<td class="small">' + (counted(x) ? 'Yes' : gapLeft > 0 && isRecent(x) ? 'Yes — Blinkit\'s Incoming did not show it yet' : 'No — Blinkit\'s file already shows it') + '</td></tr>';
         }).join('') + '</table></div>'
         : '<div class="small muted">No open ROs for this item at this warehouse in the RO Log. ' + (split && r.plBlinkit ? 'The ' + fmt(r.plBlinkit) + ' are ROs on Blinkit that are not in the RO Log (e.g. made on Blinkit directly).' : '') + '</div>') +
@@ -3720,7 +3760,7 @@ function getRoInvoiceStyles_() {
       return { days: days, warn: warn };
     };
     var roLine = function (x, extra) {
-      return '<li>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · #' + esc(x.roNo) : '') + ' ' + roStatusPill(x.status, x.appt, x.shippedOn) + (extra || '') + '</li>';
+      return '<li>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · ' + roNoHtml(x.roNo) : '') + ' ' + roStatusPill(x.status, x.appt, x.shippedOn) + (extra || '') + '</li>';
     };
     var draw = function () {
       var B = build(), days = B.days, W = B.warn;
@@ -3750,7 +3790,7 @@ function getRoInvoiceStyles_() {
         var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], dlv: [], load: 0 };
         // One RO in the pop-up, on two lines: what it is (✕ at the right end), then its date boxes and buttons.
         var roRow = function (r, infoExtra, right, actions) {
-          return '<li><div class="rl1"><span>' + esc(short(r.wh)) + ' · ' + esc(r.groups.join(' + ')) + ' · <b>' + fmt(r.units) + '</b> units' + (r.roNo ? ' · #' + esc(r.roNo) : '') + '</span>' +
+          return '<li><div class="rl1"><span>' + esc(short(r.wh)) + ' · ' + esc(r.groups.join(' + ')) + ' · <b>' + fmt(r.units) + '</b> units' + (r.roNo ? ' · ' + roNoHtml(r.roNo) : '') + '</span>' +
             roStatusPill(r.status, r.appt, r.shippedOn) + (infoExtra ? '<span class="small muted">' + infoExtra + '</span>' : '') + (right ? '<span class="rlx">' + right + '</span>' : '') + '</div>' +
             (actions ? '<div class="rl2">' + actions + '</div>' : '') + '</li>';
         };
@@ -3922,7 +3962,7 @@ function getRoInvoiceStyles_() {
       openModal('<h2>⏰ Appointment date passed</h2><div class="small muted">These ROs had their appointment and are not marked Delivered yet. Mark each as delivered (on its date), or give it a new appointment.</div>' +
         '<ul class="rls" id="remList" style="margin-top:8px">' + due.map(function (x) {
           var dv = x.appt < todayS ? x.appt : todayS;
-          return '<li><div class="rl1"><span>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · #' + esc(x.roNo) : '') + '</span><span class="pill warn">appt ' + esc(prettyDate(x.appt)) + '</span></div>' +
+          return '<li><div class="rl1"><span>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · ' + roNoHtml(x.roNo) : '') + '</span><span class="pill warn">appt ' + esc(prettyDate(x.appt)) + '</span></div>' +
             '<div class="rl2"><span class="ag"><span class="agl">Delivered on</span><input type="date" class="rmDl" data-k="' + esc(x.key) + '" value="' + dv + '" max="' + todayS + '"> <button class="btn sm g rmDlGo" data-k="' + esc(x.key) + '">Mark delivered</button></span>' +
             '<span class="ag"><span class="agl">New appointment</span><input type="date" class="rmAp" data-k="' + esc(x.key) + '" min="' + todayS + '"> <button class="btn sm rmApGo" data-k="' + esc(x.key) + '">Change</button></span></div></li>';
         }).join('') + '</ul>' +
