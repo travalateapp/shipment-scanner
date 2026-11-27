@@ -710,7 +710,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 balance-hover-calm';
+  var PAGE_BUILD = '2026-11-27 confirm-saves';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -764,6 +764,65 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     });
   }
   function appConfirm(msg, ok, kind, cancel) { return appDialog({ msg: msg, ok: ok, kind: kind, cancel: cancel }).then(function (r) { return r.ok; }); }
+
+  /*
+   * A confirmation before every button that saves or moves something, so an accidental tap or click changes
+   * nothing. One click listener (capture) stops the click, asks in the app's own dialog, and on OK clicks the button
+   * again with the guard off, so the button's own code runs as before. Buttons that already ask (Mark delivered,
+   * Cancel, Remove, Wipe the plan, new PIN) are not listed. msg returns null to let a click through unasked.
+   */
+  function guardCtx(b) {
+    var row = b.closest('li, tr, .ro, .rl, .card, .cwrap'); if (!row) return '';
+    var head = row.querySelector('.rl1 span, .h .w, td') || row;
+    return String(head.textContent || '').replace(/\s+/g, ' ').trim().slice(0, 90);
+  }
+  function guardDate(b, sel) {
+    var scope = b.closest('li, tr, .ro, .rl, div'), inp = null;
+    for (var el = b.parentElement; el && !inp; el = el.parentElement) { inp = el.querySelector(sel || 'input[type=date]'); if (el.matches && el.matches('li, tr, .ro, .modal')) break; }
+    return inp && inp.value ? prettyDate(inp.value) : '';
+  }
+  var GUARDS = [
+    ['.mvGo', function (b) { var d = guardDate(b); return d ? 'Move ' + guardCtx(b) + '\n\nto ' + d + '?' : null; }, 'Move'],
+    ['.unfixD', function (b) { return guardCtx(b) + '\n\nLet its dispatch day follow the appointment again?'; }, 'Yes, follow it'],
+    ['.apGo2, .apSave, .rmApGo', function (b) { var d = guardDate(b); return 'Set the appointment of ' + guardCtx(b) + ' to ' + (d || 'none (removed)') + '?'; }, 'Save'],
+    ['.rmDlGo', function (b) { var d = guardDate(b); return d ? 'Mark ' + guardCtx(b) + ' as delivered on ' + d + '?\n\nIts quantities leave the month tab 2 days later.' : null; }, 'Mark delivered', 'g'],
+    ['#calAddGo', function () { return 'Add the picked RO to this day\'s dispatch?'; }, 'Add'],
+    ['#calSched', function () { return 'Give dispatch days to the ROs without one?'; }, 'Give dispatch days'],
+    ['.bSave', function (b) { var st = b.closest('.ro') && b.closest('.ro').querySelector('.bSt'); return st && st.value === 'Cancelled' ? null : 'Save the changes to ' + guardCtx(b) + '?'; }, 'Save RO'],
+    ['.lSave', function (b) { var tr = b.closest('tr'), q = tr && tr.querySelector('.lQ'); return 'Save the new quantity' + (q ? ' ' + q.value : '') + ' for this line?\n\nThe month tab changes with it.'; }, 'Save'],
+    ['.fillR', function () { return 'Put every Send quantity in this block back to the suggestion?'; }, 'Reset the block'],
+    ['.pSave', function () { return 'Save this RO from the PDF into the RO Log and the month tab?'; }, 'Save RO'],
+    ['#pdfAll', function () { return 'Save all the ROs read from the PDFs into the RO Log and the month tab?'; }, 'Save all'],
+    ['#mSave', function () { return 'Save this RO into the RO Log and the month tab?'; }, 'Save RO'],
+    ['#cGo', function () { return 'Create these ROs?\n\nThey are saved in the RO Log and the month tab, and the file downloads.'; }, 'Create ROs'],
+    ['#sSave, #shSave, #tiSave, #dpSave, #smApiSave', function () { return 'Save these settings?'; }, 'Save'],
+    ['#sStartM', function () { return 'Start the month now?\n\nIts tab is made (if missing) and open ROs are copied in.'; }, 'Start the month'],
+    ['#sTidy', function () { return 'Tidy the month tabs now?\n\nROs move left into empty columns and empty added columns are deleted.'; }, 'Tidy now'],
+    ['#sSync, #shSync', function () { return 'Sync now?'; }, 'Sync'],
+    ['#kFromTab, #kSave', function () { return 'Save the SKU list?'; }, 'Save'],
+    ['.uS', function () { return 'Save this user?'; }, 'Save'],
+    ['#nAdd', function () { return 'Add this user?'; }, 'Add user'],
+    ['#aSave', function () { return 'Change your PIN?'; }, 'Change PIN'],
+    ['#aOut2', function () { return 'Log out?'; }, 'Log out', 'r']
+  ];
+  var guardPass = false;
+  document.addEventListener('click', function (e) {
+    if (guardPass || !e.target.closest) return;
+    for (var i = 0; i < GUARDS.length; i++) {
+      var b = e.target.closest(GUARDS[i][0]);
+      if (!b || b.disabled) continue;
+      var m = GUARDS[i][1](b);
+      if (m == null) return;
+      e.preventDefault(); e.stopImmediatePropagation();
+      var g = GUARDS[i];
+      appConfirm(m, g[2], g[3] || 'p').then(function (ok) {
+        if (!ok || !document.body.contains(b)) return;
+        guardPass = true;
+        try { b.click(); } finally { guardPass = false; }
+      });
+      return;
+    }
+  }, true);
   function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
   function fmt(n, d) { if (n == null || !isFinite(n)) return '–'; return Number(n).toLocaleString('en-IN', { maximumFractionDigits: d || 0, minimumFractionDigits: d || 0 }); }
