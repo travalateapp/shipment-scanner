@@ -65,6 +65,8 @@ button{cursor:pointer}
 .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
 .btn.green{background:var(--in)}.btn.red{background:var(--out)}
 .btn.sm{padding:7px 11px;font-size:13px}
+.btn.wa{background:#25D366;color:#fff;display:inline-flex;align-items:center;gap:6px;justify-content:center}
+.waic{width:16px;height:16px;flex:none}
 .spin.dark{border-color:#c7d2fe;border-top-color:var(--brand);width:12px;height:12px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -185,7 +187,7 @@ td.r,th.r{text-align:right}
 .ulist .u{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f2f4}
 .ulist .u:last-child{border-bottom:none}
 .ulist .u .mid{flex:1}
-@media(max-width:560px){.kpis{grid-template-columns:1fr 1fr}.top .me{display:none}}
+@media(max-width:560px){.acts input[type=month]{flex:1 1 100%}.acts .btn{flex:1}.kpis{grid-template-columns:1fr 1fr}.top .me{display:none}}
 </style>
 </head>
 <body>
@@ -290,7 +292,8 @@ td.r,th.r{text-align:right}
       <div class="acts">
         <input type="month" id="rMonth" onchange="loadReport()">
         <button class="btn sm green" onclick="downloadExcel(event)">⬇ Excel</button>
-        <button class="btn sm red" onclick="downloadPdf(event)">⬇ PDF</button>
+        <button class="btn sm red" onclick="downloadPdf(event)">📄 Open PDF</button>
+        <button class="btn sm wa" onclick="shareReportWhatsApp(event)"><svg class="waic" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.6-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 1.9s.8 2.2.9 2.4c.1.2 1.6 2.5 4 3.5 1.5.6 2.1.7 2.8.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg> WhatsApp</button>
       </div>
       <div id="rBody"><div class="loading">Loading…</div></div>
     </section>
@@ -311,6 +314,7 @@ td.r,th.r{text-align:right}
 </div>
 
 <div id="modal"></div>
+<template id="waTpl"><svg class="waic" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3A10 10 0 1 0 12 2Zm0 18.2a8.2 8.2 0 0 1-4.2-1.1l-.3-.2-3 .8.8-2.9-.2-.3A8.2 8.2 0 1 1 12 20.2Zm4.5-6.1c-.2-.1-1.5-.7-1.7-.8-.2-.1-.4-.1-.6.1l-.8 1c-.1.2-.3.2-.5.1a6.7 6.7 0 0 1-3.3-2.9c-.3-.4.2-.4.6-1.3.1-.2 0-.3 0-.4l-.8-1.8c-.2-.5-.4-.4-.6-.4h-.5c-.2 0-.4.1-.6.3-.2.2-.8.8-.8 1.9s.8 2.2.9 2.4c.1.2 1.6 2.5 4 3.5 1.5.6 2.1.7 2.8.6.5-.1 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2-.1-.1-.3-.2-.5-.3Z"/></svg></template>
 <input type="file" id="filePick" accept="image/*,application/pdf" multiple class="hidden">
 
 <script>
@@ -416,6 +420,37 @@ async function needLibs(kind) { for (const src of LIBS[kind]) await loadScript(s
 function bookCacheGet(m) { try { const v = JSON.parse(localStorage.getItem('cb_book_' + m) || 'null'); return v && S.user && v.user && v.user.id === S.user.id ? v : null; } catch (e) { return null; } }
 function bookCacheSet(b) { try { localStorage.setItem('cb_book_' + b.from.slice(0, 7), JSON.stringify(b)); localStorage.setItem('cb_last', JSON.stringify({ user: b.user, business: b.business })); } catch (e) { /* full / private mode */ } }
 function bookCacheClear() { try { Object.keys(localStorage).filter(k => /^cb_(book_|last)/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) {} }
+
+function blobToB64(blob) {
+  return new Promise((res, rej) => { const rd = new FileReader(); rd.onload = () => res(String(rd.result).split(',')[1]); rd.onerror = () => rej(new Error('Could not read the file.')); rd.readAsDataURL(blob); });
+}
+const inApp = fn => !!(window.CashBookApp && window.CashBookApp[fn]); // older APKs lack the newer functions
+
+/** Opens a file (PDF) to read: the phone's PDF viewer in the app, a new tab in a browser; else it is downloaded. */
+async function openBlob(blob, name) {
+  if (inApp('openFile')) { window.CashBookApp.openFile(await blobToB64(blob), name, blob.type || 'application/pdf'); return; }
+  if (window.CashBookApp) { saveBlob(blob, name); return; } // older APK: Downloads
+  const url = URL.createObjectURL(blob);
+  const w = window.open(url, '_blank');
+  if (!w) saveBlob(blob, name); // pop-up blocked
+  setTimeout(() => URL.revokeObjectURL(url), 60000);
+}
+
+/**
+ * Shares a file on WhatsApp with a message. In the app: straight into WhatsApp's chat picker with the file
+ * attached. In a phone browser: the share sheet (pick WhatsApp). Elsewhere: the file is downloaded and WhatsApp
+ * opens with the message, so it can be attached there.
+ */
+async function shareWhatsApp(blob, name, text) {
+  if (inApp('shareFile')) { window.CashBookApp.shareFile(await blobToB64(blob), name, blob.type || 'application/pdf', text, true); return; }
+  try {
+    const file = new File([blob], name, { type: blob.type });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], text }); return; }
+  } catch (e) { if (e && e.name === 'AbortError') return; }
+  saveBlob(blob, name);
+  toast('PDF downloaded — attach it in WhatsApp');
+  window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank');
+}
 
 /** Saves a downloaded file: through the Android app when inside it, else a normal browser download. */
 function saveBlob(blob, name) {
@@ -687,6 +722,7 @@ function closeModal() { $('modal').innerHTML = ''; }
 /* ── entry detail ── */
 function openEntry(id) {
   const e = findEntry(id); if (!e) return;
+  S.viewing = e;
   const owner = isOwner();
   openModal(`<div class="hd"><h2>${e.type === 'IN' ? 'Cash In' : 'Cash Out'}</h2><button class="x" onclick="closeModal()">×</button></div>
     <div class="bigamt ${e.type === 'IN' ? 'in' : 'out'}">${e.type === 'IN' ? '+' : '−'}${money(e.amount)}</div>
@@ -911,13 +947,22 @@ async function viewFile(id) {
     const f = await api('getAttachment', S.token, id);
     const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: f.mimeType }));
-    const body = /^image\//.test(f.mimeType) ? `<img src="${url}" alt="">`
-      : window.CashBookApp ? `<div class="empty">📄 ${esc(f.name)}<br>Tap <b>Download</b> to open this PDF.</div>` // Android WebView has no PDF viewer
+    const isPdf = !/^image\//.test(f.mimeType);
+    const blob = new Blob([bytes], { type: f.mimeType });
+    const body = !isPdf ? `<img src="${url}" alt="">`
+      : window.CashBookApp ? `<div class="empty" style="padding:24px 10px">📄 ${esc(f.name)}</div>` // WebView has no PDF viewer: the phone's opens it
       : `<iframe src="${url}"></iframe>`;
     $('modal').querySelector('.viewer').outerHTML = `<div class="viewer">${body}</div>
-      <div class="row2" style="margin-top:12px"><button class="btn ghost" id="vSave">⬇ Download</button>
-      <button class="btn" id="vBack">← Back</button></div>`;
-    $('vSave').onclick = () => saveBlob(new Blob([bytes], { type: f.mimeType }), f.name);
+      <div class="row2" style="margin-top:12px">
+        <button class="btn ${isPdf ? 'red' : 'ghost'}" id="vOpen">${isPdf ? '📄 Open PDF' : '⬇ Download'}</button>
+        <button class="btn wa" id="vWa">${$('waTpl').innerHTML} WhatsApp</button></div>
+      <button class="btn ghost full" style="margin-top:10px" id="vBack">← Back</button>`;
+    $('vOpen').onclick = () => (isPdf ? openBlob(blob, f.name) : saveBlob(blob, f.name));
+    $('vWa').onclick = () => {
+      const e = S.viewing;
+      const text = e ? `${e.type === 'IN' ? 'Cash In' : 'Cash Out'} ${money(e.amount)} · ${dayLabel(e.date)}${e.partyName ? ' · ' + e.partyName : ''}${e.notes ? '\n' + e.notes : ''}` : f.name;
+      shareWhatsApp(blob, f.name, text);
+    };
     $('vBack').onclick = () => { $('modal').innerHTML = back; };
   } catch (e) { toast(e.message, true); $('modal').innerHTML = back; }
 }
@@ -1053,12 +1098,25 @@ async function downloadExcel(ev) {
   saveBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '.xlsx');
 }
 
+/** Opens the month's PDF report (phone's PDF viewer in the app). */
 async function downloadPdf(ev) {
-  const R = S.report; if (!R) return;
   const btn = ev && ev.currentTarget;
+  const blob = await reportPdf(btn); if (!blob) return;
+  openBlob(blob, fileBase() + '.pdf');
+}
+/** Sends the month's PDF report on WhatsApp, with the totals as the message. */
+async function shareReportWhatsApp(ev) {
+  const btn = ev && ev.currentTarget, R = S.report;
+  const blob = await reportPdf(btn); if (!blob) return;
+  const text = `${S.business} — Cash Book ${R.label}\nOpening ${money(R.opening)}\nCash In ${money(R.tin)}\nCash Out ${money(R.tout)}\nClosing ${money(R.closing)}`;
+  shareWhatsApp(blob, fileBase() + '.pdf', text);
+}
+/** Builds the PDF report (loads the PDF tools the first time). Returns a Blob, or null. */
+async function reportPdf(btn) {
+  const R = S.report; if (!R) return null;
   if (!window.jspdf || !window.jspdf.jsPDF.API.autoTable) {
     busy(btn, true);
-    try { await needLibs('pdf'); } catch (e) { busy(btn, false); return toast(e.message, true); }
+    try { await needLibs('pdf'); } catch (e) { busy(btn, false); toast(e.message, true); return null; }
     busy(btn, false);
   }
   const doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' });
@@ -1094,7 +1152,7 @@ async function downloadPdf(ev) {
     doc.text('Generated ' + new Date().toLocaleString('en-IN') + ' by ' + S.user.name + '  ·  Amounts in Rs.', 40, doc.internal.pageSize.getHeight() - 20);
     doc.text('Page ' + i + ' / ' + pages, W - 80, doc.internal.pageSize.getHeight() - 20);
   }
-  saveBlob(doc.output('blob'), fileBase() + '.pdf');
+  return doc.output('blob');
 }
 
 /* ═════════ settings ═════════ */

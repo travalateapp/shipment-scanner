@@ -13,6 +13,12 @@
         <intent>
             <action android:name="android.media.action.IMAGE_CAPTURE" />
         </intent>
+        <package android:name="com.whatsapp" />
+        <package android:name="com.whatsapp.w4b" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:mimeType="application/pdf" />
+        </intent>
     </queries>
 
     <application
@@ -34,6 +40,13 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Reports / attachments handed to the PDF viewer or WhatsApp (read-only, one-time grants). -->
+        <provider
+            android:name=".ShareProvider"
+            android:authorities="com.travalate.cashbook.files"
+            android:exported="false"
+            android:grantUriPermissions="true" />
 
         <provider
             android:name=".UpdateProvider"
