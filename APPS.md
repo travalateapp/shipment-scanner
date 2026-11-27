@@ -9,7 +9,7 @@
 | 5 | PO Web App with Vendor Autofill | `po-app/` | Yes, once set up (`deploy-po.yml`) |
 | 6 | Machine Production App (Karigar Production) | `production-app/` (+ hosted copy `production/`) | Yes (`deploy-production-apps-script.yml`) |
 | 7 | Blinkit Shipment Planner | `blinkit-planner-app/` (+ hosted copy `planner/`, Android app `planner-android/`) | Yes, once set up (`deploy-blinkit-planner.yml`); Android APK: `planner-apk.yml` |
-| 8 | Travalate Cash Book | `cashbook-app/` | No (copy by hand) |
+| 8 | Travalate Cash Book | `cashbook-app/` (+ Android app `cashbook-android/`) | Yes, once set up (`deploy-cashbook.yml`); Android APK: `cashbook-apk.yml` |
 
 How the apps talk to each other: Shipment Manager → Inventory (shipped stock), Production → Inventory
 (`productionIn`, `setInProduction`); both use the same shared secret (kept only in Apps Script, `XXXX` here).

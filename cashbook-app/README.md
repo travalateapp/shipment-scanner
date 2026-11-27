@@ -20,6 +20,12 @@ Cash In / Cash Out book for a business, used from a phone or computer.
 | `Code.gs` | `Code.gs` |
 | HTML file `Index` | `Index.html` |
 
+## Android app
+
+See [`../cashbook-android/README.md`](../cashbook-android/README.md). Install link:
+https://github.com/travalateapp/shipment-scanner/releases/download/cashbook-apk/CashBook.apk
+(published after the first merge to `main` with the signing secrets set).
+
 ## Google Sheet
 
 Bound to its own Google Sheet (Extensions → Apps Script). Tabs are created on first use: `Users`, `Sessions`,
@@ -35,5 +41,14 @@ owner's Drive; they are not shared publicly and only open inside the app for a l
 
 Web-app link: _(add after the first deployment)_
 
-Deploy updates by hand for now: copy the changed file into the Apps Script editor, then
+## Automatic deploy
+
+`.github/workflows/deploy-cashbook.yml` uploads `Code.gs` + `Index.html` and makes a new version of the same web
+app after every merge to `main` that changes this folder. One-time setup (see `_new-app-template/AUTO-DEPLOY.md`):
+add repository secrets `CASHBOOK_SCRIPT_ID` (Apps Script → Project Settings → Script ID) and
+`CASHBOOK_DEPLOYMENT_ID` (Deploy → Manage deployments → Deployment ID `AKfycb…`). `CLASPRC_JSON` is already shared
+with the other apps; if this Sheet belongs to another Google account, share the Apps Script project with that
+account as Editor. Check with Actions → Deploy Cash Book App → Run workflow → **dry run**.
+
+Until the secrets are added: copy the changed file into the Apps Script editor, then
 Deploy → Manage deployments → Edit → New version (same link).

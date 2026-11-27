@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <base target="_top">
 <title>Cash Book</title>
+<link rel="icon" id="favicon">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
@@ -27,7 +28,10 @@ button{cursor:pointer}
   background:linear-gradient(160deg,#4f46e5 0%,#6366f1 45%,#eef2ff 45%)}
 .auth-card{background:#fff;border-radius:18px;padding:26px 22px;width:100%;max-width:380px;box-shadow:0 18px 50px rgba(30,27,75,.18)}
 .logo{display:flex;align-items:center;gap:10px;margin-bottom:18px}
-.logo .mark{width:36px;height:36px;border-radius:10px;background:var(--brand);color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:18px}
+.logo .mark{width:40px;height:40px;border-radius:11px;background:#eaf6ff;display:flex;align-items:center;justify-content:center;flex:none}
+.logo .mark img{height:28px;width:auto}
+.top .hlogo{width:32px;height:32px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex:none}
+.top .hlogo img{height:22px;width:auto}
 .logo b{font-size:17px;display:block}.logo small{color:var(--muted);font-size:12px}
 .auth h1{font-size:19px;margin-bottom:4px}
 .auth .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
@@ -156,6 +160,15 @@ td.r,th.r{text-align:right}
 .typeswitch .on.OUT{border-color:var(--out);background:var(--out-l);color:var(--out)}
 .amount input{font-size:24px;font-weight:800}
 .files{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.sugg-wrap{position:relative}
+.sugg{position:absolute;left:0;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(17,24,39,.15);z-index:5;max-height:240px;overflow-y:auto}
+.sugg .it{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
+.sugg .it+.it{border-top:1px solid #f1f2f4}
+.sugg .it.act,.sugg .it:hover{background:var(--brand-l)}
+.sugg .it .avatar{width:30px;height:30px;margin:0;font-size:13px;flex:none}
+.sugg .it .nm{font-weight:600}.sugg .it .nm mark{background:none;color:var(--brand);font-weight:800}
+.sugg .it .ph{font-size:12px;color:var(--muted)}
+.sugg .hint{padding:7px 12px;font-size:11.5px;font-weight:700;color:var(--muted);background:#fafafa;text-transform:uppercase;letter-spacing:.03em}
 .file{display:flex;align-items:center;gap:6px;background:#f3f4f6;border-radius:8px;padding:6px 8px;font-size:12.5px;max-width:100%}
 .file span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
 .file button{border:none;background:none;color:var(--out);font-weight:800}
@@ -179,10 +192,22 @@ td.r,th.r{text-align:right}
 </head>
 <body>
 
+<!-- ═════════ Android app, first start without a built-in link ═════════ -->
+<div id="vConnect" class="auth hidden">
+  <div class="auth-card">
+    <div class="logo"><div class="mark"><img class="tlogo" alt="Travalate"></div><div><b>Cash Book</b><small>Connect the app</small></div></div>
+    <h1>Connect the Cash Book</h1>
+    <p class="sub">Paste the Cash Book web-app link (Apps Script → Deploy → Manage deployments → Web app URL, ending in /exec) or its Deployment ID. Asked only once.</p>
+    <div class="field"><input id="cnId" placeholder="https://script.google.com/macros/s/AKfycb…/exec" autocomplete="off"></div>
+    <div id="cnErr" class="err"></div>
+    <button class="btn full" onclick="doConnect()">Continue</button>
+  </div>
+</div>
+
 <!-- ═════════ first run: set up owner ═════════ -->
 <div id="vSetup" class="auth hidden">
   <div class="auth-card">
-    <div class="logo"><div class="mark">₹</div><div><b>Cash Book</b><small>First-time setup</small></div></div>
+    <div class="logo"><div class="mark"><img class="tlogo" alt="Travalate"></div><div><b>Cash Book</b><small>First-time setup</small></div></div>
     <h1>Set up your cash book</h1>
     <p class="sub">You will be the owner. You can add staff with their own PINs later.</p>
     <div class="field"><label>Business name</label><input id="suBiz" placeholder="e.g. Travalate"></div>
@@ -199,7 +224,7 @@ td.r,th.r{text-align:right}
 <!-- ═════════ login ═════════ -->
 <div id="vLogin" class="auth hidden">
   <div class="auth-card">
-    <div class="logo"><div class="mark">₹</div><div><b id="lgBiz">Cash Book</b><small>Cash In · Cash Out</small></div></div>
+    <div class="logo"><div class="mark"><img class="tlogo" alt="Travalate"></div><div><b id="lgBiz">Cash Book</b><small>Cash In · Cash Out</small></div></div>
     <div id="lgPick">
       <h1>Who is using the app?</h1>
       <p class="sub">Tap your name, then enter your PIN.</p>
@@ -221,6 +246,7 @@ td.r,th.r{text-align:right}
 <div id="vApp" class="hidden">
   <div class="top">
     <div class="bar">
+      <div class="hlogo"><img class="tlogo" alt="Travalate"></div>
       <div class="biz" id="hBiz"></div>
       <div class="me"><b id="hName"></b><br><span id="hRole"></span></div>
       <button class="out-btn" onclick="doLogout()">Log out</button>
@@ -291,6 +317,12 @@ td.r,th.r{text-align:right}
 
 <script>
 /* ═════════ state & helpers ═════════ */
+/* Travalate logo (footprint + location pin), 79×120 PNG. Used on the screens, as the tab icon and in the PDF. */
+const LOGO = 'data:image/png;base64,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';
+document.querySelectorAll('img.tlogo').forEach(i => { i.src = LOGO; });
+document.getElementById('favicon').href = LOGO;
+
+const IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
 const S = { token: null, user: null, business: '', month: '', book: null, typeF: '', report: null, reqs: [], pickUser: null, pin: '' };
 const LS_KEY = 'cashbook_token';
 
@@ -317,24 +349,80 @@ function toast(msg, bad) {
   setTimeout(() => t.remove(), bad ? 4000 : 2200);
 }
 
-/** google.script.run as a promise; handles expired sessions centrally. */
+/**
+ * Calls a Code.gs function. Inside Apps Script: google.script.run. In the Android app (page bundled in the APK):
+ * POST {fn, args} to the web app's /exec link, retried on a bad connection (same request id, so nothing is saved
+ * twice). Expired logins are handled here for every screen.
+ */
 function api(fn, ...args) {
-  return new Promise((resolve, reject) => {
-    google.script.run
-      .withSuccessHandler(resolve)
-      .withFailureHandler(err => {
-        const msg = (err && err.message) || String(err);
-        if (msg.indexOf('SESSION_EXPIRED') >= 0) { sessionGone(); reject(new Error('Please log in again.')); }
-        else reject(new Error(msg));
-      })[fn](...args);
-  });
+  const fail = err => {
+    const msg = String((err && err.message) || err).replace(/^Exception:\s*/, '');
+    if (msg.indexOf('SESSION_EXPIRED') >= 0) { sessionGone(); return Promise.reject(new Error('Please log in again.')); }
+    return Promise.reject(new Error(msg));
+  };
+  if (IN_APPS_SCRIPT) {
+    return new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](...args)).catch(fail);
+  }
+  const url = serverUrl();
+  if (!url) return fail(new Error('The app is not connected to the Cash Book yet.'));
+  const body = JSON.stringify({ fn, args, rid: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12) });
+  const attempt = n => fetch(url, { method: 'POST', credentials: 'omit', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body })
+    .then(r => {
+      if (!r.ok) throw Object.assign(new Error('The server is busy (' + r.status + '). Try again.'), { retry: true });
+      return r.text().then(t => { try { return JSON.parse(t); } catch (e) { throw Object.assign(new Error('The server is busy. Try again.'), { retry: true }); } });
+    }, () => { throw Object.assign(new Error('No internet connection, or the server could not be reached.'), { retry: true }); })
+    .catch(e => { if (!e.retry || n >= 3) throw e; return new Promise(r => setTimeout(r, [700, 1500, 3000][n])).then(() => attempt(n + 1)); });
+  return attempt(0).then(res => {
+    if (!res || !res.ok) throw new Error((res && res.error) || 'Something went wrong.');
+    return res.result;
+  }).catch(fail);
 }
+
+/** Web-app link for the Android app: ?id=<Deployment ID> (built into the APK) or pasted once on the connect screen. */
+function serverUrl() {
+  let id = null;
+  try { id = new URLSearchParams(location.search).get('id'); } catch (e) { /* old browser */ }
+  try { if (id) localStorage.setItem('cashbook_api', id); else id = localStorage.getItem('cashbook_api'); } catch (e) { /* no storage */ }
+  if (!id) return null;
+  return /^https?:/.test(id) ? id : 'https://script.google.com/macros/s/' + id + '/exec';
+}
+function showConnect(note) {
+  show('vConnect');
+  $('cnErr').textContent = note || ''; $('cnErr').classList.toggle('show', !!note);
+}
+function doConnect() {
+  const v = $('cnId').value.trim(), m = v.match(/\/macros\/s\/([A-Za-z0-9_-]+)/), id = m ? m[1] : v;
+  if (!/^[A-Za-z0-9_-]{40,}$/.test(id)) return showConnect('That does not look like the Cash Book link or a Deployment ID.');
+  try { localStorage.setItem('cashbook_api', id); } catch (e) {}
+  showLogin();
+}
+
+/** Saves a downloaded file: through the Android app when inside it, else a normal browser download. */
+function saveBlob(blob, name) {
+  if (window.CashBookApp && window.CashBookApp.saveFile) {
+    const rd = new FileReader();
+    rd.onload = () => window.CashBookApp.saveFile(String(rd.result).split(',')[1], name, blob.type || 'application/octet-stream');
+    rd.readAsDataURL(blob);
+    return;
+  }
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/** Android Back button: close a pop-up, else go to the Book tab; '' = nothing left (the app may exit). */
+window.appBack = function () {
+  if ($('modal').innerHTML) { closeModal(); return 'handled'; }
+  if (!$('vApp').classList.contains('hidden') && S.tab !== 'book') { switchTab('book'); return 'handled'; }
+  if (!$('vLogin').classList.contains('hidden') && S.pickUser) { pickAgain(); return 'handled'; }
+  return '';
+};
 function busy(btn, on, label) {
   if (!btn) return;
   if (on) { btn.dataset.l = btn.innerHTML; btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true; }
   else { btn.innerHTML = label || btn.dataset.l; btn.disabled = false; }
 }
-function show(view) { ['vSetup', 'vLogin', 'vApp'].forEach(v => $(v).classList.toggle('hidden', v !== view)); }
+function show(view) { ['vConnect', 'vSetup', 'vLogin', 'vApp'].forEach(v => $(v).classList.toggle('hidden', v !== view)); }
 function lsGet() { try { return localStorage.getItem(LS_KEY); } catch (e) { return null; } }
 function lsSet(v) { try { v ? localStorage.setItem(LS_KEY, v) : localStorage.removeItem(LS_KEY); } catch (e) {} }
 
@@ -342,6 +430,7 @@ function lsSet(v) { try { v ? localStorage.setItem(LS_KEY, v) : localStorage.rem
 async function boot() {
   const d = new Date();
   S.month = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  if (!IN_APPS_SCRIPT && !serverUrl()) { showConnect(); return; }
   const saved = lsGet();
   if (saved) {
     try { const r = await api('resume', saved); S.token = saved; S.user = r.user; S.business = r.business; enterApp(); return; }
@@ -582,7 +671,6 @@ function openEntryForm(type, id, asRequest) {
   const e = id ? findEntry(id) : null;
   F = { id: id || null, asRequest: !!asRequest, type: e ? e.type : type, attachments: e ? e.attachments.slice() : [], uploading: 0 };
   const title = asRequest ? 'Request Edit' : e ? 'Edit Entry' : (type === 'IN' ? 'Add Cash In' : 'Add Cash Out');
-  const parties = (S.book && S.book.parties) || [];
   const modes = (S.book && S.book.modes) || ['Cash'];
   const cats = Array.from(new Set(((S.book && S.book.entries) || []).map(x => x.category).filter(Boolean))).sort();
   openModal(`<div class="hd"><h2>${title}</h2><button class="x" onclick="closeModal()">×</button></div>
@@ -596,15 +684,15 @@ function openEntryForm(type, id, asRequest) {
       <div class="field"><label>Date</label><input id="eDate" type="date" value="${e ? e.date : todayStr()}"></div>
       <div class="field"><label>Time</label><input id="eTime" type="time" value="${e ? e.time : nowTime()}"></div>
     </div>
+    <div class="field sugg-wrap"><label>Party name</label>
+      <input id="eParty" autocomplete="off" value="${e ? esc(e.partyName) : ''}" placeholder="Customer / supplier — type to search saved parties"
+        oninput="partySugg()" onfocus="partySugg()" onkeydown="partyKey(event)" onblur="setTimeout(hideSugg,150)">
+      <div class="sugg hidden" id="eSugg"></div></div>
     <div class="row2">
-      <div class="field"><label>Party name</label><input id="eParty" list="dlParties" value="${e ? esc(e.partyName) : ''}" placeholder="Customer / supplier" oninput="fillPhone()"></div>
       <div class="field"><label>Party phone</label><input id="ePhone" type="tel" value="${e ? esc(e.partyPhone) : ''}" placeholder="Optional"></div>
-    </div>
-    <datalist id="dlParties">${parties.map(p => `<option value="${esc(p.name)}">`).join('')}</datalist>
-    <div class="row2">
       <div class="field"><label>Payment mode</label><select id="eMode">${modes.map(m => `<option ${e && e.mode === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
-      <div class="field"><label>Category</label><input id="eCat" list="dlCats" value="${e ? esc(e.category) : ''}" placeholder="e.g. Salary, Rent"></div>
     </div>
+    <div class="field"><label>Category</label><input id="eCat" list="dlCats" value="${e ? esc(e.category) : ''}" placeholder="e.g. Salary, Rent"></div>
     <datalist id="dlCats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div class="field"><label>Notes</label><textarea id="eNotes" placeholder="Remarks / bill no.">${e ? esc(e.notes) : ''}</textarea></div>
     <div class="field"><label>Attachments (bill photo / PDF)</label>
@@ -623,7 +711,47 @@ function setFType(t) {
   const btn = $('eSave');
   if (btn && !F.asRequest) btn.className = 'btn full ' + (t === 'IN' ? 'green' : 'red');
 }
-function fillPhone() {
+/* ── party suggestions: every party saved before shows up here, matching what is typed ── */
+let SG = { list: [], act: -1 };
+function partySugg() {
+  const box = $('eSugg'); if (!box) return;
+  const q = $('eParty').value.trim().toLowerCase();
+  const all = (S.book && S.book.parties) || [];
+  // most recently used first (from this month's entries), then A–Z
+  const last = {};
+  ((S.book && S.book.entries) || []).forEach(e => { if (e.partyName) last[e.partyName.toLowerCase()] = e.date + e.time; });
+  let list = all.filter(p => !q || p.name.toLowerCase().indexOf(q) >= 0 || (p.phone && p.phone.replace(/\D/g, '').indexOf(q.replace(/\D/g, '') || '~') >= 0));
+  list.sort((a, b) => {
+    const sa = q && a.name.toLowerCase().startsWith(q) ? 0 : 1, sb = q && b.name.toLowerCase().startsWith(q) ? 0 : 1;
+    return sa - sb || (last[b.name.toLowerCase()] || '').localeCompare(last[a.name.toLowerCase()] || '') || a.name.localeCompare(b.name);
+  });
+  if (list.length === 1 && list[0].name.toLowerCase() === q) list = []; // already exactly typed
+  SG = { list: list.slice(0, 8), act: -1 };
+  if (!SG.list.length) { fillPhoneExact(); return hideSugg(); }
+  const hl = n => { const i = q ? n.toLowerCase().indexOf(q) : -1; return i < 0 ? esc(n) : esc(n.slice(0, i)) + '<mark>' + esc(n.slice(i, i + q.length)) + '</mark>' + esc(n.slice(i + q.length)); };
+  box.innerHTML = `<div class="hint">${q ? 'Saved parties' : 'Recent parties'}</div>` + SG.list.map((p, i) =>
+    `<div class="it" data-i="${i}" onmousedown="event.preventDefault()" onclick="pickParty(${i})">
+      <div class="avatar">${esc(p.name.charAt(0).toUpperCase())}</div>
+      <div><div class="nm">${hl(p.name)}</div>${p.phone ? `<div class="ph">${esc(p.phone)}</div>` : ''}</div></div>`).join('');
+  box.classList.remove('hidden');
+}
+function pickParty(i) {
+  const p = SG.list[i]; if (!p) return;
+  $('eParty').value = p.name;
+  if (p.phone) $('ePhone').value = p.phone;
+  hideSugg();
+}
+function hideSugg() { const b = $('eSugg'); if (b) b.classList.add('hidden'); SG.act = -1; }
+function partyKey(ev) {
+  const box = $('eSugg'); if (!box || box.classList.contains('hidden')) return;
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    SG.act = (SG.act + (ev.key === 'ArrowDown' ? 1 : -1) + SG.list.length) % SG.list.length;
+    box.querySelectorAll('.it').forEach((el, i) => el.classList.toggle('act', i === SG.act));
+  } else if (ev.key === 'Enter' && SG.act >= 0) { ev.preventDefault(); pickParty(SG.act); }
+  else if (ev.key === 'Escape') hideSugg();
+}
+function fillPhoneExact() {
   const p = ((S.book && S.book.parties) || []).find(x => x.name.toLowerCase() === $('eParty').value.trim().toLowerCase());
   if (p && p.phone && !$('ePhone').value) $('ePhone').value = p.phone;
 }
@@ -709,10 +837,13 @@ async function viewFile(id) {
     const f = await api('getAttachment', S.token, id);
     const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
     const url = URL.createObjectURL(new Blob([bytes], { type: f.mimeType }));
-    const body = /^image\//.test(f.mimeType) ? `<img src="${url}" alt="">` : `<iframe src="${url}"></iframe>`;
+    const body = /^image\//.test(f.mimeType) ? `<img src="${url}" alt="">`
+      : window.CashBookApp ? `<div class="empty">📄 ${esc(f.name)}<br>Tap <b>Download</b> to open this PDF.</div>` // Android WebView has no PDF viewer
+      : `<iframe src="${url}"></iframe>`;
     $('modal').querySelector('.viewer').outerHTML = `<div class="viewer">${body}</div>
-      <div class="row2" style="margin-top:12px"><a class="btn ghost" style="text-align:center;text-decoration:none" href="${url}" download="${esc(f.name)}">⬇ Download</a>
+      <div class="row2" style="margin-top:12px"><button class="btn ghost" id="vSave">⬇ Download</button>
       <button class="btn" id="vBack">← Back</button></div>`;
+    $('vSave').onclick = () => saveBlob(new Blob([bytes], { type: f.mimeType }), f.name);
     $('vBack').onclick = () => { $('modal').innerHTML = back; };
   } catch (e) { toast(e.message, true); $('modal').innerHTML = back; }
 }
@@ -831,7 +962,9 @@ function downloadExcel() {
   XLSX.utils.book_append_sheet(wb, ws1, 'Entries');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Date', 'Cash In', 'Cash Out', 'Balance']].concat(R.days.map(d => [shortDate(d.date), d.tin, d.tout, d.bal]))), 'Day-wise');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Party', 'Entries', 'Cash In', 'Cash Out', 'Net']].concat(R.parties.map(p => [p.name, p.n, p.tin, p.tout, p.tin - p.tout]))), 'Party-wise');
-  XLSX.writeFile(wb, fileBase() + '.xlsx');
+  const b64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  saveBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '.xlsx');
 }
 
 function downloadPdf() {
@@ -840,8 +973,10 @@ function downloadPdf() {
   const doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 70, 'F');
-  doc.setTextColor(255); doc.setFontSize(18); doc.setFont('helvetica', 'bold'); doc.text(S.business, 40, 34);
-  doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.text('Cash Book Report — ' + R.label, 40, 54);
+  doc.setFillColor(255, 255, 255); doc.circle(62, 35, 24, 'F');
+  try { doc.addImage(LOGO, 'PNG', 62 - 10.5, 35 - 16, 21, 32); } catch (e) { /* logo is optional */ }
+  doc.setTextColor(255); doc.setFontSize(18); doc.setFont('helvetica', 'bold'); doc.text(S.business, 98, 34);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.text('Cash Book Report — ' + R.label, 98, 54);
   doc.setTextColor(17, 24, 39);
   doc.autoTable({
     startY: 90, theme: 'grid', styles: { fontSize: 10, halign: 'center' }, headStyles: { fillColor: [238, 242, 255], textColor: [55, 48, 163] },
@@ -868,7 +1003,7 @@ function downloadPdf() {
     doc.text('Generated ' + new Date().toLocaleString('en-IN') + ' by ' + S.user.name + '  ·  Amounts in Rs.', 40, doc.internal.pageSize.getHeight() - 20);
     doc.text('Page ' + i + ' / ' + pages, W - 80, doc.internal.pageSize.getHeight() - 20);
   }
-  doc.save(fileBase() + '.pdf');
+  saveBlob(doc.output('blob'), fileBase() + '.pdf');
 }
 
 /* ═════════ settings ═════════ */

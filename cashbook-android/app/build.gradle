@@ -1,0 +1,55 @@
+plugins {
+    id 'com.android.application'
+}
+
+// Passed in by the "Build Cash Book APK" workflow (-PdeploymentId=… -PversionCode=… -PversionName=…).
+def prop = { String name, String fallback -> (project.findProperty(name) ?: fallback).toString().replace('"', '') }
+
+android {
+    namespace 'com.travalate.cashbook'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'com.travalate.cashbook'
+        minSdk 24
+        targetSdk 34
+        versionCode prop('versionCode', '1').toInteger()
+        versionName prop('versionName', '1.0')
+        // The Cash Book's Apps Script deployment ID (AKfycb…). Empty = the app asks for the link on first start.
+        buildConfigField 'String', 'DEPLOYMENT_ID', '"' + prop('deploymentId', '') + '"'
+        // owner/repo whose "cashbook-apk" release holds the newest APK (for in-app updates).
+        buildConfigField 'String', 'UPDATE_REPO', '"' + prop('updateRepo', '') + '"'
+    }
+
+    buildFeatures {
+        buildConfig true
+    }
+
+    // Same private key as the Attendance app (repository secrets), so updates install over the old app.
+    signingConfigs {
+        release {
+            storeFile file(prop('storeFile', 'secret.keystore'))
+            storePassword prop('storePassword', '')
+            keyAlias prop('keyAlias', 'attendance')
+            keyPassword prop('keyPassword', '')
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+}
+
+dependencies {
+    // Serves the bundled Cash Book page from https://appassets.androidplatform.net/ (a normal web origin:
+    // localStorage, fetch to Apps Script and the CDN libraries all work as in a browser).
+    implementation 'androidx.webkit:webkit:1.11.0'
+}

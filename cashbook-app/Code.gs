@@ -43,6 +43,35 @@ function doGet() {
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL);
 }
 
+/* ───────── JSON API for the Android app (same functions as google.script.run) ─────────
+   The app carries Index.html inside the APK and POSTs {fn, args, rid} here. Only the functions listed below can
+   be called, and each one still checks the login token itself. A retried request (same rid) gets the first
+   answer back, so a Cash In is never saved twice on a bad connection. */
+const API_FUNCTIONS = {
+  getBootstrap, setupOwner, login, logout, resume, getBook, saveEntry, deleteEntry, uploadAttachment, getAttachment,
+  createEditRequest, listEditRequests, reviewEditRequest, listUsers, saveUser, changeMyPin, saveBusinessName,
+};
+
+function doPost(e) {
+  let json, rid = '';
+  try {
+    const req = JSON.parse((e && e.postData && e.postData.contents) || '{}');
+    rid = /^[\w-]{8,64}$/.test(String(req.rid || '')) ? 'rid_' + req.rid : '';
+    const done = rid ? CacheService.getScriptCache().get(rid) : null;
+    if (done) return ContentService.createTextOutput(done).setMimeType(ContentService.MimeType.JSON);
+    const fn = Object.prototype.hasOwnProperty.call(API_FUNCTIONS, req.fn) ? API_FUNCTIONS[req.fn] : null;
+    if (!fn) throw new Error('Unknown action.');
+    const result = fn.apply(null, Array.isArray(req.args) ? req.args : []);
+    json = JSON.stringify({ ok: true, result: result === undefined ? null : result });
+  } catch (err) {
+    json = JSON.stringify({ ok: false, error: String((err && err.message) || err) });
+  }
+  if (rid && json.length < 95000) {
+    try { CacheService.getScriptCache().put(rid, json, 600); } catch (err) { /* ignore */ }
+  }
+  return ContentService.createTextOutput(json).setMimeType(ContentService.MimeType.JSON);
+}
+
 /* ───────── sheet helpers ───────── */
 
 function getSheet_(name) {
