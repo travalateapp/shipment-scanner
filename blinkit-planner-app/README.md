@@ -204,6 +204,23 @@ The link and key are kept only in the planner's Script Properties (`SM_WEBAPP_UR
 - An item that isn't in the block gets a new row at the end of the block. The formulas and formatting of the row above are copied; the numbers aren't.
 - If D–H are all used in that block, the app **adds a new RO column** to the tab. It is inserted just before the last RO column, inside the D–H range, so any formula over D:H, such as a sum, grows to include it. It is formatted like the column next to it and marked with a note in row 1 (*Blinkit Planner: RO column added*). The RO that was in the last column moves one column right, and the RO Log follows. Columns I onwards move one column right too, with their formulas adjusted by Sheets. Later ROs use the added columns like D–H. If you delete an added column by hand, the app simply stops counting it.
 
+### RO columns locked (colours stay free)
+The RO columns of the month tabs (D up to the last RO column) are written only by the planner. If someone types,
+pastes or deletes a value there, it is put back at once and a small *🔒 RO columns* message shows. Colours, borders
+and other formatting stay as they made them, because formatting changes are not edits of the value.
+- **One cell:** its value from before the edit comes back. An RO heading comes back with its small RO number.
+- **Several cells** (paste, fill, delete): each cell is rebuilt from the RO Log, either the RO's quantity, or the
+  shipped quantity when it was shipped short, plus the RO heading. A cell the RO Log knows nothing about is emptied.
+- **Planner and updater writes:** the planner's own writes and the daily inventory updater's are not edits by a
+  person, so they are never undone. ROs are added and changed in the planner (New Plan, RO PDF, RO Log).
+- **Not prevented:** deleting or inserting whole columns or rows. Use the sheet's version history if that happens.
+
+**One-time setup:** in the sheet, go to **Extensions → Apps Script → Triggers** (clock icon) → **Add Trigger**. Choose
+function **guardRoEdits**, event source **From spreadsheet** and event type **On edit**, then **Save** and allow access.
+
+**To turn it off:** in the planner's **Settings** tab of the sheet, set **Lock RO Columns** to `No`. If the row is
+missing, add it. The default is Yes.
+
 ### Starting a new month
 
 **Settings → Start new month**, then pick the month:
