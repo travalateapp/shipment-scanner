@@ -330,7 +330,9 @@ var PlanCore = (function () {
     (o.delivered || []).forEach(function (r) {
       if (!r.deliveredOn) return;
       var k = whNorm(r.wh) + '|' + num(r.item);
-      (dlv[k] = dlv[k] || []).push({ q: r.shippedQty != null ? num(r.shippedQty) : num(r.qty), on: String(r.deliveredOn), base: r.grnBase });
+      // q = what was actually shipped (counted as Delivered); ord = the RO's quantity, which is what Blinkit's
+      // Incoming still lists for it until the GRN, also the part not sent when it was shipped short.
+      (dlv[k] = dlv[k] || []).push({ q: r.shippedQty != null ? num(r.shippedQty) : num(r.qty), ord: Math.max(num(r.qty), r.shippedQty != null ? num(r.shippedQty) : 0), on: String(r.deliveredOn), base: r.grnBase });
     });
     var plusDays = function (d, n) { var p = d.split('-'); return new Date(Date.UTC(+p[0], +p[1] - 1, +p[2] + n)).toISOString().slice(0, 10); };
 
@@ -344,18 +346,20 @@ var PlanCore = (function () {
       var kk = whNorm(b.whName) + '|' + b.item;
       var gap = Math.max(0, (recent[kk] || 0) - Math.max(0, inc - (older[kk] || 0)));
       app += gap;
-      var dq = 0;
+      var dq = 0, dOrd = 0;
       (dlv[kk] || []).forEach(function (l) {
         if (todayS && plusDays(l.on, 7) < todayS) return;                    // a week on: surely in the stock
         var waiting = stockDate && stockDate < l.on ? true                      // Inventory from before the delivery
           : l.base != null && l.base !== '' ? (x ? x.sellable : 0) <= num(l.base) // stock not up yet: no GRN
           : !!(stockDate && stockDate < plusDays(l.on, 2));
-        if (waiting) dq += l.q;
+        if (waiting) { dq += l.q; dOrd += l.ord; }
       });
       // Delivered, waiting for GRN: counted under Delivered even when Blinkit's Incoming still lists it — that part of
       // Blinkit's Incoming (what is left after the older and recent open ROs) is taken off Incoming instead, so the
-      // units show as Delivered, not as Planned "without RO", and are never counted twice.
-      var dOver = Math.min(dq, Math.max(0, inc - (older[kk] || 0) - (recent[kk] || 0)));
+      // units show as Delivered, not as Planned "without RO", and are never counted twice. Blinkit lists such an RO at
+      // its full RO quantity, so that much comes off (a part not sent, when shipped short, will not come either);
+      // Delivered itself counts only what was shipped.
+      var dOver = Math.min(dOrd, Math.max(0, inc - (older[kk] || 0) - (recent[kk] || 0)));
       var deliv = dq;
       inc -= dOver;
       var pos = wh + ds + deliv + inc + app;
@@ -706,7 +710,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 ro-short-mark';
+  var PAGE_BUILD = '2026-11-27 delivered-short-incoming';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3515,12 +3519,19 @@ function getRoInvoiceStyles_() {
     // ROs marked Delivered after this plan was made were still counted in its Planned (Blinkit's file / the RO Log
     // had them on their way). They are now at the warehouse: shown under Has instead, until the next plan.
     var dlv = {};
-    (d.delivered || []).forEach(function (x) { if (x.updatedAt && x.updatedAt > d.meta.at) { var k = PlanCore.whNorm(x.wh) + '|' + Number(x.item); dlv[k] = (dlv[k] || 0) + x.qty; } });
+    // The whole RO quantity leaves Planned (Blinkit listed all of it); only what was shipped joins Has (a part not
+    // sent, when shipped short, never comes).
+    var dlvShip = {};
+    (d.delivered || []).forEach(function (x) {
+      if (!(x.updatedAt && x.updatedAt > d.meta.at)) return;
+      var k = PlanCore.whNorm(x.wh) + '|' + Number(x.item), sq = x.shippedQty != null && x.shippedQty !== '' ? Number(x.shippedQty) : Number(x.qty) || 0;
+      dlv[k] = (dlv[k] || 0) + Math.max(Number(x.qty) || 0, sq); dlvShip[k] = (dlvShip[k] || 0) + sq;
+    });
     rows.forEach(function (r) {
-      var q = dlv[PlanCore.whNorm(r.wh) + '|' + Number(r.item)];
+      var kq = PlanCore.whNorm(r.wh) + '|' + Number(r.item), q = dlv[kq];
       if (!q || r.planned == null || !(r.planned > 0)) return;
-      var a = Math.min(q, r.planned);
-      r.planned -= a; r.has = (r.has || 0) + a; r.delivAdj = (r.delivAdj || 0) + a;
+      var a = Math.min(q, r.planned), got = Math.min(a, dlvShip[kq] || 0);
+      r.planned -= a; r.has = (r.has || 0) + got; r.delivAdj = (r.delivAdj || 0) + got;
       if (r.plBlinkit != null) { var b = Math.min(a, r.plBlinkit); r.plBlinkit -= b; if (r.plLog != null) r.plLog = Math.max(0, r.plLog - (a - b)); }
     });
     // On its way splits into Shipped (dispatch day today or earlier) and Planned (not shipped yet), from the ROs now.
