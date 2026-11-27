@@ -20,7 +20,9 @@ const SCHEMAS = {
   Users:        ['ID', 'Name', 'Role', 'PinHash', 'Salt', 'Active', 'CreatedAt'],
   Sessions:     ['Token', 'UserId', 'CreatedAt', 'ExpiresAt'],
   Entries:      ['ID', 'Date', 'Time', 'Type', 'Amount', 'PartyName', 'PartyPhone', 'Mode', 'Category', 'Notes',
-                 'Attachments', 'CreatedBy', 'CreatedByName', 'CreatedAt', 'UpdatedAt', 'UpdatedByName', 'Deleted'],
+                 'Attachments', 'CreatedBy', 'CreatedByName', 'CreatedAt', 'UpdatedAt', 'UpdatedByName', 'Deleted',
+                 // Mode "Bank + Cash": how much of Amount was cash and how much bank (blank for the other modes).
+                 'CashPart', 'BankPart'],
   EditRequests: ['ID', 'EntryId', 'Action', 'Changes', 'Reason', 'RequestedBy', 'RequestedByName', 'Status',
                  'ReviewedByName', 'ReviewNote', 'CreatedAt', 'ReviewedAt'],
   Settings:     ['Key', 'Value'],
@@ -32,8 +34,11 @@ const MAX_PIN_TRIES = 5;           // wrong PINs before the user is locked out�
 const LOCKOUT_SECONDS = 15 * 60;   // …for this long
 const ATTACH_FOLDER_NAME = 'Cash Book Attachments';
 const MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024;
-const MODES = ['Cash', 'UPI', 'Bank', 'Card', 'Cheque', 'Other'];
-const EDITABLE_FIELDS = ['Date', 'Time', 'Type', 'Amount', 'PartyName', 'PartyPhone', 'Mode', 'Category', 'Notes', 'Attachments'];
+// Bank is the default. Older entries may still say UPI / Card / Cheque / Other; they are shown as they are.
+const MODES = ['Bank', 'Cash', 'Bank + Cash'];
+const SPLIT_MODE = 'Bank + Cash';
+const EDITABLE_FIELDS = ['Date', 'Time', 'Type', 'Amount', 'PartyName', 'PartyPhone', 'Mode', 'Category', 'Notes', 'Attachments',
+                         'CashPart', 'BankPart'];
 
 function doGet() {
   return HtmlService.createHtmlOutputFromFile('Index')
@@ -339,7 +344,8 @@ function entryOut_(r) {
   return {
     id: String(r.ID), date: txt_(r.Date), time: timeTxt_(r.Time), type: String(r.Type),
     amount: Number(r.Amount) || 0, partyName: txt_(r.PartyName), partyPhone: txt_(r.PartyPhone),
-    mode: txt_(r.Mode), category: txt_(r.Category), notes: txt_(r.Notes), attachments: att,
+    mode: txt_(r.Mode), cashPart: Number(r.CashPart) || 0, bankPart: Number(r.BankPart) || 0,
+    category: txt_(r.Category), notes: txt_(r.Notes), attachments: att,
     createdByName: txt_(r.CreatedByName), createdAt: txt_(r.CreatedAt),
     updatedAt: txt_(r.UpdatedAt), updatedByName: txt_(r.UpdatedByName),
   };
@@ -355,7 +361,7 @@ function liveEntries_() {
  */
 function getBook(token, from, to) {
   const me = auth_(token);
-  let opening = 0;
+  let opening = 0, openCash = 0;
   const list = [], parties = {};
   liveEntries_().forEach(r => {
     const date = txt_(r.Date), amt = Number(r.Amount) || 0;
@@ -365,7 +371,11 @@ function getBook(token, from, to) {
       if (!parties[k]) parties[k] = { name, phone: ph, last: date };
       else if (date >= parties[k].last) { parties[k].last = date; if (ph) parties[k].phone = ph; parties[k].name = name; }
     }
-    if (date < from) opening += String(r.Type) === 'IN' ? amt : -amt;
+    if (date < from) {
+      const sign = String(r.Type) === 'IN' ? 1 : -1;
+      opening += sign * amt;
+      openCash += sign * cashPart_(r, amt);
+    }
     else if (date <= to) list.push(entryOut_(r));
   });
   list.sort((a, b) => (a.date + a.time + a.createdAt).localeCompare(b.date + b.time + b.createdAt));
@@ -373,11 +383,21 @@ function getBook(token, from, to) {
     (me.Role === 'OWNER' || String(r.RequestedBy) === String(me.ID)));
   return {
     from, to, opening: round2_(opening), entries: list,
+    // Opening balance split: cash in hand and bank (Bank = everything that is not cash, so the two add up).
+    openingCash: round2_(openCash), openingBank: round2_(opening - openCash),
     parties: Object.keys(parties).map(k => ({ name: parties[k].name, phone: parties[k].phone }))
       .sort((a, b) => a.name.localeCompare(b.name)),
     pendingRequests: reqs.length, modes: MODES,
     user: { id: me.ID, name: me.Name, role: me.Role }, business: getSetting_('BusinessName', 'My Cash Book'),
   };
+}
+
+/** The cash part of an entry: all of it for Cash, the cash part for Bank + Cash, none for Bank (and old UPI etc.). */
+function cashPart_(r, amt) {
+  const m = String(r.Mode);
+  if (m === 'Cash') return amt;
+  if (m === SPLIT_MODE) return Number(r.CashPart) || 0;
+  return 0;
 }
 
 function round2_(n) { return Math.round(n * 100) / 100; }
@@ -401,7 +421,16 @@ function cleanEntry_(e, prev) {
   if ('time' in e) out.Time = /^\d{2}:\d{2}$/.test(String(e.time)) ? String(e.time) : '';
   if ('partyName' in e) out.PartyName = String(e.partyName || '').trim().slice(0, 120);
   if ('partyPhone' in e) out.PartyPhone = String(e.partyPhone || '').replace(/[^\d+\- ]/g, '').slice(0, 20);
-  if ('mode' in e) out.Mode = MODES.indexOf(e.mode) >= 0 ? e.mode : 'Cash';
+  if ('mode' in e) {
+    out.Mode = MODES.indexOf(e.mode) >= 0 ? e.mode : 'Bank';
+    if (out.Mode === SPLIT_MODE) {
+      const c = round2_(Number(e.cashPart)), b = round2_(Number(e.bankPart));
+      if (!(c > 0) || !(b > 0)) throw new Error('Enter both the Cash and the Bank amount.');
+      out.CashPart = c; out.BankPart = b; out.Amount = round2_(c + b);
+    } else {
+      out.CashPart = ''; out.BankPart = '';
+    }
+  }
   if ('category' in e) out.Category = String(e.category || '').trim().slice(0, 60);
   if ('notes' in e) out.Notes = String(e.notes || '').slice(0, 1000);
   if ('attachments' in e) {
@@ -428,15 +457,43 @@ function saveEntry(token, e) {
       updateObj_('Entries', r._row, ch, r);
       return entryOut_(Object.assign({}, r, ch));
     }
-    const full = cleanEntry_(Object.assign({ time: '', partyName: '', partyPhone: '', mode: 'Cash', category: '',
+    // The app makes the ID (clientId) so a save sent again after a bad connection returns the first one
+    // instead of adding the entry twice.
+    const cid = /^c[\w-]{8,40}$/.test(String(e.clientId || '')) ? String(e.clientId) : '';
+    if (cid) {
+      const done = findEntryById_(cid);
+      if (done) return entryOut_(done);
+    }
+    const full = cleanEntry_(Object.assign({ time: '', partyName: '', partyPhone: '', mode: 'Bank', category: '',
                                              notes: '', attachments: [] }, e,
                                            { date: e.date || today_() }));
     if (!full.Type || !full.Amount) throw new Error('Type and amount are required.');
-    const row = Object.assign(full, { ID: uid_(), CreatedBy: String(me.ID), CreatedByName: me.Name,
+    const row = Object.assign(full, { ID: cid || uid_(), CreatedBy: String(me.ID), CreatedByName: me.Name,
                                       CreatedAt: nowIso_(), UpdatedAt: '', UpdatedByName: '', Deleted: false });
     appendObj_('Entries', row);
+    if (cid) CacheService.getScriptCache().put('cid_' + cid, '1', 21600);
     return entryOut_(row);
   });
+}
+
+/**
+ * An entry saved with this app-made ID, or null. Recent saves are known from the cache; only a resend after that
+ * (rare) searches the ID column — so a normal save costs one cache read, not a sheet read.
+ */
+function findEntryById_(cid) {
+  const cache = CacheService.getScriptCache();
+  if (!cache.get('cid_' + cid) && !cache.get('cid_check_' + cid)) {
+    cache.put('cid_check_' + cid, '1', 21600); // first time this ID is seen: nothing to look for
+    return null;
+  }
+  const sh = getSheet_('Entries');
+  const hit = sh.getRange(1, 1, sh.getLastRow(), 1).createTextFinder(cid).matchEntireCell(true).findNext();
+  if (!hit) return null;
+  const headers = headers_('Entries');
+  const vals = sh.getRange(hit.getRow(), 1, 1, headers.length).getValues()[0];
+  const o = { _row: hit.getRow() };
+  headers.forEach((h, j) => { o[h] = vals[j]; });
+  return o;
 }
 
 function deleteEntry(token, id) {
@@ -523,7 +580,8 @@ function createEditRequest(token, entryId, action, changes, reason) {
     const ch = action === 'EDIT' ? cleanEntry_(changes || {}, ent) : {};
     if (action === 'EDIT') {
       // keep only fields that actually change
-      Object.keys(ch).forEach(k => { if (String(ch[k]) === (k === 'Date' ? txt_(ent[k]) : k === 'Time' ? timeTxt_(ent[k]) : String(ent[k]))) delete ch[k]; });
+      const now = k => (k === 'Date' ? txt_(ent[k]) : k === 'Time' ? timeTxt_(ent[k]) : ent[k] === undefined ? '' : String(ent[k]));
+      Object.keys(ch).forEach(k => { if (String(ch[k]) === now(k)) delete ch[k]; });
       if (!Object.keys(ch).length) throw new Error('Nothing was changed.');
     }
     const dup = readAll_('EditRequests').rows.find(r => r.Status === 'PENDING' && String(r.EntryId) === String(entryId));

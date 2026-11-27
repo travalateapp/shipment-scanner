@@ -67,6 +67,14 @@ button{cursor:pointer}
 .btn.sm{padding:7px 11px;font-size:13px}
 .btn.wa{background:#25D366;color:#fff;display:inline-flex;align-items:center;gap:6px;justify-content:center}
 .waic{width:16px;height:16px;flex:none}
+.modesw{display:grid;grid-template-columns:1fr 1fr 1.3fr;gap:6px}
+.modesw button{padding:10px 6px;border-radius:10px;border:1.5px solid var(--line);background:#fff;font-weight:700;font-size:13.5px}
+.modesw button.on{border-color:var(--brand);background:var(--brand-l);color:var(--brand-d)}
+.splitbox{background:#f8fafc;border:1px solid var(--line);border-radius:12px;padding:10px 10px 0;margin-bottom:12px}
+.amount input[readonly]{background:#f3f4f6;color:#374151}
+.ent.pend{opacity:.75}
+.ent.fail{background:#fff5f5}
+.tag.fail{background:var(--out-l);color:#991b1b}
 .spin.dark{border-color:#c7d2fe;border-top-color:var(--brand);width:12px;height:12px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
@@ -89,6 +97,10 @@ main{max-width:960px;margin:0 auto;padding:14px 16px 110px}
 .summary{background:var(--card);border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid var(--line);margin-bottom:12px;overflow:hidden}
 .summary .net{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
 .summary .net b{font-size:20px}
+.summary .netsplit{display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--line);background:#fafbff}
+.summary .netsplit div{padding:9px 16px}
+.summary .netsplit div+div{border-left:1px solid var(--line)}
+.summary .netsplit b{font-size:15.5px}
 .summary .split{display:grid;grid-template-columns:repeat(3,1fr)}
 .summary .split div{padding:11px 14px}
 .summary .split div+div{border-left:1px solid var(--line)}
@@ -269,6 +281,7 @@ td.r,th.r{text-align:right}
       </div>
       <div class="summary">
         <div class="net"><span class="muted" style="font-weight:600">Net Balance</span><b id="sNet"></b></div>
+        <div class="netsplit"><div><small>🏦 Bank</small><b id="sBank"></b></div><div><small>💵 Cash</small><b id="sCash"></b></div></div>
         <div class="split">
           <div><small>Opening</small><b id="sOpen"></b></div>
           <div><small>Total In (+)</small><b class="in" id="sIn"></b></div>
@@ -583,6 +596,11 @@ function enterApp(haveBook) {
   showUserBar();
   switchTab('book');
   if (haveBook) showBook(); else loadBook();
+  // Entries left unsaved (app closed while saving, or no internet) are sent again — never twice (clientId).
+  let again = false;
+  S.pending.forEach(p => { if ((!p.user || p.user === S.user.id) && p.state !== 'saving') { p.state = 'saving'; again = true; } });
+  if (again) pendingStore();
+  runQueue();
 }
 function showUserBar() {
   $('hBiz').textContent = S.business;
@@ -638,6 +656,60 @@ function showBook(stale) {
   renderBook();
 }
 
+/* ═════════ save queue: new entries are shown at once and saved in the background ═════════
+   Each new entry gets its ID on the phone (clientId), so sending it again after a bad connection can never save it
+   twice (the server returns the first one). The queue is kept on the phone until each entry is saved; an entry that
+   could not be saved stays, marked "Not saved", and is tried again with one tap (or when the app opens). */
+const PENDING_KEY = 'cb_pending';
+S.pending = (() => { try { return JSON.parse(localStorage.getItem(PENDING_KEY) || '[]'); } catch (e) { return []; } })();
+function newClientId() { return 'c' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 10); }
+function pendingStore() { try { localStorage.setItem(PENDING_KEY, JSON.stringify(S.pending)); } catch (e) {} }
+/** A queued entry, shaped like a saved one for the list. */
+function pendingEntry(p) {
+  const d = p.data;
+  return { id: d.clientId, date: d.date, time: d.time || '', type: d.type, amount: Number(d.amount) || 0,
+    partyName: d.partyName || '', partyPhone: d.partyPhone || '', mode: d.mode, cashPart: d.cashPart || 0, bankPart: d.bankPart || 0,
+    category: d.category || '', notes: d.notes || '', attachments: d.attachments || [], createdByName: S.user ? S.user.name : '',
+    createdAt: p.at, pending: p.state, error: p.error };
+}
+function queueSave(data) {
+  S.pending = S.pending.filter(p => p.data.clientId !== data.clientId);
+  S.pending.push({ data, state: 'saving', at: new Date().toISOString(), user: S.user && S.user.id });
+  pendingStore();
+  if (data.date.slice(0, 7) !== S.month) { S.month = data.date.slice(0, 7); loadBook(); } else renderBook();
+  runQueue();
+}
+let queueBusy = false;
+async function runQueue() {
+  if (queueBusy || !S.token) return;
+  queueBusy = true;
+  try {
+    for (;;) {
+      const p = S.pending.find(x => x.state === 'saving' && (!x.user || !S.user || x.user === S.user.id));
+      if (!p) break;
+      try {
+        const saved = await api('saveEntry', S.token, p.data);
+        S.pending = S.pending.filter(x => x !== p); pendingStore();
+        if (S.book) applySaved(saved);
+      } catch (e) {
+        if (!S.token) break; // logged out: kept for the next login
+        p.state = 'failed'; p.error = e.message; pendingStore(); renderBook();
+        toast('Not saved: ' + e.message + ' — tap the entry to try again.', true);
+      }
+    }
+  } finally { queueBusy = false; }
+}
+/** Tap on a queued entry: still saving → wait; not saved → open it to fix / save again, or discard. */
+function openPending(cid) {
+  const p = S.pending.find(x => x.data.clientId === cid); if (!p) return;
+  if (p.state === 'saving') return toast('Still saving…');
+  openEntryForm(p.data.type, null, false, p);
+}
+function discardPending(cid) {
+  if (!confirm('Discard this entry? It was never saved.')) return;
+  S.pending = S.pending.filter(x => x.data.clientId !== cid); pendingStore(); closeModal(); renderBook();
+}
+
 /** Puts a saved entry into the book on screen without reloading the month. */
 function applySaved(e, oldDate) {
   const [from, to] = monthRange(S.month);
@@ -677,20 +749,33 @@ function totals(entries) {
   return { tin, tout };
 }
 
+/** Saved entries of this month plus the ones still being saved (not the ones that failed) — for totals. */
+function bookEntries() {
+  const [from, to] = monthRange(S.month);
+  const q = S.pending.filter(p => p.data.date >= from && p.data.date <= to && (!p.user || !S.user || p.user === S.user.id)).map(pendingEntry);
+  const all = S.book.entries.concat(q.filter(e => !S.book.entries.some(x => x.id === e.id)));
+  return all.sort((a, b) => (a.date + a.time + a.createdAt).localeCompare(b.date + b.time + b.createdAt));
+}
 function renderBook() {
   const b = S.book; if (!b) return;
-  const { tin, tout } = totals(b.entries);
+  const shown = bookEntries();
+  const { tin, tout } = totals(shown.filter(e => e.pending !== 'failed'));
   const net = b.opening + tin - tout;
   $('sNet').textContent = money(net); $('sNet').className = net < 0 ? 'out' : '';
+  // Bank and cash balances: opening split (from the server) + this month's entries by their cash / bank part.
+  let cash = b.openingCash || 0, bank = b.openingBank != null ? b.openingBank : b.opening - (b.openingCash || 0);
+  shown.filter(e => e.pending !== 'failed').forEach(e => { const cb = cashBank(e), sg = e.type === 'IN' ? 1 : -1; cash += sg * cb.cash; bank += sg * cb.bank; });
+  $('sBank').textContent = money(bank); $('sBank').className = bank < 0 ? 'out' : '';
+  $('sCash').textContent = money(cash); $('sCash').className = cash < 0 ? 'out' : '';
   $('sOpen').textContent = money(b.opening);
   $('sIn').textContent = money(tin); $('sOut').textContent = money(tout);
 
   const q = $('fSearch').value.trim().toLowerCase(), mode = $('fMode').value;
-  const rows = withBalance(b.opening, b.entries).filter(e =>
+  const rows = withBalance(b.opening, shown).filter(e =>
     (!S.typeF || e.type === S.typeF) && (!mode || e.mode === mode) &&
     (!q || [e.partyName, e.notes, e.category, e.partyPhone, String(e.amount), e.createdByName].join(' ').toLowerCase().indexOf(q) >= 0));
   if (!rows.length) {
-    $('bookList').innerHTML = `<div class="empty">${b.entries.length ? 'No entries match the filter.' : 'No entries in ' + monthLabel(S.month) + ' yet.<br>Tap <b>Cash In</b> or <b>Cash Out</b> to add one.'}</div>`;
+    $('bookList').innerHTML = `<div class="empty">${shown.length ? 'No entries match the filter.' : 'No entries in ' + monthLabel(S.month) + ' yet.<br>Tap <b>Cash In</b> or <b>Cash Out</b> to add one.'}</div>`;
     return;
   }
   const byDay = {};
@@ -703,13 +788,25 @@ function renderBook() {
 }
 function entryRow(e) {
   const title = e.partyName || e.category || e.notes || (e.type === 'IN' ? 'Cash In' : 'Cash Out');
-  const sub = [e.time, e.mode, e.category && e.partyName ? e.category : '', 'by ' + e.createdByName].filter(Boolean).join(' · ');
-  return `<div class="ent" onclick="openEntry('${e.id}')">
+  const sub = [e.time, modeText(e), e.category && e.partyName ? e.category : '', 'by ' + e.createdByName].filter(Boolean).join(' · ');
+  const flag = e.pending === 'saving' ? '<span class="tag pend">Saving…</span>' : e.pending === 'failed' ? '<span class="tag fail">Not saved — tap</span>' : '';
+  return `<div class="ent ${e.pending === 'saving' ? 'pend' : e.pending === 'failed' ? 'fail' : ''}" onclick="${e.pending ? `openPending('${e.id}')` : `openEntry('${e.id}')`}">
     <div class="ic ${e.type}">${e.type === 'IN' ? '↓' : '↑'}</div>
-    <div class="mid"><div class="t">${esc(title)}</div>
+    <div class="mid"><div class="t">${flag}${esc(title)}</div>
       <div class="s">${e.attachments.length ? '📎 ' : ''}${esc(sub)}${e.notes && title !== e.notes ? ' · ' + esc(e.notes) : ''}</div></div>
     <div class="amt"><b class="${e.type === 'IN' ? 'in' : 'out'}">${e.type === 'IN' ? '+' : '−'}${money(e.amount)}</b><small>Bal ${money(e.bal)}</small></div>
   </div>`;
+}
+/** "Bank + Cash (Cash ₹500 · Bank ₹1,000)" for split entries, else the mode. */
+function modeText(e, long) {
+  if (e.mode === SPLIT && (e.cashPart || e.bankPart)) return long ? `Bank + Cash (Cash ${money(e.cashPart)} · Bank ${money(e.bankPart)})` : 'Bank + Cash';
+  return e.mode;
+}
+/** How much of an entry was cash and how much bank (old UPI / Card / Cheque count as bank). */
+function cashBank(e) {
+  if (e.mode === SPLIT) return { cash: e.cashPart || 0, bank: e.bankPart || 0 };
+  if (e.mode === 'Cash') return { cash: e.amount, bank: 0 };
+  return { cash: 0, bank: e.amount }; // Bank, and older UPI / Card / Cheque / Other
 }
 function findEntry(id) { return S.book && S.book.entries.find(e => e.id === id); }
 
@@ -729,7 +826,7 @@ function openEntry(id) {
     <dl class="det">
       <dt>Date</dt><dd>${dayLabel(e.date)}${e.time ? ', ' + e.time : ''}</dd>
       <dt>Party</dt><dd>${esc(e.partyName) || '—'}${e.partyPhone ? '<br><a href="tel:' + esc(e.partyPhone) + '">' + esc(e.partyPhone) + '</a>' : ''}</dd>
-      <dt>Mode</dt><dd>${esc(e.mode)}</dd>
+      <dt>Mode</dt><dd>${esc(modeText(e, true))}</dd>
       <dt>Category</dt><dd>${esc(e.category) || '—'}</dd>
       <dt>Notes</dt><dd>${esc(e.notes) || '—'}</dd>
       <dt>Attachments</dt><dd>${e.attachments.length ? '<div class="files">' + e.attachments.map(a =>
@@ -776,11 +873,11 @@ async function sendDeleteRequest(id) {
 
 /* ── add / edit / request-edit form ── */
 let F = null; // form state
-function openEntryForm(type, id, asRequest) {
-  const e = id ? findEntry(id) : null;
-  F = { id: id || null, asRequest: !!asRequest, type: e ? e.type : type, attachments: e ? e.attachments.slice() : [], uploading: 0 };
-  const title = asRequest ? 'Request Edit' : e ? 'Edit Entry' : (type === 'IN' ? 'Add Cash In' : 'Add Cash Out');
-  const modes = (S.book && S.book.modes) || ['Cash'];
+function openEntryForm(type, id, asRequest, pend) {
+  const e = id ? findEntry(id) : pend ? pendingEntry(pend) : null;
+  F = { id: id || null, asRequest: !!asRequest, type: e ? e.type : type, attachments: e ? e.attachments.slice() : [], uploading: 0,
+        clientId: pend ? pend.data.clientId : null };
+  const title = asRequest ? 'Request Edit' : pend ? 'Not saved yet' : e ? 'Edit Entry' : (type === 'IN' ? 'Add Cash In' : 'Add Cash Out');
   const cats = Array.from(new Set(((S.book && S.book.entries) || []).map(x => x.category).filter(Boolean))).sort();
   openModal(`<div class="hd"><h2>${title}</h2><button class="x" onclick="closeModal()">×</button></div>
     ${asRequest ? '<div class="note-warn">Change what is wrong. The owner will see your changes and approve or reject them.</div>' : ''}
@@ -788,7 +885,13 @@ function openEntryForm(type, id, asRequest) {
       <button data-v="IN" onclick="setFType('IN')">Cash In (+)</button>
       <button data-v="OUT" onclick="setFType('OUT')">Cash Out (−)</button>
     </div>
-    <div class="field amount"><label>Amount (₹)</label><input id="eAmt" type="number" inputmode="decimal" min="0" step="0.01" value="${e ? e.amount : ''}" placeholder="0"></div>
+    <div class="field"><label>Payment mode</label>
+      <div class="modesw" id="eModes">${MODE_LIST.map(m => `<button type="button" data-m="${m}" onclick="setFMode('${m}')">${m}</button>`).join('')}</div></div>
+    <div class="splitbox hidden" id="eSplit"><div class="row2">
+      <div class="field"><label>💵 Cash (₹)</label><input id="eCashP" type="number" inputmode="decimal" min="0" step="0.01" value="${e && e.cashPart ? e.cashPart : ''}" placeholder="0" oninput="cashTyped()"></div>
+      <div class="field"><label>🏦 Bank (₹)</label><input id="eBankP" type="number" inputmode="decimal" min="0" step="0.01" value="${e && e.bankPart ? e.bankPart : ''}" placeholder="0" oninput="F.autoBank = 0; splitTotal()"></div>
+    </div></div>
+    <div class="field amount"><label id="eAmtL">Amount (₹)</label><input id="eAmt" type="number" inputmode="decimal" min="0" step="0.01" value="${e ? e.amount : ''}" placeholder="0"></div>
     <div class="row2">
       <div class="field"><label>Date</label><input id="eDate" type="date" value="${e ? e.date : todayStr()}"></div>
       <div class="field"><label>Time</label><input id="eTime" type="time" value="${e ? e.time : nowTime()}"></div>
@@ -797,10 +900,7 @@ function openEntryForm(type, id, asRequest) {
       <input id="eParty" autocomplete="off" value="${e ? esc(e.partyName) : ''}" placeholder="Customer / supplier — type to search saved parties"
         oninput="partySugg()" onfocus="partySugg()" onkeydown="partyKey(event)" onblur="setTimeout(hideSugg,150)">
       <div class="sugg hidden" id="eSugg"></div></div>
-    <div class="row2">
-      <div class="field"><label>Party phone</label><input id="ePhone" type="tel" value="${e ? esc(e.partyPhone) : ''}" placeholder="Optional"></div>
-      <div class="field"><label>Payment mode</label><select id="eMode">${modes.map(m => `<option ${e && e.mode === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
-    </div>
+    <div class="field"><label>Party phone</label><input id="ePhone" type="tel" value="${e ? esc(e.partyPhone) : ''}" placeholder="Optional"></div>
     <div class="field"><label>Category</label><input id="eCat" list="dlCats" value="${e ? esc(e.category) : ''}" placeholder="e.g. Salary, Rent"></div>
     <datalist id="dlCats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
     <div class="field"><label>Notes</label><textarea id="eNotes" placeholder="Remarks / bill no.">${e ? esc(e.notes) : ''}</textarea></div>
@@ -808,11 +908,41 @@ function openEntryForm(type, id, asRequest) {
       <button class="addfile" onclick="$('filePick').click()">📎 Add photo or PDF</button>
       <div class="files" id="eFiles"></div></div>
     ${asRequest ? '<div class="field"><label>What was wrong? (required)</label><textarea id="eReason" placeholder="e.g. Amount should be 1,500 not 15,000"></textarea></div>' : ''}
-    <div id="eErr" class="err"></div>
-    <button class="btn full" id="eSave" onclick="saveEntryForm()">${asRequest ? 'Send request to owner' : 'Save'}</button>`);
+    <div id="eErr" class="err ${pend ? 'show' : ''}">${pend ? 'Not saved: ' + esc(pend.error || '') : ''}</div>
+    <button class="btn full" id="eSave" onclick="saveEntryForm()">${asRequest ? 'Send request to owner' : pend ? 'Save again' : 'Save'}</button>
+    ${pend ? `<button class="btn ghost full" style="margin-top:8px" onclick="discardPending('${pend.data.clientId}')">Discard</button>` : ''}`);
   setFType(F.type);
+  // Bank by default; an older entry's UPI / Card / Cheque counts as Bank.
+  setFMode(e ? (MODE_LIST.indexOf(e.mode) >= 0 ? e.mode : e.mode === 'Cash' ? 'Cash' : 'Bank') : 'Bank');
   drawFiles();
-  if (!e) setTimeout(() => $('eAmt').focus(), 50);
+  if (!e) setTimeout(() => { const x = $('eAmt'); if (x && !x.readOnly) x.focus(); }, 50);
+}
+const MODE_LIST = ['Bank', 'Cash', 'Bank + Cash'];
+const SPLIT = 'Bank + Cash';
+function setFMode(m) {
+  F.mode = m;
+  document.querySelectorAll('#eModes button').forEach(b => b.classList.toggle('on', b.dataset.m === m));
+  const split = m === SPLIT;
+  $('eSplit').classList.toggle('hidden', !split);
+  $('eAmt').readOnly = split;
+  $('eAmtL').textContent = split ? 'Total (₹) = Cash + Bank' : 'Amount (₹)';
+  if (split) {
+    // Typed the total first? Then typing the cash part fills Bank with the rest (until Bank is typed by hand).
+    if (!$('eCashP').value && !$('eBankP').value && Number($('eAmt').value) > 0) { F.autoBank = Number($('eAmt').value); $('eBankP').value = $('eAmt').value; }
+    splitTotal();
+    setTimeout(() => { const x = $('eCashP'); if (x) x.focus(); }, 30);
+  }
+}
+function cashTyped() {
+  if (F.autoBank) {
+    const rest = Math.round((F.autoBank - (Number($('eCashP').value) || 0)) * 100) / 100;
+    $('eBankP').value = rest > 0 ? rest : '';
+  }
+  splitTotal();
+}
+function splitTotal() {
+  const c = Number($('eCashP').value) || 0, b = Number($('eBankP').value) || 0;
+  $('eAmt').value = c + b ? Math.round((c + b) * 100) / 100 : '';
 }
 function setFType(t) {
   F.type = t;
@@ -912,14 +1042,26 @@ function readFileForUpload(f) {
 async function saveEntryForm() {
   const err = $('eErr'); err.classList.remove('show');
   if (F.uploading) return showErr(err, 'Wait for the attachments to finish uploading.');
+  if (F.mode === SPLIT) {
+    if (!(Number($('eCashP').value) > 0) || !(Number($('eBankP').value) > 0)) return showErr(err, 'Enter both the Cash and the Bank amount.');
+    splitTotal();
+  }
   const amt = Number($('eAmt').value);
   if (!(amt > 0)) return showErr(err, 'Enter an amount.');
   if (!$('eDate').value) return showErr(err, 'Pick a date.');
   const data = {
     type: F.type, amount: amt, date: $('eDate').value, time: $('eTime').value, partyName: $('eParty').value,
-    partyPhone: $('ePhone').value, mode: $('eMode').value, category: $('eCat').value, notes: $('eNotes').value,
+    partyPhone: $('ePhone').value, mode: F.mode, category: $('eCat').value, notes: $('eNotes').value,
     attachments: F.attachments,
   };
+  if (F.mode === SPLIT) { data.cashPart = Number($('eCashP').value); data.bankPart = Number($('eBankP').value); }
+  // New entries: the form closes at once and the entry is saved in the background (see the save queue).
+  if (!F.id && !F.asRequest) {
+    queueSave(Object.assign(data, { clientId: F.clientId || newClientId() }));
+    toast(F.type === 'IN' ? 'Cash In added' : 'Cash Out added');
+    F = null; closeModal();
+    return;
+  }
   const btn = $('eSave'); busy(btn, true);
   try {
     if (F.asRequest) {
@@ -969,11 +1111,11 @@ async function viewFile(id) {
 
 /* ═════════ edit requests ═════════ */
 const FIELD_LABELS = { Date: 'Date', Time: 'Time', Type: 'Type', Amount: 'Amount', PartyName: 'Party', PartyPhone: 'Phone',
-  Mode: 'Mode', Category: 'Category', Notes: 'Notes', Attachments: 'Attachments' };
+  Mode: 'Mode', Category: 'Category', Notes: 'Notes', Attachments: 'Attachments', CashPart: 'Cash part', BankPart: 'Bank part' };
 const ENTRY_KEY = { Date: 'date', Time: 'time', Type: 'type', Amount: 'amount', PartyName: 'partyName', PartyPhone: 'partyPhone',
-  Mode: 'mode', Category: 'category', Notes: 'notes', Attachments: 'attachments' };
+  Mode: 'mode', Category: 'category', Notes: 'notes', Attachments: 'attachments', CashPart: 'cashPart', BankPart: 'bankPart' };
 function fmtField(k, v) {
-  if (k === 'Amount') return money(Number(v));
+  if (k === 'Amount' || ((k === 'CashPart' || k === 'BankPart') && v !== '' && v != null && Number(v))) return money(Number(v));
   if (k === 'Type') return v === 'IN' ? 'Cash In' : 'Cash Out';
   if (k === 'Date') return v ? shortDate(v) : '—';
   if (k === 'Attachments') { const a = typeof v === 'string' ? JSON.parse(v || '[]') : (v || []); return a.length + ' file(s)'; }
@@ -1031,9 +1173,10 @@ function buildReport(m, b) {
   rows.forEach(e => {
     const d = days[e.date] = days[e.date] || { date: e.date, tin: 0, tout: 0, bal: 0 };
     const p = parties[e.partyName || '(No party)'] = parties[e.partyName || '(No party)'] || { tin: 0, tout: 0, n: 0 };
-    const md = modes[e.mode || '—'] = modes[e.mode || '—'] || { tin: 0, tout: 0 };
-    if (e.type === 'IN') { d.tin += e.amount; p.tin += e.amount; md.tin += e.amount; }
-    else { d.tout += e.amount; p.tout += e.amount; md.tout += e.amount; }
+    const add = (name, amt) => { if (!amt) return; const m = modes[name] = modes[name] || { tin: 0, tout: 0 }; m[e.type === 'IN' ? 'tin' : 'tout'] += amt; };
+    if (e.mode === SPLIT) { add('Cash', e.cashPart); add('Bank', e.bankPart); } else add(e.mode || '—', e.amount);
+    if (e.type === 'IN') { d.tin += e.amount; p.tin += e.amount; }
+    else { d.tout += e.amount; p.tout += e.amount; }
     d.bal = e.bal; p.n++;
   });
   return {
@@ -1085,11 +1228,11 @@ async function downloadExcel(ev) {
     ['Opening balance', R.opening], ['Total Cash In', R.tin], ['Total Cash Out', R.tout], ['Closing balance', R.closing], ['Entries', R.rows.length]];
   const ws0 = XLSX.utils.aoa_to_sheet(sum); ws0['!cols'] = [{ wch: 18 }, { wch: 18 }];
   XLSX.utils.book_append_sheet(wb, ws0, 'Summary');
-  const ent = [['Date', 'Time', 'Type', 'Party', 'Phone', 'Mode', 'Category', 'Notes', 'Cash In', 'Cash Out', 'Balance', 'Attachments', 'Added by']]
-    .concat(R.rows.map(e => [shortDate(e.date), e.time, e.type === 'IN' ? 'Cash In' : 'Cash Out', e.partyName, e.partyPhone, e.mode, e.category, e.notes,
-      e.type === 'IN' ? e.amount : '', e.type === 'OUT' ? e.amount : '', e.bal, e.attachments.length || '', e.createdByName]));
+  const ent = [['Date', 'Time', 'Type', 'Party', 'Phone', 'Mode', 'Cash part', 'Bank part', 'Category', 'Notes', 'Cash In', 'Cash Out', 'Balance', 'Attachments', 'Added by']]
+    .concat(R.rows.map(e => { const cb = cashBank(e); return [shortDate(e.date), e.time, e.type === 'IN' ? 'Cash In' : 'Cash Out', e.partyName, e.partyPhone, e.mode, cb.cash || '', cb.bank || '', e.category, e.notes,
+      e.type === 'IN' ? e.amount : '', e.type === 'OUT' ? e.amount : '', e.bal, e.attachments.length || '', e.createdByName]; }));
   const ws1 = XLSX.utils.aoa_to_sheet(ent);
-  ws1['!cols'] = [10, 7, 9, 22, 13, 8, 14, 30, 11, 11, 12, 6, 14].map(w => ({ wch: w }));
+  ws1['!cols'] = [10, 7, 9, 22, 13, 11, 10, 10, 14, 30, 11, 11, 12, 6, 14].map(w => ({ wch: w }));
   XLSX.utils.book_append_sheet(wb, ws1, 'Entries');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Date', 'Cash In', 'Cash Out', 'Balance']].concat(R.days.map(d => [shortDate(d.date), d.tin, d.tout, d.bal]))), 'Day-wise');
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Party', 'Entries', 'Cash In', 'Cash Out', 'Net']].concat(R.parties.map(p => [p.name, p.n, p.tin, p.tout, p.tin - p.tout]))), 'Party-wise');
