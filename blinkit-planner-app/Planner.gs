@@ -2188,6 +2188,10 @@ function poBalance(token, roNo) {
   if (!po) throw new Error('No RO number.');
   const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
   if (!id) return { po: po, linked: false };
+  // Kept for 2 minutes for everyone, so hovers (by any user) do not open the Shipment Manager's sheet each time.
+  const cache = CacheService.getScriptCache(), ck = 'pobal_' + po.replace(/[^\w-]/g, '').slice(0, 60);
+  const hit = cache.get(ck);
+  if (hit) { try { return JSON.parse(hit); } catch (e) { /* read again */ } }
   const ss = SpreadsheetApp.openById(id);
   const out = { po: po, linked: true, wh: '', lines: [], shipments: [] };
   const pSh = ss.getSheetByName('BLINKIT_PO');
@@ -2217,6 +2221,7 @@ function poBalance(token, roNo) {
     });
   }
   out.lines.forEach(l => { l.short = short[l.code] || short[String(l.item)] || 0; });
+  try { const js = JSON.stringify(out); if (js.length < 90000) cache.put(ck, js, 120); } catch (e) { /* not kept */ }
   return out;
 }
 

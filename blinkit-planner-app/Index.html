@@ -710,7 +710,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 delivered-short-incoming';
+  var PAGE_BUILD = '2026-11-27 balance-hover-calm';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1742,6 +1742,25 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var c = S.poBal[no];
     return !!(c && c.b && c.b.shipments && c.b.shipments.length && (c.b.lines || []).some(function (x) { return x.poQty - x.packed > 0; }));
   }
+  S.poBalBusy = {}; S.poBalQ = [];
+  function fetchPoBal(ro, box, el) {
+    var show = function () {
+      var c = S.poBal[ro]; if (!c || box._ro !== ro || box.style.display !== 'block') return;
+      box.innerHTML = c.err ? '<b>📋 PO ' + esc(ro) + '</b><div style="color:var(--bad);margin-top:6px">Could not read the balance: ' + esc(c.err) + '</div>' : balanceHtml(c.b);
+      placeTip(box, el);
+    };
+    if (S.poBalBusy[ro]) { S.poBalBusy[ro].push(show); return; }
+    S.poBalBusy[ro] = [show];
+    var run = function () {
+      apiCall('poBalance', [S.token, ro]).then(function (b) { S.poBal[ro] = { b: b, at: Date.now() }; }, function (e) { S.poBal[ro] = { err: e.message, at: Date.now() - 100000 }; })
+        .then(function () {
+          var fns = S.poBalBusy[ro] || []; delete S.poBalBusy[ro]; fns.forEach(function (f) { f(); });
+          S.poBalN--; var nx = S.poBalQ.shift(); if (nx) { S.poBalN++; nx(); }
+        });
+    };
+    S.poBalN = S.poBalN || 0;
+    if (S.poBalN < 2) { S.poBalN++; run(); } else S.poBalQ.push(run);
+  }
   function roNoHtml(no, bare) {
     no = String(no || ''); if (!no) return '';
     var sh = roIsShort(no);
@@ -1796,13 +1815,13 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (el.classList.contains('roTip')) {
       var ro = el.getAttribute('data-ro'), c = S.poBal[ro];
       box._ro = ro;
-      if (c && Date.now() - c.at < 120000) box.innerHTML = balanceHtml(c.b);
+      if (c && !c.err && Date.now() - c.at < 120000) box.innerHTML = balanceHtml(c.b);
       else {
         box.innerHTML = '<b>📋 PO ' + esc(ro) + '</b><div class="muted" style="margin-top:6px"><span class="spin" style="width:10px;height:10px;border-width:2px"></span> Reading its balance from the Shipment Manager…</div>';
-        apiCall('poBalance', [S.token, ro]).then(function (b) {
-          S.poBal[ro] = { b: b, at: Date.now() };
-          if (box._ro === ro && box.style.display === 'block') { box.innerHTML = balanceHtml(b); placeTip(box, el); }
-        }, function (e) { if (box._ro === ro) box.innerHTML = '<b>📋 PO ' + esc(ro) + '</b><div style="color:var(--bad);margin-top:6px">Could not read the balance: ' + esc(e.message) + '</div>'; });
+        // Asked only once the pointer rests on the number (not for every number it passes over), never twice at a
+        // time for the same RO, and at most 2 at a time in all: each one is a script run on the Google account.
+        clearTimeout(S.poBalTimer);
+        S.poBalTimer = setTimeout(function () { if (box._ro === ro && box.style.display === 'block') fetchPoBal(ro, box, el); }, 400);
       }
     } else if (el.classList.contains('shTip')) {
       box.innerHTML = shippedTipHtml(el.getAttribute('data-wh'), el.getAttribute('data-it'), Number(el.getAttribute('data-n')) || 0);
