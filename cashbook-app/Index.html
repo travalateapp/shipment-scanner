@@ -1,0 +1,1066 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<base target="_top">
+<title>Cash Book</title>
+<link rel="icon" id="favicon">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --brand:#4f46e5;--brand-d:#4338ca;--brand-l:#eef2ff;
+  --in:#15803d;--in-l:#dcfce7;--out:#dc2626;--out-l:#fee2e2;
+  --ink:#111827;--muted:#6b7280;--line:#e5e7eb;--bg:#f5f6fb;--card:#fff;--warn:#b45309;--warn-l:#fef3c7;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;font-size:14px}
+button,input,select,textarea{font-family:inherit;font-size:inherit;color:inherit}
+button{cursor:pointer}
+.hidden{display:none!important}
+.muted{color:var(--muted)}
+.in{color:var(--in)}.out{color:var(--out)}
+
+/* ── auth ── */
+.auth{min-height:100vh;display:flex;align-items:center;justify-content:center;padding:16px;
+  background:linear-gradient(160deg,#4f46e5 0%,#6366f1 45%,#eef2ff 45%)}
+.auth-card{background:#fff;border-radius:18px;padding:26px 22px;width:100%;max-width:380px;box-shadow:0 18px 50px rgba(30,27,75,.18)}
+.logo{display:flex;align-items:center;gap:10px;margin-bottom:18px}
+.logo .mark{width:40px;height:40px;border-radius:11px;background:#eaf6ff;display:flex;align-items:center;justify-content:center;flex:none}
+.logo .mark img{height:28px;width:auto}
+.top .hlogo{width:32px;height:32px;border-radius:50%;background:#fff;display:flex;align-items:center;justify-content:center;flex:none}
+.top .hlogo img{height:22px;width:auto}
+.logo b{font-size:17px;display:block}.logo small{color:var(--muted);font-size:12px}
+.auth h1{font-size:19px;margin-bottom:4px}
+.auth .sub{color:var(--muted);font-size:13px;margin-bottom:18px}
+.users{display:grid;grid-template-columns:repeat(auto-fill,minmax(96px,1fr));gap:10px;margin-bottom:6px}
+.ucard{border:1.5px solid var(--line);background:#fff;border-radius:12px;padding:12px 6px;text-align:center}
+.ucard:hover{border-color:var(--brand)}
+.ucard.sel{border-color:var(--brand);background:var(--brand-l)}
+.avatar{width:38px;height:38px;border-radius:50%;background:var(--brand-l);color:var(--brand);font-weight:700;display:inline-flex;align-items:center;justify-content:center;margin-bottom:6px}
+.ucard .n{font-weight:600;font-size:13px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.role{font-size:10.5px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:99px;display:inline-block;margin-top:4px}
+.role.OWNER{background:#e0e7ff;color:var(--brand-d)}.role.STAFF{background:#f3f4f6;color:#4b5563}
+.pinwrap{text-align:center}
+.dots{display:flex;justify-content:center;gap:12px;margin:14px 0 18px}
+.dots i{width:14px;height:14px;border-radius:50%;border:2px solid #c7d2fe}
+.dots i.on{background:var(--brand);border-color:var(--brand)}
+.keypad{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;max-width:260px;margin:0 auto}
+.keypad button{height:54px;border-radius:14px;border:none;background:#f3f4f6;font-size:20px;font-weight:600}
+.keypad button:active{background:#e0e7ff}
+.keypad .ok{background:var(--brand);color:#fff}
+.err{background:var(--out-l);color:#991b1b;font-size:13px;font-weight:600;padding:9px 11px;border-radius:9px;margin:10px 0;display:none}
+.err.show{display:block}
+.link{background:none;border:none;color:var(--brand);font-weight:600;padding:6px}
+
+/* ── form bits ── */
+.field{margin-bottom:12px}
+.field label{display:block;font-size:12.5px;font-weight:600;color:#374151;margin-bottom:5px}
+.field input,.field select,.field textarea{width:100%;padding:10px 12px;border:1px solid #d1d5db;border-radius:10px;outline:none;background:#fff}
+.field textarea{min-height:70px;resize:vertical}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:var(--brand);box-shadow:0 0 0 3px #e0e7ff}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.btn{border:none;border-radius:10px;padding:10px 16px;font-weight:700;background:var(--brand);color:#fff}
+.btn:disabled{opacity:.55;cursor:default}
+.btn.full{width:100%;padding:12px}
+.btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
+.btn.green{background:var(--in)}.btn.red{background:var(--out)}
+.btn.sm{padding:7px 11px;font-size:13px}
+.spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+@keyframes sp{to{transform:rotate(360deg)}}
+
+/* ── app shell ── */
+.top{position:sticky;top:0;z-index:20;background:var(--brand);color:#fff;padding:12px 16px 0}
+.top .bar{display:flex;align-items:center;gap:10px;max-width:960px;margin:0 auto}
+.top .biz{font-weight:800;font-size:16px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.top .me{font-size:12px;opacity:.9;text-align:right}
+.top .out-btn{background:rgba(255,255,255,.15);border:none;color:#fff;border-radius:8px;padding:6px 10px;font-weight:600;font-size:12px}
+.tabs{display:flex;gap:2px;max-width:960px;margin:10px auto 0;overflow-x:auto}
+.tabs button{background:none;border:none;color:rgba(255,255,255,.75);font-weight:700;padding:10px 12px;border-bottom:3px solid transparent;white-space:nowrap}
+.tabs button.on{color:#fff;border-bottom-color:#fff}
+.badge{background:#f59e0b;color:#111;border-radius:99px;font-size:11px;padding:1px 6px;margin-left:4px}
+main{max-width:960px;margin:0 auto;padding:14px 16px 110px}
+
+.monthnav{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.monthnav button{width:36px;height:36px;border-radius:10px;border:1px solid var(--line);background:#fff;font-size:18px}
+.monthnav b{font-size:16px}
+.summary{background:var(--card);border-radius:16px;box-shadow:0 1px 3px rgba(0,0,0,.06);border:1px solid var(--line);margin-bottom:12px;overflow:hidden}
+.summary .net{display:flex;justify-content:space-between;align-items:center;padding:14px 16px;border-bottom:1px solid var(--line)}
+.summary .net b{font-size:20px}
+.summary .split{display:grid;grid-template-columns:repeat(3,1fr)}
+.summary .split div{padding:11px 14px}
+.summary .split div+div{border-left:1px solid var(--line)}
+.summary small{display:block;color:var(--muted);font-size:11.5px;font-weight:600;margin-bottom:2px}
+.summary .split b{font-size:14.5px}
+
+.filters{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.filters input{flex:1;min-width:150px;padding:9px 12px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.filters select{padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+.chips{display:flex;gap:6px}
+.chip{border:1px solid var(--line);background:#fff;border-radius:99px;padding:7px 12px;font-weight:600;font-size:13px}
+.chip.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+
+.day{margin-bottom:14px}
+.day h4{font-size:12.5px;color:var(--muted);font-weight:700;margin:0 4px 6px;display:flex;justify-content:space-between}
+.list{background:#fff;border:1px solid var(--line);border-radius:14px;overflow:hidden}
+.ent{display:flex;gap:10px;align-items:center;padding:11px 14px;cursor:pointer}
+.ent+.ent{border-top:1px solid #f1f2f4}
+.ent:hover{background:#fafafe}
+.ent .ic{width:34px;height:34px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-weight:800;flex:none}
+.ent .ic.IN{background:var(--in-l);color:var(--in)}.ent .ic.OUT{background:var(--out-l);color:var(--out)}
+.ent .mid{flex:1;min-width:0}
+.ent .t{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ent .s{font-size:12px;color:var(--muted);margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.ent .amt{text-align:right;flex:none}
+.ent .amt b{display:block;font-size:15px}
+.ent .amt small{font-size:11px;color:var(--muted)}
+.tag{display:inline-block;font-size:11px;font-weight:600;background:#f3f4f6;color:#4b5563;border-radius:6px;padding:1px 6px;margin-right:4px}
+.tag.pend{background:var(--warn-l);color:var(--warn)}
+.empty{text-align:center;color:var(--muted);padding:40px 10px}
+
+.fab{position:fixed;left:0;right:0;bottom:0;z-index:15;background:rgba(255,255,255,.96);border-top:1px solid var(--line);padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
+.fab .in2{max-width:960px;margin:0 auto;display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.fab .btn{padding:13px;font-size:15px}
+
+/* ── cards / tables ── */
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.card h3{font-size:14.5px;margin-bottom:10px}
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:12px}
+.kpi{background:#fff;border:1px solid var(--line);border-radius:14px;padding:12px}
+.kpi small{display:block;color:var(--muted);font-size:11.5px;font-weight:600}
+.kpi b{font-size:16px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 8px;text-align:left;border-bottom:1px solid #f1f2f4}
+th{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.03em}
+td.r,th.r{text-align:right}
+.tscroll{overflow-x:auto}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.acts input[type=month]{padding:9px 10px;border:1px solid var(--line);border-radius:10px;background:#fff}
+
+.req{border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px;background:#fff}
+.req .hd{display:flex;justify-content:space-between;gap:8px;margin-bottom:6px}
+.st{font-size:11px;font-weight:800;padding:2px 8px;border-radius:99px}
+.st.PENDING{background:var(--warn-l);color:var(--warn)}.st.APPROVED{background:var(--in-l);color:var(--in)}.st.REJECTED{background:var(--out-l);color:var(--out)}
+.diff{font-size:12.5px;margin:6px 0;background:#fafafa;border-radius:8px;padding:8px}
+.diff div{margin:2px 0}
+.diff s{color:var(--out)}.diff ins{color:var(--in);text-decoration:none;font-weight:600}
+
+/* ── modal ── */
+.ov{position:fixed;inset:0;background:rgba(17,24,39,.45);z-index:50;display:flex;align-items:flex-end;justify-content:center}
+.sheet{background:#fff;width:100%;max-width:560px;max-height:92vh;overflow-y:auto;border-radius:18px 18px 0 0;padding:18px 16px calc(16px + env(safe-area-inset-bottom))}
+@media(min-width:640px){.ov{align-items:center}.sheet{border-radius:18px}}
+.sheet .hd{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+.sheet .hd h2{font-size:17px}
+.x{background:#f3f4f6;border:none;border-radius:50%;width:32px;height:32px;font-size:18px}
+.typeswitch{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:12px}
+.typeswitch button{padding:10px;border-radius:10px;border:1.5px solid var(--line);background:#fff;font-weight:700}
+.typeswitch .on.IN{border-color:var(--in);background:var(--in-l);color:var(--in)}
+.typeswitch .on.OUT{border-color:var(--out);background:var(--out-l);color:var(--out)}
+.amount input{font-size:24px;font-weight:800}
+.files{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.sugg-wrap{position:relative}
+.sugg{position:absolute;left:0;right:0;top:100%;margin-top:4px;background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(17,24,39,.15);z-index:5;max-height:240px;overflow-y:auto}
+.sugg .it{display:flex;align-items:center;gap:10px;padding:10px 12px;cursor:pointer}
+.sugg .it+.it{border-top:1px solid #f1f2f4}
+.sugg .it.act,.sugg .it:hover{background:var(--brand-l)}
+.sugg .it .avatar{width:30px;height:30px;margin:0;font-size:13px;flex:none}
+.sugg .it .nm{font-weight:600}.sugg .it .nm mark{background:none;color:var(--brand);font-weight:800}
+.sugg .it .ph{font-size:12px;color:var(--muted)}
+.sugg .hint{padding:7px 12px;font-size:11.5px;font-weight:700;color:var(--muted);background:#fafafa;text-transform:uppercase;letter-spacing:.03em}
+.file{display:flex;align-items:center;gap:6px;background:#f3f4f6;border-radius:8px;padding:6px 8px;font-size:12.5px;max-width:100%}
+.file span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:170px}
+.file button{border:none;background:none;color:var(--out);font-weight:800}
+.file.link2{cursor:pointer;color:var(--brand);font-weight:600}
+.addfile{border:1.5px dashed #c7d2fe;background:var(--brand-l);color:var(--brand);border-radius:10px;padding:10px;width:100%;font-weight:700}
+.det{display:grid;grid-template-columns:110px 1fr;gap:8px 10px;font-size:13.5px;margin-bottom:14px}
+.det dt{color:var(--muted)}
+.det dd{word-break:break-word;white-space:pre-wrap}
+.bigamt{font-size:26px;font-weight:800;margin-bottom:4px}
+.note-warn{background:var(--warn-l);color:var(--warn);border-radius:10px;padding:9px 11px;font-size:12.5px;font-weight:600;margin-bottom:12px}
+.viewer img{max-width:100%;border-radius:10px;display:block;margin:0 auto}
+.viewer iframe{width:100%;height:70vh;border:none;border-radius:10px}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#111827;color:#fff;padding:10px 16px;border-radius:10px;font-weight:600;z-index:80;max-width:90%;text-align:center}
+.toast.bad{background:#991b1b}
+.loading{text-align:center;padding:40px;color:var(--muted)}
+.ulist .u{display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid #f1f2f4}
+.ulist .u:last-child{border-bottom:none}
+.ulist .u .mid{flex:1}
+@media(max-width:560px){.kpis{grid-template-columns:1fr 1fr}.top .me{display:none}}
+</style>
+</head>
+<body>
+
+<!-- ═════════ Android app, first start without a built-in link ═════════ -->
+<div id="vConnect" class="auth hidden">
+  <div class="auth-card">
+    <div class="logo"><div class="mark"><img class="tlogo" alt="Travalate"></div><div><b>Cash Book</b><small>Connect the app</small></div></div>
+    <h1>Connect the Cash Book</h1>
+    <p class="sub">Paste the Cash Book web-app link (Apps Script → Deploy → Manage deployments → Web app URL, ending in /exec) or its Deployment ID. Asked only once.</p>
+    <div class="field"><input id="cnId" placeholder="https://script.google.com/macros/s/AKfycb…/exec" autocomplete="off"></div>
+    <div id="cnErr" class="err"></div>
+    <button class="btn full" onclick="doConnect()">Continue</button>
+  </div>
+</div>
+
+<!-- ═════════ first run: set up owner ═════════ -->
+<div id="vSetup" class="auth hidden">
+  <div class="auth-card">
+    <div class="logo"><div class="mark"><img class="tlogo" alt="Travalate"></div><div><b>Cash Book</b><small>First-time setup</small></div></div>
+    <h1>Set up your cash book</h1>
+    <p class="sub">You will be the owner. You can add staff with their own PINs later.</p>
+    <div class="field"><label>Business name</label><input id="suBiz" placeholder="e.g. Travalate"></div>
+    <div class="field"><label>Your name</label><input id="suName" placeholder="Owner name"></div>
+    <div class="row2">
+      <div class="field"><label>Owner PIN (4–6 digits)</label><input id="suPin" type="password" inputmode="numeric" maxlength="6"></div>
+      <div class="field"><label>Confirm PIN</label><input id="suPin2" type="password" inputmode="numeric" maxlength="6"></div>
+    </div>
+    <div id="suErr" class="err"></div>
+    <button class="btn full" id="suBtn" onclick="doSetup()">Create cash book</button>
+  </div>
+</div>
+
+<!-- ═════════ login ═════════ -->
+<div id="vLogin" class="auth hidden">
+  <div class="auth-card">
+    <div class="logo"><div class="mark"><img class="tlogo" alt="Travalate"></div><div><b id="lgBiz">Cash Book</b><small>Cash In · Cash Out</small></div></div>
+    <div id="lgPick">
+      <h1>Who is using the app?</h1>
+      <p class="sub">Tap your name, then enter your PIN.</p>
+      <div class="users" id="lgUsers"></div>
+    </div>
+    <div id="lgPin" class="pinwrap hidden">
+      <div class="avatar" id="lgAv"></div>
+      <h1 id="lgName"></h1>
+      <p class="sub">Enter your PIN</p>
+      <div class="dots" id="lgDots"></div>
+      <div id="lgErr" class="err"></div>
+      <div class="keypad" id="lgPad"></div>
+      <button class="link" style="margin-top:10px" onclick="pickAgain()">← Not you?</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═════════ main app ═════════ -->
+<div id="vApp" class="hidden">
+  <div class="top">
+    <div class="bar">
+      <div class="hlogo"><img class="tlogo" alt="Travalate"></div>
+      <div class="biz" id="hBiz"></div>
+      <div class="me"><b id="hName"></b><br><span id="hRole"></span></div>
+      <button class="out-btn" onclick="doLogout()">Log out</button>
+    </div>
+    <div class="tabs" id="tabs">
+      <button data-t="book" class="on">Book</button>
+      <button data-t="reports">Report</button>
+      <button data-t="requests">Requests<span id="reqBadge" class="badge hidden"></span></button>
+      <button data-t="settings" id="tabSettings">Settings</button>
+    </div>
+  </div>
+
+  <main>
+    <!-- book -->
+    <section id="tBook">
+      <div class="monthnav">
+        <button onclick="shiftMonth(-1)">‹</button>
+        <b id="mLabel"></b>
+        <button onclick="shiftMonth(1)">›</button>
+      </div>
+      <div class="summary">
+        <div class="net"><span class="muted" style="font-weight:600">Net Balance</span><b id="sNet"></b></div>
+        <div class="split">
+          <div><small>Opening</small><b id="sOpen"></b></div>
+          <div><small>Total In (+)</small><b class="in" id="sIn"></b></div>
+          <div><small>Total Out (−)</small><b class="out" id="sOut"></b></div>
+        </div>
+      </div>
+      <div class="filters">
+        <input id="fSearch" placeholder="Search party, notes, amount…" oninput="renderBook()">
+        <div class="chips" id="fType">
+          <button class="chip on" data-v="">All</button>
+          <button class="chip" data-v="IN">In</button>
+          <button class="chip" data-v="OUT">Out</button>
+        </div>
+        <select id="fMode" onchange="renderBook()"><option value="">All modes</option></select>
+      </div>
+      <div id="bookList"><div class="loading">Loading…</div></div>
+    </section>
+
+    <!-- reports -->
+    <section id="tReports" class="hidden">
+      <div class="acts">
+        <input type="month" id="rMonth" onchange="loadReport()">
+        <button class="btn sm green" onclick="downloadExcel()">⬇ Excel</button>
+        <button class="btn sm red" onclick="downloadPdf()">⬇ PDF</button>
+      </div>
+      <div id="rBody"><div class="loading">Loading…</div></div>
+    </section>
+
+    <!-- requests -->
+    <section id="tRequests" class="hidden"><div id="reqBody"><div class="loading">Loading…</div></div></section>
+
+    <!-- settings -->
+    <section id="tSettings" class="hidden"><div id="setBody"></div></section>
+  </main>
+
+  <div class="fab" id="fab">
+    <div class="in2">
+      <button class="btn green" onclick="openEntryForm('IN')">+ Cash In</button>
+      <button class="btn red" onclick="openEntryForm('OUT')">− Cash Out</button>
+    </div>
+  </div>
+</div>
+
+<div id="modal"></div>
+<input type="file" id="filePick" accept="image/*,application/pdf" multiple class="hidden">
+
+<script>
+/* ═════════ state & helpers ═════════ */
+/* Travalate logo (footprint + location pin), 79×120 PNG. Used on the screens, as the tab icon and in the PDF. */
+const LOGO = 'data:image/png;base64,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';
+document.querySelectorAll('img.tlogo').forEach(i => { i.src = LOGO; });
+document.getElementById('favicon').href = LOGO;
+
+const IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
+const S = { token: null, user: null, business: '', month: '', book: null, typeF: '', report: null, reqs: [], pickUser: null, pin: '' };
+const LS_KEY = 'cashbook_token';
+
+function $(id) { return document.getElementById(id); }
+function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+const inr = new Intl.NumberFormat('en-IN', { minimumFractionDigits: 0, maximumFractionDigits: 2 });
+function money(n) { return (n < 0 ? '−₹' : '₹') + inr.format(Math.abs(n)); }
+function moneyPlain(n) { return (n < 0 ? '-' : '') + 'Rs. ' + inr.format(Math.abs(n)); }
+function pad(n) { return String(n).padStart(2, '0'); }
+function todayStr() { const d = new Date(); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+function nowTime() { const d = new Date(); return pad(d.getHours()) + ':' + pad(d.getMinutes()); }
+function monthRange(m) { const [y, mo] = m.split('-').map(Number); const last = new Date(y, mo, 0).getDate(); return [m + '-01', m + '-' + pad(last)]; }
+function monthLabel(m) { const [y, mo] = m.split('-').map(Number); return new Date(y, mo - 1, 1).toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }); }
+function dayLabel(d) { const [y, m, dd] = d.split('-').map(Number); return new Date(y, m - 1, dd).toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }); }
+function shortDate(d) { const [y, m, dd] = d.split('-'); return dd + '-' + m + '-' + y; }
+function fmtStamp(iso) { if (!iso) return ''; const d = new Date(iso); return isNaN(d) ? iso : d.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); }
+function isOwner() { return S.user && S.user.role === 'OWNER'; }
+
+function toast(msg, bad) {
+  const t = document.createElement('div');
+  t.className = 'toast' + (bad ? ' bad' : '');
+  t.textContent = msg;
+  document.body.appendChild(t);
+  setTimeout(() => t.remove(), bad ? 4000 : 2200);
+}
+
+/**
+ * Calls a Code.gs function. Inside Apps Script: google.script.run. In the Android app (page bundled in the APK):
+ * POST {fn, args} to the web app's /exec link, retried on a bad connection (same request id, so nothing is saved
+ * twice). Expired logins are handled here for every screen.
+ */
+function api(fn, ...args) {
+  const fail = err => {
+    const msg = String((err && err.message) || err).replace(/^Exception:\s*/, '');
+    if (msg.indexOf('SESSION_EXPIRED') >= 0) { sessionGone(); return Promise.reject(new Error('Please log in again.')); }
+    return Promise.reject(new Error(msg));
+  };
+  if (IN_APPS_SCRIPT) {
+    return new Promise((res, rej) => google.script.run.withSuccessHandler(res).withFailureHandler(rej)[fn](...args)).catch(fail);
+  }
+  const url = serverUrl();
+  if (!url) return fail(new Error('The app is not connected to the Cash Book yet.'));
+  const body = JSON.stringify({ fn, args, rid: Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 12) });
+  const attempt = n => fetch(url, { method: 'POST', credentials: 'omit', redirect: 'follow', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body })
+    .then(r => {
+      if (!r.ok) throw Object.assign(new Error('The server is busy (' + r.status + '). Try again.'), { retry: true });
+      return r.text().then(t => { try { return JSON.parse(t); } catch (e) { throw Object.assign(new Error('The server is busy. Try again.'), { retry: true }); } });
+    }, () => { throw Object.assign(new Error('No internet connection, or the server could not be reached.'), { retry: true }); })
+    .catch(e => { if (!e.retry || n >= 3) throw e; return new Promise(r => setTimeout(r, [700, 1500, 3000][n])).then(() => attempt(n + 1)); });
+  return attempt(0).then(res => {
+    if (!res || !res.ok) throw new Error((res && res.error) || 'Something went wrong.');
+    return res.result;
+  }).catch(fail);
+}
+
+/** Web-app link for the Android app: ?id=<Deployment ID> (built into the APK) or pasted once on the connect screen. */
+function serverUrl() {
+  let id = null;
+  try { id = new URLSearchParams(location.search).get('id'); } catch (e) { /* old browser */ }
+  try { if (id) localStorage.setItem('cashbook_api', id); else id = localStorage.getItem('cashbook_api'); } catch (e) { /* no storage */ }
+  if (!id) return null;
+  return /^https?:/.test(id) ? id : 'https://script.google.com/macros/s/' + id + '/exec';
+}
+function showConnect(note) {
+  show('vConnect');
+  $('cnErr').textContent = note || ''; $('cnErr').classList.toggle('show', !!note);
+}
+function doConnect() {
+  const v = $('cnId').value.trim(), m = v.match(/\/macros\/s\/([A-Za-z0-9_-]+)/), id = m ? m[1] : v;
+  if (!/^[A-Za-z0-9_-]{40,}$/.test(id)) return showConnect('That does not look like the Cash Book link or a Deployment ID.');
+  try { localStorage.setItem('cashbook_api', id); } catch (e) {}
+  showLogin();
+}
+
+/** Saves a downloaded file: through the Android app when inside it, else a normal browser download. */
+function saveBlob(blob, name) {
+  if (window.CashBookApp && window.CashBookApp.saveFile) {
+    const rd = new FileReader();
+    rd.onload = () => window.CashBookApp.saveFile(String(rd.result).split(',')[1], name, blob.type || 'application/octet-stream');
+    rd.readAsDataURL(blob);
+    return;
+  }
+  const url = URL.createObjectURL(blob), a = document.createElement('a');
+  a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+}
+
+/** Android Back button: close a pop-up, else go to the Book tab; '' = nothing left (the app may exit). */
+window.appBack = function () {
+  if ($('modal').innerHTML) { closeModal(); return 'handled'; }
+  if (!$('vApp').classList.contains('hidden') && S.tab !== 'book') { switchTab('book'); return 'handled'; }
+  if (!$('vLogin').classList.contains('hidden') && S.pickUser) { pickAgain(); return 'handled'; }
+  return '';
+};
+function busy(btn, on, label) {
+  if (!btn) return;
+  if (on) { btn.dataset.l = btn.innerHTML; btn.innerHTML = '<span class="spin"></span>'; btn.disabled = true; }
+  else { btn.innerHTML = label || btn.dataset.l; btn.disabled = false; }
+}
+function show(view) { ['vConnect', 'vSetup', 'vLogin', 'vApp'].forEach(v => $(v).classList.toggle('hidden', v !== view)); }
+function lsGet() { try { return localStorage.getItem(LS_KEY); } catch (e) { return null; } }
+function lsSet(v) { try { v ? localStorage.setItem(LS_KEY, v) : localStorage.removeItem(LS_KEY); } catch (e) {} }
+
+/* ═════════ start-up ═════════ */
+async function boot() {
+  const d = new Date();
+  S.month = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  if (!IN_APPS_SCRIPT && !serverUrl()) { showConnect(); return; }
+  const saved = lsGet();
+  if (saved) {
+    try { const r = await api('resume', saved); S.token = saved; S.user = r.user; S.business = r.business; enterApp(); return; }
+    catch (e) { lsSet(null); }
+  }
+  showLogin();
+}
+
+async function showLogin() {
+  show('vLogin');
+  $('lgUsers').innerHTML = '<div class="muted">Loading…</div>';
+  try {
+    const b = await api('getBootstrap');
+    if (!b.hasOwner) { show('vSetup'); return; }
+    $('lgBiz').textContent = b.business;
+    $('lgUsers').innerHTML = b.users.map(u =>
+      `<button class="ucard" onclick='pickUser(${JSON.stringify(u).replace(/'/g, '&#39;')})'>
+        <div class="avatar">${esc(u.name.charAt(0).toUpperCase())}</div>
+        <div class="n">${esc(u.name)}</div><span class="role ${u.role}">${u.role === 'OWNER' ? 'Owner' : 'Staff'}</span></button>`).join('');
+    pickAgain();
+  } catch (e) { $('lgUsers').innerHTML = '<div class="err show">' + esc(e.message) + '</div>'; }
+}
+
+async function doSetup() {
+  const biz = $('suBiz').value.trim(), name = $('suName').value.trim(), p1 = $('suPin').value, p2 = $('suPin2').value;
+  const err = $('suErr');
+  err.classList.remove('show');
+  if (!name) return showErr(err, 'Enter your name.');
+  if (!/^\d{4,6}$/.test(p1)) return showErr(err, 'PIN must be 4 to 6 digits.');
+  if (p1 !== p2) return showErr(err, 'The two PINs do not match.');
+  busy($('suBtn'), true);
+  try { await api('setupOwner', biz, name, p1); toast('Cash book created. Log in with your PIN.'); showLogin(); }
+  catch (e) { showErr(err, e.message); }
+  busy($('suBtn'), false);
+}
+function showErr(el, msg) { el.textContent = msg; el.classList.add('show'); }
+
+/* ── PIN keypad ── */
+function pickUser(u) {
+  S.pickUser = u; S.pin = '';
+  $('lgPick').classList.add('hidden'); $('lgPin').classList.remove('hidden');
+  $('lgAv').textContent = u.name.charAt(0).toUpperCase();
+  $('lgName').textContent = u.name;
+  $('lgErr').classList.remove('show');
+  drawDots();
+}
+function pickAgain() { S.pickUser = null; S.pin = ''; $('lgPick').classList.remove('hidden'); $('lgPin').classList.add('hidden'); }
+function drawDots() { $('lgDots').innerHTML = Array.from({ length: Math.max(4, S.pin.length) }, (_, i) => `<i class="${i < S.pin.length ? 'on' : ''}"></i>`).join(''); }
+function padKey(k) {
+  if (!S.pickUser || S.pinBusy) return;
+  if (k === 'del') S.pin = S.pin.slice(0, -1);
+  else if (k === 'ok') { submitPin(); return; }
+  else if (S.pin.length < 6) S.pin += k;
+  drawDots();
+}
+async function submitPin() {
+  if (S.pin.length < 4) return showErr($('lgErr'), 'PIN has at least 4 digits.');
+  S.pinBusy = true;
+  const okBtn = $('lgPad').querySelector('.ok');
+  busy(okBtn, true);
+  try {
+    const r = await api('login', S.pickUser.id, S.pin);
+    S.token = r.token; S.user = r.user; S.business = r.business; lsSet(r.token);
+    enterApp();
+  } catch (e) { S.pin = ''; drawDots(); showErr($('lgErr'), e.message); }
+  busy(okBtn, false, '✓'); S.pinBusy = false;
+}
+(function buildPad() {
+  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', 'del', '0', 'ok'];
+  $('lgPad').innerHTML = keys.map(k => `<button class="${k === 'ok' ? 'ok' : ''}" onclick="padKey('${k}')">${k === 'del' ? '⌫' : k === 'ok' ? '✓' : k}</button>`).join('');
+  document.addEventListener('keydown', e => {
+    if ($('vLogin').classList.contains('hidden') || !S.pickUser) return;
+    if (/^\d$/.test(e.key)) padKey(e.key);
+    else if (e.key === 'Backspace') padKey('del');
+    else if (e.key === 'Enter') padKey('ok');
+  });
+})();
+
+async function doLogout() {
+  const t = S.token;
+  sessionGone();
+  try { await api('logout', t); } catch (e) {}
+}
+function sessionGone() { S.token = null; S.user = null; lsSet(null); closeModal(); showLogin(); }
+
+/* ═════════ app shell ═════════ */
+function enterApp() {
+  show('vApp');
+  $('hBiz').textContent = S.business;
+  $('hName').textContent = S.user.name;
+  $('hRole').textContent = isOwner() ? 'Owner' : 'Staff';
+  switchTab('book');
+  loadBook();
+}
+document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.t)));
+function switchTab(t) {
+  S.tab = t;
+  document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('on', b.dataset.t === t));
+  ['book', 'reports', 'requests', 'settings'].forEach(x => $('t' + x[0].toUpperCase() + x.slice(1)).classList.toggle('hidden', x !== t));
+  $('fab').classList.toggle('hidden', t !== 'book');
+  if (t === 'reports') { $('rMonth').value = S.month; loadReport(); }
+  if (t === 'requests') loadRequests();
+  if (t === 'settings') renderSettings();
+}
+
+/* ═════════ cash book ═════════ */
+function shiftMonth(n) {
+  const [y, m] = S.month.split('-').map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  S.month = d.getFullYear() + '-' + pad(d.getMonth() + 1);
+  loadBook();
+}
+async function loadBook() {
+  $('mLabel').textContent = monthLabel(S.month);
+  $('bookList').innerHTML = '<div class="loading">Loading…</div>';
+  const [from, to] = monthRange(S.month);
+  try {
+    S.book = await api('getBook', S.token, from, to);
+    const sel = $('fMode'), cur = sel.value;
+    sel.innerHTML = '<option value="">All modes</option>' + S.book.modes.map(m => `<option>${m}</option>`).join('');
+    sel.value = cur;
+    setBadge(S.book.pendingRequests);
+    renderBook();
+  } catch (e) { $('bookList').innerHTML = '<div class="err show">' + esc(e.message) + '</div>'; }
+}
+function setBadge(n) { const b = $('reqBadge'); b.textContent = n; b.classList.toggle('hidden', !n); }
+
+document.querySelectorAll('#fType .chip').forEach(c => c.addEventListener('click', () => {
+  S.typeF = c.dataset.v;
+  document.querySelectorAll('#fType .chip').forEach(x => x.classList.toggle('on', x === c));
+  renderBook();
+}));
+
+/** Adds a running balance to each entry (in date order). */
+function withBalance(opening, entries) {
+  let bal = opening;
+  return entries.map(e => { bal += e.type === 'IN' ? e.amount : -e.amount; return Object.assign({}, e, { bal }); });
+}
+function totals(entries) {
+  let tin = 0, tout = 0;
+  entries.forEach(e => { if (e.type === 'IN') tin += e.amount; else tout += e.amount; });
+  return { tin, tout };
+}
+
+function renderBook() {
+  const b = S.book; if (!b) return;
+  const { tin, tout } = totals(b.entries);
+  const net = b.opening + tin - tout;
+  $('sNet').textContent = money(net); $('sNet').className = net < 0 ? 'out' : '';
+  $('sOpen').textContent = money(b.opening);
+  $('sIn').textContent = money(tin); $('sOut').textContent = money(tout);
+
+  const q = $('fSearch').value.trim().toLowerCase(), mode = $('fMode').value;
+  const rows = withBalance(b.opening, b.entries).filter(e =>
+    (!S.typeF || e.type === S.typeF) && (!mode || e.mode === mode) &&
+    (!q || [e.partyName, e.notes, e.category, e.partyPhone, String(e.amount), e.createdByName].join(' ').toLowerCase().indexOf(q) >= 0));
+  if (!rows.length) {
+    $('bookList').innerHTML = `<div class="empty">${b.entries.length ? 'No entries match the filter.' : 'No entries in ' + monthLabel(S.month) + ' yet.<br>Tap <b>Cash In</b> or <b>Cash Out</b> to add one.'}</div>`;
+    return;
+  }
+  const byDay = {};
+  rows.slice().reverse().forEach(e => { (byDay[e.date] = byDay[e.date] || []).push(e); });
+  $('bookList').innerHTML = Object.keys(byDay).sort().reverse().map(d => {
+    const list = byDay[d], t = totals(list);
+    return `<div class="day"><h4><span>${dayLabel(d)}</span><span>${t.tin ? `<span class="in">+${inr.format(t.tin)}</span>` : ''}${t.tin && t.tout ? ' &nbsp; ' : ''}${t.tout ? `<span class="out">−${inr.format(t.tout)}</span>` : ''}</span></h4>
+      <div class="list">${list.map(entryRow).join('')}</div></div>`;
+  }).join('');
+}
+function entryRow(e) {
+  const title = e.partyName || e.category || e.notes || (e.type === 'IN' ? 'Cash In' : 'Cash Out');
+  const sub = [e.time, e.mode, e.category && e.partyName ? e.category : '', 'by ' + e.createdByName].filter(Boolean).join(' · ');
+  return `<div class="ent" onclick="openEntry('${e.id}')">
+    <div class="ic ${e.type}">${e.type === 'IN' ? '↓' : '↑'}</div>
+    <div class="mid"><div class="t">${esc(title)}</div>
+      <div class="s">${e.attachments.length ? '📎 ' : ''}${esc(sub)}${e.notes && title !== e.notes ? ' · ' + esc(e.notes) : ''}</div></div>
+    <div class="amt"><b class="${e.type === 'IN' ? 'in' : 'out'}">${e.type === 'IN' ? '+' : '−'}${money(e.amount)}</b><small>Bal ${money(e.bal)}</small></div>
+  </div>`;
+}
+function findEntry(id) { return S.book && S.book.entries.find(e => e.id === id); }
+
+/* ═════════ modals ═════════ */
+function openModal(html) {
+  $('modal').innerHTML = `<div class="ov" onclick="if(event.target===this)closeModal()"><div class="sheet">${html}</div></div>`;
+}
+function closeModal() { $('modal').innerHTML = ''; }
+
+/* ── entry detail ── */
+function openEntry(id) {
+  const e = findEntry(id); if (!e) return;
+  const owner = isOwner();
+  openModal(`<div class="hd"><h2>${e.type === 'IN' ? 'Cash In' : 'Cash Out'}</h2><button class="x" onclick="closeModal()">×</button></div>
+    <div class="bigamt ${e.type === 'IN' ? 'in' : 'out'}">${e.type === 'IN' ? '+' : '−'}${money(e.amount)}</div>
+    <dl class="det">
+      <dt>Date</dt><dd>${dayLabel(e.date)}${e.time ? ', ' + e.time : ''}</dd>
+      <dt>Party</dt><dd>${esc(e.partyName) || '—'}${e.partyPhone ? '<br><a href="tel:' + esc(e.partyPhone) + '">' + esc(e.partyPhone) + '</a>' : ''}</dd>
+      <dt>Mode</dt><dd>${esc(e.mode)}</dd>
+      <dt>Category</dt><dd>${esc(e.category) || '—'}</dd>
+      <dt>Notes</dt><dd>${esc(e.notes) || '—'}</dd>
+      <dt>Attachments</dt><dd>${e.attachments.length ? '<div class="files">' + e.attachments.map(a =>
+        `<div class="file link2" onclick="viewFile('${a.id}')">${a.mimeType === 'application/pdf' ? '📄' : '🖼'} <span>${esc(a.name)}</span></div>`).join('') + '</div>' : '—'}</dd>
+      <dt>Added by</dt><dd>${esc(e.createdByName)} · ${fmtStamp(e.createdAt)}</dd>
+      ${e.updatedAt ? `<dt>Last edited</dt><dd>${esc(e.updatedByName)} · ${fmtStamp(e.updatedAt)}</dd>` : ''}
+    </dl>
+    ${owner
+      ? `<div class="row2"><button class="btn ghost" onclick="openEntryForm('${e.type}','${e.id}')">✎ Edit</button><button class="btn red" onclick="confirmDelete('${e.id}')">Delete</button></div>`
+      : `<div class="note-warn">Found a mistake? Send an edit request — the owner will approve it.</div>
+         <div class="row2"><button class="btn" onclick="openEntryForm('${e.type}','${e.id}',true)">Request Edit</button><button class="btn ghost" onclick="openDeleteRequest('${e.id}')">Request Delete</button></div>`}`);
+}
+
+function confirmDelete(id) {
+  const e = findEntry(id);
+  openModal(`<div class="hd"><h2>Delete entry?</h2><button class="x" onclick="closeModal()">×</button></div>
+    <p style="margin-bottom:16px">${e.type === 'IN' ? 'Cash In' : 'Cash Out'} of <b>${money(e.amount)}</b>${e.partyName ? ' — ' + esc(e.partyName) : ''} on ${dayLabel(e.date)} will be removed from the book.</p>
+    <div class="row2"><button class="btn ghost" onclick="openEntry('${id}')">Cancel</button><button class="btn red" id="delBtn" onclick="doDelete('${id}')">Delete</button></div>`);
+}
+async function doDelete(id) {
+  busy($('delBtn'), true);
+  try { await api('deleteEntry', S.token, id); closeModal(); toast('Entry deleted'); loadBook(); }
+  catch (e) { toast(e.message, true); busy($('delBtn'), false); }
+}
+
+function openDeleteRequest(id) {
+  const e = findEntry(id);
+  openModal(`<div class="hd"><h2>Request delete</h2><button class="x" onclick="closeModal()">×</button></div>
+    <p style="margin-bottom:12px">${e.type === 'IN' ? 'Cash In' : 'Cash Out'} of <b>${money(e.amount)}</b>${e.partyName ? ' — ' + esc(e.partyName) : ''}</p>
+    <div class="field"><label>Why should it be deleted?</label><textarea id="rqReason" placeholder="e.g. Entered twice by mistake"></textarea></div>
+    <button class="btn full" id="rqBtn" onclick="sendDeleteRequest('${id}')">Send request to owner</button>`);
+}
+async function sendDeleteRequest(id) {
+  busy($('rqBtn'), true);
+  try { await api('createEditRequest', S.token, id, 'DELETE', null, $('rqReason').value); closeModal(); toast('Request sent to owner'); loadBook(); }
+  catch (e) { toast(e.message, true); busy($('rqBtn'), false); }
+}
+
+/* ── add / edit / request-edit form ── */
+let F = null; // form state
+function openEntryForm(type, id, asRequest) {
+  const e = id ? findEntry(id) : null;
+  F = { id: id || null, asRequest: !!asRequest, type: e ? e.type : type, attachments: e ? e.attachments.slice() : [], uploading: 0 };
+  const title = asRequest ? 'Request Edit' : e ? 'Edit Entry' : (type === 'IN' ? 'Add Cash In' : 'Add Cash Out');
+  const modes = (S.book && S.book.modes) || ['Cash'];
+  const cats = Array.from(new Set(((S.book && S.book.entries) || []).map(x => x.category).filter(Boolean))).sort();
+  openModal(`<div class="hd"><h2>${title}</h2><button class="x" onclick="closeModal()">×</button></div>
+    ${asRequest ? '<div class="note-warn">Change what is wrong. The owner will see your changes and approve or reject them.</div>' : ''}
+    <div class="typeswitch">
+      <button data-v="IN" onclick="setFType('IN')">Cash In (+)</button>
+      <button data-v="OUT" onclick="setFType('OUT')">Cash Out (−)</button>
+    </div>
+    <div class="field amount"><label>Amount (₹)</label><input id="eAmt" type="number" inputmode="decimal" min="0" step="0.01" value="${e ? e.amount : ''}" placeholder="0"></div>
+    <div class="row2">
+      <div class="field"><label>Date</label><input id="eDate" type="date" value="${e ? e.date : todayStr()}"></div>
+      <div class="field"><label>Time</label><input id="eTime" type="time" value="${e ? e.time : nowTime()}"></div>
+    </div>
+    <div class="field sugg-wrap"><label>Party name</label>
+      <input id="eParty" autocomplete="off" value="${e ? esc(e.partyName) : ''}" placeholder="Customer / supplier — type to search saved parties"
+        oninput="partySugg()" onfocus="partySugg()" onkeydown="partyKey(event)" onblur="setTimeout(hideSugg,150)">
+      <div class="sugg hidden" id="eSugg"></div></div>
+    <div class="row2">
+      <div class="field"><label>Party phone</label><input id="ePhone" type="tel" value="${e ? esc(e.partyPhone) : ''}" placeholder="Optional"></div>
+      <div class="field"><label>Payment mode</label><select id="eMode">${modes.map(m => `<option ${e && e.mode === m ? 'selected' : ''}>${m}</option>`).join('')}</select></div>
+    </div>
+    <div class="field"><label>Category</label><input id="eCat" list="dlCats" value="${e ? esc(e.category) : ''}" placeholder="e.g. Salary, Rent"></div>
+    <datalist id="dlCats">${cats.map(c => `<option value="${esc(c)}">`).join('')}</datalist>
+    <div class="field"><label>Notes</label><textarea id="eNotes" placeholder="Remarks / bill no.">${e ? esc(e.notes) : ''}</textarea></div>
+    <div class="field"><label>Attachments (bill photo / PDF)</label>
+      <button class="addfile" onclick="$('filePick').click()">📎 Add photo or PDF</button>
+      <div class="files" id="eFiles"></div></div>
+    ${asRequest ? '<div class="field"><label>What was wrong? (required)</label><textarea id="eReason" placeholder="e.g. Amount should be 1,500 not 15,000"></textarea></div>' : ''}
+    <div id="eErr" class="err"></div>
+    <button class="btn full" id="eSave" onclick="saveEntryForm()">${asRequest ? 'Send request to owner' : 'Save'}</button>`);
+  setFType(F.type);
+  drawFiles();
+  if (!e) setTimeout(() => $('eAmt').focus(), 50);
+}
+function setFType(t) {
+  F.type = t;
+  document.querySelectorAll('.typeswitch button').forEach(b => b.className = b.dataset.v === t ? 'on ' + t : '');
+  const btn = $('eSave');
+  if (btn && !F.asRequest) btn.className = 'btn full ' + (t === 'IN' ? 'green' : 'red');
+}
+/* ── party suggestions: every party saved before shows up here, matching what is typed ── */
+let SG = { list: [], act: -1 };
+function partySugg() {
+  const box = $('eSugg'); if (!box) return;
+  const q = $('eParty').value.trim().toLowerCase();
+  const all = (S.book && S.book.parties) || [];
+  // most recently used first (from this month's entries), then A–Z
+  const last = {};
+  ((S.book && S.book.entries) || []).forEach(e => { if (e.partyName) last[e.partyName.toLowerCase()] = e.date + e.time; });
+  let list = all.filter(p => !q || p.name.toLowerCase().indexOf(q) >= 0 || (p.phone && p.phone.replace(/\D/g, '').indexOf(q.replace(/\D/g, '') || '~') >= 0));
+  list.sort((a, b) => {
+    const sa = q && a.name.toLowerCase().startsWith(q) ? 0 : 1, sb = q && b.name.toLowerCase().startsWith(q) ? 0 : 1;
+    return sa - sb || (last[b.name.toLowerCase()] || '').localeCompare(last[a.name.toLowerCase()] || '') || a.name.localeCompare(b.name);
+  });
+  if (list.length === 1 && list[0].name.toLowerCase() === q) list = []; // already exactly typed
+  SG = { list: list.slice(0, 8), act: -1 };
+  if (!SG.list.length) { fillPhoneExact(); return hideSugg(); }
+  const hl = n => { const i = q ? n.toLowerCase().indexOf(q) : -1; return i < 0 ? esc(n) : esc(n.slice(0, i)) + '<mark>' + esc(n.slice(i, i + q.length)) + '</mark>' + esc(n.slice(i + q.length)); };
+  box.innerHTML = `<div class="hint">${q ? 'Saved parties' : 'Recent parties'}</div>` + SG.list.map((p, i) =>
+    `<div class="it" data-i="${i}" onmousedown="event.preventDefault()" onclick="pickParty(${i})">
+      <div class="avatar">${esc(p.name.charAt(0).toUpperCase())}</div>
+      <div><div class="nm">${hl(p.name)}</div>${p.phone ? `<div class="ph">${esc(p.phone)}</div>` : ''}</div></div>`).join('');
+  box.classList.remove('hidden');
+}
+function pickParty(i) {
+  const p = SG.list[i]; if (!p) return;
+  $('eParty').value = p.name;
+  if (p.phone) $('ePhone').value = p.phone;
+  hideSugg();
+}
+function hideSugg() { const b = $('eSugg'); if (b) b.classList.add('hidden'); SG.act = -1; }
+function partyKey(ev) {
+  const box = $('eSugg'); if (!box || box.classList.contains('hidden')) return;
+  if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
+    ev.preventDefault();
+    SG.act = (SG.act + (ev.key === 'ArrowDown' ? 1 : -1) + SG.list.length) % SG.list.length;
+    box.querySelectorAll('.it').forEach((el, i) => el.classList.toggle('act', i === SG.act));
+  } else if (ev.key === 'Enter' && SG.act >= 0) { ev.preventDefault(); pickParty(SG.act); }
+  else if (ev.key === 'Escape') hideSugg();
+}
+function fillPhoneExact() {
+  const p = ((S.book && S.book.parties) || []).find(x => x.name.toLowerCase() === $('eParty').value.trim().toLowerCase());
+  if (p && p.phone && !$('ePhone').value) $('ePhone').value = p.phone;
+}
+function drawFiles() {
+  const el = $('eFiles'); if (!el) return;
+  el.innerHTML = F.attachments.map((a, i) => `<div class="file">${a.mimeType === 'application/pdf' ? '📄' : '🖼'} <span>${esc(a.name)}</span><button onclick="F.attachments.splice(${i},1);drawFiles()">×</button></div>`).join('')
+    + (F.uploading ? `<div class="file"><span class="spin" style="border-color:#c7d2fe;border-top-color:var(--brand)"></span> Uploading ${F.uploading}…</div>` : '');
+}
+$('filePick').addEventListener('change', async ev => {
+  const files = Array.from(ev.target.files || []);
+  ev.target.value = '';
+  for (const f of files) {
+    if (!F) return;
+    if (F.attachments.length + F.uploading >= 10) { toast('Max 10 attachments', true); break; }
+    F.uploading++; drawFiles();
+    try {
+      const payload = await readFileForUpload(f);
+      const saved = await api('uploadAttachment', S.token, payload);
+      if (F) F.attachments.push(saved);
+    } catch (e) { toast(e.message, true); }
+    if (F) { F.uploading--; drawFiles(); }
+  }
+});
+/** Reads a file as base64; big photos are shrunk to ~1600px JPEG first. */
+function readFileForUpload(f) {
+  return new Promise((resolve, reject) => {
+    const isImg = /^image\//.test(f.type);
+    if (!isImg && f.type !== 'application/pdf') return reject(new Error('Only photos and PDF files can be attached.'));
+    const r = new FileReader();
+    r.onerror = () => reject(new Error('Could not read the file.'));
+    r.onload = () => {
+      const dataUrl = r.result;
+      if (!isImg || f.size < 400 * 1024) return resolve({ name: f.name, mimeType: f.type, data: dataUrl.split(',')[1] });
+      const img = new Image();
+      img.onload = () => {
+        const max = 1600, k = Math.min(1, max / Math.max(img.width, img.height));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        const out = c.toDataURL('image/jpeg', 0.82);
+        resolve({ name: f.name.replace(/\.\w+$/, '') + '.jpg', mimeType: 'image/jpeg', data: out.split(',')[1] });
+      };
+      img.onerror = () => resolve({ name: f.name, mimeType: f.type, data: dataUrl.split(',')[1] });
+      img.src = dataUrl;
+    };
+    r.readAsDataURL(f);
+  });
+}
+async function saveEntryForm() {
+  const err = $('eErr'); err.classList.remove('show');
+  if (F.uploading) return showErr(err, 'Wait for the attachments to finish uploading.');
+  const amt = Number($('eAmt').value);
+  if (!(amt > 0)) return showErr(err, 'Enter an amount.');
+  if (!$('eDate').value) return showErr(err, 'Pick a date.');
+  const data = {
+    type: F.type, amount: amt, date: $('eDate').value, time: $('eTime').value, partyName: $('eParty').value,
+    partyPhone: $('ePhone').value, mode: $('eMode').value, category: $('eCat').value, notes: $('eNotes').value,
+    attachments: F.attachments,
+  };
+  const btn = $('eSave'); busy(btn, true);
+  try {
+    if (F.asRequest) {
+      const reason = $('eReason').value.trim();
+      if (!reason) { busy(btn, false); return showErr(err, 'Please write what was wrong.'); }
+      await api('createEditRequest', S.token, F.id, 'EDIT', data, reason);
+      toast('Edit request sent to owner');
+    } else {
+      if (F.id) data.id = F.id;
+      await api('saveEntry', S.token, data);
+      toast(F.id ? 'Entry updated' : (F.type === 'IN' ? 'Cash In saved' : 'Cash Out saved'));
+      const m = data.date.slice(0, 7);
+      if (m !== S.month) S.month = m;
+    }
+    F = null; closeModal(); loadBook();
+  } catch (e) { busy(btn, false); showErr(err, e.message); }
+}
+
+/* ── attachment viewer ── */
+async function viewFile(id) {
+  const back = $('modal').innerHTML;
+  openModal(`<div class="hd"><h2>Attachment</h2><button class="x" onclick="closeModal()">×</button></div><div class="viewer loading">Loading…</div>`);
+  try {
+    const f = await api('getAttachment', S.token, id);
+    const bytes = Uint8Array.from(atob(f.data), c => c.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: f.mimeType }));
+    const body = /^image\//.test(f.mimeType) ? `<img src="${url}" alt="">`
+      : window.CashBookApp ? `<div class="empty">📄 ${esc(f.name)}<br>Tap <b>Download</b> to open this PDF.</div>` // Android WebView has no PDF viewer
+      : `<iframe src="${url}"></iframe>`;
+    $('modal').querySelector('.viewer').outerHTML = `<div class="viewer">${body}</div>
+      <div class="row2" style="margin-top:12px"><button class="btn ghost" id="vSave">⬇ Download</button>
+      <button class="btn" id="vBack">← Back</button></div>`;
+    $('vSave').onclick = () => saveBlob(new Blob([bytes], { type: f.mimeType }), f.name);
+    $('vBack').onclick = () => { $('modal').innerHTML = back; };
+  } catch (e) { toast(e.message, true); $('modal').innerHTML = back; }
+}
+
+/* ═════════ edit requests ═════════ */
+const FIELD_LABELS = { Date: 'Date', Time: 'Time', Type: 'Type', Amount: 'Amount', PartyName: 'Party', PartyPhone: 'Phone',
+  Mode: 'Mode', Category: 'Category', Notes: 'Notes', Attachments: 'Attachments' };
+const ENTRY_KEY = { Date: 'date', Time: 'time', Type: 'type', Amount: 'amount', PartyName: 'partyName', PartyPhone: 'partyPhone',
+  Mode: 'mode', Category: 'category', Notes: 'notes', Attachments: 'attachments' };
+function fmtField(k, v) {
+  if (k === 'Amount') return money(Number(v));
+  if (k === 'Type') return v === 'IN' ? 'Cash In' : 'Cash Out';
+  if (k === 'Date') return v ? shortDate(v) : '—';
+  if (k === 'Attachments') { const a = typeof v === 'string' ? JSON.parse(v || '[]') : (v || []); return a.length + ' file(s)'; }
+  return v === '' || v == null ? '—' : String(v);
+}
+async function loadRequests() {
+  $('reqBody').innerHTML = '<div class="loading">Loading…</div>';
+  try {
+    S.reqs = await api('listEditRequests', S.token);
+    setBadge(S.reqs.filter(r => r.status === 'PENDING').length);
+    if (!S.reqs.length) { $('reqBody').innerHTML = `<div class="empty">No edit requests.${isOwner() ? '' : '<br>Open an entry and tap <b>Request Edit</b> if something is wrong.'}</div>`; return; }
+    $('reqBody').innerHTML = S.reqs.map(r => {
+      const e = r.entry;
+      const head = e ? `${e.type === 'IN' ? 'Cash In' : 'Cash Out'} ${money(e.amount)} · ${shortDate(e.date)}${e.partyName ? ' · ' + esc(e.partyName) : ''}` : 'Entry';
+      const diff = r.action === 'DELETE' ? '<div><b class="out">Delete this entry</b></div>'
+        : Object.keys(r.changes).map(k => `<div><b>${FIELD_LABELS[k] || k}:</b> <s>${esc(e ? fmtField(k, e[ENTRY_KEY[k]]) : '')}</s> → <ins>${esc(fmtField(k, r.changes[k]))}</ins></div>`).join('');
+      return `<div class="req"><div class="hd"><b>${head}</b><span class="st ${r.status}">${r.status}</span></div>
+        <div class="diff">${diff}</div>
+        <div class="muted" style="font-size:12.5px">Reason: ${esc(r.reason)}</div>
+        <div class="muted" style="font-size:12px;margin-top:4px">By ${esc(r.requestedByName)} · ${fmtStamp(r.createdAt)}${r.reviewedAt ? ` · ${r.status.toLowerCase()} by ${esc(r.reviewedByName)} ${fmtStamp(r.reviewedAt)}` : ''}${r.reviewNote ? ' · “' + esc(r.reviewNote) + '”' : ''}</div>
+        ${isOwner() && r.status === 'PENDING' ? `<div class="row2" style="margin-top:10px"><button class="btn sm ghost" onclick="review('${r.id}',false,this)">Reject</button><button class="btn sm green" onclick="review('${r.id}',true,this)">Approve</button></div>` : ''}
+      </div>`;
+    }).join('');
+  } catch (e) { $('reqBody').innerHTML = '<div class="err show">' + esc(e.message) + '</div>'; }
+}
+async function review(id, approve, btn) {
+  const note = approve ? '' : (prompt('Reason for rejecting (optional):') || '');
+  busy(btn, true);
+  try { await api('reviewEditRequest', S.token, id, approve, note); toast(approve ? 'Approved — entry updated' : 'Request rejected'); loadRequests(); loadBook(); }
+  catch (e) { toast(e.message, true); busy(btn, false); }
+}
+
+/* ═════════ monthly report ═════════ */
+async function loadReport() {
+  const m = $('rMonth').value || S.month;
+  $('rBody').innerHTML = '<div class="loading">Loading…</div>';
+  const [from, to] = monthRange(m);
+  try {
+    const b = await api('getBook', S.token, from, to);
+    S.report = buildReport(m, b);
+    renderReport();
+  } catch (e) { $('rBody').innerHTML = '<div class="err show">' + esc(e.message) + '</div>'; }
+}
+function buildReport(m, b) {
+  const rows = withBalance(b.opening, b.entries);
+  const t = totals(b.entries);
+  const days = {}, parties = {}, modes = {};
+  rows.forEach(e => {
+    const d = days[e.date] = days[e.date] || { date: e.date, tin: 0, tout: 0, bal: 0 };
+    const p = parties[e.partyName || '(No party)'] = parties[e.partyName || '(No party)'] || { tin: 0, tout: 0, n: 0 };
+    const md = modes[e.mode || '—'] = modes[e.mode || '—'] || { tin: 0, tout: 0 };
+    if (e.type === 'IN') { d.tin += e.amount; p.tin += e.amount; md.tin += e.amount; }
+    else { d.tout += e.amount; p.tout += e.amount; md.tout += e.amount; }
+    d.bal = e.bal; p.n++;
+  });
+  return {
+    month: m, label: monthLabel(m), opening: b.opening, tin: t.tin, tout: t.tout, closing: b.opening + t.tin - t.tout,
+    rows, days: Object.values(days).sort((a, c) => a.date.localeCompare(c.date)),
+    parties: Object.keys(parties).map(k => Object.assign({ name: k }, parties[k])).sort((a, c) => (c.tin + c.tout) - (a.tin + a.tout)),
+    modes: Object.keys(modes).map(k => Object.assign({ name: k }, modes[k])),
+  };
+}
+function renderReport() {
+  const R = S.report;
+  $('rBody').innerHTML = `
+    <div class="kpis">
+      <div class="kpi"><small>Opening balance</small><b>${money(R.opening)}</b></div>
+      <div class="kpi"><small>Total Cash In</small><b class="in">${money(R.tin)}</b></div>
+      <div class="kpi"><small>Total Cash Out</small><b class="out">${money(R.tout)}</b></div>
+      <div class="kpi"><small>Closing balance</small><b class="${R.closing < 0 ? 'out' : ''}">${money(R.closing)}</b></div>
+    </div>
+    ${!R.rows.length ? `<div class="empty">No entries in ${R.label}.</div>` : `
+    <div class="card"><h3>Day-wise</h3><div class="tscroll"><table>
+      <tr><th>Date</th><th class="r">Cash In</th><th class="r">Cash Out</th><th class="r">Balance</th></tr>
+      ${R.days.map(d => `<tr><td>${shortDate(d.date)}</td><td class="r in">${d.tin ? money(d.tin) : ''}</td><td class="r out">${d.tout ? money(d.tout) : ''}</td><td class="r">${money(d.bal)}</td></tr>`).join('')}
+    </table></div></div>
+    <div class="card"><h3>Party-wise</h3><div class="tscroll"><table>
+      <tr><th>Party</th><th class="r">Entries</th><th class="r">Cash In</th><th class="r">Cash Out</th><th class="r">Net</th></tr>
+      ${R.parties.map(p => `<tr><td>${esc(p.name)}</td><td class="r">${p.n}</td><td class="r in">${p.tin ? money(p.tin) : ''}</td><td class="r out">${p.tout ? money(p.tout) : ''}</td><td class="r">${money(p.tin - p.tout)}</td></tr>`).join('')}
+    </table></div></div>
+    <div class="card"><h3>Payment mode</h3><table>
+      <tr><th>Mode</th><th class="r">Cash In</th><th class="r">Cash Out</th></tr>
+      ${R.modes.map(p => `<tr><td>${esc(p.name)}</td><td class="r in">${money(p.tin)}</td><td class="r out">${money(p.tout)}</td></tr>`).join('')}
+    </table></div>
+    <div class="card"><h3>All entries (${R.rows.length})</h3><div class="tscroll"><table>
+      <tr><th>Date</th><th>Party</th><th>Mode</th><th>Notes</th><th class="r">In</th><th class="r">Out</th><th class="r">Balance</th></tr>
+      ${R.rows.map(e => `<tr><td>${shortDate(e.date)}</td><td>${esc(e.partyName)}</td><td>${esc(e.mode)}</td><td>${esc(e.notes)}</td><td class="r in">${e.type === 'IN' ? money(e.amount) : ''}</td><td class="r out">${e.type === 'OUT' ? money(e.amount) : ''}</td><td class="r">${money(e.bal)}</td></tr>`).join('')}
+    </table></div></div>`}`;
+}
+function fileBase() { return (S.business || 'CashBook').replace(/[^\w]+/g, '_') + '_' + S.report.month; }
+
+function downloadExcel() {
+  const R = S.report; if (!R) return;
+  if (typeof XLSX === 'undefined') return toast('Excel library did not load. Check internet and reload.', true);
+  const wb = XLSX.utils.book_new();
+  const sum = [[S.business + ' — Cash Book'], ['Month', R.label], [],
+    ['Opening balance', R.opening], ['Total Cash In', R.tin], ['Total Cash Out', R.tout], ['Closing balance', R.closing], ['Entries', R.rows.length]];
+  const ws0 = XLSX.utils.aoa_to_sheet(sum); ws0['!cols'] = [{ wch: 18 }, { wch: 18 }];
+  XLSX.utils.book_append_sheet(wb, ws0, 'Summary');
+  const ent = [['Date', 'Time', 'Type', 'Party', 'Phone', 'Mode', 'Category', 'Notes', 'Cash In', 'Cash Out', 'Balance', 'Attachments', 'Added by']]
+    .concat(R.rows.map(e => [shortDate(e.date), e.time, e.type === 'IN' ? 'Cash In' : 'Cash Out', e.partyName, e.partyPhone, e.mode, e.category, e.notes,
+      e.type === 'IN' ? e.amount : '', e.type === 'OUT' ? e.amount : '', e.bal, e.attachments.length || '', e.createdByName]));
+  const ws1 = XLSX.utils.aoa_to_sheet(ent);
+  ws1['!cols'] = [10, 7, 9, 22, 13, 8, 14, 30, 11, 11, 12, 6, 14].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, ws1, 'Entries');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Date', 'Cash In', 'Cash Out', 'Balance']].concat(R.days.map(d => [shortDate(d.date), d.tin, d.tout, d.bal]))), 'Day-wise');
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([['Party', 'Entries', 'Cash In', 'Cash Out', 'Net']].concat(R.parties.map(p => [p.name, p.n, p.tin, p.tout, p.tin - p.tout]))), 'Party-wise');
+  const b64 = XLSX.write(wb, { bookType: 'xlsx', type: 'base64' });
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+  saveBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '.xlsx');
+}
+
+function downloadPdf() {
+  const R = S.report; if (!R) return;
+  if (!window.jspdf) return toast('PDF library did not load. Check internet and reload.', true);
+  const doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' });
+  const W = doc.internal.pageSize.getWidth();
+  doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 70, 'F');
+  doc.setFillColor(255, 255, 255); doc.circle(62, 35, 24, 'F');
+  try { doc.addImage(LOGO, 'PNG', 62 - 10.5, 35 - 16, 21, 32); } catch (e) { /* logo is optional */ }
+  doc.setTextColor(255); doc.setFontSize(18); doc.setFont('helvetica', 'bold'); doc.text(S.business, 98, 34);
+  doc.setFontSize(11); doc.setFont('helvetica', 'normal'); doc.text('Cash Book Report — ' + R.label, 98, 54);
+  doc.setTextColor(17, 24, 39);
+  doc.autoTable({
+    startY: 90, theme: 'grid', styles: { fontSize: 10, halign: 'center' }, headStyles: { fillColor: [238, 242, 255], textColor: [55, 48, 163] },
+    head: [['Opening', 'Total Cash In', 'Total Cash Out', 'Closing']],
+    body: [[moneyPlain(R.opening), moneyPlain(R.tin), moneyPlain(R.tout), moneyPlain(R.closing)]],
+  });
+  doc.autoTable({
+    startY: doc.lastAutoTable.finalY + 18, styles: { fontSize: 8.5, cellPadding: 4 }, headStyles: { fillColor: [79, 70, 229] },
+    head: [['Date', 'Party', 'Mode', 'Notes', 'Cash In', 'Cash Out', 'Balance']],
+    body: R.rows.map(e => [shortDate(e.date), e.partyName, e.mode, e.notes, e.type === 'IN' ? inr.format(e.amount) : '', e.type === 'OUT' ? inr.format(e.amount) : '', inr.format(e.bal)]),
+    columnStyles: { 3: { cellWidth: 140 }, 4: { halign: 'right', textColor: [21, 128, 61] }, 5: { halign: 'right', textColor: [220, 38, 38] }, 6: { halign: 'right' } },
+  });
+  if (R.parties.length) {
+    doc.autoTable({
+      startY: doc.lastAutoTable.finalY + 18, styles: { fontSize: 8.5 }, headStyles: { fillColor: [55, 65, 81] },
+      head: [['Party', 'Entries', 'Cash In', 'Cash Out', 'Net']],
+      body: R.parties.map(p => [p.name, p.n, inr.format(p.tin), inr.format(p.tout), inr.format(p.tin - p.tout)]),
+      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' }, 4: { halign: 'right' } },
+    });
+  }
+  const pages = doc.internal.getNumberOfPages();
+  for (let i = 1; i <= pages; i++) {
+    doc.setPage(i); doc.setFontSize(8); doc.setTextColor(120);
+    doc.text('Generated ' + new Date().toLocaleString('en-IN') + ' by ' + S.user.name + '  ·  Amounts in Rs.', 40, doc.internal.pageSize.getHeight() - 20);
+    doc.text('Page ' + i + ' / ' + pages, W - 80, doc.internal.pageSize.getHeight() - 20);
+  }
+  saveBlob(doc.output('blob'), fileBase() + '.pdf');
+}
+
+/* ═════════ settings ═════════ */
+async function renderSettings() {
+  const pinCard = `<div class="card"><h3>Change my PIN</h3>
+    <div class="row2"><div class="field"><label>Current PIN</label><input id="cpOld" type="password" inputmode="numeric" maxlength="6"></div>
+    <div class="field"><label>New PIN</label><input id="cpNew" type="password" inputmode="numeric" maxlength="6"></div></div>
+    <button class="btn sm" id="cpBtn" onclick="changePin()">Change PIN</button></div>`;
+  if (!isOwner()) { $('setBody').innerHTML = pinCard; return; }
+  $('setBody').innerHTML = `<div class="card"><h3>Business name</h3>
+      <div class="acts" style="margin:0"><input id="bzName" style="flex:1;padding:9px 12px;border:1px solid var(--line);border-radius:10px" value="${esc(S.business)}">
+      <button class="btn sm" id="bzBtn" onclick="saveBiz()">Save</button></div></div>
+    <div class="card"><h3>Owner &amp; staff</h3><div class="ulist" id="uList"><div class="muted">Loading…</div></div>
+      <button class="btn sm" style="margin-top:10px" onclick="openUserForm()">+ Add staff</button></div>
+    ${pinCard}`;
+  try { S.users = await api('listUsers', S.token); drawUsers(); }
+  catch (e) { $('uList').innerHTML = '<div class="err show">' + esc(e.message) + '</div>'; }
+}
+function drawUsers() {
+  $('uList').innerHTML = S.users.map(u => `<div class="u"><div class="avatar" style="margin:0">${esc(u.name.charAt(0).toUpperCase())}</div>
+    <div class="mid"><b>${esc(u.name)}</b>${u.id === S.user.id ? ' <span class="muted">(you)</span>' : ''}<br><span class="role ${u.role}">${u.role === 'OWNER' ? 'Owner' : 'Staff'}</span>${u.active ? '' : ' <span class="tag pend">Disabled</span>'}</div>
+    <button class="btn sm ghost" onclick="openUserForm('${u.id}')">Edit</button></div>`).join('');
+}
+function openUserForm(id) {
+  const u = id ? S.users.find(x => x.id === id) : null;
+  openModal(`<div class="hd"><h2>${u ? 'Edit user' : 'Add staff'}</h2><button class="x" onclick="closeModal()">×</button></div>
+    <div class="field"><label>Name</label><input id="uName" value="${u ? esc(u.name) : ''}"></div>
+    <div class="row2">
+      <div class="field"><label>Role</label><select id="uRole"><option value="STAFF">Staff</option><option value="OWNER" ${u && u.role === 'OWNER' ? 'selected' : ''}>Owner</option></select></div>
+      <div class="field"><label>${u ? 'New PIN (leave blank to keep)' : 'PIN (4–6 digits)'}</label><input id="uPin" type="password" inputmode="numeric" maxlength="6"></div>
+    </div>
+    ${u ? `<div class="field"><label><input type="checkbox" id="uActive" ${u.active ? 'checked' : ''} style="width:auto;margin-right:6px">Active (can log in)</label></div>` : ''}
+    <div class="muted" style="font-size:12.5px;margin-bottom:12px">Staff can add Cash In / Cash Out and see reports. To change or delete an entry they send an edit request.</div>
+    <div id="uErr" class="err"></div>
+    <button class="btn full" id="uBtn" onclick="saveUserForm('${id || ''}')">Save</button>`);
+}
+async function saveUserForm(id) {
+  const data = { id: id || null, name: $('uName').value, role: $('uRole').value, pin: $('uPin').value,
+                 active: $('uActive') ? $('uActive').checked : true };
+  busy($('uBtn'), true);
+  try { S.users = await api('saveUser', S.token, data); closeModal(); drawUsers(); toast('Saved'); }
+  catch (e) { busy($('uBtn'), false); showErr($('uErr'), e.message); }
+}
+async function saveBiz() {
+  busy($('bzBtn'), true);
+  try { S.business = await api('saveBusinessName', S.token, $('bzName').value); $('hBiz').textContent = S.business; toast('Saved'); }
+  catch (e) { toast(e.message, true); }
+  busy($('bzBtn'), false);
+}
+async function changePin() {
+  busy($('cpBtn'), true);
+  try { await api('changeMyPin', S.token, $('cpOld').value, $('cpNew').value); $('cpOld').value = $('cpNew').value = ''; toast('PIN changed'); }
+  catch (e) { toast(e.message, true); }
+  busy($('cpBtn'), false);
+}
+
+boot();
+</script>
+</body>
+</html>
