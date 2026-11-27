@@ -1157,7 +1157,8 @@ function submitShipment(payload) {
 const SHIP_COLS = {
   ID: 1, TIMESTAMP: 2, EMPLOYEE: 3, ROLE: 4, PLATFORM: 5, PO_NUMBER: 6,
   INVOICE_NUMBER: 7, DATE: 8, CITY: 9, BOXES_JSON: 10, DELETED: 11, EDITED_TS: 12,
-  ADJUSTMENTS_JSON: 13
+  ADJUSTMENTS_JSON: 13,
+  DISPATCH_DATE: 14 // the day the shipment actually left (🚚 Dispatch Date button); the Blinkit Planner's shipped day
 };
 
 function ensureShipmentsSheet_() {
@@ -1175,7 +1176,33 @@ function ensureShipmentsSheet_() {
     // "no adjustments yet" (blank) until they get their first one.
     sheet.getRange(1, SHIP_COLS.ADJUSTMENTS_JSON).setValue("ADJUSTMENTS_JSON");
   }
+  if (sheet.getLastColumn() < SHIP_COLS.DISPATCH_DATE) {
+    // Dispatch Date feature: header backfilled; existing rows read as "no dispatch date yet".
+    if (sheet.getMaxColumns() < SHIP_COLS.DISPATCH_DATE) sheet.insertColumnsAfter(sheet.getMaxColumns(), SHIP_COLS.DISPATCH_DATE - sheet.getMaxColumns());
+    sheet.getRange(1, SHIP_COLS.DISPATCH_DATE).setValue("DISPATCH_DATE");
+  }
   return sheet;
+}
+
+/** 🚚 Dispatch Date: the day a shipment actually left. ymd = 'yyyy-mm-dd', or '' to clear it. The Blinkit Planner
+ *  counts an RO as shipped on this day (for shipments entered from 26-11-2026 on), not on the shipment's DATE. */
+function setShipmentDispatchDate(id, ymd, employee) {
+  const v = String(ymd || '').trim();
+  if (v && !/^\d{4}-\d{2}-\d{2}$/.test(v)) return { success: false, message: 'Pick a date.' };
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  try {
+    const sheet = ensureShipmentsSheet_();
+    const ids = sheet.getRange(2, SHIP_COLS.ID, Math.max(1, sheet.getLastRow() - 1), 1).getValues();
+    for (let i = 0; i < ids.length; i++) {
+      if (String(ids[i][0]) !== String(id)) continue;
+      const cell = sheet.getRange(i + 2, SHIP_COLS.DISPATCH_DATE);
+      if (v) { const p = v.split('-'); cell.setValue(new Date(+p[0], +p[1] - 1, +p[2])).setNumberFormat('yyyy-mm-dd'); }
+      else cell.clearContent();
+      return { success: true, dispatchDate: v, by: String(employee || '') };
+    }
+    return { success: false, message: 'Shipment not found.' };
+  } finally { lock.releaseLock(); }
 }
 
 /** Parses a shipment row's ADJUSTMENTS_JSON into an array of
@@ -3009,7 +3036,8 @@ function getShipments(dateFilter, dateFilterEnd) {
         city:           r[SHIP_COLS.CITY - 1],
         boxes:          boxes,
         hasRoInvoice:   roShipmentIds.has(r[SHIP_COLS.ID - 1]),
-        adjustments:    parseShipmentAdjustments_(r[SHIP_COLS.ADJUSTMENTS_JSON - 1])
+        adjustments:    parseShipmentAdjustments_(r[SHIP_COLS.ADJUSTMENTS_JSON - 1]),
+        dispatchDate:   r.length >= SHIP_COLS.DISPATCH_DATE ? formatDateForCompare_(r[SHIP_COLS.DISPATCH_DATE - 1]) : ""
       });
     }
     // newest first

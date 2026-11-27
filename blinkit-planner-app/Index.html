@@ -700,7 +700,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-26 show-all-items';
+  var PAGE_BUILD = '2026-11-27 dispatch-date';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3808,7 +3808,7 @@ function getRoInvoiceStyles_() {
       busy(true, 'Syncing with the Shipment Manager…');
       api('syncShipments', S.token, true).then(function (r) {
         busy(false); applyShipSync(r);
-        $('shOut').innerHTML = msgs([r.skipped ? r.skipped : 'Synced: ' + (r.ros || 0) + ' RO(s) found in the Shipment Manager; ' + (r.dates || 0) + ' dispatch day(s), ' + (r.qty || 0) + ' quantity(ies) updated' + (r.short ? ', ' + r.short + ' line(s) shipped short (red in the month tab)' : '') + '.'], r.skipped ? 'warn' : 'ok') + msgs(r.warnings, 'warn');
+        $('shOut').innerHTML = msgs([r.skipped ? r.skipped : 'Synced: ' + (r.ros || 0) + ' RO(s) found in the Shipment Manager; ' + (r.dates || 0) + ' dispatch day(s), ' + (r.qty || 0) + ' quantity(ies) updated' + (r.short ? ', ' + r.short + ' line(s) shipped short (red in the month tab)' : '') + '.' + (r.waiting ? ' ' + r.waiting + ' RO(s) have a shipment but no 🚚 Dispatch Date yet: not shipped.' : '') + (r.reverted ? ' ' + r.reverted + ' line(s) set back to not shipped (no Dispatch Date yet).' : '')], r.skipped ? 'warn' : 'ok') + msgs(r.warnings, 'warn');
       }, function (e) { busy(false); $('shOut').innerHTML = msgs([e.message], 'bad'); });
     };
     // "Show" / "Hide" next to a private link.

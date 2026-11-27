@@ -45,3 +45,13 @@ less, with a reason beside each. The reason is one of:
 - **Shipped in full:** if an edit ships a line in full, its reason is cleared.
 - **Planner:** its Shipment Manager sync copies the reason into the RO Log's *Short Note* and into the note of the red
   cell in its month tab. Once the line is shipped in full, the note goes.
+
+## 🚚 Dispatch Date
+Each shipment card has a **🚚 Dispatch Date** button that opens a date picker, defaulting to today. Set it to the day
+the shipment actually left.
+- **Where it is kept:** `SHIPMENTS` → column N `DISPATCH_DATE`. The column is added by itself. **Clear date** removes
+  it.
+- **On the card:** *🚚 Dispatched dd-mm-yyyy*, or *🚚 Not dispatched yet*.
+- **Blinkit Planner:** for shipments entered from **26-11-2026** on, the Planner counts an RO as shipped only from this
+  date (once that day has come), not from the shipment's 📅 date. Until it is set, the RO stays Planned there.
+  Shipments entered before 26-11-2026 still count from their 📅 date.
