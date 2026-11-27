@@ -21,6 +21,7 @@ with all the code already here, so there is no need to re-upload `Code.gs` / `.h
 | `blinkit-planner-app/` | Blinkit Shipment Planner (lives in the Blinkit sheet's script, next to its inventory updater) | `Planner.gs` + `Index.html`; auto-deploy: `.github/workflows/deploy-blinkit-planner.yml` (replaces only `Planner` and `Index`) |
 | `planner/` | Hosted copy of `blinkit-planner-app/Index.html` (GitHub Pages) | Keep identical to `blinkit-planner-app/Index.html` |
 | `planner-android/` | Android app for the planner (APK built by `.github/workflows/planner-apk.yml`, release `planner-apk`) | Bundles `blinkit-planner-app/Index.html` at build time |
+| `cashbook-app/` | Travalate Cash Book (Cash In/Out, PIN login, edit requests, monthly Excel/PDF reports) | `Code.gs` + `Index.html` |
 | `_new-app-template/` | How to add another app | |
 
 The full list with links is in `APPS.md`. Keep it up to date when an app is added.
