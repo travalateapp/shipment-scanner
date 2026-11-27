@@ -838,6 +838,53 @@ function getInventoryStockForSku(sku) {
   }
 }
 
+// ── CURRENT STOCK FOR MANY SKUs AT ONCE ───────────────────────
+// The box rows of a shipment (and the Suggest Boxes popup) used to call
+// getInventoryStockForSku once per row: opening or editing a shipment with
+// many SKUs started dozens of script runs at the same moment (each one also
+// calling the Inventory web app), which hit Google's limit of ~30 runs at a
+// time for the account and stopped every app. This answers all of a
+// screen's SKUs in ONE run with ONE Inventory call (its getStockSnapshot,
+// the same "latest non-blank value" as getStock), kept 30 s in the script
+// cache. Returns JSON { sku: { success, stock, unmapped } }.
+function getInventoryStockForSkus(skus) {
+  const out = {};
+  const list = (Array.isArray(skus) ? skus : []).map(s => String(s || "").trim()).filter(Boolean);
+  if (!list.length) return JSON.stringify(out);
+  try {
+    const skuRows = getSkuData();
+    const invOf = {};
+    skuRows.forEach(r => {
+      if (r.sku) invOf[String(r.sku).trim().toUpperCase()] = (r.inventorySku || "").trim();
+      if (r.amazonSku) invOf[String(r.amazonSku).trim().toUpperCase()] = (r.inventorySku || "").trim();
+    });
+    const cache = CacheService.getScriptCache();
+    let stockOf = null;
+    const hit = cache.get("inv_stock_snap");
+    if (hit) { try { stockOf = JSON.parse(hit); } catch (e) { stockOf = null; } }
+    if (!stockOf) {
+      const snap = callInventoryWebApp_({ action: "getStockSnapshot" });
+      if (!snap || !snap.success) {
+        const msg = (snap && (snap.error || snap.message)) || "Failed to fetch stock.";
+        list.forEach(s => { out[s] = { success: false, message: msg }; });
+        return JSON.stringify(out);
+      }
+      stockOf = {};
+      (snap.stocks || []).forEach(x => { stockOf[String(x.sku).trim().toUpperCase()] = x.qty; });
+      try { const js = JSON.stringify(stockOf); if (js.length < 95000) cache.put("inv_stock_snap", js, 30); } catch (e) { /* not kept */ }
+    }
+    list.forEach(s => {
+      const inv = invOf[s.toUpperCase()] || "";
+      if (!inv) { out[s] = { success: true, stock: null, unmapped: true }; return; }
+      const v = stockOf[inv.toUpperCase()];
+      out[s] = { success: true, stock: v === undefined ? null : v };
+    });
+  } catch (err) {
+    list.forEach(s => { out[s] = { success: false, message: err.message }; });
+  }
+  return JSON.stringify(out);
+}
+
 // ── ADD / UPDATE UPC FOR A SKU+PLATFORM ───────────────────────
 // platform must be one of: blinkit, swiggy, zepto, amazon (case-insensitive)
 // For amazon, `sku` is the AMAZON SKU (column C) — the employee searches

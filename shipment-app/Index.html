@@ -4267,28 +4267,45 @@ function updateUpc(boxIdx, itemIdx, sku) {
    SKU it was fired for, so a slow response from an earlier SKU search
    can never overwrite a field after the employee has already picked a
    different SKU for that row. */
+/* Stock lookups are batched: every row asking within 60 ms goes in ONE
+   server call (getInventoryStockForSkus), and an answer is reused for 30 s.
+   One call per row used to start dozens of script runs at once when a
+   shipment with many SKUs was opened or edited, which hit Google's limit of
+   ~30 runs at a time for the account and stopped every app. */
+var stockBatch_ = null, stockCache_ = {};
+function requestStock_(sku, cb) {
+  const c = stockCache_[sku];
+  if (c && Date.now() - c.at < 30000) { setTimeout(() => cb(c.res), 0); return; }
+  if (!stockBatch_) stockBatch_ = { skus: {}, t: setTimeout(flushStock_, 60) };
+  (stockBatch_.skus[sku] = stockBatch_.skus[sku] || []).push(cb);
+}
+function flushStock_() {
+  const b = stockBatch_; stockBatch_ = null; if (!b) return;
+  const skus = Object.keys(b.skus);
+  const give = (s, res) => { if (res && res.success) stockCache_[s] = { res: res, at: Date.now() }; b.skus[s].forEach(cb => cb(res)); };
+  google.script.run
+    .withSuccessHandler(raw => {
+      let m = {}; try { m = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); } catch (e) { m = {}; }
+      skus.forEach(s => give(s, m[s] || { success: false, message: 'Could not fetch stock' }));
+    })
+    .withFailureHandler(err => { skus.forEach(s => give(s, { success: false, message: (err && err.message) || 'Could not fetch stock' })); })
+    .getInventoryStockForSkus(skus);
+}
 function loadStockForItem(boxIdx, itemIdx, skuName, isEdit) {
   const stockEl = document.getElementById((isEdit ? 'estock-' : 'stock-') + boxIdx + '-' + itemIdx);
   if (!stockEl) return;
   stockEl.value = '…';
   stockEl.dataset.forSku = skuName;
-  google.script.run
-    .withSuccessHandler(res => {
-      if (stockEl.dataset.forSku !== skuName) return; // stale response, SKU changed since
-      if (res && res.success) {
-        stockEl.value = (res.stock === null || res.stock === undefined) ? ' - ' : res.stock;
-        stockEl.title = res.unmapped ? 'Not linked to Inventory yet' : 'Current stock in Inventory';
-      } else {
-        stockEl.value = ' - ';
-        stockEl.title = (res && res.message) || 'Could not fetch stock';
-      }
-    })
-    .withFailureHandler(() => {
-      if (stockEl.dataset.forSku !== skuName) return;
+  requestStock_(skuName, res => {
+    if (stockEl.dataset.forSku !== skuName) return; // stale response, SKU changed since
+    if (res && res.success) {
+      stockEl.value = (res.stock === null || res.stock === undefined) ? ' - ' : res.stock;
+      stockEl.title = res.unmapped ? 'Not linked to Inventory yet' : 'Current stock in Inventory';
+    } else {
       stockEl.value = ' - ';
-      stockEl.title = 'Could not fetch stock';
-    })
-    .getInventoryStockForSku(skuName);
+      stockEl.title = (res && res.message) || 'Could not fetch stock';
+    }
+  });
 }
 
 /* ==============================================
@@ -9247,10 +9264,7 @@ function suggestLoadStock_(){
   skus.forEach(sku=>{
     if(Object.prototype.hasOwnProperty.call(cache,sku)) return;
     cache[sku]='…';
-    google.script.run
-      .withSuccessHandler(res=>{cache[sku]=(res&&res.success&&res.stock!==null&&res.stock!==undefined)?res.stock:null;suggestPaintStock_();})
-      .withFailureHandler(()=>{cache[sku]=null;suggestPaintStock_();})
-      .getInventoryStockForSku(sku);
+    requestStock_(sku, res=>{cache[sku]=(res&&res.success&&res.stock!==null&&res.stock!==undefined)?res.stock:null;suggestPaintStock_();}); // batched: one server call for all
   });
 }
 function suggestPaintStock_(){

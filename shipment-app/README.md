@@ -55,3 +55,10 @@ the shipment actually left.
 - **Blinkit Planner:** for shipments entered from **26-11-2026** on, the Planner counts an RO as shipped only from this
   date (once that day has come), not from the shipment's 📅 date. Until it is set, the RO stays Planned there.
   Shipments entered before 26-11-2026 still count from their 📅 date.
+
+## Current stock next to Qty (one call per screen)
+The Stock figure beside each box row, and in the Suggest Boxes popup, comes from Travalate Inventory. All rows asking
+at about the same time share **one** server call, `getInventoryStockForSkus`. That call makes one Inventory
+`getStockSnapshot` request, and the result is kept for 30 seconds. Before this, each row made its own call. Opening or
+editing a shipment with many SKUs then started dozens of script runs at once, and Google stops every app of an account
+when about 30 run at the same time.
