@@ -159,6 +159,10 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .ag input[type=date]{width:140px;padding:4px 6px}
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 #plTipBox{position:fixed;z-index:60;max-width:min(560px,calc(100vw - 16px));background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:10px 12px;font-size:12px;font-weight:400;text-align:left;pointer-events:none;display:none}
+.cfmWrap{position:fixed;inset:0;z-index:100;background:rgba(15,23,42,.45);display:flex;align-items:center;justify-content:center;padding:16px}
+.cfmBox{background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.3);width:min(440px,100%);padding:18px 18px 14px}
+.cfmMsg{white-space:pre-line;font-size:14px;line-height:1.5}.cfmIn{width:100%;margin-top:10px}.cfmErr{color:var(--bad);font-size:12px;min-height:16px;margin-top:4px}
+.cfmBtns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
 table.askq{border-collapse:collapse;width:100%;margin:6px 0 2px;font-size:11.5px;table-layout:auto}table.askq th,table.askq td{padding:3px 3px;border-bottom:1px solid var(--line);text-align:left}table.askq td.r,table.askq th.r{text-align:right;white-space:nowrap}table.askq th{font-size:10.5px;color:var(--muted)}table.askq td:first-child{word-break:break-word}
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
 .plTip,.dlTip,.shTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
@@ -701,7 +705,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 ask-table-fit';
+  var PAGE_BUILD = '2026-11-27 app-dialogs';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -719,6 +723,42 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /* ---------------- small helpers ---------------- */
   function $(id) { return document.getElementById(id); }
   function esc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  /*
+   * The app's own pop-up for questions (instead of the browser's confirm / prompt box, which shows the Google page
+   * address as its title). appDialog({ msg, ok, cancel, kind: 'r' | 'g' | 'p', input: { placeholder, check } }) →
+   * Promise of { ok, value }. Enter = OK, Esc or a click outside = Cancel.
+   */
+  function appDialog(o) {
+    return new Promise(function (resolve) {
+      var w = document.createElement('div'); w.className = 'cfmWrap';
+      w.innerHTML = '<div class="cfmBox" role="dialog" aria-modal="true"><div class="cfmMsg"></div>' +
+        (o.input ? '<input type="text" class="cfmIn" autocomplete="off"' + (o.input.numeric ? ' inputmode="numeric"' : '') + '><div class="cfmErr"></div>' : '') +
+        '<div class="cfmBtns"><button type="button" class="btn cfmNo"></button><button type="button" class="btn ' + (o.kind || 'p') + ' cfmYes"></button></div></div>';
+      w.querySelector('.cfmMsg').textContent = o.msg || '';
+      w.querySelector('.cfmNo').textContent = o.cancel || 'Cancel';
+      w.querySelector('.cfmYes').textContent = o.ok || 'OK';
+      var inp = w.querySelector('.cfmIn');
+      if (inp && o.input.placeholder) inp.placeholder = o.input.placeholder;
+      var done = function (ok) {
+        var v = inp ? inp.value.trim() : '';
+        if (ok && inp && o.input.check) { var err = o.input.check(v); if (err) { w.querySelector('.cfmErr').textContent = err; inp.focus(); return; } }
+        document.removeEventListener('keydown', key, true);
+        w.remove();
+        resolve({ ok: ok, value: v });
+      };
+      var key = function (e) {
+        if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); done(false); }
+        else if (e.key === 'Enter') { e.preventDefault(); e.stopPropagation(); done(true); }
+      };
+      document.addEventListener('keydown', key, true);
+      w.addEventListener('click', function (e) { if (e.target === w) done(false); });
+      w.querySelector('.cfmNo').onclick = function () { done(false); };
+      w.querySelector('.cfmYes').onclick = function () { done(true); };
+      document.body.appendChild(w);
+      (inp || w.querySelector('.cfmYes')).focus();
+    });
+  }
+  function appConfirm(msg, ok, kind, cancel) { return appDialog({ msg: msg, ok: ok, kind: kind, cancel: cancel }).then(function (r) { return r.ok; }); }
   function load(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
   function store(k, v) { try { if (v == null) localStorage.removeItem(k); else localStorage.setItem(k, v); } catch (e) { /* private mode */ } }
   function fmt(n, d) { if (n == null || !isFinite(n)) return '–'; return Number(n).toLocaleString('en-IN', { maximumFractionDigits: d || 0, minimumFractionDigits: d || 0 }); }
@@ -1010,8 +1050,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if ($('useSheet')) $('useSheet').onclick = sheetLink;
     if ($('reloadSheet')) $('reloadSheet').onclick = sheetLink;
     if ($('bWipe')) $('bWipe').onclick = function () {
-      if (!confirm('Wipe the plan? This clears the uploaded files, the quantities you typed and the filters. ROs already created are not touched.')) return;
-      wipeDraft(); S.restoredAt = null; $('bar').classList.add('hidden'); renderPlan();
+      appConfirm('Wipe the plan?\n\nThis clears the uploaded files, the quantities you typed and the filters. ROs already created are not touched.', 'Wipe the plan', 'r').then(function (ok) {
+        if (!ok) return;
+        wipeDraft(); S.restoredAt = null; $('bar').classList.add('hidden'); renderPlan();
+      });
     };
     if (S.plan) renderPlanOut();
     if (!S.inv && !S.invTried) loadSheetInventory();
@@ -2650,7 +2692,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (e.target.classList.contains('bSave')) {
         var ch = { appt: ro.querySelector('.bAp').value, roNo: ro.querySelector('.bNo').value.trim() };
         var st = ro.querySelector('.bSt').value; if (st) ch.status = st;
-        if (st === 'Cancelled' && !confirm('Cancel the whole RO? Its quantities are taken out of the month tab.')) return;
+        if (st === 'Cancelled' && ro.getAttribute('data-ok') !== '1') {
+          var saveBtn = e.target;
+          appConfirm('Cancel the whole RO?\n\nIts quantities are taken out of the month tab.', 'Cancel the RO', 'r', 'Keep it').then(function (ok) {
+            if (ok) { ro.setAttribute('data-ok', '1'); saveBtn.click(); }
+          });
+          return;
+        }
+        ro.removeAttribute('data-ok');
         if (st === 'Delivered') {
           ch.deliveredOn = ro.querySelector('.bDel').value;
           if (!ch.deliveredOn) { ro.querySelector('.bmsg').innerHTML = msgs(['Enter the delivery date.'], 'bad'); return; }
@@ -2681,9 +2730,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         bgSave('updateROLine', [S.token, k, { qty: nq }]);
       }
       if (btn.classList.contains('lCan')) {
-        if (!confirm('Cancel this line? Its quantity is taken out of the month tab.')) return;
-        mergeLogRows(applyLocal(byKey, { status: 'Cancelled' })); drawLog(); refreshPlanAfterRoChange();
-        bgSave('updateROLine', [S.token, k, { status: 'Cancelled' }]);
+        appConfirm('Cancel this line?\n\nIts quantity is taken out of the month tab.', 'Cancel the line', 'r', 'Keep it').then(function (ok) {
+          if (!ok) return;
+          mergeLogRows(applyLocal(byKey, { status: 'Cancelled' })); drawLog(); refreshPlanAfterRoChange();
+          bgSave('updateROLine', [S.token, k, { status: 'Cancelled' }]);
+        });
       }
     };
   }
@@ -3831,8 +3882,9 @@ function getRoInvoiceStyles_() {
       if (rmb) {
         var k5 = rmb.getAttribute('data-k'), g5 = grp(k5); if (!g5) return;
         var lbl = short(g5.wh) + ' · ' + g5.groups.join(' + ') + ' (' + fmt(g5.units) + ' units)';
-        if (g5.appt && !confirm(lbl + ' has its appointment on ' + dlab(g5.appt) + '. Remove it from this day? This clears its appointment and dispatch day (RO Log and month tab).')) return;
-        localSave(g5.batches, g5.appt ? { appt: '', dispatch: '' } : { dispatch: '' }, lbl + ' removed from ' + dlab(S.dashCalDay) + '; it has no dispatch day now.');
+        var rm5 = function () { localSave(g5.batches, g5.appt ? { appt: '', dispatch: '' } : { dispatch: '' }, lbl + ' removed from ' + dlab(S.dashCalDay) + '; it has no dispatch day now.'); };
+        if (!g5.appt) { rm5(); return; }
+        appConfirm(lbl + ' has its appointment on ' + dlab(g5.appt) + '.\n\nRemove it from this day? This clears its appointment and dispatch day (RO Log and month tab).', 'Remove', 'r').then(function (ok) { if (ok) rm5(); });
         return;
       }
       var apb = e.target.closest('.apGo2');
@@ -3844,8 +3896,10 @@ function getRoInvoiceStyles_() {
       var dlb = e.target.closest('.dlGo');
       if (dlb) {
         var k4 = dlb.getAttribute('data-k'), di = q('dlIn', k4), g4 = grp(k4); if (!g4 || !di.value) { toast('Enter the delivery date.', 4000); return; }
-        if (!confirm('Mark ' + short(g4.wh) + ' · ' + g4.groups.join(' + ') + ' (' + fmt(g4.units) + ' units) as delivered on ' + dlab(di.value) + '? Its quantities leave the month tab on ' + dlab(addDays(di.value, 2)) + '.')) return;
-        localSave(g4.batches, { status: 'Delivered', deliveredOn: di.value }, short(g4.wh) + ' delivered ' + dlab(di.value) + '; leaves the month tab ' + dlab(addDays(di.value, 2)) + '.');
+        var dv = di.value;
+        appConfirm('Mark ' + short(g4.wh) + ' · ' + g4.groups.join(' + ') + ' (' + fmt(g4.units) + ' units) as delivered on ' + dlab(dv) + '?\n\nIts quantities leave the month tab on ' + dlab(addDays(dv, 2)) + '.', 'Mark delivered', 'g').then(function (ok) {
+          if (ok) localSave(g4.batches, { status: 'Delivered', deliveredOn: dv }, short(g4.wh) + ' delivered ' + dlab(dv) + '; leaves the month tab ' + dlab(addDays(dv, 2)) + '.');
+        });
         return;
       }
       if (e.target.id === 'calAddGo') {
@@ -4114,7 +4168,7 @@ function getRoInvoiceStyles_() {
       var tr = e.target.closest('tr[data-u]'); if (!tr) return;
       var id = tr.getAttribute('data-u');
       if (e.target.classList.contains('uS')) api('saveUser', S.token, { id: id, name: tr.querySelector('.uN').value, role: tr.querySelector('.uR').value, active: tr.querySelector('.uA').checked }).then(function () { toast('Saved'); load_(); }, function (er) { $('uOut').innerHTML = msgs([er.message], 'bad'); });
-      if (e.target.classList.contains('uP')) { var p = prompt('New PIN for ' + id + ' (4–8 digits):'); if (p) api('resetUserPin', S.token, id, p).then(function () { toast('PIN changed'); }, function (er) { $('uOut').innerHTML = msgs([er.message], 'bad'); }); }
+      if (e.target.classList.contains('uP')) appDialog({ msg: 'New PIN for ' + id, ok: 'Change PIN', input: { placeholder: '4–8 digits', numeric: true, check: function (v) { return /^\d{4,8}$/.test(v) ? '' : 'Enter 4 to 8 digits.'; } } }).then(function (r) { var p = r.ok ? r.value : ''; if (p) api('resetUserPin', S.token, id, p).then(function () { toast('PIN changed'); }, function (er) { $('uOut').innerHTML = msgs([er.message], 'bad'); }); });
     };
     $('nAdd').onclick = function () {
       api('saveUser', S.token, { id: $('nId').value.trim(), name: $('nName').value.trim(), role: $('nRole').value, pin: $('nPin').value.trim() })
