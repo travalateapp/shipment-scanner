@@ -1,0 +1,7 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.keystore
+# Copied in from cashbook-app/Index.html by the "Build Cash Book APK" workflow (one source of truth).
+app/src/main/assets/index.html

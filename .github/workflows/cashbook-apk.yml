@@ -1,0 +1,106 @@
+name: Build Cash Book APK
+
+# Builds the Android app for the Cash Book (cashbook-android/). The app carries the Cash Book page
+# (cashbook-app/Index.html, copied in here) and talks to the Cash Book's Apps Script web app.
+#
+# - Every push that changes the page or the app builds a test APK (download it from the run's "Artifacts").
+# - A push to main also publishes it, signed with the private key,
+#   to the GitHub Release "cashbook-apk", so this link always gives the newest app:
+#     https://github.com/<owner>/<repo>/releases/download/cashbook-apk/CashBook.apk
+#   Installed apps find it there and offer the update themselves. That release is never marked "latest", so the
+#   Attendance app's updates are not affected.
+#
+# The Cash Book's Apps Script Deployment ID (AKfycb…) is taken from the repository secret CASHBOOK_DEPLOYMENT_ID
+# when it exists; without it the app asks for the Cash Book link once on first start.
+on:
+  push:
+    paths:
+      - 'cashbook-android/**'
+      - 'cashbook-app/Index.html'
+      - '.github/workflows/cashbook-apk.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: cashbook-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_BRANCH: main
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+
+      - name: Put the Cash Book page into the app
+        run: |
+          mkdir -p cashbook-android/app/src/main/assets
+          cp cashbook-app/Index.html cashbook-android/app/src/main/assets/index.html
+
+      # Same private key as the Attendance app (repository secrets ANDROID_KEYSTORE_BASE64 and
+      # ANDROID_KEYSTORE_PASSWORD), so updates always install over the old app. Without them (or on test
+      # branches) a throwaway key is used and nothing is published.
+      - name: Signing key
+        id: key
+        env:
+          KEYSTORE_B64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -n "$KEYSTORE_B64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ "$GITHUB_REF_NAME" = "$RELEASE_BRANCH" ]; then
+            echo "$KEYSTORE_B64" | base64 -d > cashbook-android/app/secret.keystore
+            echo "real=true" >> "$GITHUB_OUTPUT"
+            echo "Signing with the private key from the repository secrets."
+          else
+            keytool -genkeypair -keystore cashbook-android/app/secret.keystore -storetype PKCS12 -alias attendance -keyalg RSA \
+              -keysize 2048 -validity 2 -storepass test-build-only -keypass test-build-only -dname "CN=Test build only" >/dev/null 2>&1
+            echo "real=false" >> "$GITHUB_OUTPUT"
+            echo "Test build: signed with a throwaway key (not for the team)."
+          fi
+
+      - name: Build the APK
+        working-directory: cashbook-android
+        env:
+          ORG_GRADLE_PROJECT_storeFile: secret.keystore
+          ORG_GRADLE_PROJECT_storePassword: ${{ steps.key.outputs.real == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || 'test-build-only' }}
+          ORG_GRADLE_PROJECT_keyPassword: ${{ steps.key.outputs.real == 'true' && secrets.ANDROID_KEYSTORE_PASSWORD || 'test-build-only' }}
+          ORG_GRADLE_PROJECT_deploymentId: ${{ secrets.CASHBOOK_DEPLOYMENT_ID }}
+        run: |
+          gradle --no-daemon assembleRelease \
+            -PversionCode=${{ github.run_number }} \
+            -PversionName=1.${{ github.run_number }} \
+            -PupdateRepo="${GITHUB_REPOSITORY}"
+          cp app/build/outputs/apk/release/app-release.apk ../CashBook.apk
+          ls -l ../CashBook.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CashBook-apk
+          path: CashBook.apk
+
+      - name: Publish to the "cashbook-apk" release
+        if: steps.key.outputs.real == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          title="Cash Book 1.${{ github.run_number }}"
+          link="https://github.com/${GITHUB_REPOSITORY}/releases/download/cashbook-apk/CashBook.apk"
+          notes="Android app for the Travalate Cash Book. Install: open ${link} on the phone. Installed apps offer this update themselves."
+          if gh release view cashbook-apk >/dev/null 2>&1; then
+            gh release upload cashbook-apk CashBook.apk --clobber
+            gh release edit cashbook-apk --title "$title" --notes "$notes" --latest=false
+          else
+            gh release create cashbook-apk CashBook.apk --target "${{ github.sha }}" --title "$title" --notes "$notes" --latest=false
+          fi
+          echo "### Cash Book APK ready ($title)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Install / share: $link" >> "$GITHUB_STEP_SUMMARY"

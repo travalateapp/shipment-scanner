@@ -1,4 +1,4 @@
-# Automatic deploy for Inventory, Shipment Manager, Daily Task Sheet and PO
+# Automatic deploy for Inventory, Shipment Manager, Daily Task Sheet, PO and Cash Book
 
 After this is set up, every merge to `main` that changes one of these apps uploads its files to Apps Script and
 updates the web app to a new version. The `/exec` link stays the same.
@@ -9,6 +9,7 @@ updates the web app to a new version. The `/exec` link stays the same.
 | Shipment Manager | Deploy Shipment Manager | `SHIPMENT_SCRIPT_ID`, `SHIPMENT_DEPLOYMENT_ID` |
 | Daily Task Sheet | Deploy Daily Task Sheet | `DAILY_TASK_SCRIPT_ID`, `DAILY_TASK_DEPLOYMENT_ID` |
 | PO App | Deploy PO App | `PO_SCRIPT_ID`, `PO_DEPLOYMENT_ID` |
+| Cash Book | Deploy Cash Book App | `CASHBOOK_SCRIPT_ID`, `CASHBOOK_DEPLOYMENT_ID` |
 | Inventory + Shipment | (both) | `TRAVALATE_SHARED_SECRET` |
 
 An app without its secrets is simply skipped, so you can set them up one at a time.
