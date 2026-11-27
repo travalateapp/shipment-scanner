@@ -165,6 +165,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 .cfmBtns{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;margin-top:10px}
 table.askq{border-collapse:collapse;width:100%;margin:6px 0 2px;font-size:11.5px;table-layout:auto}table.askq th,table.askq td{padding:3px 3px;border-bottom:1px solid var(--line);text-align:left}table.askq td.r,table.askq th.r{text-align:right;white-space:nowrap}table.askq th{font-size:10.5px;color:var(--muted)}table.askq td:first-child{word-break:break-word}
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
+.roShort{background:#fef3c7;color:#92400e;border-radius:4px;padding:0 4px}
 .plTip,.dlTip,.shTip,.roTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 .hsub{display:block;font-size:9px;font-weight:400;color:var(--muted);line-height:1.15;margin-top:1px;white-space:normal}
 #askBtn{position:fixed;right:16px;bottom:84px;z-index:40;border:0;border-radius:999px;background:var(--brand);color:#fff;font-weight:700;padding:10px 16px;box-shadow:0 6px 18px rgba(0,0,0,.2);cursor:pointer;font-size:14px}
@@ -705,7 +706,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 ro-balance-hover';
+  var PAGE_BUILD = '2026-11-27 ro-short-mark';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1726,7 +1727,22 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    * shipments with their 🚚 Dispatch Date. Read when first hovered and kept for 2 minutes.
    */
   S.poBal = {};
-  function roNoHtml(no, bare) { no = String(no || ''); return no ? '<span class="roTip" data-ro="' + esc(no) + '">' + (bare ? '' : '#') + esc(no) + '</span>' : ''; }
+  // An RO shipped short (a line sent less than its RO quantity, from the Shipment Manager sync, or its balance read on
+  // a hover) shows its number on a light yellow background.
+  function roIsShort(no) {
+    var lists = [S.boot && S.boot.openROs, S.boot && S.boot.delivered, S.dash && S.dash.openROs, S.dash && S.dash.delivered, S.logRows, S.logAll, typeof ASK !== 'undefined' && ASK.rows];
+    for (var i = 0; i < lists.length; i++) {
+      var l = lists[i] || [];
+      for (var j = 0; j < l.length; j++) if (String(l[j].roNo) === no && Number(l[j].shortQty) > 0) return true;
+    }
+    var c = S.poBal[no];
+    return !!(c && c.b && c.b.shipments && c.b.shipments.length && (c.b.lines || []).some(function (x) { return x.poQty - x.packed > 0; }));
+  }
+  function roNoHtml(no, bare) {
+    no = String(no || ''); if (!no) return '';
+    var sh = roIsShort(no);
+    return '<span class="roTip' + (sh ? ' roShort' : '') + '" data-ro="' + esc(no) + '"' + (sh ? ' title="Shipped short: hover for its balance"' : '') + '>' + (bare ? '' : '#') + esc(no) + '</span>';
+  }
   function balanceHtml(b) {
     var h = '<b>📋 PO ' + esc(b.po) + '</b> · remaining balance' + (b.wh ? ' · ' + esc(b.wh) : '');
     if (!b.linked) return h + '<div class="muted" style="margin-top:6px">The Shipment Manager is not linked (Settings → Shipment Manager).</div>';
