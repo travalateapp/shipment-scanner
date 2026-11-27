@@ -390,6 +390,9 @@ input::placeholder{color:#b0bec5;font-style:italic}
 .shipment-item{border:1px solid #e2e8f0;border-radius:10px;padding:14px 16px;margin-bottom:10px;display:flex;flex-direction:column;align-items:stretch;gap:12px}
 .shipment-meta{flex:1 1 100%}
 .shipment-meta .s-title{font-weight:700;font-size:14px;color:#1a202c;margin-bottom:3px}
+/* Double-click picks just the value: separators and labels can't be selected, so the space after a PO /
+   invoice number is not taken along (Windows selects the word plus the space after it). */
+.shipment-meta .sep{user-select:none;-webkit-user-select:none}
 .shipment-meta .s-sub{font-size:12px;color:#64748b}
 /* Actions wrap onto as many rows as needed (never overflow the card),
    and related buttons are clustered into subtle "pill" groups so the
@@ -6350,8 +6353,8 @@ function renderShipmentsList() {
       return `
       <div class="shipment-item">
         <div class="shipment-meta">
-          <div class="s-title">${s.isDummy ? '🧪 <span style="color:#7c3aed">DUMMY</span> &nbsp;|&nbsp; ' : ''}${platform} - ${city} &nbsp;|&nbsp; PO: ${s.poNumber || ''}${s.invoiceNumber ? ' &nbsp;|&nbsp; INV: '+s.invoiceNumber : ''}</div>
-          <div class="s-sub">📅 ${formatDDMMYYYY_(s.date) || ''} &nbsp;·&nbsp; 📦 ${boxes.length} box(es) &nbsp;·&nbsp; 👤 ${s.employee || ''} &nbsp;·&nbsp; 🕐 ${formatTimestamp(s.ts)}${s.isDummy ? '' : (s.dispatchDate ? ' &nbsp;·&nbsp; <b style="color:#047857">🚚 Dispatched ' + formatDDMMYYYY_(s.dispatchDate) + '</b>' : ' &nbsp;·&nbsp; <b style="color:#b45309">🚚 Not dispatched yet</b>')}</div>
+          <div class="s-title">${s.isDummy ? '🧪 <span style="color:#7c3aed">DUMMY</span><span class="sep">&nbsp;|&nbsp;</span>' : ''}<span class="lbl">${platform} - </span><span>${city}</span><span class="sep">&nbsp;|&nbsp;</span><span class="lbl">PO:&nbsp;</span><span>${s.poNumber || ''}</span>${s.invoiceNumber ? '<span class="sep">&nbsp;|&nbsp;</span><span class="lbl">INV:&nbsp;</span><span>' + s.invoiceNumber + '</span>' : ''}</div>
+          <div class="s-sub"><span class="lbl">📅 </span>${formatDDMMYYYY_(s.date) || ''}<span class="sep"> &nbsp;·&nbsp; </span>📦 ${boxes.length} box(es)<span class="sep"> &nbsp;·&nbsp; </span><span class="lbl">👤 </span>${s.employee || ''}<span class="sep"> &nbsp;·&nbsp; </span>🕐 ${formatTimestamp(s.ts)}${s.isDummy ? '' : (s.dispatchDate ? '<span class="sep"> &nbsp;·&nbsp; </span><b style="color:#047857">🚚 Dispatched ' + formatDDMMYYYY_(s.dispatchDate) + '</b>' : '<span class="sep"> &nbsp;·&nbsp; </span><b style="color:#b45309">🚚 Not dispatched yet</b>')}</div>
         </div>
         <div class="shipment-actions">
           ${hasModule_('SHIPMENT_BOX_DETAILS') && !s.isDummy ? `<div class="action-group ag-box">
