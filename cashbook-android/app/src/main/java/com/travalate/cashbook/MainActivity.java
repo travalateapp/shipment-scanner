@@ -64,7 +64,7 @@ public class MainActivity extends Activity {
         web = new WebView(this);
         setContentView(web);
         updater = new Updater(this);
-        updater.check(false); // newer APK on GitHub? Ask once, download, open the installer
+        // Newer APK on GitHub? Checked in onResume (every open / return to the screen, and every 10 min while open).
 
         assets = new WebViewAssetLoader.Builder()
                 .setDomain(HOST)
@@ -250,6 +250,7 @@ public class MainActivity extends Activity {
 
     @Override
     protected void onPause() {
+        updater.onPause();
         web.onPause();
         super.onPause();
     }
@@ -292,8 +293,68 @@ public class MainActivity extends Activity {
         }
     }
 
+    /* ---------------- Open / share (PDF viewer, WhatsApp) ---------------- */
+
+    /** Writes the file into cache/shared/ and returns the content:// link other apps may read once granted. */
+    private Uri shareable(byte[] data, String name) throws Exception {
+        String safe = ShareProvider.safeName(name);
+        try (OutputStream out = new FileOutputStream(new File(ShareProvider.dir(this), safe))) { out.write(data); }
+        return ShareProvider.uri(this, safe);
+    }
+
+    /** Opens the file in the phone's own viewer (PDF viewer, gallery…). No viewer: it is saved to Downloads. */
+    private void openFile(PendingFile f) {
+        try {
+            Uri u = shareable(f.data, f.name);
+            Intent view = new Intent(Intent.ACTION_VIEW).setDataAndType(u, f.mime)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            startActivity(view);
+        } catch (android.content.ActivityNotFoundException e) {
+            Toast.makeText(this, "No app on this phone opens this file, so it is saved to Downloads.", Toast.LENGTH_LONG).show();
+            saveDownload(f);
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not open the file: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Shares the file with a message: straight to WhatsApp (or WhatsApp Business) when installed, else the share menu. */
+    private void shareFile(PendingFile f, String text, boolean whatsapp) {
+        try {
+            Uri u = shareable(f.data, f.name);
+            Intent send = new Intent(Intent.ACTION_SEND).setType(f.mime)
+                    .putExtra(Intent.EXTRA_STREAM, u)
+                    .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+            if (text != null && !text.isEmpty()) send.putExtra(Intent.EXTRA_TEXT, text);
+            send.setClipData(ClipData.newRawUri(f.name, u));
+            if (whatsapp) {
+                for (String pkg : new String[]{"com.whatsapp", "com.whatsapp.w4b"}) {
+                    try {
+                        startActivity(new Intent(send).setPackage(pkg));
+                        return;
+                    } catch (android.content.ActivityNotFoundException ignored) { }
+                }
+                Toast.makeText(this, "WhatsApp is not installed — choose another app.", Toast.LENGTH_SHORT).show();
+            }
+            startActivity(Intent.createChooser(send, "Share " + f.name));
+        } catch (Exception e) {
+            Toast.makeText(this, "Could not share the file: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
+    }
+
     /** Called from the page as window.CashBookApp.*. */
     private class Bridge {
+        @JavascriptInterface
+        public void openFile(String base64, String name, String mime) {
+            final PendingFile f = new PendingFile(Base64.decode(base64, Base64.DEFAULT), ShareProvider.safeName(name), mime);
+            runOnUiThread(() -> MainActivity.this.openFile(f));
+        }
+
+        @JavascriptInterface
+        public void shareFile(String base64, String name, String mime, String text, boolean whatsapp) {
+            final PendingFile f = new PendingFile(Base64.decode(base64, Base64.DEFAULT), ShareProvider.safeName(name), mime);
+            runOnUiThread(() -> MainActivity.this.shareFile(f, text, whatsapp));
+        }
+
         @JavascriptInterface
         public void saveFile(String base64, String name, String mime) {
             final PendingFile f = new PendingFile(Base64.decode(base64, Base64.DEFAULT),
