@@ -59,6 +59,7 @@ const DEFAULT_SETTINGS = [
   ['Short Lead Days', 4, 'Lead days for the warehouses listed in Short Lead Warehouses'],
   ['Short Lead Warehouses', 'Faridabad, Kundli, Jaipur', 'Warehouses with the short lead time (names or parts of names, comma separated)'],
   ['Packing Days', 2, 'Days of packing before dispatch (part of the lead days)'],
+  ['Lock RO Columns', 'Yes', 'Yes = values typed, pasted or deleted in the month tabs\' RO columns (D to the last RO column) are put back at once (colours stay free); needs the guardRoEdits trigger. No = off'],
 ];
 
 const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October',
@@ -248,6 +249,7 @@ function getSettings_() {
     shortLeadDays: Number(out['Short Lead Days']) || 4,
     shortLeadWh: String(out['Short Lead Warehouses'] || ''),
     packDays: out['Packing Days'] === '' || isNaN(Number(out['Packing Days'])) ? 2 : Number(out['Packing Days']),
+    lockRo: !/^n/i.test(String(out['Lock RO Columns'] == null ? 'Yes' : out['Lock RO Columns'])),
   };
 }
 
@@ -1663,6 +1665,74 @@ function markShort_(r, short, shipped, ordered) {
       cell.setFontColor(null).setFontWeight(null).setNote('');
     }
   });
+}
+
+/*
+ * RO columns locked (Settings "Lock RO Columns", default Yes). For an installable trigger: Apps Script → Triggers →
+ * add → function guardRoEdits, event source "From spreadsheet", event type "On edit". When someone types, pastes or
+ * deletes a value in a month tab's RO columns (D up to the last RO column), it is put back at once; colours, borders
+ * and other formatting stay as they made them (formatting does not fire "On edit"). The planner's own writes and the
+ * daily updater's are not edits by a person, so they are never touched.
+ *  - One cell: its value before the edit comes back (an RO heading with its small RO number).
+ *  - Several cells (paste, fill, delete): each cell is rebuilt from the RO Log (quantity, or what was shipped when it
+ *    was shipped short; the RO heading). A cell the RO Log knows nothing about is emptied.
+ */
+function guardRoEdits(e) {
+  if (!e || !e.range) return;
+  const rg = e.range, sh = rg.getSheet(), name = sh.getName();
+  if (!/^[A-Za-z]+[\s-]*\d{4}$/.test(name.trim()) || !monthTabs_().some(x => x.name === name)) return;
+  const first = FIRST_RO_COL, last = FIRST_RO_COL + roColCount_(sh) - 1;
+  const c1 = Math.max(rg.getColumn(), first), c2 = Math.min(rg.getLastColumn(), last);
+  if (c1 > c2) return;
+  if (!getSettings_().lockRo) return;
+  const r1 = rg.getRow(), r2 = rg.getLastRow();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(20000);
+  let fixed = 0;
+  try {
+    if (rg.getNumRows() === 1 && rg.getNumColumns() === 1) {
+      const cell = sh.getRange(r1, c1), old = e.oldValue;
+      if (old === undefined || old === null || old === '') cell.clearContent();
+      else if (/^RO \d{1,2} [A-Z]{3}/i.test(String(old))) writeLabel_(cell, String(old));
+      else cell.setValue(old);
+      fixed = 1;
+    } else {
+      const want = expectedRoCells_(sh);
+      const cur = sh.getRange(r1, c1, r2 - r1 + 1, c2 - c1 + 1).getValues();
+      for (let i = 0; i < cur.length; i++) {
+        for (let j = 0; j < cur[i].length; j++) {
+          const row = r1 + i, col = c1 + j, w = want[row + '|' + col], now = cur[i][j], cell = sh.getRange(row, col);
+          if (w === undefined) { if (now !== '') { cell.clearContent(); fixed++; } continue; }
+          if (w && w.label !== undefined) { if (String(now) !== w.label) { writeLabel_(cell, w.label); fixed++; } continue; }
+          if (Number(now) !== w || now === '') { cell.setValue(w); fixed++; }
+        }
+      }
+    }
+  } finally { lock.releaseLock(); }
+  if (fixed) {
+    try {
+      SpreadsheetApp.getActive().toast('The RO columns are locked, so that change was put back. Colours are fine. Change ROs in the Blinkit Planner.', '🔒 RO columns', 6);
+    } catch (err) { /* the value is back either way */ }
+  }
+}
+
+/** What the RO Log says the RO columns of a month tab hold: { 'row|col' (1-based): quantity, or { label } for a heading }. */
+function expectedRoCells_(sh) {
+  const name = sh.getName(), v = readBlockValues_(sh), cols = roCols_(sh), want = {};
+  readLog_().forEach(r => {
+    if (r.status === 'Cancelled' || r.removedAt instanceof Date || r.logOnly) return;
+    r.refs.forEach(ref => {
+      if (ref.t !== name) return;
+      const ci = cols.indexOf(ref.c), b = ci < 0 ? null : blockFor_(v, r.wh, r.group);
+      if (!b) return;
+      const col = FIRST_RO_COL + ci;
+      want[(b.headRow + 1) + '|' + col] = { label: roLabelOf_(r) };
+      if (b.items[r.item] === undefined) return;
+      const k = (b.items[r.item] + 1) + '|' + col, q = shortOf_(r) > 0 ? Math.max(0, Number(r.shippedQty) || 0) : r.qty;
+      want[k] = (typeof want[k] === 'number' ? want[k] : 0) + q;
+    });
+  });
+  return want;
 }
 
 /**
