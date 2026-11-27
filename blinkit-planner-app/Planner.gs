@@ -97,7 +97,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
-  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice,
+  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -2174,6 +2174,49 @@ function syncShipments_() {
     changedRos.push(r);
   });
   try { refreshHeadings_(changedRos.filter(r => r.status !== 'Cancelled')); } catch (e) { /* the RO Log is updated either way */ }
+  return out;
+}
+
+/**
+ * An RO's balance in the Shipment Manager (the same as its 📊 Balance there), for the hover on an RO number: each PO
+ * line (BLINKIT_PO: item, PO qty, packed = shipped qty, short from the shipment's Adjustments, remaining, why it was
+ * shipped short) and the RO's shipments (date, boxes, invoice, 🚚 Dispatch Date).
+ */
+function poBalance(token, roNo) {
+  auth_(token);
+  const po = String(roNo || '').trim();
+  if (!po) throw new Error('No RO number.');
+  const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
+  if (!id) return { po: po, linked: false };
+  const ss = SpreadsheetApp.openById(id);
+  const out = { po: po, linked: true, wh: '', lines: [], shipments: [] };
+  const pSh = ss.getSheetByName('BLINKIT_PO');
+  if (pSh && pSh.getLastRow() > 1) {
+    const w = Math.max(14, Math.min(16, pSh.getLastColumn()));
+    pSh.getRange(2, 1, pSh.getLastRow() - 1, w).getValues().forEach(r => {
+      if (String(r[0] || '').trim() !== po) return;
+      if (String(r[13] || '').trim().toUpperCase() === 'CANCELLED') return;
+      if (!out.wh) out.wh = String(r[1] || '');
+      const q = parseInt(r[11], 10) || 0, s = parseInt(r[12], 10) || 0;
+      out.lines.push({ item: Number(r[5]) || String(r[5] || ''), code: String(r[6] || r[5] || '').trim(), desc: String(r[7] || ''),
+        poQty: q, packed: s, status: String(r[13] || ''), reason: String(r[15] == null ? '' : r[15]).trim() });
+    });
+  }
+  const sSh = ss.getSheetByName('SHIPMENTS');
+  const short = {};
+  if (sSh && sSh.getLastRow() > 1) {
+    const w = Math.max(11, Math.min(14, sSh.getLastColumn()));
+    sSh.getRange(2, 1, sSh.getLastRow() - 1, w).getValues().forEach(r => {
+      if (String(r[5] || '').trim() !== po) return;
+      if (r[10] === true || String(r[10]).toUpperCase() === 'TRUE') return;
+      let boxes = 0; try { boxes = (JSON.parse(r[9] || '[]') || []).length; } catch (e) { /* not counted */ }
+      try { (JSON.parse(r[12] || '[]') || []).forEach(a => { const k = String(a.itemCode || '').trim(); if (k) short[k] = (short[k] || 0) + (parseInt(a.qty, 10) || 0); }); } catch (e) { /* none */ }
+      const d = r[7] instanceof Date ? fmtDate_(r[7]) : String(r[7] || '').slice(0, 10);
+      const dd = r.length > 13 && r[13] ? (r[13] instanceof Date ? fmtDate_(r[13]) : String(r[13]).slice(0, 10)) : '';
+      out.shipments.push({ date: d, dispatch: dd, boxes: boxes, invoice: String(r[6] || ''), by: String(r[2] || '') });
+    });
+  }
+  out.lines.forEach(l => { l.short = short[l.code] || short[String(l.item)] || 0; });
   return out;
 }
 
