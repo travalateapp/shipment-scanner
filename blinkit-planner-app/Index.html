@@ -160,7 +160,7 @@ th.sortable{cursor:pointer;user-select:none;white-space:nowrap}th.sortable:hover
 @media (max-width:760px){.cd{min-height:54px;padding:3px}.cb{font-size:9px;padding:1px 2px}}
 #plTipBox{position:fixed;z-index:60;max-width:min(560px,calc(100vw - 16px));background:var(--card);color:var(--ink);border:1px solid var(--line);border-radius:10px;box-shadow:0 10px 28px rgba(0,0,0,.2);padding:10px 12px;font-size:12px;font-weight:400;text-align:left;pointer-events:none;display:none}
 #plTipBox table{border-collapse:collapse;width:100%;margin-top:6px}#plTipBox th,#plTipBox td{padding:3px 6px;border-bottom:1px solid var(--line);white-space:nowrap;text-align:left}#plTipBox th{color:var(--muted);font-size:11px}#plTipBox .r{text-align:right}
-.plTip,.dlTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
+.plTip,.dlTip,.shTip,.hv{cursor:help;text-decoration:underline dotted;text-underline-offset:3px}
 .hsub{display:block;font-size:9px;font-weight:400;color:var(--muted);line-height:1.15;margin-top:1px;white-space:normal}
 #askBtn{position:fixed;right:16px;bottom:84px;z-index:40;border:0;border-radius:999px;background:var(--brand);color:#fff;font-weight:700;padding:10px 16px;box-shadow:0 6px 18px rgba(0,0,0,.2);cursor:pointer;font-size:14px}
 #askBox{position:fixed;right:16px;bottom:136px;z-index:45;width:min(420px,calc(100vw - 32px));max-height:min(70vh,620px);display:flex;flex-direction:column;background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:0 14px 40px rgba(0,0,0,.25);overflow:hidden}
@@ -700,7 +700,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 chip-order';
+  var PAGE_BUILD = '2026-11-27 shipped-hover';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1663,11 +1663,34 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     if (waitSum !== total) h += '<div class="small muted" style="margin-top:4px">Delivered shows ' + fmt(total) + ': a part Blinkit\'s Incoming still lists is counted there instead (never twice), or the plan was made before a change.</div>';
     return h;
   }
+  /**
+   * Hover card for a "Shipped" number (New Plan and Dashboard): the open ROs for that warehouse + item that are
+   * shipped (on the road, not delivered yet), with RO number, shipped day, appointment and the quantity sent.
+   */
+  function shippedTipHtml(wh, item, total) {
+    var ros = ((S.boot && S.boot.openROs) || []).filter(function (x) {
+      return PlanCore.whNorm(x.wh) === PlanCore.whNorm(wh) && Number(x.item) === Number(item) && isShipped(x);
+    }).sort(function (a, b) { return String(a.shippedOn || dispatchOf(a) || '').localeCompare(String(b.shippedOn || dispatchOf(b) || '')); });
+    var h = '<b>Shipped ' + fmt(total) + '</b> · ' + esc(skuText(skuOf(item), item)) + ' · ' + esc(wh) +
+      '<div class="small muted">On the road: dispatched' + (S.boot && S.boot.shipLinked ? ' (🚚 Dispatch Date in the Shipment Manager)' : '') + ', not delivered yet.</div>';
+    if (!ros.length) return h + '<div class="muted" style="margin-top:6px">No shipped RO in the RO Log for this item here.</div>';
+    var sum = 0;
+    h += '<table><tr><th>RO No.</th><th>RO date</th><th>Shipped</th><th>Appointment</th><th class="r">Qty sent</th></tr>' + ros.map(function (x) {
+      var sq = Math.max(0, (Number(x.qty) || 0) - (Number(x.shortQty) || 0)), d = x.shippedOn || dispatchOf(x);
+      sum += sq;
+      return '<tr><td>' + esc(x.roNo || '—') + '</td><td>' + prettyDate(x.roDate) + '</td><td>' + (d ? prettyDate(d) : '—') + '</td><td>' + (x.appt ? prettyDate(x.appt) : '<span class="muted">none yet</span>') + '</td><td class="r">' + fmt(sq) +
+        (Number(x.shortQty) > 0 ? ' <span class="muted">of ' + fmt(x.qty) + '</span>' : '') + '</td></tr>';
+    }).join('') + '<tr><th colspan="4">Total</th><th class="r">' + fmt(sum) + '</th></tr></table>';
+    if (sum !== total) h += '<div class="small muted" style="margin-top:4px">Shipped shows ' + fmt(total) + ': the plan was made before a change in the RO Log, or part of it is already in Blinkit\'s stock.</div>';
+    return h;
+  }
   function showPlTip(el) {
     var box = $('plTipBox');
     if (!box) { box = document.createElement('div'); box.id = 'plTipBox'; document.body.appendChild(box); }
     var k = el.getAttribute('data-k'), r = k && S.plan ? S.plan.filter(function (x) { return x.key === k; })[0] : null;
-    if (el.classList.contains('dlTip')) {
+    if (el.classList.contains('shTip')) {
+      box.innerHTML = shippedTipHtml(el.getAttribute('data-wh'), el.getAttribute('data-it'), Number(el.getAttribute('data-n')) || 0);
+    } else if (el.classList.contains('dlTip')) {
       var sv = el.getAttribute('data-s');
       box.innerHTML = deliveredTipHtml(el.getAttribute('data-wh'), el.getAttribute('data-it'), Number(el.getAttribute('data-n')) || 0, sv === '' || sv == null ? null : Number(sv), el.getAttribute('data-sd') || '');
     } else box.innerHTML = plannedTipHtml(el.getAttribute('data-wh'), el.getAttribute('data-it'), Number(el.getAttribute('data-n')) || 0, r);
@@ -1681,7 +1704,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   // Mouse: shows on hover. Touch (phone app): a tap shows it too, except on a Planned number that opens its own
   // pop-up when tapped (Dashboard) — there only the pop-up opens.
   document.addEventListener('pointerover', function (e) {
-    var el = e.target.closest && e.target.closest('.plTip, .dlTip');
+    var el = e.target.closest && e.target.closest('.plTip, .dlTip, .shTip');
     if (el && e.pointerType && e.pointerType !== 'mouse' && el.closest('.plk')) { hidePlTip(); return; }
     if (el) showPlTip(el); else hidePlTip();
   });
@@ -1820,7 +1843,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<div class="right"><span class="lbl">Per day</span>' + fmt(r.rate) + '</div>' +
           '<div class="right"><span class="lbl">Stock</span>' + fmt(r.whStock + r.dsStock) + '</div>' +
           '<div class="right"><span class="lbl">Delivered</span>' + (r.delivered ? '<span class="dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivered + '" data-s="' + (r.whStock + r.dsStock) + '" data-sd="' + esc((stockInfoNow() || {}).stockDate || '') + '">' + fmt(r.delivered) + '</span>' : '<span class="muted">0</span>') + '</div>' +
-          '<div class="right"><span class="lbl">Shipped</span>' + (r.shipped ? fmt(r.shipped) : '<span class="muted">0</span>') + '</div>' +
+          '<div class="right"><span class="lbl">Shipped</span>' + (r.shipped ? '<span class="shTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.shipped + '">' + fmt(r.shipped) + '</span>' : '<span class="muted">0</span>') + '</div>' +
           '<div class="right"><span class="lbl">Planned</span>' + (inc || r.appIncoming || r.incoming ? '<span class="plTip" data-k="' + esc(r.key) + '" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + inc + '">' + fmt(inc) + '</span>' : '<span class="muted">0</span>') + '</div>' +
           '<div class="right c-days">' + (r.daysOnHand == null ? fmtDays(r.daysOnHand) : '<span class="hv" title="Days now = (Stock ' + fmt(r.whStock + r.dsStock) + ' + Delivered ' + fmt(r.delivered || 0) + ') ÷ ' + fmt(r.rate, 1) + ' per day' + (r.elapsed ? ' − ' + r.elapsed + ' day' + (r.elapsed === 1 ? '' : 's') + ' since the stock date' : '') + ' = ' + fmtDays(r.daysOnHand) + '&#10;With Shipped + Planned on their way too: ' + fmtDays(r.daysNow) + ' days">' + fmtDays(r.daysOnHand) + '</span>') + '</div>' +
           '<div class="right c-max">' + fmt(r.max) + '</div>' +
@@ -3397,7 +3420,7 @@ function getRoInvoiceStyles_() {
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
-        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivAdj + '" data-s="' + (r.has == null ? '' : r.has - r.delivAdj) + '" data-sd="' + esc(((S.dash && S.dash.meta && PlanCore.stockInfo(S.dash.meta.inventoryAt, today())) || {}).stockDate || '') + '">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill hv ' + c + '" title="' + daysWhy(r) + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
+        return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivAdj + '" data-s="' + (r.has == null ? '' : r.has - r.delivAdj) + '" data-sd="' + esc(((S.dash && S.dash.meta && PlanCore.stockInfo(S.dash.meta.inventoryAt, today())) || {}).stockDate || '') + '">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.shipped ? '<span class="shTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.shipped + '">' + fmt(r.shipped) + '</span>' : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill hv ' + c + '" title="' + daysWhy(r) + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     // 25 items a page (Prev / Next below the table); a new search, sort or filter goes back to page 1.
     var PER = 25;
