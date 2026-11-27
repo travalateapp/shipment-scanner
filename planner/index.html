@@ -700,7 +700,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 shipped-hover';
+  var PAGE_BUILD = '2026-11-27 mark-shipped';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -1246,7 +1246,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         if (ch.appt !== undefined) { var na = ch.appt || ''; if (na !== (r.appt || '') && r.dispatchFixed && ch.dispatch === undefined) r.dispatchFixed = false; r.appt = na; }
         if (ch.roNo !== undefined) r.roNo = ch.roNo;
         if (ch.dispatch !== undefined) { r.dispatch = ch.dispatch || ''; r.dispatchFixed = !!(ch.dispatch && r.appt); }
-        if (ch.status) { if (ch.status === 'Delivered') r.deliveredOn = ch.deliveredOn; else if (r.status === 'Delivered') r.deliveredOn = ''; r.status = ch.status; }
+        if (ch.status === 'Shipped') { r.status = 'Created'; r.shippedOn = ch.shippedOn; r.dispatch = ch.shippedOn; r.dispatchFixed = true; if (r.deliveredOn) r.deliveredOn = ''; }
+        else if (ch.status) { if (ch.status === 'Delivered') r.deliveredOn = ch.deliveredOn; else if (r.status === 'Delivered') r.deliveredOn = ''; if (ch.status === 'Created' && r.shippedOn) r.shippedOn = ''; r.status = ch.status; }
         if (ch.qty !== undefined) r.qty = ch.qty;
         if (ch.shortNote !== undefined) r.shortNote = ch.shortNote;
         if (!touched.some(function (t) { return t.key === r.key; })) touched.push(r);
@@ -2593,8 +2594,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         '<span class="small">RO ' + prettyDate(r0.roDate) + '</span><span class="small"><b>' + fmt(units) + '</b> units · ' + rs.length + ' lines</span>' +
         (r0.appt ? '<span class="small">app ' + prettyDate(r0.appt) + '</span>' : '') + (dispatchOf(cg) ? '<span class="small">🚚 ' + prettyDate(dispatchOf(cg)) + '</span>' : '') + (r0.roNo ? '<span class="small">#' + esc(r0.roNo) + '</span>' : '') +
         (tabs.length ? '<span class="small muted">' + esc(tabs.join(', ')) + '</span>' : '<span class="pill warn">not in a month tab</span>') + '</div><div class="b">' +
-        (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ST_OPTS.map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('') + '</select></div>' +
+        (edit ? '<div class="row"><div><label class="f">Status (whole RO)</label><select class="bSt"><option value="">— keep —</option>' + ST_OPTS.slice(0, 2).concat([['Shipped', 'Shipped (on a date)']], ST_OPTS.slice(2)).map(function (o) { return '<option value="' + o[0] + '">' + o[1] + '</option>'; }).join('') + '</select></div>' +
           '<div class="bDelW hidden"><label class="f">Delivered on</label><input type="date" class="bDel" value="' + today() + '" max="' + today() + '"></div>' +
+          '<div class="bShipW hidden"><label class="f">Shipped on</label><input type="date" class="bShip" value="' + (dispatchOf(roGroups(rs)[0] || {}) || today()) + '" max="' + today() + '"></div>' +
           '<div><label class="f">Appointment</label><input type="date" class="bAp" value="' + esc(r0.appt) + '"></div>' +
           '<div><label class="f">Dispatch day' + (cg.appt ? (cg.dispatchFixed ? ' (set by hand)' : ' (from appointment)') : '') + '</label><input type="date" class="bDs" value="' + esc(dispatchOf(cg)) + '"' + (cg.appt ? ' title="' + (cg.dispatchFixed ? 'Set by hand. Empty it and save to follow the appointment again.' : 'Worked out from the appointment. Change it to set it by hand.') + '"' : '') + '></div>' +
           '<div><label class="f">Blinkit RO No.</label><input type="text" class="bNo" value="' + esc(r0.roNo) + '"></div>' +
@@ -2621,6 +2623,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       }
       if (!e.target.classList.contains('bSt')) return;
       e.target.closest('.ro').querySelector('.bDelW').classList.toggle('hidden', e.target.value !== 'Delivered');
+      e.target.closest('.ro').querySelector('.bShipW').classList.toggle('hidden', e.target.value !== 'Shipped');
     };
     box.onclick = function (e) {
       var ro = e.target.closest('.ro'); if (!ro) return;
@@ -2636,6 +2639,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           if (!ch.deliveredOn) { ro.querySelector('.bmsg').innerHTML = msgs(['Enter the delivery date.'], 'bad'); return; }
         }
         var ds = ro.querySelector('.bDs');
+        if (st === 'Shipped') {
+          // Shipped by hand on a date: that date is also its dispatch day (the dispatch box is not used).
+          ch.shippedOn = ro.querySelector('.bShip').value;
+          if (!ch.shippedOn) { ro.querySelector('.bmsg').innerHTML = msgs(['Enter the date it was shipped.'], 'bad'); return; }
+          ds = null;
+        }
         var cg0 = roGroups(c.rows)[0] || {};
         if (ds && ds.value !== dispatchOf(cg0)) {
           if (ds.value && !isWorkDay(ds.value)) { out.innerHTML = msgs([prettyDate(ds.value) + ' is not a dispatch day (Settings → Dispatch).'], 'bad'); return; }

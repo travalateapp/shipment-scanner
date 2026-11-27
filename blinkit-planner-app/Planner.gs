@@ -1231,7 +1231,16 @@ function updateROLine(token, key, changes) {
  */
 function updateBatch(token, batch, changes) {
   const u = auth_(token, 'Planner');
-  changes = changes || {};
+  changes = Object.assign({}, changes || {});
+  // "Shipped (on a date)" from the RO Log: an open RO marked shipped by hand (status Planned on Blinkit, with its
+  // Shipped On and dispatch day set to that date). Choosing "Planned (on Blinkit)" for a shipped RO un-ships it.
+  let shipOn = null;
+  if (changes.status === 'Shipped') {
+    shipOn = parseDate_(changes.shippedOn);
+    if (!shipOn) throw new Error('Enter the date it was shipped.');
+    changes.status = 'Created';
+    changes.dispatch = fmtDate_(shipOn);
+  }
   const ids = Array.isArray(batch) ? batch.map(String) : [String(batch)];
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -1289,11 +1298,19 @@ function updateBatch(token, batch, changes) {
         log.getRange(r.row, L['Status'] + 1).setValue(changes.status);
         r.status = changes.status;
       }
+      if (shipOn) {
+        r.shippedOn = shipOn;
+        log.getRange(r.row, L['Shipped On'] + 1).setValue(shipOn);
+      } else if (changes.status === 'Created' && r.shippedOn instanceof Date) {
+        r.shippedOn = ''; r.shipSyncUntil = '';
+        log.getRange(r.row, L['Shipped On'] + 1).setValue('');
+        log.getRange(r.row, L['Ship Sync Until'] + 1).setValue('');
+      }
       const apptChanged = changes.appt !== undefined && fmtDate_(appt) !== fmtDate_(r.appt);
       if (dispatch !== undefined) {
         // A dispatch day given for an RO with an appointment is set by hand (kept instead of the appointment's);
         // an empty one follows the appointment again.
-        r.dispatch = dispatch; r.dispatchFixed = !!(dispatch && appt);
+        r.dispatch = dispatch; r.dispatchFixed = !!(dispatch && (appt || shipOn));
         log.getRange(r.row, L['Dispatch Date'] + 1).setValue(dispatch);
         log.getRange(r.row, L['Dispatch Fixed'] + 1).setValue(r.dispatchFixed ? 'Yes' : '');
       } else if (apptChanged && r.dispatchFixed) {
@@ -2038,7 +2055,9 @@ function syncShipments_() {
   const NOT_SHIPPED = 'Not shipped (Shipment Manager)';
   // Lines shipped short stay checked after the 2 days too: a reason given later in the Shipment Manager, or an edit
   // that sends the rest, still reaches the RO Log and the month tab.
-  const due = all.filter(r => r.roNo && (r.status !== 'Cancelled' || String(r.notes).indexOf(NOT_SHIPPED) >= 0) && !r.logOnly &&
+  // Log-only ROs too (typed into the month tab by hand): they get their shipped day and quantities in the RO Log;
+  // having no month-tab cells of their own, nothing is written there for them.
+  const due = all.filter(r => r.roNo && (r.status !== 'Cancelled' || String(r.notes).indexOf(NOT_SHIPPED) >= 0) &&
     (shortOf_(r) > 0 || !(r.shipSyncUntil instanceof Date && r.shipSyncUntil.getTime() < now.getTime())) &&
     r.roDate instanceof Date && r.roDate.getTime() >= now.getTime() - 60 * 864e5);
   if (!due.length) return { ros: 0, qty: 0, dates: 0 };
