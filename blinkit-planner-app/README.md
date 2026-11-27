@@ -65,6 +65,12 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
     - **No dispatch date yet:** the RO stays Planned, even with a shipment. An RO marked shipped earlier from the
       shipment's date is set back.
     - **Older shipments:** shipments entered before 26-11-2026 still count from their shipment date.
+  - **Marked shipped by hand:** in the RO Log, open the RO and set **Status → Shipped (on a date)**. Pick the day it
+    left and click **Save RO**. That day becomes its shipped day and dispatch day. Use this for an RO that has no
+    shipment in the Shipment Manager. If it does have one, the Shipment Manager's date wins at the next sync.
+    Choosing *Planned (on Blinkit)* un-ships it.
+  - **Log-only ROs** (typed into the month tab by hand) are synced with the Shipment Manager too. They get their
+    shipped day and quantities in the RO Log. Nothing is written to the month tab for them.
   - **Not shipped by its dispatch day:** an open RO (Draft / Planned) whose dispatch day has passed and that the Shipment Manager has no shipment for is **not** marked Shipped; right after the sync its dispatch day moves to **today** (or the next dispatch day, Settings → Dispatch), and its month-tab heading follows. Every day it is still not shipped, it moves again. Once the Shipment Manager has its shipment, the real shipment date replaces it. (With an appointment, the moved day is kept as set by hand; the daily capacity is not re-balanced.)
   The sync runs at most every 30 minutes, in the background when the planner is opened, from **Settings → Shipment Manager → Sync now**, or from a time-driven trigger on `syncFromShipmentManager`. Each RO is checked again for **2 days** after its shipment is first found (RO Log *Ship Sync Until*), then left alone.
 - **Appointment passed — reminder:** when the calendar opens, ROs whose appointment date has passed and are not marked Delivered pop up: **Mark delivered** (with the date), **New appointment**, or **⏰ Remind me later** (3 hours, on that device).
