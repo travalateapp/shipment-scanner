@@ -58,13 +58,20 @@ A web app for computers and phones that plans Blinkit shipments (ROs) and keeps 
   - the RO Log line shows "shipped X · Z not sent";
   - when the RO is delivered, the whole quantity (red part included) leaves the month tab 2 days later like any other, and the red mark goes with it.
 
+  - **Shipped = 🚚 Dispatch Date:** for shipments entered in the Shipment Manager from **26-11-2026** on, an RO counts
+    as shipped only once its shipment has a **Dispatch Date** (Shipment Manager → Shipments → 🚚 Dispatch Date) on or
+    before today. That date is its shipped day and dispatch day. Box quantities and shipped-short reasons also arrive
+    from that day.
+    - **No dispatch date yet:** the RO stays Planned, even with a shipment. An RO marked shipped earlier from the
+      shipment's date is set back.
+    - **Older shipments:** shipments entered before 26-11-2026 still count from their shipment date.
   - **Not shipped by its dispatch day:** an open RO (Draft / Planned) whose dispatch day has passed and that the Shipment Manager has no shipment for is **not** marked Shipped; right after the sync its dispatch day moves to **today** (or the next dispatch day, Settings → Dispatch), and its month-tab heading follows. Every day it is still not shipped, it moves again. Once the Shipment Manager has its shipment, the real shipment date replaces it. (With an appointment, the moved day is kept as set by hand; the daily capacity is not re-balanced.)
   The sync runs at most every 30 minutes, in the background when the planner is opened, from **Settings → Shipment Manager → Sync now**, or from a time-driven trigger on `syncFromShipmentManager`. Each RO is checked again for **2 days** after its shipment is first found (RO Log *Ship Sync Until*), then left alone.
 - **Appointment passed — reminder:** when the calendar opens, ROs whose appointment date has passed and are not marked Delivered pop up: **Mark delivered** (with the date), **New appointment**, or **⏰ Remind me later** (3 hours, on that device).
 - **Plan columns** (New Plan and Dashboard), from left to right:
   - **Stock:** on Blinkit now (warehouse + in-between + darkstore).
   - **Delivered:** at the warehouse, waiting for Blinkit's GRN.
-  - **Shipped:** on the road. These are open ROs the **Shipment Manager has a shipment for**, not delivered yet. An RO whose dispatch day has passed without a shipment there stays Planned. (Without a Shipment Manager link in Settings, the dispatch day decides: today or earlier counts as shipped.)
+  - **Shipped:** on the road. These are open ROs whose Shipment Manager shipment is **dispatched** (🚚 Dispatch Date set, for shipments entered from 26-11-2026), not delivered yet. An RO whose dispatch day has passed without a dispatched shipment there stays Planned. (Without a Shipment Manager link in Settings, the dispatch day decides: today or earlier counts as shipped.)
   - **Planned:** on its way but **not shipped yet** (Blinkit's Incoming + RO Log ROs Blinkit does not show yet, minus Shipped; hover for the split).
 
   Shipped and Planned follow the Shipment Manager: once it has the shipment, the RO moves to Shipped.

@@ -2028,6 +2028,9 @@ function poLinesMap_(roNos) {
  * a time-driven trigger on syncFromShipmentManager.
  */
 const SHIP_SYNC_DAYS = 2;
+// Shipments entered in the Shipment Manager from this day on count as shipped only once their 🚚 Dispatch Date is set
+// (and has come): that date is the shipped day. Older shipments keep their DATE as before.
+const DISPATCH_DATE_FROM = '2026-11-26';
 function syncShipments_() {
   const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
   if (!id) return { skipped: 'Shipment Manager link not set (Settings).' };
@@ -2044,19 +2047,51 @@ function syncShipments_() {
   const shSh = ss.getSheetByName('SHIPMENTS');
   if (!shSh) throw new Error('no SHIPMENTS tab in the Shipment Manager sheet');
   const want = {}; due.forEach(r => { want[String(r.roNo).trim()] = 1; });
-  const sv = shSh.getLastRow() > 1 ? shSh.getRange(2, 5, shSh.getLastRow() - 1, 7).getValues() : []; // E PLATFORM … K DELETED
-  const shipDate = {};
+  // A ID, B TIMESTAMP (entered), … E PLATFORM, F PO_NUMBER, … H DATE, … K DELETED, … N DISPATCH_DATE
+  const width = Math.max(11, Math.min(14, shSh.getLastColumn()));
+  const sv = shSh.getLastRow() > 1 ? shSh.getRange(2, 1, shSh.getLastRow() - 1, width).getValues() : [];
+  const today = ymd_(now), shipDate = {}, waiting = {};
   sv.forEach(r => {
-    const po = String(r[1] || '').trim(); if (!want[po]) return;
-    if (!/blinkit/i.test(String(r[0] || ''))) return;
-    if (r[6] === true || String(r[6]).toUpperCase() === 'TRUE') return;
-    const d = r[3] instanceof Date ? r[3] : parseDate_(String(r[3] || '').slice(0, 10));
+    const po = String(r[5] || '').trim(); if (!want[po]) return;
+    if (!/blinkit/i.test(String(r[4] || ''))) return;
+    if (r[10] === true || String(r[10]).toUpperCase() === 'TRUE') return;
+    const entered = r[1] instanceof Date ? ymd_(r[1]) : String(r[1] || '').slice(0, 10);
+    let d;
+    if (entered && entered >= DISPATCH_DATE_FROM) {
+      // Shipped on its Dispatch Date, once that day has come; until then the RO is not shipped yet.
+      const dd = r[13] instanceof Date ? r[13] : (r[13] ? parseDate_(String(r[13]).slice(0, 10)) : null);
+      d = dd && ymd_(dd) <= today ? dd : null;
+      if (!d) { waiting[po] = 1; return; }
+    } else {
+      d = r[7] instanceof Date ? r[7] : parseDate_(String(r[7] || '').slice(0, 10));
+    }
     if (d) shipDate[po] = d;
   });
+  // ROs marked shipped from a shipment that has no dispatch date yet (e.g. by the DATE, before this change): not
+  // shipped after all. Shipped On / Shipped Qty / the 2-day window are cleared and red "not sent" marks undone; the
+  // dispatch day then moves on each day (rollOverdueDispatch_) until the Dispatch Date is set.
+  const out = { ros: 0, qty: 0, dates: 0, short: 0, reverted: 0, waiting: Object.keys(waiting).filter(po => !shipDate[po]).length, warnings: [] };
+  const changedRos = [], seenRo = {};
+  due.forEach(r => {
+    const po = String(r.roNo).trim();
+    if (!waiting[po] || shipDate[po] || !(r.shippedOn instanceof Date)) return;
+    r.shippedOn = ''; r.shipSyncUntil = '';
+    log.getRange(r.row, L['Shipped On'] + 1).setValue('');
+    log.getRange(r.row, L['Ship Sync Until'] + 1).setValue('');
+    if (r.shippedQty != null) {
+      r.shippedQty = null;
+      log.getRange(r.row, L['Shipped Qty'] + 1).setValue('');
+      if (!r.removedAt) { try { markShort_(r, 0, 0, r.qty); } catch (e) { /* the RO Log is cleared either way */ } }
+    }
+    log.getRange(r.row, L['Updated At'] + 1, 1, 2).setValues([[now, 'Shipment Manager']]);
+    out.reverted++; changedRos.push(r);
+  });
   const found = Object.keys(shipDate);
-  if (!found.length) return { ros: 0, qty: 0, dates: 0 };
+  if (!found.length) {
+    try { refreshHeadings_(changedRos); } catch (e) { /* the RO Log is updated either way */ }
+    return out;
+  }
   const poLines = poLinesMap_(found);
-  const out = { ros: 0, qty: 0, dates: 0, short: 0, warnings: [] }, changedRos = [], seenRo = {};
   due.forEach(r => {
     const po = String(r.roNo).trim(), d = shipDate[po]; if (!d) return;
     if (!seenRo[po]) { seenRo[po] = 1; out.ros++; }
@@ -2146,7 +2181,7 @@ function syncShipments(token, force) {
     const res = syncShipments_();
     try { res.cells = refreshShortCells_(); } catch (e) { /* tried again next sync */ }
     if (!res.skipped) { try { res.moved = rollOverdueDispatch_(); } catch (e) { /* tried again next sync */ } }
-    if (res.dates || res.qty || res.short || res.moved) {
+    if (res.dates || res.qty || res.short || res.moved || res.reverted) {
       const all = readLog_();
       res.openROs = openROsOf_(all); res.delivered = recentDeliveredOf_(all);
     }

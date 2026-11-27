@@ -1573,6 +1573,27 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
   </div>
 </div>
 
+<!-- ====== 🚚 DISPATCH DATE ====== -->
+<div id="dispatchModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center" onclick="if(event.target===this)closeDispatchModal_()">
+  <div style="background:#fff;border-radius:14px;width:min(400px,92vw);box-shadow:0 20px 60px rgba(0,0,0,.4)">
+    <div style="background:linear-gradient(135deg,#1a1a2e,#0f3460);color:#fff;padding:14px 20px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
+      <span style="font-weight:700;font-size:16px">🚚 Dispatch Date</span>
+      <button onclick="closeDispatchModal_()" style="background:rgba(255,255,255,.2);border:none;color:#fff;padding:4px 12px;border-radius:6px;cursor:pointer;font-size:14px">✕</button>
+    </div>
+    <div style="padding:16px 20px">
+      <p id="dispatchModalSub" style="font-size:13px;color:#475569;margin:0 0 10px"></p>
+      <label style="font-size:11px;font-weight:600;color:#475569;text-transform:uppercase;display:block;margin-bottom:4px">Day the shipment left</label>
+      <input type="date" id="dispatchModalDate" style="width:100%;padding:9px 10px;border:2px solid #e2e8f0;border-radius:8px;font-size:14px;box-sizing:border-box">
+      <div style="font-size:11px;color:#64748b;margin-top:6px">The Blinkit Planner counts the RO as shipped on this day.</div>
+      <div id="dispatchModalErr" style="color:#dc2626;font-size:12px;margin-top:6px"></div>
+    </div>
+    <div style="padding:12px 20px;border-top:1px solid #e2e8f0;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap">
+      <button class="btn btn-secondary" id="dispatchModalClear" onclick="saveDispatchDate_(true)">Clear date</button>
+      <button class="btn btn-primary" id="dispatchModalSave" onclick="saveDispatchDate_(false)">Save</button>
+    </div>
+  </div>
+</div>
+
 <!-- ====== SHIPPED SHORT: WHY? (Blinkit, before Box Details / JPG) ====== -->
 <div id="shortModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:14px;width:min(760px,95vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)">
@@ -6330,7 +6351,7 @@ function renderShipmentsList() {
       <div class="shipment-item">
         <div class="shipment-meta">
           <div class="s-title">${s.isDummy ? '🧪 <span style="color:#7c3aed">DUMMY</span> &nbsp;|&nbsp; ' : ''}${platform} - ${city} &nbsp;|&nbsp; PO: ${s.poNumber || ''}${s.invoiceNumber ? ' &nbsp;|&nbsp; INV: '+s.invoiceNumber : ''}</div>
-          <div class="s-sub">📅 ${formatDDMMYYYY_(s.date) || ''} &nbsp;·&nbsp; 📦 ${boxes.length} box(es) &nbsp;·&nbsp; 👤 ${s.employee || ''} &nbsp;·&nbsp; 🕐 ${formatTimestamp(s.ts)}</div>
+          <div class="s-sub">📅 ${formatDDMMYYYY_(s.date) || ''} &nbsp;·&nbsp; 📦 ${boxes.length} box(es) &nbsp;·&nbsp; 👤 ${s.employee || ''} &nbsp;·&nbsp; 🕐 ${formatTimestamp(s.ts)}${s.isDummy ? '' : (s.dispatchDate ? ' &nbsp;·&nbsp; <b style="color:#047857">🚚 Dispatched ' + formatDDMMYYYY_(s.dispatchDate) + '</b>' : ' &nbsp;·&nbsp; <b style="color:#b45309">🚚 Not dispatched yet</b>')}</div>
         </div>
         <div class="shipment-actions">
           ${hasModule_('SHIPMENT_BOX_DETAILS') && !s.isDummy ? `<div class="action-group ag-box">
@@ -6342,6 +6363,7 @@ function renderShipmentsList() {
             <button class="btn btn-secondary btn-sm" onclick="downloadLabelsPdf(${i})" title="Download Box Labels as PDF">📥 PDF</button>
           </div>` : ''}
           ${hasModule_('SHIPMENT_EDIT') && !s.isDummy ? `<div class="action-group ag-edit"><button class="btn btn-warning btn-sm" onclick="editShipment(${i})">✏️ Edit</button></div>` : ''}
+          ${!s.isDummy ? `<div class="action-group ag-dispatch"><button class="btn btn-sm" style="background:${s.dispatchDate ? '#d1fae5;color:#065f46' : '#1e3a8a;color:#fff'}" onclick="openDispatchModal_(${i})" title="The day this shipment actually left (the Blinkit Planner's shipped day)">🚚 ${s.dispatchDate ? 'Dispatched ' + formatDDMMYYYY_(s.dispatchDate) : 'Dispatch Date'}</button></div>` : ''}
           ${isPoDrivenPlatform_(s.platform) && s.poNumber && !s.isDummy
             ? (() => {
                 const fulfillment = poFulfillmentMap_[poCacheKey_(s.platform, s.poNumber.toString().trim())];
@@ -6458,6 +6480,47 @@ function formatTimestamp(ts) {
     if (isNaN(d.getTime())) return ts;
     return d.toLocaleString();
   } catch (e) { return ts; }
+}
+
+/* ==============================================
+   🚚 DISPATCH DATE
+   The day a shipment actually left. Saved on the shipment (SHIPMENTS →
+   DISPATCH_DATE). The Blinkit Planner counts an RO as shipped on this day
+   (for shipments entered from 26-11-2026 on), not on the shipment's date.
+============================================== */
+var dispatchModalIdx_ = -1;
+function todayYmdLocal_() { const d = new Date(); return d.getFullYear() + '-' + ('0' + (d.getMonth() + 1)).slice(-2) + '-' + ('0' + d.getDate()).slice(-2); }
+function openDispatchModal_(i) {
+  const s = savedShipments[i]; if (!s) return;
+  dispatchModalIdx_ = i;
+  document.getElementById('dispatchModalSub').innerHTML = (s.platform || '').toUpperCase() + ' – ' + escHtmlShort_(s.city || '') + ' · PO <b>' + escHtmlShort_(s.poNumber || '') + '</b>' +
+    (s.dispatchDate ? '<br>Now: dispatched <b>' + formatDDMMYYYY_(s.dispatchDate) + '</b>' : '');
+  document.getElementById('dispatchModalDate').value = s.dispatchDate || todayYmdLocal_();
+  document.getElementById('dispatchModalClear').style.display = s.dispatchDate ? '' : 'none';
+  document.getElementById('dispatchModalErr').textContent = '';
+  document.getElementById('dispatchModal').style.display = 'flex';
+}
+function closeDispatchModal_() { document.getElementById('dispatchModal').style.display = 'none'; dispatchModalIdx_ = -1; }
+function saveDispatchDate_(clear) {
+  const s = savedShipments[dispatchModalIdx_]; if (!s) return;
+  const v = clear ? '' : document.getElementById('dispatchModalDate').value;
+  if (!clear && !v) { document.getElementById('dispatchModalErr').textContent = 'Pick the date.'; return; }
+  const btn = document.getElementById('dispatchModalSave');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  google.script.run
+    .withSuccessHandler(res => {
+      btn.disabled = false; btn.textContent = 'Save';
+      if (!res || !res.success) { document.getElementById('dispatchModalErr').textContent = (res && res.message) || 'Could not save.'; return; }
+      s.dispatchDate = res.dispatchDate || '';
+      closeDispatchModal_();
+      renderShipmentsList();
+      showSuccessToast_(s.dispatchDate ? 'Dispatch date saved: ' + formatDDMMYYYY_(s.dispatchDate) : 'Dispatch date cleared');
+    })
+    .withFailureHandler(err => {
+      btn.disabled = false; btn.textContent = 'Save';
+      document.getElementById('dispatchModalErr').textContent = 'Server error: ' + (err && err.message ? err.message : err);
+    })
+    .setShipmentDispatchDate(s.id, v, currentUser ? currentUser.name : '');
 }
 
 /* ==============================================
