@@ -6,9 +6,6 @@
 <base target="_top">
 <title>Cash Book</title>
 <link rel="icon" id="favicon">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
 :root{
   --brand:#4f46e5;--brand-d:#4338ca;--brand-l:#eef2ff;
@@ -68,6 +65,7 @@ button{cursor:pointer}
 .btn.ghost{background:#fff;color:var(--ink);border:1px solid var(--line)}
 .btn.green{background:var(--in)}.btn.red{background:var(--out)}
 .btn.sm{padding:7px 11px;font-size:13px}
+.spin.dark{border-color:#c7d2fe;border-top-color:var(--brand);width:12px;height:12px}
 .spin{display:inline-block;width:14px;height:14px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
 @keyframes sp{to{transform:rotate(360deg)}}
 
@@ -291,8 +289,8 @@ td.r,th.r{text-align:right}
     <section id="tReports" class="hidden">
       <div class="acts">
         <input type="month" id="rMonth" onchange="loadReport()">
-        <button class="btn sm green" onclick="downloadExcel()">⬇ Excel</button>
-        <button class="btn sm red" onclick="downloadPdf()">⬇ PDF</button>
+        <button class="btn sm green" onclick="downloadExcel(event)">⬇ Excel</button>
+        <button class="btn sm red" onclick="downloadPdf(event)">⬇ PDF</button>
       </div>
       <div id="rBody"><div class="loading">Loading…</div></div>
     </section>
@@ -397,6 +395,28 @@ function doConnect() {
   showLogin();
 }
 
+/* Excel / PDF tools (about 1.3 MB) load only when a report is first downloaded, not at every start. */
+const LIBS = {
+  xlsx: ['https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'],
+  pdf: ['https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js',
+        'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js'],
+};
+const libLoads = {};
+function loadScript(src) {
+  return libLoads[src] || (libLoads[src] = new Promise((res, rej) => {
+    const el = document.createElement('script');
+    el.src = src; el.onload = res;
+    el.onerror = () => { delete libLoads[src]; el.remove(); rej(new Error('Could not load the download tools. Check the internet and try again.')); };
+    document.head.appendChild(el);
+  }));
+}
+async function needLibs(kind) { for (const src of LIBS[kind]) await loadScript(src); } // in order (autotable needs jspdf)
+
+/* Last book seen per month, kept on this device so screens open at once; the fresh copy follows. */
+function bookCacheGet(m) { try { const v = JSON.parse(localStorage.getItem('cb_book_' + m) || 'null'); return v && S.user && v.user && v.user.id === S.user.id ? v : null; } catch (e) { return null; } }
+function bookCacheSet(b) { try { localStorage.setItem('cb_book_' + b.from.slice(0, 7), JSON.stringify(b)); localStorage.setItem('cb_last', JSON.stringify({ user: b.user, business: b.business })); } catch (e) { /* full / private mode */ } }
+function bookCacheClear() { try { Object.keys(localStorage).filter(k => /^cb_(book_|last)/.test(k)).forEach(k => localStorage.removeItem(k)); } catch (e) {} }
+
 /** Saves a downloaded file: through the Android app when inside it, else a normal browser download. */
 function saveBlob(blob, name) {
   if (window.CashBookApp && window.CashBookApp.saveFile) {
@@ -433,8 +453,12 @@ async function boot() {
   if (!IN_APPS_SCRIPT && !serverUrl()) { showConnect(); return; }
   const saved = lsGet();
   if (saved) {
-    try { const r = await api('resume', saved); S.token = saved; S.user = r.user; S.business = r.business; enterApp(); return; }
-    catch (e) { lsSet(null); }
+    S.token = saved;
+    let last = null;
+    try { last = JSON.parse(localStorage.getItem('cb_last') || 'null'); } catch (e) {}
+    if (last && last.user) { S.user = last.user; S.business = last.business; enterApp(); return; } // getBook checks the login
+    try { const r = await api('resume', saved); S.user = r.user; S.business = r.business; enterApp(); return; }
+    catch (e) { S.token = null; lsSet(null); }
   }
   showLogin();
 }
@@ -492,9 +516,11 @@ async function submitPin() {
   const okBtn = $('lgPad').querySelector('.ok');
   busy(okBtn, true);
   try {
-    const r = await api('login', S.pickUser.id, S.pin);
+    const [from, to] = monthRange(S.month);
+    const r = await api('login', S.pickUser.id, S.pin, from, to);
     S.token = r.token; S.user = r.user; S.business = r.business; lsSet(r.token);
-    enterApp();
+    if (r.book) { S.book = r.book; bookCacheSet(r.book); }
+    enterApp(!!r.book);
   } catch (e) { S.pin = ''; drawDots(); showErr($('lgErr'), e.message); }
   busy(okBtn, false, '✓'); S.pinBusy = false;
 }
@@ -514,16 +540,19 @@ async function doLogout() {
   sessionGone();
   try { await api('logout', t); } catch (e) {}
 }
-function sessionGone() { S.token = null; S.user = null; lsSet(null); closeModal(); showLogin(); }
+function sessionGone() { S.token = null; S.user = null; S.book = null; lsSet(null); bookCacheClear(); closeModal(); showLogin(); }
 
 /* ═════════ app shell ═════════ */
-function enterApp() {
+function enterApp(haveBook) {
   show('vApp');
+  showUserBar();
+  switchTab('book');
+  if (haveBook) showBook(); else loadBook();
+}
+function showUserBar() {
   $('hBiz').textContent = S.business;
   $('hName').textContent = S.user.name;
   $('hRole').textContent = isOwner() ? 'Owner' : 'Staff';
-  switchTab('book');
-  loadBook();
 }
 document.querySelectorAll('#tabs button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.t)));
 function switchTab(t) {
@@ -543,18 +572,56 @@ function shiftMonth(n) {
   S.month = d.getFullYear() + '-' + pad(d.getMonth() + 1);
   loadBook();
 }
+let bookReq = 0;
 async function loadBook() {
-  $('mLabel').textContent = monthLabel(S.month);
-  $('bookList').innerHTML = '<div class="loading">Loading…</div>';
-  const [from, to] = monthRange(S.month);
+  const month = S.month, my = ++bookReq;
+  const cached = bookCacheGet(month);
+  if (cached) { S.book = cached; showBook(true); }
+  else { S.book = null; $('mLabel').textContent = monthLabel(month); $('bookList').innerHTML = '<div class="loading">Loading…</div>'; }
+  const [from, to] = monthRange(month);
   try {
-    S.book = await api('getBook', S.token, from, to);
-    const sel = $('fMode'), cur = sel.value;
-    sel.innerHTML = '<option value="">All modes</option>' + S.book.modes.map(m => `<option>${m}</option>`).join('');
-    sel.value = cur;
-    setBadge(S.book.pendingRequests);
-    renderBook();
-  } catch (e) { $('bookList').innerHTML = '<div class="err show">' + esc(e.message) + '</div>'; }
+    const b = await api('getBook', S.token, from, to);
+    if (my !== bookReq) return; // the month was changed meanwhile
+    S.book = b; bookCacheSet(b);
+    if (b.user && (b.user.role !== S.user.role || b.user.name !== S.user.name || b.business !== S.business)) {
+      S.user = b.user; S.business = b.business; showUserBar();
+    }
+    showBook();
+  } catch (e) {
+    if (my !== bookReq || !S.token) return; // logged out (expired login): the login screen is already up
+    if (cached && S.book) { showBook(); toast(e.message, true); }
+    else $('bookList').innerHTML = '<div class="err show">' + esc(e.message) + '</div>';
+  }
+}
+/** Draws S.book; `stale` = from this device's memory, a fresh copy is on its way. */
+function showBook(stale) {
+  $('mLabel').innerHTML = esc(monthLabel(S.month)) + (stale ? ' <span class="spin dark"></span>' : '');
+  const sel = $('fMode'), cur = sel.value;
+  sel.innerHTML = '<option value="">All modes</option>' + S.book.modes.map(m => `<option>${m}</option>`).join('');
+  sel.value = cur;
+  setBadge(S.book.pendingRequests);
+  renderBook();
+}
+
+/** Puts a saved entry into the book on screen without reloading the month. */
+function applySaved(e, oldDate) {
+  const [from, to] = monthRange(S.month);
+  const inMonth = d => d >= from && d <= to;
+  // Opening balance changes when an earlier month is touched; a different month is simply opened.
+  if (!inMonth(e.date) || (oldDate && !inMonth(oldDate))) {
+    if (e.date > to || e.date < from) S.month = e.date.slice(0, 7);
+    loadBook(); return;
+  }
+  const list = S.book.entries.filter(x => x.id !== e.id);
+  list.push(e);
+  list.sort((a, b) => (a.date + a.time + a.createdAt).localeCompare(b.date + b.time + b.createdAt));
+  S.book.entries = list;
+  if (e.partyName) {
+    const k = e.partyName.toLowerCase(), p = S.book.parties.find(x => x.name.toLowerCase() === k);
+    if (!p) S.book.parties.push({ name: e.partyName, phone: e.partyPhone });
+    else if (e.partyPhone) p.phone = e.partyPhone;
+  }
+  bookCacheSet(S.book); showBook();
 }
 function setBadge(n) { const b = $('reqBadge'); b.textContent = n; b.classList.toggle('hidden', !n); }
 
@@ -648,7 +715,10 @@ function confirmDelete(id) {
 }
 async function doDelete(id) {
   busy($('delBtn'), true);
-  try { await api('deleteEntry', S.token, id); closeModal(); toast('Entry deleted'); loadBook(); }
+  try {
+    await api('deleteEntry', S.token, id); closeModal(); toast('Entry deleted');
+    S.book.entries = S.book.entries.filter(x => x.id !== id); bookCacheSet(S.book); showBook();
+  }
   catch (e) { toast(e.message, true); busy($('delBtn'), false); }
 }
 
@@ -661,7 +731,10 @@ function openDeleteRequest(id) {
 }
 async function sendDeleteRequest(id) {
   busy($('rqBtn'), true);
-  try { await api('createEditRequest', S.token, id, 'DELETE', null, $('rqReason').value); closeModal(); toast('Request sent to owner'); loadBook(); }
+  try {
+    await api('createEditRequest', S.token, id, 'DELETE', null, $('rqReason').value); closeModal(); toast('Request sent to owner');
+    S.book.pendingRequests++; setBadge(S.book.pendingRequests);
+  }
   catch (e) { toast(e.message, true); busy($('rqBtn'), false); }
 }
 
@@ -784,14 +857,14 @@ function readFileForUpload(f) {
     r.onerror = () => reject(new Error('Could not read the file.'));
     r.onload = () => {
       const dataUrl = r.result;
-      if (!isImg || f.size < 400 * 1024) return resolve({ name: f.name, mimeType: f.type, data: dataUrl.split(',')[1] });
+      if (!isImg || f.size < 250 * 1024) return resolve({ name: f.name, mimeType: f.type, data: dataUrl.split(',')[1] });
       const img = new Image();
       img.onload = () => {
-        const max = 1600, k = Math.min(1, max / Math.max(img.width, img.height));
+        const max = 1400, k = Math.min(1, max / Math.max(img.width, img.height));
         const c = document.createElement('canvas');
         c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
         c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
-        const out = c.toDataURL('image/jpeg', 0.82);
+        const out = c.toDataURL('image/jpeg', 0.72);
         resolve({ name: f.name.replace(/\.\w+$/, '') + '.jpg', mimeType: 'image/jpeg', data: out.split(',')[1] });
       };
       img.onerror = () => resolve({ name: f.name, mimeType: f.type, data: dataUrl.split(',')[1] });
@@ -818,14 +891,15 @@ async function saveEntryForm() {
       if (!reason) { busy(btn, false); return showErr(err, 'Please write what was wrong.'); }
       await api('createEditRequest', S.token, F.id, 'EDIT', data, reason);
       toast('Edit request sent to owner');
+      S.book.pendingRequests++; setBadge(S.book.pendingRequests);
     } else {
+      const old = F.id ? findEntry(F.id) : null;
       if (F.id) data.id = F.id;
-      await api('saveEntry', S.token, data);
+      const saved = await api('saveEntry', S.token, data);
       toast(F.id ? 'Entry updated' : (F.type === 'IN' ? 'Cash In saved' : 'Cash Out saved'));
-      const m = data.date.slice(0, 7);
-      if (m !== S.month) S.month = m;
+      applySaved(saved, old && old.date);
     }
-    F = null; closeModal(); loadBook();
+    F = null; closeModal();
   } catch (e) { busy(btn, false); showErr(err, e.message); }
 }
 
@@ -883,7 +957,11 @@ async function loadRequests() {
 async function review(id, approve, btn) {
   const note = approve ? '' : (prompt('Reason for rejecting (optional):') || '');
   busy(btn, true);
-  try { await api('reviewEditRequest', S.token, id, approve, note); toast(approve ? 'Approved — entry updated' : 'Request rejected'); loadRequests(); loadBook(); }
+  try {
+    await api('reviewEditRequest', S.token, id, approve, note); toast(approve ? 'Approved — entry updated' : 'Request rejected');
+    loadRequests();
+    if (approve) loadBook(); else if (S.book) { S.book.pendingRequests = Math.max(0, S.book.pendingRequests - 1); setBadge(S.book.pendingRequests); }
+  }
   catch (e) { toast(e.message, true); busy(btn, false); }
 }
 
@@ -892,8 +970,11 @@ async function loadReport() {
   const m = $('rMonth').value || S.month;
   $('rBody').innerHTML = '<div class="loading">Loading…</div>';
   const [from, to] = monthRange(m);
+  const have = S.book && S.book.from === from ? S.book : bookCacheGet(m);
+  if (have) { S.report = buildReport(m, have); renderReport(); if (have === S.book) return; }
   try {
     const b = await api('getBook', S.token, from, to);
+    if (($('rMonth').value || S.month) !== m) return;
     S.report = buildReport(m, b);
     renderReport();
   } catch (e) { $('rBody').innerHTML = '<div class="err show">' + esc(e.message) + '</div>'; }
@@ -946,9 +1027,14 @@ function renderReport() {
 }
 function fileBase() { return (S.business || 'CashBook').replace(/[^\w]+/g, '_') + '_' + S.report.month; }
 
-function downloadExcel() {
+async function downloadExcel(ev) {
   const R = S.report; if (!R) return;
-  if (typeof XLSX === 'undefined') return toast('Excel library did not load. Check internet and reload.', true);
+  const btn = ev && ev.currentTarget;
+  if (typeof XLSX === 'undefined') {
+    busy(btn, true);
+    try { await needLibs('xlsx'); } catch (e) { busy(btn, false); return toast(e.message, true); }
+    busy(btn, false);
+  }
   const wb = XLSX.utils.book_new();
   const sum = [[S.business + ' — Cash Book'], ['Month', R.label], [],
     ['Opening balance', R.opening], ['Total Cash In', R.tin], ['Total Cash Out', R.tout], ['Closing balance', R.closing], ['Entries', R.rows.length]];
@@ -967,9 +1053,14 @@ function downloadExcel() {
   saveBlob(new Blob([bytes], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), fileBase() + '.xlsx');
 }
 
-function downloadPdf() {
+async function downloadPdf(ev) {
   const R = S.report; if (!R) return;
-  if (!window.jspdf) return toast('PDF library did not load. Check internet and reload.', true);
+  const btn = ev && ev.currentTarget;
+  if (!window.jspdf || !window.jspdf.jsPDF.API.autoTable) {
+    busy(btn, true);
+    try { await needLibs('pdf'); } catch (e) { busy(btn, false); return toast(e.message, true); }
+    busy(btn, false);
+  }
   const doc = new window.jspdf.jsPDF({ unit: 'pt', format: 'a4' });
   const W = doc.internal.pageSize.getWidth();
   doc.setFillColor(79, 70, 229); doc.rect(0, 0, W, 70, 'F');
