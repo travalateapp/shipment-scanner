@@ -700,7 +700,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 mark-shipped';
+  var PAGE_BUILD = '2026-11-27 log-shipped-filter';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -738,6 +738,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    *   Planned (not on Blinkit yet) → Draft · Created → Planned · Created + shipment in the Shipment Manager → Shipped.
    */
   function stLabel(st, shippedOn) { return st === 'Planned' ? 'Draft' : st === 'Created' ? (shippedOn ? 'Shipped' : 'Planned') : st; }
+  // RO Log filter: Planned (on Blinkit, not shipped yet) and Shipped apart, or both together (the default view).
+  var LOG_ST_OPTS = [['Planned', 'Draft (not on Blinkit yet)'], ['Created', 'Planned + Shipped'], ['Created:planned', 'Planned (not shipped yet)'],
+    ['Created:shipped', 'Shipped'], ['Delivered', 'Delivered'], ['Cancelled', 'Cancelled']];
+  function logStatusFits(want, r) {
+    if (!want) return true;
+    if (want === 'Created:planned') return r.status === 'Created' && !isShipped(r);
+    if (want === 'Created:shipped') return r.status === 'Created' && isShipped(r);
+    return r.status === want;
+  }
   var ST_OPTS = [['Planned', 'Draft (not on Blinkit yet)'], ['Created', 'Planned (on Blinkit)'], ['Delivered', 'Delivered'], ['Cancelled', 'Cancelled']];
   function roStatusPill(status, appt, shippedOn) {
     if (status === 'Created' && shippedOn) return '<span class="pill info">Shipped · ' + prettyDate(shippedOn) + '</span>';
@@ -2457,7 +2466,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div><label class="f">From</label><input type="date" id="gFrom" value="' + f.from + '"></div>' +
       '<div><label class="f">To</label><input type="date" id="gTo" value="' + f.to + '"></div>' +
       '<div><label class="f">Warehouse</label><select id="gWh"><option value="">All</option>' + whs.map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('') + '</select></div>' +
-      '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + ST_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (f.status === o[0] ? ' selected' : '') + '>' + o[1].replace(' (on Blinkit)', ' / Shipped') + '</option>'; }).join('') + '</select></div>' +
+      '<div><label class="f">Status</label><select id="gSt"><option value="">All</option>' + LOG_ST_OPTS.map(function (o) { return '<option value="' + o[0] + '"' + (f.status === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
       '<div style="flex:1 1 240px"><label class="f">Search (Ctrl+F)</label><input type="search" id="gQ" placeholder="🔍 RO no., SKU, item ID, warehouse… (searches all ROs)" value="' + esc(S.logQ || '') + '" autocomplete="off" title="Every word must match: SKU, item ID, RO number, warehouse, group, status or a date (e.g. 25 Nov)"></div>' +
       '</div><div class="small muted" style="margin-top:8px"><b>From / To</b> = RO date. <b>Status:</b> ' +
         '<b>Draft</b> = saved here, not on Blinkit yet (counted as incoming in the next plan) · ' +
@@ -2481,7 +2490,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
    */
   var CACHE_LOG = 'bp_cache_log';
   function logFits(f) {
-    return function (r) { return (!f.from || !r.roDate || r.roDate >= f.from) && (!f.to || !r.roDate || r.roDate <= f.to) && (!f.wh || r.wh === f.wh) && (!f.status || r.status === f.status); };
+    return function (r) { return (!f.from || !r.roDate || r.roDate >= f.from) && (!f.to || !r.roDate || r.roDate <= f.to) && (!f.wh || r.wh === f.wh) && logStatusFits(f.status, r); };
   }
   function localLogRows(f) {
     var by = {};
@@ -2501,6 +2510,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     apiCall('listROs', [S.token, f]).then(function (rows) {
       if (JSON.stringify(S.logFilter) !== fk) return; // the filters changed meanwhile
       if (SQ.n > 0) { st(''); return; } // a save is on its way: the page's own copy is newer
+      rows = (rows || []).filter(function (r) { return logStatusFits(f.status, r); }); // Planned / Shipped apart
       st(''); S.logRows = rows; S.logKey = fk; drawLog();
       try { if (JSON.stringify(rows).length < 1500000) cachePut(CACHE_LOG, { k: fk, rows: rows }); } catch (e) { /* too big to keep */ }
     }, function (e) { st(''); if (!S.logRows || !S.logRows.length) $('logOut').innerHTML = msgs([e.message], 'bad'); else toast(e.message, 5000); });
@@ -2523,7 +2533,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var f = S.logFilter || {}, keys = {};
     rows.forEach(function (r) { keys[r.key] = 1; });
     var fits = function (r) {
-      return (!f.from || !r.roDate || r.roDate >= f.from) && (!f.to || !r.roDate || r.roDate <= f.to) && (!f.wh || r.wh === f.wh) && (!f.status || r.status === f.status);
+      return (!f.from || !r.roDate || r.roDate >= f.from) && (!f.to || !r.roDate || r.roDate <= f.to) && (!f.wh || r.wh === f.wh) && logStatusFits(f.status, r);
     };
     var at = {};
     (S.logRows || []).forEach(function (r, i) { at[r.key] = i; });
