@@ -814,7 +814,7 @@ function listROs(token, filter) {
     if (from && d && d < from) return false;
     if (to && d && d > to) return false;
     if (filter.wh && r.wh !== filter.wh) return false;
-    if (filter.status && r.status !== filter.status) return false;
+    if (filter.status && r.status !== String(filter.status).split(':')[0]) return false; // 'Created:planned' / 'Created:shipped': the page splits them
     return true;
   }).slice(-3000).map(publicRo_);
 }
