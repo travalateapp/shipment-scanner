@@ -328,6 +328,8 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 - **What to send first:** all open Swiggy + Zepto PO lines per SKU, compared with our stock in Travalate Inventory (matched by the SKU name in the tab).
 - **Stock and days per warehouse:** stock, on the way, open POs, and days with and without the open POs.
 
+**Ask:** for an SKU, the answer is the quantity table (stock, delivered, shipped, planned, per day, days). The ROs behind each number show on hover, so no RO list is printed under it. For "why not sent" a one-line summary stays.
+
 **Projections (Platform: Blinkit / Swiggy / Zepto / All)**
 - **Swiggy** and **Zepto** (each on its own): open POs per SKU.
   - "Planned + Shipped" also counts POs on the way.
@@ -351,10 +353,10 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 
   This is the only place their stock and days per warehouse are shown; the Swiggy and Zepto tabs keep the uploads, POs, What to send first and SKU mapping.
 - **Calendar entries** start with a bold letter for the platform: **B** Blinkit, **S** Swiggy, **Z** Zepto.
-- **RO Log chips: Blinkit / Swiggy / Zepto.** Swiggy and Zepto show their POs from their tab:
-  - the PO checks;
-  - open POs with each line's priority, the shipping / appointment date boxes and **Remove from tab**;
-  - POs on the way.
+- **RO Log chips: Blinkit / Swiggy / Zepto.** Swiggy and Zepto are laid out like Blinkit's RO Log:
+  - **Filters:** From / To (release date), Warehouse, Status (Open / Shipped / Delivered / Expired or no longer open / All) and Search.
+  - **One card per PO.** The header shows the platform letter, warehouse, status, release date, units and lines, appointment, 🚚 shipping date, the PO number (hover: its Balance) and expiry. Opened, it has the shipping / appointment dates (**Save dates**), **Remove from tab**, and the SKU lines. Open POs also show sold / day, stock there, days and priority for each line, plus our stock.
+  - The PO checks (missing from the tab, expired or no longer open) show above the list.
 
   The Swiggy and Zepto tabs keep the uploads, What to send first and SKU mapping, with a link to their RO Log.
 - **Hovers:**

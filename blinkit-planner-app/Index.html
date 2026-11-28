@@ -712,7 +712,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 qc-ro-log';
+  var PAGE_BUILD = '2026-11-28 qc-ro-log2';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -805,7 +805,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     ['.uS', function () { return 'Save this user?'; }, 'Save'],
     ['#nAdd', function () { return 'Add this user?'; }, 'Add user'],
     ['#qcSkuSave', function () { return 'Save the ' + QC_NAMES[S.tab] + ' SKU mapping?'; }, 'Save'],
-    ['.qcDtGo', function (b) { var d = b.closest('details'), s = d.querySelector('.qcShip').value, a = d.querySelector('.qcAppt').value; return 'PO ' + b.getAttribute('data-po') + ': shipping date ' + (s ? prettyDate(s) : 'none') + ', appointment ' + (a ? prettyDate(a) : 'none') + '?\n\nWritten into rows 4 and 5 of its tab.'; }, 'Save dates'],
+    ['.qcDtGo', function (b) { var d = b.closest('.ro, details'), s = d.querySelector('.qcShip').value, a = d.querySelector('.qcAppt').value; return 'PO ' + b.getAttribute('data-po') + ': shipping date ' + (s ? prettyDate(s) : 'none') + ', appointment ' + (a ? prettyDate(a) : 'none') + '?\n\nWritten into rows 4 and 5 of its tab.'; }, 'Save dates'],
     ['.qcPdfGo', function (b) { return 'Write this PO into its tab?'; }, 'Write'],
     ['#qcPdfAll', function () { return 'Write all these POs into their tabs?'; }, 'Write all'],
     ['#aSave', function () { return 'Change your PIN?'; }, 'Change PIN'],
@@ -1962,7 +1962,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       S.ti = { ok: !!res.ok, map: map, names: (res.stocks || []).map(function (x) { return String(x.sku); }), updatedAt: res.updatedAt, monthLabel: res.monthLabel, error: res.error, setup: res.setup };
       if (S.ti.ok) cachePut('bp_cache_ti', S.ti);
     }, function (e) { if (!S.ti || !S.ti.cached) S.ti = { ok: false, map: {}, error: e.message }; else S.ti.cached = false; /* keep the last read, no retry loop */ })
-      .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); if (S.tab === 'proj') drawProj(); if (qcTabOn()) drawQc(); if (S.tab === 'log' && S.logPlat && S.logPlat !== 'blinkit' && $('qlPos')) $('qlPos').innerHTML = qcPosListHtml(S.logPlat); });
+      .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); if (S.tab === 'proj') drawProj(); if (qcTabOn()) drawQc(); if (S.tab === 'log' && S.qlDraw) S.qlDraw(); });
   }
   function tiInfoHtml() {
     if (!S.ti) return '<div class="msg info"><span class="spin"></span> Reading stock from Travalate Inventory (TI)…</div>';
@@ -2714,23 +2714,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
   var QC_PRIO = { must: ['bad', 'Must send'], send: ['warn', 'Send'], wait: ['', 'Can wait'], unk: ['', 'No stock / sales data'] };
   function qcDaysTxt(d) { return d == null ? '–' : d >= 999 ? '999+' : fmt(d, 1); }
-  function qcPoHtml(p, c, po) {
-    var lines = po.lines.slice().sort(function (a, b) { var o = { must: 0, send: 1, wait: 2, unk: 3 }; return o[a.prio] - o[b.prio] || (a.days == null ? 1e9 : a.days) - (b.days == null ? 1e9 : b.days); });
-    var must = lines.filter(function (l) { return l.prio === 'must'; }).length;
-    return '<details class="card qcPo"' + (must ? ' open' : '') + '><summary style="cursor:pointer"><b>' + QC_NAMES[p] + ' · ' + esc(qcWhLabel(p, po.wh)) + ' · PO ' + qcPoTip(p, po.po) + '</b> · ' + fmt(po.units) + ' units' +
-      (po.release ? ' · released ' + prettyDate(po.release) : '') + (po.ship ? ' · ships ' + prettyDate(po.ship) : ' · <span class="muted">no shipping date</span>') + (po.appt ? ' · appt ' + prettyDate(po.appt) : '') + (po.expiry ? ' · expires ' + prettyDate(po.expiry) : '') +
-      (must ? ' <span class="pill bad">' + must + ' must send</span>' : '') + (po.whKey ? '' : ' <span class="pill warn">warehouse not in the stock report</span>') + '</summary>' +
-      '<div class="scroll" style="margin-top:8px"><table class="t qct"><tr><th>SKU</th><th class="right">PO qty</th><th class="right">Sold / day</th><th class="right">Stock there</th><th class="right">On the way</th><th class="right">Days</th><th>Priority</th><th class="right">Our stock</th></tr>' +
-      lines.map(function (l) {
-        var pr = QC_PRIO[l.prio], ti = qcStockOf(p, l.code, l.name), our = qcOurOf(p, l.code);
-        return '<tr><td>' + esc(l.name || l.code) + (our ? ' <span class="small muted">→ ' + esc(our) + '</span>' : '') + '</td><td class="right"><b>' + fmt(l.qty) + '</b></td><td class="right">' + (l.rate ? fmt(l.rate, 1) : '–') + '</td><td class="right">' + (l.stock == null ? '–' : fmt(l.stock)) + '</td>' +
-          '<td class="right">' + (l.way ? fmt(l.way) : '') + '</td><td class="right">' + qcDaysTxt(l.days) + '</td><td><span class="pill ' + pr[0] + '">' + pr[1] + '</span></td><td class="right">' + (ti == null ? '–' : fmt(ti)) + '</td></tr>';
-      }).join('') + '</table></div>' +
-      (can('Planner') ? '<div class="row" style="margin-top:8px;align-items:flex-end"><div style="flex:0 1 170px"><label class="f">Shipping date</label><input type="date" class="qcShip" value="' + esc(po.ship || '') + '"></div>' +
-        '<div style="flex:0 1 170px"><label class="f">Appointment</label><input type="date" class="qcAppt" value="' + esc(po.appt || '') + '"></div>' +
-        '<div style="flex:0 0 auto"><button class="btn sm qcDtGo" data-p="' + p + '" data-po="' + esc(po.po) + '">Save dates</button> <button class="btn sm qcRm" data-p="' + p + '" data-po="' + esc(po.po) + '" title="Empties its column in the tab">Remove from tab</button></div></div>' : '') +
-      '</details>';
-  }
   /** All open PO lines of both platforms per SKU name vs our stock: what to send first when stock is short. */
   function qcDemandHtml(calcs) {
     var by = {};
@@ -2816,23 +2799,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         : 'No ' + QC_NAMES[p] + ' reports read yet.'));
     drawQcMap();
   }
-  /** A platform's PO list (RO Log → Swiggy / Zepto): checks, open POs with priorities, dates and Remove, POs on the way. */
-  function qcPosListHtml(p) {
-    var c = qcCalc(p);
-    return (c.missing.length ? '<div class="msg warn"><b>Open in Swiggy\'s stock report but not in the Swiggy Planning tab</b> — upload their PO PDFs in the Swiggy tab: ' +
-        c.missing.map(function (m) { return 'PO ' + esc(m.po) + ' (' + esc(qcWhLabel(p, m.wh)) + (m.units ? ', ' + fmt(m.units) + ' units' : '') + ')'; }).join(', ') + '</div>' : '') +
-      (c.closed.length ? '<div class="msg warn"><b>Not shipped and expired' + (p === 'swiggy' ? ', or no longer open in Swiggy\'s stock report' : '') + '</b> — left out of the priorities. Give them a shipping date, or use <b>Remove from tab</b> on them: ' +
-        c.closed.map(function (po) { return 'PO ' + esc(po.po) + ' (' + esc(qcWhLabel(p, po.wh)) + ', ' + fmt(po.units) + ' units' + (po.release ? ', released ' + prettyDate(po.release) : '') + (po.expired ? ', expired ' + prettyDate(po.expiry) : '') + ')'; }).join(', ') + '</div>' : '') +
-      (c.open.length ? '<div class="small" style="margin-bottom:6px"><b>' + c.open.length + ' open PO(s)</b> — ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units</div>' +
-      c.open.slice().sort(function (a, b) { return (a.ship || '9') .localeCompare(b.ship || '9') || (a.release || '').localeCompare(b.release || ''); }).map(function (po) { return qcPoHtml(p, c, po); }).join('') : '<div class="muted small">No open ' + QC_NAMES[p] + ' POs.</div>') +
-      (c.way.length ? '<details style="margin-top:8px"><summary class="small" style="cursor:pointer"><b>' + c.way.length + ' PO(s) on the way</b> (shipped, appointment today or later)</summary><ul class="small">' +
-        c.way.map(function (po) { return '<li>' + esc(qcWhLabel(p, po.wh)) + ' · PO ' + qcPoTip(p, po.po) + ' · ' + fmt(po.units) + ' units · shipped ' + prettyDate(po.ship) + (po.appt ? ' · appt ' + prettyDate(po.appt) : '') + '</li>'; }).join('') + '</ul></details>' : '');
-  }
   /** Save dates / Remove from tab on the PO cards of el; redraw() after a change. */
   function wireQcPos(el, msgEl, redraw) {
     el.onclick = function (e) {
       var b = e.target.closest('.qcDtGo, .qcRm'); if (!b) return;
-      var p = b.getAttribute('data-p'), po = b.getAttribute('data-po'), box = b.closest('details');
+      var p = b.getAttribute('data-p'), po = b.getAttribute('data-po'), box = b.closest('.ro, details');
       var after = function (r) { S.qc = r; if (S.dash) S.dash.qc = r; redraw(); };
       if (b.classList.contains('qcRm')) {
         appConfirm('Remove ' + QC_NAMES[p] + ' PO ' + po + ' from its tab?\n\nIts column in the sheet is emptied.', 'Remove', 'r').then(function (ok) {
@@ -3511,20 +3482,93 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   function wireLogPlat() {
     $('logPlat').onclick = function (e) { var c = e.target.closest('[data-p]'); if (!c) return; S.logPlat = c.getAttribute('data-p'); renderLog(); };
   }
-  /** RO Log → Swiggy / Zepto: their POs (from the Swiggy Planning / Zepto tab) with priorities, dates and Remove. */
+  /**
+   * RO Log → Swiggy / Zepto, laid out like Blinkit's: filters (release date, warehouse, status, search) and one card
+   * per PO from the Swiggy Planning / Zepto tab — warehouse, status, release date, units, appointment, 🚚 shipping
+   * date, the PO number (hover: its Balance in the Shipment Manager), expiry; opened: the shipping / appointment
+   * dates (Save), Remove from tab, and its SKU lines with their priority.
+   */
+  var QC_LOG_ST = [['open', 'Open (not shipped)'], ['way', 'Shipped (on the way)'], ['delivered', 'Delivered'], ['closed', 'Expired / no longer open'], ['', 'All']];
   function renderQcLog(p) {
-    $('app').innerHTML = '<div class="card"><h2>RO Log</h2>' + logPlatChips() +
-      '<div class="small muted">' + QC_NAMES[p] + ' POs from the ' + (p === 'swiggy' ? 'Swiggy Planning' : 'Zepto') + ' tab. Open = no shipping date yet (or one after today); each line marked by how long that warehouse\'s stock lasts: ' +
-      '<span class="pill bad">Must send</span> under ' + (Number(S.boot.settings.leadDays) || 15) + ' days, <span class="pill warn">Send</span> under ' + (Number(S.boot.settings.coverDays) || 26) + ' days, <span class="pill">Can wait</span> otherwise. ' +
-      'New POs come from their PDFs in the ' + QC_NAMES[p] + ' tab.</div><div id="qlMsg"></div></div>' +
-      '<div class="card" id="qlPos"><span class="spin"></span> Reading the tab…</div>';
+    var F = S.qcLogF = S.qcLogF || {};
+    var f = F[p] = F[p] || { from: addDays(today(), -60), to: '', wh: '', st: 'open', q: '' };
+    $('app').innerHTML = '<div class="card"><h2>RO Log</h2>' + logPlatChips() + '<div class="row">' +
+      '<div><label class="f">From</label><input type="date" id="qlFrom" value="' + f.from + '"></div>' +
+      '<div><label class="f">To</label><input type="date" id="qlTo" value="' + f.to + '"></div>' +
+      '<div><label class="f">Warehouse</label><select id="qlWh"></select></div>' +
+      '<div><label class="f">Status</label><select id="qlSt">' + QC_LOG_ST.map(function (o) { return '<option value="' + o[0] + '"' + (f.st === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
+      '<div style="flex:1 1 240px"><label class="f">Search</label><input type="search" id="qlQ" placeholder="🔍 PO no., SKU, warehouse…" value="' + esc(f.q) + '" autocomplete="off"></div></div>' +
+      '<div class="small muted" style="margin-top:8px"><b>From / To</b> = PO release date. ' + QC_NAMES[p] + ' POs from the ' + (p === 'swiggy' ? 'Swiggy Planning' : 'Zepto') + ' tab (new ones from their PDFs in the ' + QC_NAMES[p] + ' tab). ' +
+      '<b>Open</b> = no shipping date yet or one after today · <b>Shipped</b> = shipping date passed, appointment not yet · <b>Delivered</b> = appointment passed. ' +
+      'Each open line: <span class="pill bad">Must send</span> under ' + (Number(S.boot.settings.leadDays) || 15) + ' days of stock, <span class="pill warn">Send</span> under ' + (Number(S.boot.settings.coverDays) || 26) + ', <span class="pill">Can wait</span> otherwise.</div><div id="qlMsg"></div></div>' +
+      '<div id="qlWarn"></div><div id="qlPos" class="muted card">Loading…</div>';
     wireLogPlat();
-    var draw = function () { if (S.tab !== 'log' || S.logPlat !== p || !$('qlPos')) return; $('qlPos').innerHTML = qcPosListHtml(p); };
+    var draw = function () {
+      if (S.tab !== 'log' || S.logPlat !== p || !$('qlPos')) return;
+      var c = qcCalc(p), all = c.x.pos || [];
+      var whs = {}; all.forEach(function (po) { whs[qcWhLabel(p, po.wh)] = 1; });
+      $('qlWh').innerHTML = '<option value="">All</option>' + Object.keys(whs).sort().map(function (w) { return '<option' + (f.wh === w ? ' selected' : '') + '>' + esc(w) + '</option>'; }).join('');
+      $('qlWarn').innerHTML = qcLogWarn(p, c);
+      $('qlPos').className = ''; $('qlPos').innerHTML = qcLogCards(p, c, f);
+    };
+    ['qlFrom', 'qlTo', 'qlWh', 'qlSt'].forEach(function (id) { $(id).onchange = function () { f.from = $('qlFrom').value; f.to = $('qlTo').value; f.wh = $('qlWh').value; f.st = $('qlSt').value; draw(); }; });
+    $('qlQ').oninput = function () { f.q = this.value; draw(); };
+    $('qlPos').addEventListener('click', function (e) {
+      var h = e.target.closest('.ro > .h'); if (!h || e.target.closest('.qcTip')) return;
+      var ro = h.parentNode; ro.classList.toggle('open'); S.qcLogOpen = S.qcLogOpen || {}; S.qcLogOpen[p + '|' + ro.getAttribute('data-po')] = ro.classList.contains('open');
+    });
     wireQcPos($('qlPos'), $('qlMsg'), draw);
+    S.qlDraw = draw;
     if (!S.qc && S.dash && S.dash.qc) S.qc = S.dash.qc;
     if (S.qc) draw();
     loadTi(false);
     api('getQc', S.token).then(function (r) { S.qc = r; if (S.dash) S.dash.qc = r; draw(); }, function (e) { if ($('qlMsg')) $('qlMsg').innerHTML = msgs(['Could not read the tab: ' + e.message], 'bad'); });
+  }
+  function qcLogWarn(p, c) {
+    return (c.missing.length ? '<div class="msg warn"><b>Open in Swiggy\'s stock report but not in the Swiggy Planning tab</b> — upload their PO PDFs in the Swiggy tab: ' +
+        c.missing.map(function (m) { return 'PO ' + esc(m.po) + ' (' + esc(qcWhLabel(p, m.wh)) + (m.units ? ', ' + fmt(m.units) + ' units' : '') + ')'; }).join(', ') + '</div>' : '') +
+      (c.closed.length ? '<div class="msg warn"><b>Not shipped and expired' + (p === 'swiggy' ? ', or no longer open in Swiggy\'s stock report' : '') + '</b> — left out of the priorities (Status → Expired / no longer open): ' +
+        c.closed.map(function (po) { return 'PO ' + esc(po.po) + ' (' + esc(qcWhLabel(p, po.wh)) + ')'; }).join(', ') + '</div>' : '');
+  }
+  function qcLogCards(p, c, f) {
+    var words = String(f.q || '').toLowerCase().split(/\s+/).filter(Boolean), open = S.qcLogOpen || {}, ed = can('Planner');
+    var stOf = function (po) { return po.closed ? 'closed' : !po.shipped ? 'open' : !po.arrived ? 'way' : 'delivered'; };
+    var list = (c.x.pos || []).filter(function (po) {
+      var st = stOf(po);
+      if (words.length) {
+        var hay = [po.po, qcWhLabel(p, po.wh), po.wh, st, prettyDate(po.release), prettyDate(po.ship), prettyDate(po.appt)].concat(po.lines.map(function (l) { return l.name + ' ' + l.code; })).join(' ').toLowerCase();
+        return words.every(function (w) { return hay.indexOf(w) >= 0; });
+      }
+      if (f.st && st !== f.st) return false;
+      if (f.wh && qcWhLabel(p, po.wh) !== f.wh) return false;
+      if (f.from && po.release && po.release < f.from) return false;
+      if (f.to && po.release && po.release > f.to) return false;
+      return true;
+    }).sort(function (a, b) { return String(b.release).localeCompare(String(a.release)) || String(a.po).localeCompare(String(b.po)); });
+    if (!list.length) return '<div class="card muted">No ' + QC_NAMES[p] + ' POs for these filters.</div>';
+    var pill = { open: '<span class="pill warn">Open</span>', way: '<span class="pill info">Shipped</span>', delivered: '<span class="pill ok">Delivered</span>', closed: '<span class="pill bad">Expired / not open</span>' };
+    var units = list.reduce(function (s, po) { return s + po.units; }, 0);
+    return '<div class="small muted" style="margin:0 4px 6px">' + list.length + ' PO(s) · ' + fmt(units) + ' units' + (words.length ? ' — searched all ' + QC_NAMES[p] + ' POs' : '') + '</div>' + list.map(function (po) {
+      var st = stOf(po), must = po.lines.filter(function (l) { return l.prio === 'must'; }).length, k = p + '|' + po.po;
+      return '<div class="ro' + (open[k] ? ' open' : '') + '" data-po="' + esc(po.po) + '"><div class="h">' +
+        '<span class="w">' + platLetter({ qc: p }) + esc(qcWhLabel(p, po.wh)) + ' · ' + QC_NAMES[p] + '</span>' + pill[st] + (must && st === 'open' ? ' <span class="pill bad">' + must + ' must send</span>' : '') +
+        '<span class="small">PO ' + prettyDate(po.release) + '</span><span class="small"><b>' + fmt(po.units) + '</b> units · ' + po.lines.length + ' lines</span>' +
+        (po.appt ? '<span class="small">app ' + prettyDate(po.appt) + '</span>' : '') + (po.ship ? '<span class="small">🚚 ' + prettyDate(po.ship) + '</span>' : '') +
+        '<span class="small">' + qcPoTip(p, po.po) + '</span>' + (po.expiry ? '<span class="small muted">expires ' + prettyDate(po.expiry) + '</span>' : '') + '</div><div class="b">' +
+        (ed ? '<div class="row"><div><label class="f">Shipping date</label><input type="date" class="qcShip" value="' + esc(po.ship || '') + '"></div>' +
+          '<div><label class="f">Appointment</label><input type="date" class="qcAppt" value="' + esc(po.appt || '') + '"></div>' +
+          '<div style="flex:0 0 auto"><button class="btn p qcDtGo" data-p="' + p + '" data-po="' + esc(po.po) + '">Save dates</button></div>' +
+          '<div style="flex:0 0 auto"><button class="btn r qcRm" data-p="' + p + '" data-po="' + esc(po.po) + '" title="Empties its column in the tab">Remove from tab</button></div></div>' : '') +
+        '<div class="scroll"><table class="t qct"><tr><th>SKU</th><th>Item ID</th><th>Group</th><th class="right">Qty</th>' + (st === 'open' ? '<th class="right">Sold / day</th><th class="right">Stock there</th><th class="right">Days</th><th>Priority</th>' : '') + '<th class="right">Our stock</th></tr>' +
+        po.lines.map(function (l) {
+          var our = qcOurOf(p, l.code), ti = qcStockOf(p, l.code, l.name), pr = QC_PRIO[l.prio];
+          return '<tr><td>' + esc(l.name || l.code) + (our ? '<div class="small muted">→ ' + esc(our) + '</div>' : '') + '</td><td class="small" title="' + esc(l.code) + '">' + esc(String(l.code).length > 12 ? String(l.code).slice(0, 8) + '…' : l.code) + '</td>' +
+            '<td>' + esc(projGroupOfTi(our || qcSuggest(l.name)) || '—') + '</td><td class="right"><b>' + fmt(l.qty) + '</b></td>' +
+            (st === 'open' ? '<td class="right">' + (l.rate ? fmt(l.rate, 1) : '–') + '</td><td class="right">' + (l.stock == null ? '–' : fmt(l.stock)) + (l.way ? '<div class="small muted">+' + fmt(l.way) + ' on the way</div>' : '') + '</td>' +
+              '<td class="right">' + qcDaysTxt(l.days) + '</td><td>' + (pr ? '<span class="pill ' + pr[0] + '">' + pr[1] + '</span>' : '') + '</td>' : '') +
+            '<td class="right">' + (ti == null ? '–' : fmt(ti)) + '</td></tr>';
+        }).join('') + '<tr class="tot"><td colspan="3">Total</td><td class="right">' + fmt(po.units) + '</td><td colspan="' + (st === 'open' ? 5 : 1) + '"></td></tr></table></div></div></div>';
+    }).join('');
   }
 
   /**
@@ -3933,10 +3977,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var head = '<b>' + esc(skuText(s.sku, s.item)) + '</b>' + (whs.length ? ' · ' + esc(whs.join(', ')) : ' · all warehouses');
       // First the quantities now (Stock, Delivered, Shipped, Planned), then the ROs.
       var figs = askFigures(s.item, whs);
-      if (figs) head += figs + '<div style="margin-top:6px"><b>ROs</b> <span class="small muted">(last 120 days)</span></div>';
+      if (figs) head += figs; // the ROs behind each number show on hover (no RO list under the table)
       if (!mine.length) {
         var why = figs ? '' : whs.map(function (w) { return askPlanInfo(w, s.item); }).filter(Boolean).join('<br>');
-        out.push(head + (figs ? '' : '<br>') + 'No RO for it' + (whs.length ? ' there' : '') + ' in the RO Log (last 120 days), so nothing was sent.' + (why ? '<br>' + why : ''));
+        out.push(head + (figs ? (wantShort ? '<div style="margin-top:6px">No RO for it' + (whs.length ? ' there' : '') + ' in the RO Log (last 120 days), so nothing was sent.</div>' : '') : '<br>No RO for it' + (whs.length ? ' there' : '') + ' in the RO Log (last 120 days), so nothing was sent.' + (why ? '<br>' + why : '')));
         return;
       }
       var short = mine.filter(function (r) { return r.shortQty > 0; }), canc = mine.filter(function (r) { return r.status === 'Cancelled'; });
@@ -3947,6 +3991,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         else if (mine.some(function (r) { return (r.status === 'Created' || r.status === 'Planned') && !r.shippedOn; })) lead = 'Not sent <b>yet</b>: the RO is still waiting to be shipped (see dispatch / appointment below).';
         else lead = 'Everything on its ROs was sent.';
       }
+      if (figs) { out.push(head + (lead ? '<div style="margin-top:6px">' + lead + '</div>' : '')); return; }
       var byWh = {};
       mine.forEach(function (r) { (byWh[r.wh] = byWh[r.wh] || []).push(r); });
       var body = Object.keys(byWh).map(function (w) {
