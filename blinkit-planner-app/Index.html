@@ -711,7 +711,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 swiggy-zepto-split';
+  var PAGE_BUILD = '2026-11-28 qc-uploads';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2706,9 +2706,12 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<span class="pill bad">Must send</span> runs out before a shipment could arrive (under ' + (Number(S.boot.settings.leadDays) || 15) + ' days), <span class="pill warn">Send</span> under ' + (Number(S.boot.settings.coverDays) || 26) + ' days of cover, <span class="pill">Can wait</span> otherwise. ' +
       'POs are in the <b>' + tabName + '</b> tab of the sheet; one without a shipping date (or with one after today) is open.' +
       (p === 'swiggy' ? ' Swiggy\'s stock report has its warehouses\' stock only (not its dark stores), so its days are counted from warehouse stock.' : '') + '</div>' +
-      (can('Planner') ? '<div class="row" style="margin-top:10px;align-items:flex-end"><div style="flex:2 1 320px"><label class="f">PO PDFs and reports (choose several at once)</label>' +
-        '<input type="file" id="qcFiles" multiple accept=".csv,.xlsx,.xls,.pdf"><div class="small muted" style="margin-top:4px"><b>PO PDFs</b>: each is written as a column into the ' + tabName + ' tab, like the RO columns of the Blinkit month tab. ' +
-        '<b>Reports</b>: ' + (p === 'swiggy' ? 'Sales (.xlsx) + SOH stock (.csv)' : 'Sales (.csv) + Inventory (.csv)') + '. Any file names — each file is recognised by its columns. A sales report that repeats days already uploaded replaces those days (nothing is counted twice).</div></div></div>' : '') +
+      (can('Planner') ? '<div class="row" style="margin-top:10px;align-items:flex-start">' +
+        '<div style="flex:1 1 300px;border:1px solid var(--line);border-radius:10px;padding:10px"><label class="f">📄 ' + nm + ' PO PDFs</label>' +
+        '<input type="file" id="qcFilesPo" multiple accept=".pdf"><div class="small muted" style="margin-top:4px">One or several ' + nm + ' PO PDFs. Each is shown for checking, then written as a column into the ' + tabName + ' tab, like the RO columns of the Blinkit month tab.</div></div>' +
+        '<div style="flex:1 1 300px;border:1px solid var(--line);border-radius:10px;padding:10px"><label class="f">📊 ' + nm + ' sales &amp; inventory reports</label>' +
+        '<input type="file" id="qcFilesRep" multiple accept=".csv,.xlsx,.xls"><div class="small muted" style="margin-top:4px">' + (p === 'swiggy' ? 'Sales (.xlsx) + SOH stock (.csv)' : 'Sales (.csv) + Inventory (.csv)') +
+        ', or only a new stock report. Any file names — each file is recognised by its columns. A sales report that repeats days already uploaded replaces those days (nothing is counted twice).</div></div></div>' : '') +
       '<div id="qcMsg" style="margin-top:8px"></div></div>' +
       '<div class="card" id="qcPdfs" style="display:none"></div>' +
       '<div class="card"><h3 style="margin-top:0">What to send first <span class="small muted" style="font-weight:400">— all open ' + nm + ' PO lines per SKU vs our stock (Travalate Inventory)</span></h3><div id="qcDemand"><span class="spin"></span></div></div>' +
@@ -2750,7 +2753,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       api('saveQcSkus', S.token, list).then(function (r) { S.qc = r; if (S.dash) S.dash.qc = r; $('qcSkuOut').innerHTML = msgs([list.length + ' code(s) linked and saved.'], 'ok'); drawQc(); },
         function (e) { $('qcSkuOut').innerHTML = msgs([e.message], 'bad'); });
     };
-    if ($('qcFiles')) $('qcFiles').onchange = function () { qcLoadFiles(Array.prototype.slice.call(this.files)); this.value = ''; };
+    if ($('qcFilesPo')) $('qcFilesPo').onchange = function () { qcLoadFiles(Array.prototype.slice.call(this.files), 'po'); this.value = ''; };
+    if ($('qcFilesRep')) $('qcFilesRep').onchange = function () { qcLoadFiles(Array.prototype.slice.call(this.files), 'rep'); this.value = ''; };
     if (!S.qc && S.dash && S.dash.qc) S.qc = S.dash.qc;
     drawQc(); drawQcPdfs();
     loadTi(false);
@@ -2902,14 +2906,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /** The PO PDFs read, waiting to be written to their tab. */
   function drawQcPdfs() {
     var box = $('qcPdfs'); if (!box) return;
-    var all = S.qcPdfs || [], list = all.filter(function (x) { return x.err || x.platform === S.tab; });
+    var all = S.qcPdfs || [], list = all.filter(function (x) { return x.err ? x.tab === S.tab : x.platform === S.tab; });
     var other = all.filter(function (x) { return !x.err && x.platform !== S.tab; });
     if (!list.length && !other.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
     box.style.display = '';
     var ed = can('Planner');
     box.innerHTML = '<h3 style="margin-top:0">📄 ' + QC_NAMES[S.tab] + ' PO PDFs read — check, then write them to the ' + (S.tab === 'swiggy' ? 'Swiggy Planning' : 'Zepto') + ' tab</h3>' +
       (other.length ? '<div class="msg info small">' + other.length + ' ' + QC_NAMES[other[0].platform] + ' PO PDF(s) were in this upload too — they wait in the ' + QC_NAMES[other[0].platform] + ' tab.</div>' : '') +
-      (list.length > 1 && ed ? '<button class="btn p" id="qcPdfAll">Write all ' + list.filter(function (x) { return !x.err; }).length + ' to their tabs</button>' : '') +
+      (list.filter(function (x) { return !x.err; }).length > 1 && ed ? '<button class="btn p" id="qcPdfAll">Write all ' + list.filter(function (x) { return !x.err; }).length + ' to the tab</button>' : '') +
       list.map(function (x, i) {
         if (x.err) return '<div class="msg bad">' + esc(x.name) + ': ' + esc(x.err) + '</div>';
         var inTab = ((S.qc && S.qc[x.platform] && S.qc[x.platform].pos) || []).some(function (q) { return q.po === x.po; });
@@ -2950,17 +2954,27 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     chain.then(function () { $('qcMsg').innerHTML = msgs(done, 'ok') + msgs(errs, 'bad'); drawQcPdfs(); drawQc(); });
   }
   /** Reads the chosen report files; a platform is worked out and saved once both of its files are in. */
-  function qcLoadFiles(files) {
+  /**
+   * The two uploads of a platform's tab: 'po' takes its PO PDFs, 'rep' its sales / inventory reports. A file of the
+   * wrong kind, or of the other platform, is turned away with a message saying where it belongs.
+   */
+  function qcLoadFiles(files, kind) {
+    var p = S.tab, other = p === 'swiggy' ? 'zepto' : 'swiggy', wrong = [];
     var pdfs = files.filter(function (f) { return /\.pdf$/i.test(f.name); });
     files = files.filter(function (f) { return !/\.pdf$/i.test(f.name); });
+    if (kind === 'po' && files.length) { wrong.push(files.map(function (f) { return f.name; }).join(', ') + ': not a PDF — sales and inventory reports go in the reports upload.'); files = []; }
+    if (kind === 'rep' && pdfs.length) { wrong.push(pdfs.map(function (f) { return f.name; }).join(', ') + ': a PDF — PO PDFs go in the PO PDF upload.'); pdfs = []; }
+    if (wrong.length) $('qcMsg').innerHTML = msgs(wrong, 'warn');
+    if (pdfs.length) $('qcMsg').innerHTML = '<span class="spin"></span> Reading ' + pdfs.length + ' PO PDF(s)…';
     if (pdfs.length) {
       if (typeof pdfjsLib === 'undefined') { $('qcMsg').innerHTML = msgs(['The PDF reader did not load (no internet?). Reload the page.'], 'bad'); }
       else Promise.all(pdfs.map(function (f) {
         return f.arrayBuffer().then(qcPdfItems).then(function (pages) { var x = qcParsePo(pages); x.name = f.name; return x; }).catch(function (e) { return { name: f.name, err: e.message }; });
       })).then(function (list) {
+        list.forEach(function (x) { x.tab = p; if (!x.err && x.platform !== p) { x.err = 'a ' + QC_NAMES[x.platform] + ' PO — upload it in the ' + QC_NAMES[x.platform] + ' tab.'; } });
         S.qcPdfs = (S.qcPdfs || []).filter(function (o) { return !list.some(function (n) { return n.po && n.po === o.po; }); }).concat(list);
         drawQcPdfs();
-        if (!files.length) $('qcMsg').innerHTML = msgs([list.filter(function (x) { return !x.err; }).length + ' PO PDF(s) read — check them below and write them to the tab.'], 'info');
+        $('qcMsg').innerHTML = msgs(wrong, 'warn') + msgs([list.filter(function (x) { return !x.err; }).length + ' PO PDF(s) read — check them below and write them to the tab.'], 'info');
       });
     }
     if (!files.length) return;
@@ -2969,11 +2983,16 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return f.arrayBuffer().then(function (b) { try { return qcReadFile(f.name, b); } catch (e) { return { err: e.message }; } });
     })).then(function (res) {
       var errs = [], done = [];
-      res.forEach(function (r) { if (r.err) errs.push(r.err); else (S.qcFiles[r.platform] = S.qcFiles[r.platform] || {})[r.kind] = r; });
+      res.forEach(function (r) {
+        if (r.err) errs.push(r.err);
+        else if (r.platform !== p) errs.push(r.name + ': a ' + QC_NAMES[r.platform] + ' report — upload it in the ' + QC_NAMES[r.platform] + ' tab.');
+        else (S.qcFiles[r.platform] = S.qcFiles[r.platform] || {})[r.kind] = r;
+      });
+      errs = wrong.concat(errs);
       // A platform is worked out when its stock report is in (sales from this upload merged into the saved history, or
       // the saved history alone when only a new stock report was chosen).
-      var todo = Object.keys(QC_NAMES).filter(function (p) { var f = S.qcFiles[p]; return f && f.stock && res.some(function (r) { return r.platform === p; }); });
-      Object.keys(QC_NAMES).forEach(function (p) { var f = S.qcFiles[p]; if (f && f.sales && !f.stock) errs.push(QC_NAMES[p] + ': now add its stock report too (the sales report alone is not enough).'); });
+      var todo = [p].filter(function (p) { var f = S.qcFiles[p]; return f && f.stock && res.some(function (r) { return r.platform === p && !r.err; }); });
+      [p].forEach(function (p) { var f = S.qcFiles[p]; if (f && f.sales && !f.stock) errs.push(QC_NAMES[p] + ': now add its stock report too (the sales report alone is not enough).'); });
       var chain = Promise.resolve();
       todo.forEach(function (p) {
         chain = chain.then(function () { return api('getQcSales', S.token, p); }).then(function (old) {
@@ -2988,7 +3007,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           var out = qcCompute(p, sales, S.qcFiles[p].stock, m.hist);
           return api('saveQcSnapshot', S.token, p, out.rows, out.meta, m.hist).then(function (r) {
             S.qc = r; if (S.dash) S.dash.qc = r;
-            if (p !== S.tab) done.push(QC_NAMES[p] + ' files were in this upload too — saved; see the ' + QC_NAMES[p] + ' tab.');
             if (m.stockOnly) { done.push(QC_NAMES[p] + ': stock updated from this upload; sales from the saved history (' + prettyDate(m.histFrom) + ' – ' + prettyDate(m.histTo) + '). ' + out.rows.length + ' warehouse × SKU rows.'); return; }
             done.push(QC_NAMES[p] + ': sales ' + prettyDate(m.from) + ' – ' + prettyDate(m.to) + ' read — ' + m.added + ' new day(s)' + (m.replaced ? ', ' + m.replaced + ' day(s) already read before replaced (not counted twice)' : '') +
               '. History now ' + prettyDate(m.histFrom) + ' – ' + prettyDate(m.histTo) + (m.gaps ? ' (' + m.gaps + ' day(s) in between have no report — counted as no sales)' : '') + '. Stock from this upload. ' + out.rows.length + ' warehouse × SKU rows.');

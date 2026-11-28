@@ -799,6 +799,16 @@ function qcDate_(v) {
   const d = m ? new Date(Number(m[3].length === 2 ? '20' + m[3] : m[3]), Number(m[2]) - 1, Number(m[1]), 12) : parseDate_(s);
   return d && !isNaN(d) ? fmtDate_(d) : '';
 }
+/**
+ * Whether a row of a Swiggy / Zepto tab is a SKU row: Swiggy's column B holds its item code (a number); Zepto's holds
+ * its SKU code (a long id like 8df84582-b2d2-…) or, failing that, column E its material code (a number). Notes,
+ * dates, PO numbers and a Total row below the SKU list are not SKU rows.
+ */
+function qcIsItem_(platform, a, b, e) {
+  if (/^total\b/i.test(String(a).trim())) return false;
+  if (platform === 'swiggy') return /^\d{3,10}$/.test(String(b).trim());
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(b).trim()) || (!String(b).trim() && /^\d{5,10}$/.test(String(e).trim()));
+}
 /** The POs in a Swiggy / Zepto tab: every column from F on with a PO number in row 2. */
 function qcPOs_(platform) {
   const sh = qcTab_(QC_TABS[platform]);
@@ -809,7 +819,7 @@ function qcPOs_(platform) {
   const items = [];
   for (let i = 6; i < v.length; i++) {
     const name = String(v[i][0]).trim(), code = String(v[i][1]).trim();
-    if (!name && !code) continue;
+    if (!qcIsItem_(platform, v[i][0], v[i][1], v[i][4] == null ? '' : v[i][4])) continue;
     items.push({ row: i + 1, name: name, code: code, code2: String(v[i][4] == null ? '' : v[i][4]).trim() });
   }
   const pos = [];
@@ -932,7 +942,7 @@ function importQcPo(token, platform, po) {
     const rowOf = {}; let lastItemRow = 6;
     for (let i = 6; i < v.length; i++) {
       const b = String(v[i][1]).trim(), e = String(v[i][4] == null ? '' : v[i][4]).trim();
-      if (!String(v[i][0]).trim() && !b) continue;
+      if (!qcIsItem_(platform, v[i][0], b, e)) continue;
       lastItemRow = i + 1;
       if (b) rowOf[b.toLowerCase()] = i + 1;
       if (platform === 'zepto' && e) rowOf['e:' + e] = i + 1;
@@ -941,8 +951,9 @@ function importQcPo(token, platform, po) {
     po.lines.forEach(l => {
       const k = String(l.code || '').trim().toLowerCase();
       if ((k && rowOf[k]) || (l.code2 && rowOf['e:' + String(l.code2).trim()])) return;
+      // A new row right under the last SKU row: notes / totals kept below the SKU list move down, never overwritten.
       const r = lastItemRow + 1;
-      if (r > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 1);
+      sh.insertRowsAfter(lastItemRow, 1);
       if (lastItemRow >= 7) sh.getRange(lastItemRow, 1, 1, sh.getMaxColumns()).copyTo(sh.getRange(r, 1, 1, sh.getMaxColumns()), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
       const name = String(l.name || '').trim() || (QC_TABS[platform] + ' ' + (l.code2 || l.code));
       sh.getRange(r, 1, 1, 2).setValues([[name, String(l.code || l.code2 || '')]]);
@@ -964,10 +975,12 @@ function importQcPo(token, platform, po) {
       if (lastPo) sh.getRange(1, lastPo, sh.getMaxRows(), 1).copyTo(sh.getRange(1, col, sh.getMaxRows(), 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
     }
     // The column: header rows, then this PO's quantity on each SKU row (other rows emptied).
-    const rows = Math.max(lastItemRow, 7);
     sh.getRange(1, col, 3, 1).setValues([[String(po.wh || '')], [String(po.po)], [po.release ? parseDate_(po.release) : '']]);
     sh.getRange(2, col).setNote(po.expiry ? 'Expiry ' + po.expiry + ' · added by ' + (u.name || u.id) + ' from the PO PDF' : 'Added by ' + (u.name || u.id) + ' from the PO PDF');
-    const q = []; for (let r = 7; r <= rows; r++) q.push(['']);
+    // Only the SKU rows of this column change (this PO's quantity, or empty); other rows (notes, totals) stay as they are.
+    const rows = Math.max(lastItemRow, 7), q = sh.getRange(7, col, rows - 6, 1).getValues();
+    const itemRows = {}; Object.keys(rowOf).forEach(k => { itemRows[rowOf[k]] = 1; });
+    Object.keys(itemRows).forEach(r => { q[r - 7][0] = ''; });
     po.lines.forEach(l => {
       const r = rowOf[String(l.code || '').trim().toLowerCase()] || rowOf['e:' + String(l.code2 || '').trim()];
       if (r) q[r - 7][0] = (Number(q[r - 7][0]) || 0) + (Number(l.qty) || 0);
@@ -984,7 +997,11 @@ function removeQcPo(token, platform, poNo) {
   try {
     const sh = qcTabForWrite_(platform), col = qcFindPoCol_(sh, poNo);
     if (!col) throw new Error('PO ' + poNo + ' is not in the ' + sh.getName() + ' tab.');
-    sh.getRange(1, col, Math.max(sh.getLastRow(), 7), 1).clearContent().clearNote();
+    // Rows 1–5 and the SKU rows of its column; notes / totals below the SKU list stay.
+    sh.getRange(1, col, 5, 1).clearContent();
+    sh.getRange(2, col).clearNote();
+    const v = sh.getRange(1, 1, Math.max(sh.getLastRow(), 7), Math.max(sh.getLastColumn(), 5)).getValues();
+    for (let i = 6; i < v.length; i++) if (qcIsItem_(platform, v[i][0], v[i][1], v[i][4])) sh.getRange(i + 1, col).clearContent();
     return qcData_();
   } finally { lock.releaseLock(); }
 }
