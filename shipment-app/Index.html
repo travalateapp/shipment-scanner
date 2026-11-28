@@ -9567,7 +9567,7 @@ function showSuccessToast_(message, isError) {
  *  backdrop-click. Usage:
  *    showConfirmModal_('Delete this shipment record?', 'Delete', () => { ...});
  */
-function showConfirmModal_(message, actionLabel, onConfirm) {
+function showConfirmModal_(message, actionLabel, onConfirm, btnClass) {
   document.getElementById('globalConfirmText').textContent = message;
   const btn = document.getElementById('globalConfirmActionBtn');
   btn.textContent = actionLabel || 'Delete';
@@ -9575,6 +9575,7 @@ function showConfirmModal_(message, actionLabel, onConfirm) {
   // modal is reused for every confirm() call site rather than one
   // instance per caller.
   const freshBtn = btn.cloneNode(true);
+  freshBtn.className = 'btn ' + (btnClass || 'btn-danger');
   btn.parentNode.replaceChild(freshBtn, btn);
   freshBtn.onclick = () => { closeConfirmModal_(); onConfirm(); };
   document.getElementById('globalConfirmModal').classList.remove('hidden');
@@ -9582,6 +9583,66 @@ function showConfirmModal_(message, actionLabel, onConfirm) {
 function closeConfirmModal_() {
   document.getElementById('globalConfirmModal').classList.add('hidden');
 }
+
+/*
+ * A confirmation before every button that saves something, so an accidental tap or click changes nothing.
+ * One click listener (capture phase) looks at the clicked button's onclick: when it calls one of the functions
+ * below, the click is stopped and showConfirmModal_ asks first; on the action button the same button is clicked
+ * again with the guard off, so its own code runs exactly as before. Buttons that already ask (Delete, Remove,
+ * Deactivate, restore invoice number, switch platform) are not listed. A message function returning null lets the
+ * click through unasked. Enter-key shortcuts and calls made by the code itself are not affected.
+ */
+function guardVal_(id) { const el = document.getElementById(id); return el ? String(el.value || '').trim() : ''; }
+function guardShip_(i) { const s = savedShipments[i]; return s ? (s.platform ? s.platform + ' ' : '') + 'PO ' + s.poNumber : 'this shipment'; }
+const SAVE_GUARDS_ = {
+  submitForm: [() => {
+    const plat = guardVal_('selectedPlatform'), po = guardVal_('poNumber'), city = guardVal_('city');
+    if (!plat || !po || !city) return null; // let its own "please fill" messages show
+    let n = 0; try { n = collectBoxes().length; } catch (e) {}
+    return 'Save this shipment and generate the outputs?\n\n' + plat + ' · PO ' + po + ' · ' + city + (n ? ' · ' + n + ' box' + (n === 1 ? '' : 'es') : '');
+  }, 'Save shipment'],
+  suggestGenerateOutputs_: [() => 'Save this shipment with the suggested boxes and generate the outputs?\n\nPO ' + guardVal_('poNumber'), 'Save shipment'],
+  saveEditedShipment: [() => 'Save the changes to PO ' + guardVal_('editPO') + '?', 'Save changes'],
+  saveDispatchDate_: [(b, call) => {
+    const who = guardShip_(dispatchModalIdx_);
+    if (/\(\s*true/.test(call)) return 'Clear the dispatch date of ' + who + '?\n\nThe Blinkit Planner will no longer count it as shipped from this date.';
+    const v = guardVal_('dispatchModalDate'); if (!v) return null;
+    return 'Set the dispatch date of ' + who + ' to ' + formatDDMMYYYY_(v) + '?\n\nThe Blinkit Planner counts the RO as shipped on this day.';
+  }, call => /\(\s*true/.test(call) ? 'Clear date' : 'Save', call => /\(\s*true/.test(call) ? 'btn-danger' : 'btn-primary'],
+  saveShortModal_: [() => 'Save these reasons for the short quantities?', 'Save reasons'],
+  confirmInvoiceModal: [() => { const v = guardVal_('invoiceModalInput'); return v ? 'Save invoice number SI/2026-27/' + v + ' and generate the Box Labels?' : null; }, 'Generate Labels'],
+  submitRoInvoice: [() => 'Save the RO Invoice?', 'Save'],
+  submitEditRoDetails: [() => 'Save the changes to the RO details?', 'Save changes'],
+  submitAdjustment_: [() => 'Submit this adjustment?\n\nThe reduced units are added back to Travalate Inventory.', 'Submit'],
+  submitAddWarehouse: [() => 'Save this warehouse?', 'Save warehouse'],
+  saveSkuForm_: [() => 'Save this SKU?', 'Save SKU'],
+  saveRoSettings: [() => 'Save these settings?', 'Save'],
+  confirmPoUpload_: [() => 'Save this PO' + (typeof parsedPoData_ !== 'undefined' && parsedPoData_ && parsedPoData_.poNumber ? ' (' + parsedPoData_.poNumber + ')' : '') + '?', 'Save PO'],
+  savePod_: [() => 'Save this POD?', 'Save POD'],
+  saveUpc: [() => 'Save this UPC?', 'Save'],
+  saveInvMap: [() => 'Save this inventory mapping?', 'Save'],
+  saveSettings_: [() => 'Save your profile changes?', 'Save changes'],
+  saveEditEmp_: [() => 'Save the changes to this employee?', 'Save changes'],
+  addEmployee: [() => 'Add this employee?', 'Add employee'],
+  doLogout: [() => 'Log out?', 'Log out', 'btn-danger']
+};
+let saveGuardPass_ = false;
+document.addEventListener('click', function (e) {
+  if (saveGuardPass_ || !e.target.closest) return;
+  const b = e.target.closest('[onclick]'); if (!b || b.disabled) return;
+  const call = String(b.getAttribute('onclick') || '').trim();
+  const m = /^([A-Za-z_$][\w$]*)\s*\(/.exec(call); if (!m || !SAVE_GUARDS_.hasOwnProperty(m[1])) return;
+  const g = SAVE_GUARDS_[m[1]];
+  let msg = null; try { msg = g[0](b, call); } catch (er) { msg = null; }
+  if (msg == null) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  const pick = v => typeof v === 'function' ? v(call) : v;
+  showConfirmModal_(msg, pick(g[1]), () => {
+    if (!document.body.contains(b)) return;
+    saveGuardPass_ = true;
+    try { b.click(); } finally { saveGuardPass_ = false; }
+  }, pick(g[2]) || 'btn-primary');
+}, true);
 </script>
 </body>
 </html>
