@@ -112,7 +112,8 @@ table.t th{font-size:11px;color:var(--muted)}
 .pwh tr.ps.pl td{border-bottom:1px solid var(--line);padding-bottom:7px;color:var(--info)}
 .pwh tr.tot2 td{font-weight:600}
 .proj th.right,.proj td.right{text-align:right}
-table.qct th.right,table.qct td.right{text-align:right}.qcPo summary{line-height:1.7}
+table.qct th.right,table.qct td.right{text-align:right}
+b.plat{display:inline-block;min-width:16px;text-align:center;font-weight:800;border-radius:4px;padding:0 3px;margin-right:2px;color:#fff;background:#1a1a2e}b.platB{background:#b88a00}b.platS{background:#e8590c}b.platZ{background:#6f42c1}.qcPo summary{line-height:1.7}
 .rmD{padding:2px 8px!important;color:var(--bad);font-weight:700;line-height:1.2}
 .seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden}
 .seg button{border:0;background:transparent;padding:8px 14px;font:inherit;font-weight:600;color:var(--muted);cursor:pointer}
@@ -711,7 +712,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 qc-uploads';
+  var PAGE_BUILD = '2026-11-28 items-platforms';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2685,17 +2686,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<td class="right">' + fmt(x.tot) + '</td><td class="right">' + (x.ti == null ? '–' : fmt(x.ti)) + '</td><td>' + ok + '</td></tr>';
       }).join('') + '</table></div>';
   }
-  function qcStockHtml(p, c) {
-    var Q = S.qcView, rows = c.rows.filter(function (r) { return (!Q.wh || r.wh === Q.wh) && (r.rate > 0 || r.open || r.way); })
-      .sort(function (a, b) { return (a.days == null ? 1e9 : a.days) - (b.days == null ? 1e9 : b.days) || b.rate - a.rate; });
-    if (!rows.length) return '<div class="muted small">' + (c.x.snap && c.x.snap.length ? 'Nothing for this warehouse.' : 'Upload the ' + QC_NAMES[p] + ' sales and stock reports above.') + '</div>';
-    return '<div class="scroll"><table class="t qct"><tr><th>Warehouse</th><th>SKU</th><th class="right">Sold / day</th><th class="right">Stock</th><th class="right">On the way</th><th class="right">Open POs</th><th class="right">Days</th><th class="right">Days with open POs</th></tr>' +
-      rows.map(function (r) {
-        var cl = r.days == null ? '' : r.days < c.lead ? 'bad' : r.days < c.cover ? 'warn' : 'ok';
-        return '<tr><td>' + esc(qcWhLabel(p, r.wh)) + '</td><td>' + esc(r.sku) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.stock) + '</td><td class="right">' + (r.way ? fmt(r.way) : '') + '</td>' +
-          '<td class="right">' + (r.open ? fmt(r.open) : '') + '</td><td class="right"><span class="pill ' + cl + '">' + qcDaysTxt(r.days) + '</span></td><td class="right">' + qcDaysTxt(r.daysPo) + '</td></tr>';
-      }).join('') + '</table></div>';
-  }
   function renderQc(p) {
     var Q = S.qcView = S.qcView || { p: p, wh: '' };
     if (Q.p !== p) { Q.p = p; Q.wh = ''; }
@@ -2723,8 +2713,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         '<datalist id="qcTiList"></datalist></details>' +
       '<div class="card"><div class="row" style="align-items:center"><h3 style="flex:0 0 auto;margin:0">' + nm + ' POs</h3>' +
       '<div class="small muted" id="qcMeta" style="flex:1 1 300px"></div></div><div id="qcPos" style="margin-top:10px"></div></div>' +
-      '<div class="card"><div class="row" style="align-items:flex-end"><h3 style="flex:1 1 200px;margin:0">Stock and days per warehouse</h3><div style="flex:0 1 220px"><label class="f">Warehouse</label><select id="qcWh"></select></div></div><div id="qcStock" style="margin-top:10px"></div></div>';
-    $('qcWh').onchange = function () { Q.wh = this.value; drawQc(); };
+      '<div class="small muted" style="margin:0 4px 12px">Stock and days per warehouse and item: Dashboard → Items → ' + nm + '.</div>';
     $('qcMapCard').addEventListener('toggle', function () { S.qcMapOpen = this.open; });
     $('qcPos').onclick = function (e) {
       var b = e.target.closest('.qcDtGo, .qcRm'); if (!b) return;
@@ -2778,9 +2767,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       c.open.slice().sort(function (a, b) { return (a.ship || '9') .localeCompare(b.ship || '9') || (a.release || '').localeCompare(b.release || ''); }).map(function (po) { return qcPoHtml(p, c, po); }).join('') : '<div class="muted small">No open ' + QC_NAMES[p] + ' POs.</div>') +
       (c.way.length ? '<details style="margin-top:8px"><summary class="small" style="cursor:pointer"><b>' + c.way.length + ' PO(s) on the way</b> (shipped, appointment today or later)</summary><ul class="small">' +
         c.way.map(function (po) { return '<li>' + esc(po.wh) + ' · PO ' + esc(po.po) + ' · ' + fmt(po.units) + ' units · shipped ' + prettyDate(po.ship) + (po.appt ? ' · appt ' + prettyDate(po.appt) : '') + '</li>'; }).join('') + '</ul></details>' : '');
-    var whs = {}; c.rows.forEach(function (r) { whs[r.wh] = 1; });
-    $('qcWh').innerHTML = '<option value="">All warehouses</option>' + Object.keys(whs).sort().map(function (w) { return '<option value="' + esc(w) + '"' + (S.qcView.wh === w ? ' selected' : '') + '>' + esc(qcWhLabel(p, w)) + '</option>'; }).join('');
-    $('qcStock').innerHTML = qcStockHtml(p, c);
     drawQcMap();
   }
   /** The SKU mapping table: every code in the tabs, the last reports and the saved mapping. */
@@ -3019,21 +3005,29 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       });
     }).catch(function (e) { $('qcMsg').innerHTML = msgs([e.message], 'bad'); });
   }
-  /** Dashboard card: per platform the open POs and the items that run out first. */
-  function qcDashHtml() {
-    if (!S.dash || !S.dash.qc) return '';
-    var parts = Object.keys(QC_NAMES).map(function (p) {
-      var c = qcCalc(p); if (!c.x.found && !(c.x.snap || []).length) return '';
-      var must = 0; c.open.forEach(function (po) { po.lines.forEach(function (l) { if (l.prio === 'must') must++; }); });
-      var low = c.rows.filter(function (r) { return r.days != null && r.days < c.lead; }).sort(function (a, b) { return Math.floor(a.days) - Math.floor(b.days) || b.rate - a.rate; });
-      return '<div class="card"><div class="row" style="align-items:center"><h3 style="flex:1 1 200px;margin:0">🛵 ' + QC_NAMES[p] + '</h3><button class="btn sm qcGo" data-p="' + p + '" style="flex:0 0 auto;width:auto">Open ' + QC_NAMES[p] + '</button></div><div style="margin-top:6px">' + c.open.length + ' open PO(s), ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units' + (must ? ' · <span class="pill bad">' + must + ' line(s) must send</span>' : '') +
-        (c.way.length ? ' · ' + c.way.length + ' on the way' : '') +
-        (c.missing.length || c.closed.length ? '<div class="small" style="color:var(--warn,#b45309);margin-top:2px">⚠ ' + [c.missing.length ? c.missing.length + ' PO(s) open on Swiggy but not in the tab' : '', c.closed.length ? c.closed.length + ' PO(s) expired / no longer open' : ''].filter(Boolean).join(' · ') + '</div>' : '') +
-        (!(c.x.snap || []).length ? '<div class="small muted">No reports read yet.</div>' : low.length ? '<div class="small" style="margin-top:4px">Runs out within ' + c.lead + ' days: ' + low.slice(0, 8).map(function (r) { return esc(qcWhLabel(p, r.wh)) + ' · ' + esc(r.sku) + ' <b>' + qcDaysTxt(r.days) + 'd</b>'; }).join(' · ') + (low.length > 8 ? ' · +' + (low.length - 8) + ' more' : '') + '</div>' : '<div class="small muted">Nothing runs out within ' + c.lead + ' days.</div>') +
-        (c.x.meta ? '<div class="small muted">Reports up to ' + prettyDate(c.x.meta.salesTo) + '</div>' : '') + '</div></div>';
-    }).filter(Boolean);
-    // One card per platform (Swiggy, then Zepto), above the Items table; the calendar below is shared by all three.
-    return parts.join('');
+  /**
+   * Dashboard Items table for Swiggy / Zepto, in Blinkit's columns: per day (last reports), Has = their stock,
+   * Shipped = POs shipped not arrived yet, Planned = open POs not shipped, Days = Has ÷ per day, Suggested = what would
+   * bring the warehouse to the days of cover (they raise the POs; this is what to ask for).
+   */
+  function qcItemRows(p) {
+    var c = qcCalc(p), st = S.boot.settings, cover = Number(st.coverDays) || 26, rt = Number(st.roundTo) || 5;
+    return c.rows.filter(function (r) { return r.rate > 0 || r.open || r.way; }).map(function (r) {
+      var need = cover * r.rate - r.stock - r.way - r.open;
+      return { qc: p, wh: qcWhLabel(p, r.wh), item: String(r.code).length > 12 ? String(r.code).slice(0, 8) + '…' : r.code, code: r.code, sku: r.sku,
+        group: projGroupOfTi(qcOurOf(p, r.code) || qcSuggest(r.sku)), rate: r.rate, has: r.stock, shipped: r.way, planned: r.open,
+        days: r.rate > 0 ? r.stock / r.rate : null, rec: need > 0 ? Math.ceil(need / rt) * rt : 0 };
+    });
+  }
+  function qcItemsNote(p) {
+    var x = (S.dash && S.dash.qc && S.dash.qc[p]) || {};
+    return x.meta ? QC_NAMES[p] + ' reports up to ' + prettyDate(x.meta.salesTo) + '. Has = their stock' + (p === 'swiggy' ? ' (warehouses only)' : '') + ', Shipped = POs on the way, Planned = open POs, Suggested = to reach ' + (Number(S.boot.settings.coverDays) || 26) + ' days.'
+      : 'No ' + QC_NAMES[p] + ' reports read yet — upload them in the ' + QC_NAMES[p] + ' tab.';
+  }
+  /** The platform of a calendar entry as a bold letter: B Blinkit, S Swiggy, Z Zepto. */
+  function platLetter(r) {
+    var l = r && r.qc === 'swiggy' ? 'S' : r && r.qc === 'zepto' ? 'Z' : 'B';
+    return '<b class="plat plat' + l + '" title="' + (l === 'S' ? 'Swiggy' : l === 'Z' ? 'Zepto' : 'Blinkit') + '">' + l + '</b> ';
   }
   /** Calendar: Swiggy / Zepto POs on their shipping day (🚚, counted in the load) and appointment day (📍). */
   function qcCalItems() {
@@ -3042,7 +3036,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     Object.keys(QC_NAMES).forEach(function (p) {
       ((S.dash.qc[p] || {}).pos || []).forEach(function (po) {
         if (!po.ship && !po.appt) return;
-        out.push({ qc: p, key: 'qc' + p + po.po, wh: QC_NAMES[p] + ' ' + po.wh, groups: ['PO ' + po.po], units: po.units, roNo: '', status: 'Created',
+        out.push({ qc: p, key: 'qc' + p + po.po, wh: po.wh, groups: ['PO ' + po.po], units: po.units, roNo: '', status: 'Created',
           appt: po.appt, shippedOn: po.ship && po.ship <= t ? po.ship : '', ship: po.ship, lines: [{}] });
       });
     });
@@ -4398,12 +4392,15 @@ function getRoInvoiceStyles_() {
     var SUBS = { rate: 'avg. sale a day', has: 'stock + delivered', shipped: 'on the road', planned: 'RO made, not shipped', days: 'Has ÷ per day', rec: 'to send, all counted' };
     var srt = S.dashSort = S.dashSort || { col: 'rate', dir: -1 };
     var val = function (r, c) {
-      if (c === 'sku') return skuOf(r.item) || '';
+      if (c === 'sku') return r.qc ? r.sku : skuOf(r.item) || '';
       if (c === 'has') return r.has == null ? r.pos : r.has;
       return r[c];
     };
     var isText = COLS.filter(function (c) { return c[0] === srt.col; })[0][2] === 't';
-    var list = rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }).sort(function (a, b) {
+    // Items of the platform picked under the heading: Blinkit (the plan), Swiggy or Zepto (their last reports and POs).
+    var plat = S.dashPlat || 'blinkit';
+    if (plat !== 'blinkit') SUBS = { rate: 'avg. sale a day', has: 'their stock', shipped: 'PO on the way', planned: 'open PO, not shipped', days: 'Has ÷ per day', rec: 'to reach the days of cover' };
+    var list = (plat === 'blinkit' ? rows.filter(function (r) { return r.rate > 0 && (!S.dashWh || r.wh === S.dashWh); }) : qcItemRows(plat)).sort(function (a, b) {
       var x = val(a, srt.col), y = val(b, srt.col);
       var ex = x == null || x === '', ey = y == null || y === '';
       if (ex || ey) return ex && ey ? 0 : ex ? 1 : -1;
@@ -4415,16 +4412,19 @@ function getRoInvoiceStyles_() {
     // directly, or never uploaded as a PDF). Planned is from the plan; the RO Log is as it is now.
     var openQty = {};
     (d.openROs || []).forEach(function (x) { if (x.status === 'Planned' || x.status === 'Created') { var k = PlanCore.whNorm(x.wh) + '|' + Number(x.item); openQty[k] = (openQty[k] || 0) + (Number(x.qty) || 0); } });
-    var noRo = function (r) { var on = (r.planned || 0) + (r.shipped || 0); return on > 0 ? Math.max(0, on - (openQty[PlanCore.whNorm(r.wh) + '|' + Number(r.item)] || 0)) : 0; };
+    var noRo = function (r) { if (r.qc) return 0; var on = (r.planned || 0) + (r.shipped || 0); return on > 0 ? Math.max(0, on - (openQty[PlanCore.whNorm(r.wh) + '|' + Number(r.item)] || 0)) : 0; };
     var noRoCount = list.filter(function (r) { return noRo(r) > 0; }).length;
     var dashMatch = function (r) {
       if (S.dashNoRo && !(noRo(r) > 0)) return false;
       var words = String(S.dashQ || '').toLowerCase().split(/\s+/).filter(Boolean); if (!words.length) return true;
-      var hay = (r.wh + ' ' + (skuOf(r.item) || '') + ' ' + r.item + ' ' + r.group).toLowerCase();
+      var hay = (r.wh + ' ' + (r.qc ? r.sku + ' ' + r.code : skuOf(r.item) || '') + ' ' + r.item + ' ' + r.group).toLowerCase();
       return words.every(function (w) { return hay.indexOf(w) >= 0; });
     };
     var rowHtml = function (r) {
         var c = r.days < 7 ? 'bad' : r.days < 15 ? 'warn' : 'ok';
+        if (r.qc) return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(r.sku) + '</td><td class="small" title="' + esc(r.code) + '">' + esc(r.item) + '</td><td>' + esc(r.group || '—') + '</td><td class="right">' + fmt(r.rate, 1) + '</td>' +
+          '<td class="right">' + fmt(r.has) + '</td><td class="right">' + (r.shipped ? fmt(r.shipped) : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned ? fmt(r.planned) : '<span class="muted">–</span>') + '</td>' +
+          '<td class="right">' + (r.days == null ? '–' : '<span class="pill ' + c + '" title="Days = stock ' + fmt(r.has) + ' ÷ ' + fmt(r.rate, 1) + ' a day">' + fmt(d0(r.days), 1) + '</span>') + '</td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
         return '<tr><td>' + esc(r.wh) + '</td><td>' + esc(skuOf(r.item) || 'No SKU') + (r.locked ? ' <span class="pill">locked</span>' : '') + '</td><td>' + r.item + '</td><td>' + esc(r.group) + '</td><td class="right">' + fmt(r.rate, 1) + '</td><td class="right">' + fmt(r.has == null ? r.pos : r.has) + (r.delivAdj ? ' <span class="small muted dlTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.delivAdj + '" data-s="' + (r.has == null ? '' : r.has - r.delivAdj) + '" data-sd="' + esc(((S.dash && S.dash.meta && PlanCore.stockInfo(S.dash.meta.inventoryAt, today())) || {}).stockDate || '') + '">(+' + fmt(r.delivAdj) + ' delivered)</span>' : '') + '</td><td class="right">' + (r.shipped ? '<span class="shTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + r.shipped + '">' + fmt(r.shipped) + '</span>' : '<span class="muted">–</span>') + '</td><td class="right">' + (r.planned == null ? '–' : r.planned || noRo(r) > 0 ? (noRo(r) > 0 ? '<span class="pill warn" title="Planned with no open RO in the RO Log">' + fmt(noRo(r)) + ' without RO</span> ' : '') + '<a href="#" class="plk plTip" data-wh="' + esc(r.wh) + '" data-it="' + r.item + '" data-n="' + (r.planned || 0) + '">' + fmt(r.planned) + '</a>' : '') + '</td><td class="right"><span class="pill hv ' + c + '" title="' + daysWhy(r) + '">' + fmt(d0(r.days), 1) + '</span></td><td class="right">' + (r.rec ? fmt(r.rec) : '') + '</td></tr>';
     };
     // 25 items a page (Prev / Next below the table); a new search, sort or filter goes back to page 1.
@@ -4462,10 +4462,13 @@ function getRoInvoiceStyles_() {
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
       '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— dispatch plan, last 20 days + next 30: 🚚 load per day, 📦 packing, 📍 arrivals, ⚠ warnings' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
-      qcDashHtml() +
-      '<div class="card"><div class="row" style="align-items:center;margin-bottom:8px"><h3 style="flex:1 1 300px;margin:0">' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'Items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3>' +
-        '<div style="flex:0 0 auto"><label class="chip' + (S.dashNoRo ? ' on' : '') + '" title="Items whose Planned (on its way) has no open RO in the RO Log"><input type="checkbox" id="dNoRo"' + (S.dashNoRo ? ' checked' : '') + ' style="display:none">Planned without RO <b>' + noRoCount + '</b></label></div>' +
-        '<div style="flex:0 1 280px"><input type="search" id="dQ" placeholder="🔍 Search (Ctrl+F)" title="SKU, item ID, warehouse or group — several words narrow it down" value="' + esc(S.dashQ || '') + '" autocomplete="off"></div></div><div class="scroll dScroll" id="dScroll"><table class="t" id="dTab"><tr>' +
+      '<div class="card"><div class="row" style="align-items:center;margin-bottom:8px"><h3 style="flex:1 1 300px;margin:0">' + (S.dashWh && plat === 'blinkit' ? esc(S.dashWh) + ' — ' : '') + 'Items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh && plat === 'blinkit' ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3>' +
+        '<div style="flex:0 0 auto' + (plat === 'blinkit' ? '' : ';display:none') + '"><label class="chip' + (S.dashNoRo ? ' on' : '') + '" title="Items whose Planned (on its way) has no open RO in the RO Log"><input type="checkbox" id="dNoRo"' + (S.dashNoRo ? ' checked' : '') + ' style="display:none">Planned without RO <b>' + noRoCount + '</b></label></div>' +
+        '<div style="flex:0 1 280px"><input type="search" id="dQ" placeholder="🔍 Search (Ctrl+F)" title="SKU, item ID, warehouse or group — several words narrow it down" value="' + esc(S.dashQ || '') + '" autocomplete="off"></div></div>' +
+        '<div class="chips" id="dPlat" style="margin:-2px 0 8px">' + [['blinkit', 'Blinkit'], ['swiggy', 'Swiggy'], ['zepto', 'Zepto']].map(function (o) {
+          return '<span class="chip' + (plat === o[0] ? ' on' : '') + '" data-p="' + o[0] + '" style="' + (plat === o[0] ? 'background:var(--brand);color:#fff;border-color:var(--brand);font-weight:700' : '') + '">' + o[1] + '</span>'; }).join('') +
+        (plat === 'blinkit' ? '' : '<span class="small muted" style="align-self:center">' + qcItemsNote(plat) + '</span>') + '</div>' +
+        '<div class="scroll dScroll" id="dScroll"><table class="t" id="dTab"><tr>' +
         COLS.map(function (c) {
           var on = srt.col === c[0], arrow = on ? (srt.dir > 0 ? ' ▲' : ' ▼') : '';
           return '<th class="sortable' + (c[2] === 'n' && c[0] !== 'item' ? ' right' : '') + (on ? ' on' : '') + '" data-c="' + c[0] + '" title="Sort by ' + c[1] + '">' + c[1] + arrow + (SUBS[c[0]] ? '<small class="hsub">' + SUBS[c[0]] + '</small>' : '') + '</th>';
@@ -4492,9 +4495,10 @@ function getRoInvoiceStyles_() {
       drawDash();
     };
     initDashCal(d, rows, el);
-    Array.prototype.forEach.call(document.querySelectorAll('#dashOut .qcGo'), function (b) {
-      b.onclick = function () { go(b.getAttribute('data-p')); };
-    });
+    $('dPlat').onclick = function (e) {
+      var c = e.target.closest('[data-p]'); if (!c) return;
+      S.dashPlat = c.getAttribute('data-p'); S.dashPage = 1; drawDash();
+    };
     $('dTab').onclick = function (e) {
       var a = e.target.closest('.plk'); if (!a) return;
       e.preventDefault();
@@ -4619,7 +4623,7 @@ function getRoInvoiceStyles_() {
       return { days: days, warn: warn };
     };
     var roLine = function (x, extra) {
-      return '<li>' + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · ' + roNoHtml(x.roNo) : '') + ' ' + roStatusPill(x.status, x.appt, x.shippedOn) + (extra || '') + '</li>';
+      return '<li>' + platLetter(x) + esc(short(x.wh)) + ' · ' + esc(x.groups.join(' + ')) + ' · <b>' + fmt(x.units) + '</b> units' + (x.roNo ? ' · ' + roNoHtml(x.roNo) : '') + ' ' + roStatusPill(x.status, x.appt, x.shippedOn) + (extra || '') + '</li>';
     };
     var draw = function () {
       var B = build(), days = B.days, W = B.warn;
@@ -4649,7 +4653,7 @@ function getRoInvoiceStyles_() {
         var x = sel || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], dlv: [], load: 0 };
         // One RO in the pop-up, on two lines: what it is (✕ at the right end), then its date boxes and buttons.
         var roRow = function (r, infoExtra, right, actions) {
-          return '<li><div class="rl1"><span>' + esc(short(r.wh)) + ' · ' + esc(r.groups.join(' + ')) + ' · <b>' + fmt(r.units) + '</b> units' + (r.roNo ? ' · ' + roNoHtml(r.roNo) : '') + '</span>' +
+          return '<li><div class="rl1"><span>' + platLetter(r) + esc(short(r.wh)) + ' · ' + esc(r.groups.join(' + ')) + ' · <b>' + fmt(r.units) + '</b> units' + (r.roNo ? ' · ' + roNoHtml(r.roNo) : '') + '</span>' +
             roStatusPill(r.status, r.appt, r.shippedOn) + (infoExtra ? '<span class="small muted">' + infoExtra + '</span>' : '') + (right ? '<span class="rlx">' + right + '</span>' : '') + '</div>' +
             (actions ? '<div class="rl2">' + actions + '</div>' : '') + '</li>';
         };
