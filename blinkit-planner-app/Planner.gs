@@ -59,6 +59,8 @@ const DEFAULT_SETTINGS = [
   ['Short Lead Days', 4, 'Lead days for the warehouses listed in Short Lead Warehouses'],
   ['Short Lead Warehouses', 'Faridabad, Kundli, Jaipur', 'Warehouses with the short lead time (names or parts of names, comma separated)'],
   ['Packing Days', 2, 'Days of packing before dispatch (part of the lead days)'],
+  ['Swiggy City Map', 'ahmedabad: vadodara, rajkot, anand, udaipur, indore, ujjain, surat\nbangalore: mysore, mangaluru, shivamogga, manipal, anantapur, tumakuru, hosur, davanagere, madanapalle\ncentral goa: belgaum, hubli\nchandigarh: ludhiana, sri ganganagar, dehradun, patiala, ambala, saharanpur, amritsar, jalandhar, bathinda\nchennai: vellore, pondicherry, kanchipuram, tirupati, ongole, nellore, cuddalore, thiruvallur\ncoimbatore: tirupur, thanjavur, madurai, karaikkudi, trichy, palakkad, karur, salem, dindigul\ndelhi: moradabad, faridabad, gwalior, aligarh, panipat, agra, meerut, roorkee, bareilly, karnal, mathura, rohtak, sonipat, rudrapur\nguwahati: silchar, siliguri, dibrugarh\nhyderabad: guntur, vijayawada, warangal, khammam, karimnagar, latur, kurnool, nanded, nizamabad\njaipur: ajmer, kota, jodhpur, bikaner\nkochi: thiruvananthapuram, kozhikode, thrissur, kottayam, kollam, alappuzha, thiruvalla, kannur\nkolkata: bhubaneswar, patna, ranchi, jamshedpur, cuttack, muzaffarpur\nlucknow: varanasi, kanpur, allahabad, gorakhpur\nmumbai: nashik, vapi\nnagpur: bhopal, raipur, bhilai, bilaspur\npune: kolhapur, aurangabad, lonavla\nvizag: kakinada, rajahmundry, vizianagaram, bhimavaram, berhampur', 'Swiggy: sales in a city without a Swiggy warehouse count under the warehouse city before the colon (one line per warehouse city: "bangalore: mysore, mangaluru")'],
+  ['Zepto City Map', 'MUM: Mumbai, Pune, Nashik, Surat, Ahmedabad, Vadodra, Rajkot, Nagpur, Indore, Chatrapati Sambhaji Nagar\nBLR: Bengaluru, Mysuru, Hubballi, Belgavi, Davanagere\nCHN: Chennai, Coimbatore, Madurai, Vellore, Puducherry, Kochi, Palakkad, Hyderabad, Vijayawada, Guntur, Warangal, Karimnagar\nGUR: Delhi, Gurugram, Noida, Ghaziabad, Lucknow, Jaipur, SAS Nagar, Chandigarh, Dehradun, Amritsar, Jalandhar, Ludhiana, Meerut, Kanpur, Agra, Varanasi, Prayagraj, Gorakhpur, Haridwar, Panipat, Karnal, Ambala, Patiala, Jammu, Bareilly, Kurukshetra, Sonipat, Udaipur, Kolkata, Jamshedpur', 'Zepto: the cities each Zepto warehouse (MUM, BLR, CHN, GUR) serves; their stock and sales count under it (one line per warehouse: "MUM: Mumbai, Pune")'],
   ['Lock RO Columns', 'Yes', 'Yes = values typed, pasted or deleted in the month tabs\' RO columns (D to the last RO column) are put back at once (colours stay free); needs the guardRoEdits trigger. No = off'],
 ];
 
@@ -97,7 +99,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
-  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance,
+  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance, getQc, saveQcSnapshot,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -250,6 +252,8 @@ function getSettings_() {
     shortLeadWh: String(out['Short Lead Warehouses'] || ''),
     packDays: out['Packing Days'] === '' || isNaN(Number(out['Packing Days'])) ? 2 : Number(out['Packing Days']),
     lockRo: !/^n/i.test(String(out['Lock RO Columns'] == null ? 'Yes' : out['Lock RO Columns'])),
+    swiggyMap: String(out['Swiggy City Map'] || ''),
+    zeptoMap: String(out['Zepto City Map'] || ''),
   };
 }
 
@@ -757,7 +761,108 @@ function getDashboard(token) {
     // ROs delivered in the last 45 days: shown on their delivery day in the calendar, and moved from Planned to Has
     // on the Dashboard when they were marked delivered after the last plan.
     delivered: recentDeliveredOf_(all),
+    // Swiggy / Zepto: their POs (from their tabs) and the last stock / sales read (for the Dashboard and calendar).
+    qc: qcData_(),
   };
+}
+
+/* ---------------- Swiggy / Zepto ---------------- */
+
+/*
+ * Swiggy and Zepto raise their own POs, so nothing is created here: the app reads their POs from the "Swiggy
+ * Planning" and "Zepto" tabs (one column per PO: row 1 warehouse, 2 PO no., 3 release date, 4 shipping date,
+ * 5 appointment date; from row 7 one row per SKU with its name in A and its Swiggy item code / Zepto SKU code in B)
+ * and keeps the last stock / sales read from their report files (worked out in the page) in the "Planner QC Snapshot"
+ * tab, so the Dashboard can show how many days each warehouse's stock lasts and which PO lines matter most.
+ */
+const QC_TABS = { swiggy: 'Swiggy Planning', zepto: 'Zepto' };
+const QC_SNAP = 'Planner QC Snapshot';
+const QC_SNAP_HEAD = ['Platform', 'Warehouse', 'Code', 'SKU', 'Daily Rate', 'Stock'];
+
+/** A tab by name, ignoring capitals and spaces at the ends ("Swiggy Planning " has a trailing space). */
+function qcTab_(name) {
+  const want = String(name).trim().toLowerCase();
+  return SpreadsheetApp.getActive().getSheets().filter(s => s.getName().trim().toLowerCase() === want)[0] || null;
+}
+function qcDate_(v) {
+  if (v instanceof Date) return fmtDate_(v);
+  const s = String(v == null ? '' : v).trim();
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); // 28/12/2026, typed as text
+  const d = m ? new Date(Number(m[3].length === 2 ? '20' + m[3] : m[3]), Number(m[2]) - 1, Number(m[1]), 12) : parseDate_(s);
+  return d && !isNaN(d) ? fmtDate_(d) : '';
+}
+/** The POs in a Swiggy / Zepto tab: every column from F on with a PO number in row 2. */
+function qcPOs_(platform) {
+  const sh = qcTab_(QC_TABS[platform]);
+  if (!sh) return { found: false, pos: [], items: [] };
+  const v = sh.getDataRange().getValues();
+  if (v.length < 7) return { found: true, pos: [], items: [] };
+  const items = [];
+  for (let i = 6; i < v.length; i++) {
+    const name = String(v[i][0]).trim(), code = String(v[i][1]).trim();
+    if (!name && !code) continue;
+    items.push({ row: i + 1, name: name, code: code, code2: String(v[i][4] == null ? '' : v[i][4]).trim() });
+  }
+  const pos = [];
+  for (let c = 5; c < v[0].length; c++) {
+    const po = String(v[1][c]).trim();
+    if (!po) continue;
+    const lines = [];
+    items.forEach(it => { const q = Number(v[it.row - 1][c]) || 0; if (q > 0) lines.push({ code: it.code, name: it.name, qty: q }); });
+    pos.push({ col: colLetter_(c + 1), wh: String(v[0][c]).trim(), po: po, release: qcDate_(v[2][c]), ship: qcDate_(v[3][c]),
+      appt: qcDate_(v[4][c]), lines: lines, units: lines.reduce((s, l) => s + l.qty, 0) });
+  }
+  return { found: true, tab: sh.getName(), pos: pos, items: items };
+}
+function qcSnapSheet_() {
+  return SpreadsheetApp.getActive().getSheetByName(QC_SNAP) || ensureSheet_(QC_SNAP, QC_SNAP_HEAD);
+}
+/** POs, the last stock / sales read and the city maps of both platforms. Never throws (the Dashboard must load). */
+function qcData_() {
+  const out = {};
+  const props = PropertiesService.getScriptProperties();
+  let snapRows = [];
+  try {
+    const sh = SpreadsheetApp.getActive().getSheetByName(QC_SNAP);
+    if (sh && sh.getLastRow() > 1) snapRows = sh.getRange(2, 1, sh.getLastRow() - 1, QC_SNAP_HEAD.length).getValues();
+  } catch (e) { /* no snapshot yet */ }
+  Object.keys(QC_TABS).forEach(p => {
+    let x;
+    try { x = qcPOs_(p); } catch (e) { x = { found: false, pos: [], items: [], error: e.message }; }
+    let meta = null;
+    try { meta = JSON.parse(props.getProperty('QC_META_' + p) || 'null'); } catch (e) { meta = null; }
+    x.meta = meta;
+    x.snap = snapRows.filter(r => r[0] === p).map(r => ({ wh: String(r[1]), code: String(r[2]), sku: String(r[3]), rate: Number(r[4]) || 0, stock: Number(r[5]) || 0 }));
+    out[p] = x;
+  });
+  return out;
+}
+function getQc(token) {
+  auth_(token, 'Viewer');
+  return qcData_();
+}
+/**
+ * Saves one platform's stock / sales read: rows [{ wh, code, sku, rate, stock }] replace that platform's rows;
+ * meta { salesFrom, salesTo, stockAt, facilities: { facility name: warehouse city } } is kept with who saved it when.
+ */
+function saveQcSnapshot(token, platform, rows, meta) {
+  const u = auth_(token, 'Planner');
+  if (!QC_TABS[platform]) throw new Error('Unknown platform.');
+  rows = (rows || []).filter(r => r && r.wh && r.code);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcSnapSheet_();
+    const keep = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, QC_SNAP_HEAD.length).getValues().filter(r => r[0] && r[0] !== platform) : [];
+    const all = keep.concat(rows.map(r => [platform, String(r.wh), String(r.code), String(r.sku || ''), Math.round((Number(r.rate) || 0) * 100) / 100, Number(r.stock) || 0]));
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, QC_SNAP_HEAD.length).clearContent();
+    if (all.length) sh.getRange(2, 1, all.length, QC_SNAP_HEAD.length).setValues(all);
+    const m = Object.assign({}, meta || {}, { at: Date.now(), by: u.name || u.id });
+    let json = JSON.stringify(m);
+    if (json.length > 8500) { delete m.facilities; json = JSON.stringify(m); }
+    PropertiesService.getScriptProperties().setProperty('QC_META_' + platform, json);
+  } finally { lock.releaseLock(); }
+  return qcData_();
 }
 
 /* ---------------- RO Log ---------------- */
@@ -2387,6 +2492,7 @@ function saveSettings(token, s) {
     'Carry Over Days': s.carryDays,
     'Dispatch Capacity': s.dispatchCap, 'Dispatch Days': s.dispatchDays, 'Lead Days': s.leadDays,
     'Short Lead Days': s.shortLeadDays, 'Short Lead Warehouses': s.shortLeadWh, 'Packing Days': s.packDays,
+    'Swiggy City Map': s.swiggyMap, 'Zepto City Map': s.zeptoMap,
   };
   if (map['Dispatch Capacity'] !== undefined && !(Number(map['Dispatch Capacity']) >= 1)) throw new Error('Dispatch Capacity must be a number above 0.');
   ['Lead Days', 'Short Lead Days'].forEach(k => {

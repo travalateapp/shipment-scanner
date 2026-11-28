@@ -259,3 +259,46 @@ missing, add it. The default is Yes.
 | Planner Users | User ID, name, PIN (stored hashed), role, active |
 | RO Log | One row per RO line. This is what the app works from, and you can filter it like any sheet. |
 | Planner Snapshot | The last plan's figures, for the dashboard |
+
+## Swiggy / Zepto (tab)
+
+Swiggy and Zepto raise their own POs, so the app creates nothing for them. It shows **what matters most to send**.
+
+**Data it uses**
+- **POs** are read from the sheet's **Swiggy Planning** and **Zepto** tabs. Each PO is one column:
+  - row 1: warehouse;
+  - row 2: PO no.;
+  - row 3: release date;
+  - row 4: shipping date;
+  - row 5: appointment date;
+  - from row 7: one row per SKU, with its name in A and its Swiggy item code / Zepto SKU code in B.
+- **PO status:**
+  - Open: no shipping date yet, or a shipping date after today.
+  - On the way: shipped, appointment today or later.
+- **Reports:** upload the latest reports, several at once:
+  - Swiggy: Sales `.xlsx` + SOH stock `.csv`.
+  - Zepto: Sales `.csv` + Inventory `.csv`.
+- **What the page works out from the reports:**
+  - Sold per day for each warehouse and SKU: the highest of the last-7-day, last-15-day and whole-report averages.
+  - Stock.
+  - Days of cover: stock plus what is on the way, divided by sold per day.
+- The result is saved in the **Planner QC Snapshot** tab, so the Dashboard shows it without uploading again.
+
+**Warehouses**
+- **Swiggy:** counted per warehouse city, as in the SOH report. Its stock report has warehouse stock only, not dark stores.
+- **Zepto:** counted per Zepto warehouse (MUM, BLR, CHN, GUR), from the cities each one serves.
+- Both city lists are in **Settings → Swiggy / Zepto**, one line per warehouse: `warehouse: city, city`.
+  - Swiggy: sales in a city without a Swiggy warehouse count under the city named there.
+
+**What the tab shows**
+- **Each open PO line** is marked by the days of cover at its warehouse:
+  - **Must send:** under the Lead Days. It runs out before a shipment could arrive.
+  - **Send:** under the Days of cover.
+  - **Can wait:** otherwise.
+- **What to send first:** all open Swiggy + Zepto PO lines per SKU, compared with our stock in Travalate Inventory (matched by the SKU name in the tab).
+- **Stock and days per warehouse:** stock, on the way, open POs, and days with and without the open POs.
+
+**Dashboard**
+- A **🛵 Swiggy & Zepto** card: open POs, lines that must be sent, and items that run out within the Lead Days.
+- In the calendar, with no Blinkit warehouse picked, their POs show on the shipping day (🚚, counted in the load) and on the appointment day (📍).
+- Those dates are changed in the sheet.
