@@ -264,6 +264,18 @@ missing, add it. The default is Yes.
 
 Swiggy and Zepto raise their own POs, so the app creates nothing for them. It shows **what matters most to send**.
 
+**The app fills the Swiggy Planning and Zepto tabs**, like the RO columns of the Blinkit month tab:
+- **Upload PO PDFs** (Swiggy or Zepto, several at once) in the same box as the reports. Each is read, matched by its warehouse (Swiggy Pod Name; Zepto FC such as `MUM - Mumbai`), PO no., release date, expiry date and quantities per SKU (Swiggy item code; Zepto SKU code + material code), and shown for checking.
+- **Write to tab:**
+  - A new PO gets a column after the last PO, with one empty column first when its release date is different (the tabs group POs by release date).
+  - A PO already in the tab is updated in its own column.
+  - Row 1 is the warehouse, row 2 the PO no. (its expiry date goes in the cell's note), row 3 the release date, and from row 7 the quantity on each SKU's row.
+  - A SKU not in the tab yet gets a new row at the end of the SKU list. Its name can be typed before writing.
+- **Shipping date (row 4):** set from the Shipment Manager's 🚚 Dispatch Date when the PO's shipment has one; a date already in the tab is not changed. It can also be set on the PO in the app.
+- **Appointment (row 5):** set on the PO in the app (**Save dates**).
+- **Remove from tab** empties a PO's column, for a PO written by mistake or closed.
+- **Expired POs:** a PO past its expiry date with no shipping date is left out of the priorities.
+
 **Data it uses**
 - **POs** are read from the sheet's **Swiggy Planning** and **Zepto** tabs. Each PO is one column:
   - row 1: warehouse;

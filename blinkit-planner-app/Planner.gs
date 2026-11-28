@@ -99,7 +99,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
-  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance, getQc, saveQcSnapshot, getQcSales, saveQcSkus,
+  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance, getQc, saveQcSnapshot, getQcSales, saveQcSkus, importQcPo, removeQcPo, setQcDates,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -805,6 +805,7 @@ function qcPOs_(platform) {
   if (!sh) return { found: false, pos: [], items: [] };
   const v = sh.getDataRange().getValues();
   if (v.length < 7) return { found: true, pos: [], items: [] };
+  const notes = sh.getRange(2, 1, 1, v[0].length).getNotes()[0];
   const items = [];
   for (let i = 6; i < v.length; i++) {
     const name = String(v[i][0]).trim(), code = String(v[i][1]).trim();
@@ -817,8 +818,9 @@ function qcPOs_(platform) {
     if (!po) continue;
     const lines = [];
     items.forEach(it => { const q = Number(v[it.row - 1][c]) || 0; if (q > 0) lines.push({ code: it.code, name: it.name, qty: q }); });
+    const ex = String(notes[c] || '').match(/Expiry\s*(\d{4}-\d{2}-\d{2})/i);
     pos.push({ col: colLetter_(c + 1), wh: String(v[0][c]).trim(), po: po, release: qcDate_(v[2][c]), ship: qcDate_(v[3][c]),
-      appt: qcDate_(v[4][c]), lines: lines, units: lines.reduce((s, l) => s + l.qty, 0) });
+      appt: qcDate_(v[4][c]), expiry: ex ? ex[1] : '', lines: lines, units: lines.reduce((s, l) => s + l.qty, 0) });
   }
   return { found: true, tab: sh.getName(), pos: pos, items: items };
 }
@@ -894,6 +896,146 @@ function getQcSales(token, platform) {
   if (!sh || sh.getLastRow() < 2) return [];
   return sh.getRange(2, 1, sh.getLastRow() - 1, QC_SALES_HEAD.length).getValues().filter(r => r[0] === platform)
     .map(r => [r[1] instanceof Date ? fmtDate_(r[1]) : String(r[1]).replace(/^'/, ''), String(r[2]), String(r[3]), Number(r[4]) || 0]);
+}
+/*
+ * Writing POs into the Swiggy Planning / Zepto tabs (like the RO columns of the Blinkit month tabs): each PO from its
+ * PDF gets a column — row 1 warehouse, 2 PO no. (its expiry date in the cell's note), 3 release date, from row 7 the
+ * quantity on each SKU's row. A new PO goes after the last PO column, one empty column after it when its release date
+ * differs (the tabs group POs by release date). A PO already in the tab is updated in its own column. A SKU not in the
+ * tab yet gets a new row at the end of the SKU list (name in A, Swiggy item code / Zepto SKU code in B, Zepto material
+ * code in E). Rows 4 (shipping date) and 5 (appointment date) are set from the app or the Shipment Manager.
+ */
+function qcTabForWrite_(platform) {
+  if (!QC_TABS[platform]) throw new Error('Unknown platform.');
+  const sh = qcTab_(QC_TABS[platform]);
+  if (!sh) throw new Error('The tab "' + QC_TABS[platform] + '" is missing in the sheet.');
+  return sh;
+}
+function qcFindPoCol_(sh, po) {
+  const last = sh.getLastColumn();
+  if (last < 6) return 0;
+  const row2 = sh.getRange(2, 1, 1, last).getValues()[0];
+  for (let c = 5; c < last; c++) if (String(row2[c]).trim() === String(po).trim()) return c + 1;
+  return 0;
+}
+/** po: { po, wh, release, expiry, lines: [{ code, code2, qty, name }] }. Returns what was written. */
+function importQcPo(token, platform, po) {
+  const u = auth_(token, 'Planner');
+  if (!po || !po.po || !(po.lines || []).length) throw new Error('Nothing to write: no PO number or no lines.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcTabForWrite_(platform);
+    const lastRow = Math.max(sh.getLastRow(), 6), lastCol = Math.max(sh.getLastColumn(), 6);
+    const v = sh.getRange(1, 1, lastRow, lastCol).getValues();
+    // SKU rows: by Swiggy item code / Zepto SKU code (B), or Zepto material code (E).
+    const rowOf = {}; let lastItemRow = 6;
+    for (let i = 6; i < v.length; i++) {
+      const b = String(v[i][1]).trim(), e = String(v[i][4] == null ? '' : v[i][4]).trim();
+      if (!String(v[i][0]).trim() && !b) continue;
+      lastItemRow = i + 1;
+      if (b) rowOf[b.toLowerCase()] = i + 1;
+      if (platform === 'zepto' && e) rowOf['e:' + e] = i + 1;
+    }
+    const added = [];
+    po.lines.forEach(l => {
+      const k = String(l.code || '').trim().toLowerCase();
+      if ((k && rowOf[k]) || (l.code2 && rowOf['e:' + String(l.code2).trim()])) return;
+      const r = lastItemRow + 1;
+      if (r > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 1);
+      if (lastItemRow >= 7) sh.getRange(lastItemRow, 1, 1, sh.getMaxColumns()).copyTo(sh.getRange(r, 1, 1, sh.getMaxColumns()), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+      const name = String(l.name || '').trim() || (QC_TABS[platform] + ' ' + (l.code2 || l.code));
+      sh.getRange(r, 1, 1, 2).setValues([[name, String(l.code || l.code2 || '')]]);
+      if (platform === 'zepto' && l.code2) sh.getRange(r, 5).setValue(String(l.code2));
+      if (k) rowOf[k] = r; if (l.code2) rowOf['e:' + String(l.code2).trim()] = r;
+      lastItemRow = r; added.push(name);
+    });
+    let col = qcFindPoCol_(sh, po.po), created = false;
+    if (!col) {
+      created = true;
+      let lastPo = 0;
+      for (let c = 5; c < v[0].length; c++) if (String(v[1][c]).trim()) lastPo = c + 1;
+      if (!lastPo) col = 6;
+      else {
+        const prevRel = qcDate_(v[2][lastPo - 1]);
+        col = lastPo + (prevRel && po.release && prevRel !== po.release ? 2 : 1);
+      }
+      if (col > sh.getMaxColumns()) sh.insertColumnsAfter(sh.getMaxColumns(), col - sh.getMaxColumns());
+      if (lastPo) sh.getRange(1, lastPo, sh.getMaxRows(), 1).copyTo(sh.getRange(1, col, sh.getMaxRows(), 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+    // The column: header rows, then this PO's quantity on each SKU row (other rows emptied).
+    const rows = Math.max(lastItemRow, 7);
+    sh.getRange(1, col, 3, 1).setValues([[String(po.wh || '')], [String(po.po)], [po.release ? parseDate_(po.release) : '']]);
+    sh.getRange(2, col).setNote(po.expiry ? 'Expiry ' + po.expiry + ' · added by ' + (u.name || u.id) + ' from the PO PDF' : 'Added by ' + (u.name || u.id) + ' from the PO PDF');
+    const q = []; for (let r = 7; r <= rows; r++) q.push(['']);
+    po.lines.forEach(l => {
+      const r = rowOf[String(l.code || '').trim().toLowerCase()] || rowOf['e:' + String(l.code2 || '').trim()];
+      if (r) q[r - 7][0] = (Number(q[r - 7][0]) || 0) + (Number(l.qty) || 0);
+    });
+    sh.getRange(7, col, q.length, 1).setValues(q);
+    return { tab: sh.getName(), col: colLetter_(col), created: created, newRows: added, qc: qcData_() };
+  } finally { lock.releaseLock(); }
+}
+/** Takes a PO out of its tab (its column is emptied; the column itself stays). */
+function removeQcPo(token, platform, poNo) {
+  auth_(token, 'Planner');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcTabForWrite_(platform), col = qcFindPoCol_(sh, poNo);
+    if (!col) throw new Error('PO ' + poNo + ' is not in the ' + sh.getName() + ' tab.');
+    sh.getRange(1, col, Math.max(sh.getLastRow(), 7), 1).clearContent().clearNote();
+    return qcData_();
+  } finally { lock.releaseLock(); }
+}
+/** Shipping date (row 4) and appointment date (row 5) of a PO; '' empties one, undefined leaves it. */
+function setQcDates(token, platform, poNo, ship, appt) {
+  auth_(token, 'Planner');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcTabForWrite_(platform), col = qcFindPoCol_(sh, poNo);
+    if (!col) throw new Error('PO ' + poNo + ' is not in the ' + sh.getName() + ' tab.');
+    if (ship !== undefined && ship !== null) sh.getRange(4, col).setValue(ship ? parseDate_(ship) : '');
+    if (appt !== undefined && appt !== null) sh.getRange(5, col).setValue(appt ? parseDate_(appt) : '');
+    return qcData_();
+  } finally { lock.releaseLock(); }
+}
+/**
+ * Shipping dates from the Shipment Manager: a Swiggy / Zepto PO in its tab with no shipping date gets the 🚚 Dispatch
+ * Date of its shipment there (the shipment's date for shipments entered before DISPATCH_DATE_FROM). A date already in
+ * the tab is never changed.
+ */
+function syncQcShipDates_() {
+  const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
+  if (!id) return 0;
+  const want = {};
+  Object.keys(QC_TABS).forEach(p => {
+    const sh = qcTab_(QC_TABS[p]); if (!sh || sh.getLastColumn() < 6) return;
+    const v = sh.getRange(1, 1, 4, sh.getLastColumn()).getValues();
+    for (let c = 5; c < v[0].length; c++) {
+      const po = String(v[1][c]).trim();
+      if (po && v[3][c] === '') want[po] = { sh: sh, col: c + 1, p: p };
+    }
+  });
+  if (!Object.keys(want).length) return 0;
+  const shSh = SpreadsheetApp.openById(id).getSheetByName('SHIPMENTS');
+  if (!shSh || shSh.getLastRow() < 2) return 0;
+  const width = Math.max(11, Math.min(14, shSh.getLastColumn()));
+  const sv = shSh.getRange(2, 1, shSh.getLastRow() - 1, width).getValues(), today = ymd_(new Date());
+  let n = 0;
+  sv.forEach(r => {
+    const po = String(r[5] || '').trim(), w = want[po]; if (!w) return;
+    if (!(w.p === 'swiggy' ? /swiggy|instamart/i : /zepto/i).test(String(r[4] || ''))) return;
+    if (r[10] === true || String(r[10]).toUpperCase() === 'TRUE') return;
+    const entered = r[1] instanceof Date ? ymd_(r[1]) : String(r[1] || '').slice(0, 10);
+    let d;
+    if (entered && entered >= DISPATCH_DATE_FROM) d = r[13] instanceof Date ? r[13] : (r[13] ? parseDate_(String(r[13]).slice(0, 10)) : null);
+    else d = r[7] instanceof Date ? r[7] : parseDate_(String(r[7] || '').slice(0, 10));
+    if (!d || ymd_(d) > today) return;
+    w.sh.getRange(4, w.col).setValue(d); delete want[po]; n++;
+  });
+  return n;
 }
 /** Saves the Swiggy / Zepto SKU mapping: [{ p, code, name, our }] replaces the whole list. */
 function saveQcSkus(token, list) {
@@ -2382,6 +2524,7 @@ function syncFromShipmentManager() {
   try {
     const res = syncShipments_();
     if (!res.skipped) res.moved = rollOverdueDispatch_();
+    try { res.qcShip = syncQcShipDates_(); } catch (e) { /* tried again next sync */ }
     return res;
   } finally { lock.releaseLock(); }
 }
@@ -2400,6 +2543,7 @@ function syncShipments(token, force) {
   try {
     const res = syncShipments_();
     try { res.cells = refreshShortCells_(); } catch (e) { /* tried again next sync */ }
+    try { res.qcShip = syncQcShipDates_(); } catch (e) { /* tried again next sync */ }
     if (!res.skipped) { try { res.moved = rollOverdueDispatch_(); } catch (e) { /* tried again next sync */ } }
     if (res.dates || res.qty || res.short || res.moved || res.reverted) {
       const all = readLog_();

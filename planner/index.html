@@ -711,7 +711,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 swiggy-zepto-check';
+  var PAGE_BUILD = '2026-11-28 swiggy-zepto-write';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -804,6 +804,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     ['.uS', function () { return 'Save this user?'; }, 'Save'],
     ['#nAdd', function () { return 'Add this user?'; }, 'Add user'],
     ['#qcSkuSave', function () { return 'Save the Swiggy / Zepto SKU mapping?'; }, 'Save'],
+    ['.qcDtGo', function (b) { var d = b.closest('details'), s = d.querySelector('.qcShip').value, a = d.querySelector('.qcAppt').value; return 'PO ' + b.getAttribute('data-po') + ': shipping date ' + (s ? prettyDate(s) : 'none') + ', appointment ' + (a ? prettyDate(a) : 'none') + '?\n\nWritten into rows 4 and 5 of its tab.'; }, 'Save dates'],
+    ['.qcPdfGo', function (b) { return 'Write this PO into its tab?'; }, 'Write'],
+    ['#qcPdfAll', function () { return 'Write all these POs into their tabs?'; }, 'Write all'],
     ['#aSave', function () { return 'Change your PIN?'; }, 'Change PIN'],
     ['#aOut2', function () { return 'Log out?'; }, 'Log out', 'r']
   ];
@@ -2616,7 +2619,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       po.whKey = qcPoWh(p, x, po.wh);
       po.shipped = !!(po.ship && po.ship <= t);
       po.arrived = !!(po.appt && po.appt < t);
-      po.closed = !!(soh && !po.shipped && !soh[po.po] && po.release && sohAt && po.release < sohAt);
+      po.expired = !!(!po.shipped && po.expiry && po.expiry < t);
+      po.closed = po.expired || !!(soh && !po.shipped && !soh[po.po] && po.release && sohAt && po.release < sohAt);
       if (po.closed) { closed.push(po); return; }
       if (!po.shipped) open.push(po); else if (!po.arrived) way.push(po);
       po.lines.forEach(function (l) { var k = po.whKey + '|' + l.code; if (!po.shipped) openQ[k] = (openQ[k] || 0) + l.qty; else if (!po.arrived) onWay[k] = (onWay[k] || 0) + l.qty; });
@@ -2643,14 +2647,18 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var lines = po.lines.slice().sort(function (a, b) { var o = { must: 0, send: 1, wait: 2, unk: 3 }; return o[a.prio] - o[b.prio] || (a.days == null ? 1e9 : a.days) - (b.days == null ? 1e9 : b.days); });
     var must = lines.filter(function (l) { return l.prio === 'must'; }).length;
     return '<details class="card qcPo"' + (must ? ' open' : '') + '><summary style="cursor:pointer"><b>' + QC_NAMES[p] + ' · ' + esc(po.wh) + ' · PO ' + esc(po.po) + '</b> · ' + fmt(po.units) + ' units' +
-      (po.release ? ' · released ' + prettyDate(po.release) : '') + (po.ship ? ' · ships ' + prettyDate(po.ship) : ' · <span class="muted">no shipping date</span>') + (po.appt ? ' · appt ' + prettyDate(po.appt) : '') +
+      (po.release ? ' · released ' + prettyDate(po.release) : '') + (po.ship ? ' · ships ' + prettyDate(po.ship) : ' · <span class="muted">no shipping date</span>') + (po.appt ? ' · appt ' + prettyDate(po.appt) : '') + (po.expiry ? ' · expires ' + prettyDate(po.expiry) : '') +
       (must ? ' <span class="pill bad">' + must + ' must send</span>' : '') + (po.whKey ? '' : ' <span class="pill warn">warehouse not in the stock report</span>') + '</summary>' +
       '<div class="scroll" style="margin-top:8px"><table class="t qct"><tr><th>SKU</th><th class="right">PO qty</th><th class="right">Sold / day</th><th class="right">Stock there</th><th class="right">On the way</th><th class="right">Days</th><th>Priority</th><th class="right">Our stock</th></tr>' +
       lines.map(function (l) {
         var pr = QC_PRIO[l.prio], ti = qcStockOf(p, l.code, l.name), our = qcOurOf(p, l.code);
         return '<tr><td>' + esc(l.name || l.code) + (our ? ' <span class="small muted">→ ' + esc(our) + '</span>' : '') + '</td><td class="right"><b>' + fmt(l.qty) + '</b></td><td class="right">' + (l.rate ? fmt(l.rate, 1) : '–') + '</td><td class="right">' + (l.stock == null ? '–' : fmt(l.stock)) + '</td>' +
           '<td class="right">' + (l.way ? fmt(l.way) : '') + '</td><td class="right">' + qcDaysTxt(l.days) + '</td><td><span class="pill ' + pr[0] + '">' + pr[1] + '</span></td><td class="right">' + (ti == null ? '–' : fmt(ti)) + '</td></tr>';
-      }).join('') + '</table></div></details>';
+      }).join('') + '</table></div>' +
+      (can('Planner') ? '<div class="row" style="margin-top:8px;align-items:flex-end"><div style="flex:0 1 170px"><label class="f">Shipping date</label><input type="date" class="qcShip" value="' + esc(po.ship || '') + '"></div>' +
+        '<div style="flex:0 1 170px"><label class="f">Appointment</label><input type="date" class="qcAppt" value="' + esc(po.appt || '') + '"></div>' +
+        '<div style="flex:0 0 auto"><button class="btn sm qcDtGo" data-p="' + p + '" data-po="' + esc(po.po) + '">Save dates</button> <button class="btn sm qcRm" data-p="' + p + '" data-po="' + esc(po.po) + '" title="Empties its column in the tab">Remove from tab</button></div></div>' : '') +
+      '</details>';
   }
   /** All open PO lines of both platforms per SKU name vs our stock: what to send first when stock is short. */
   function qcDemandHtml(calcs) {
@@ -2695,8 +2703,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       'POs come from the <b>Swiggy Planning</b> and <b>Zepto</b> tabs; one without a shipping date (or with one after today) is open. ' +
       'Swiggy\'s stock report has its warehouses\' stock only (not its dark stores), so its days are counted from warehouse stock.</div>' +
       (can('Planner') ? '<div class="row" style="margin-top:10px;align-items:flex-end"><div style="flex:2 1 320px"><label class="f">Reports (choose several at once)</label>' +
-        '<input type="file" id="qcFiles" multiple accept=".csv,.xlsx,.xls"><div class="small muted" style="margin-top:4px">Swiggy: Sales (.xlsx) + SOH stock (.csv). Zepto: Sales (.csv) + Inventory (.csv). Any file names — each file is recognised by its columns. A sales report that repeats days already uploaded replaces those days (nothing is counted twice).</div></div></div>' : '') +
+        '<input type="file" id="qcFiles" multiple accept=".csv,.xlsx,.xls,.pdf"><div class="small muted" style="margin-top:4px"><b>PO PDFs</b> (Swiggy / Zepto): each is written as a column into the Swiggy Planning / Zepto tab, like the RO columns of the Blinkit month tab. <b>Reports</b> — Swiggy: Sales (.xlsx) + SOH stock (.csv). Zepto: Sales (.csv) + Inventory (.csv). Any file names — each file is recognised by its columns. A sales report that repeats days already uploaded replaces those days (nothing is counted twice).</div></div></div>' : '') +
       '<div id="qcMsg" style="margin-top:8px"></div></div>' +
+      '<div class="card" id="qcPdfs" style="display:none"></div>' +
       '<div class="card"><h3 style="margin-top:0">What to send first <span class="small muted" style="font-weight:400">— all open Swiggy + Zepto PO lines per SKU vs our stock (Travalate Inventory)</span></h3><div id="qcDemand"><span class="spin"></span></div></div>' +
       '<details class="card" id="qcMapCard"' + (S.qcMapOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">🔗 SKU mapping <span class="small" id="qcMapSum" style="font-weight:400"></span></summary>' +
         '<div class="small muted" style="margin:6px 0">Swiggy and Zepto codes are not Blinkit\'s, and new ones appear. Link each code to our SKU as named in Travalate Inventory: it is used for <b>Our stock</b> and to add up the same product across Swiggy and Zepto in <b>What to send first</b>. ' +
@@ -2710,6 +2719,19 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     $('qcSeg').onclick = function (e) { var p = e.target.getAttribute('data-p'); if (!p) return; Q.p = p; Q.wh = ''; Array.prototype.forEach.call(this.children, function (b) { b.classList.toggle('on', b.getAttribute('data-p') === p); }); drawQc(); };
     $('qcWh').onchange = function () { Q.wh = this.value; drawQc(); };
     $('qcMapCard').addEventListener('toggle', function () { S.qcMapOpen = this.open; });
+    $('qcPos').onclick = function (e) {
+      var b = e.target.closest('.qcDtGo, .qcRm'); if (!b) return;
+      var p = b.getAttribute('data-p'), po = b.getAttribute('data-po'), box = b.closest('details');
+      var after = function (r) { S.qc = r; if (S.dash) S.dash.qc = r; drawQc(); };
+      if (b.classList.contains('qcRm')) {
+        appConfirm('Remove ' + QC_NAMES[p] + ' PO ' + po + ' from its tab?\n\nIts column in the sheet is emptied.', 'Remove', 'r').then(function (ok) {
+          if (ok) api('removeQcPo', S.token, p, po).then(function (r) { after(r); toast('PO ' + po + ' removed from the tab'); }, function (er) { $('qcMsg').innerHTML = msgs([er.message], 'bad'); });
+        });
+        return;
+      }
+      api('setQcDates', S.token, p, po, box.querySelector('.qcShip').value, box.querySelector('.qcAppt').value)
+        .then(function (r) { after(r); toast('Dates saved for PO ' + po); }, function (er) { $('qcMsg').innerHTML = msgs([er.message], 'bad'); });
+    };
     $('qcMapOnly').onchange = function () { S.qcMapOnlyOpen = this.checked; this.parentNode.classList.toggle('on', this.checked); drawQcMap(); };
     if ($('qcSkuFill')) $('qcSkuFill').onclick = function () {
       var n = 0; Array.prototype.forEach.call(document.querySelectorAll('#qcMapBody .qcOur'), function (i) { if (!i.value && i.getAttribute('data-sug')) { i.value = i.getAttribute('data-sug'); n++; } });
@@ -2726,7 +2748,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     };
     if ($('qcFiles')) $('qcFiles').onchange = function () { qcLoadFiles(Array.prototype.slice.call(this.files)); this.value = ''; };
     if (!S.qc && S.dash && S.dash.qc) S.qc = S.dash.qc;
-    drawQc();
+    drawQc(); drawQcPdfs();
     loadTi(false);
     api('getQc', S.token).then(function (r) { S.qc = r; if (S.dash) S.dash.qc = r; if (S.tab === 'qc') drawQc(); }, function (e) { if (S.tab === 'qc') $('qcMsg').innerHTML = msgs(['Could not read the Swiggy / Zepto tabs: ' + e.message], 'bad'); });
   }
@@ -2740,10 +2762,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       (m ? 'Reports: sales ' + prettyDate(m.salesFrom) + ' – ' + prettyDate(m.salesTo) + ' · read by ' + esc(m.by || '') + ' ' + new Date(m.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) +
         (m.unassignedUnits ? ' · <span title="' + esc((m.unassigned || []).map(function (u) { return u.city + ' ' + u.units; }).join(', ')) + '" style="text-decoration:underline dotted">' + fmt(m.unassignedUnits) + ' units sold in cities not in Settings → Swiggy / Zepto</span>' : '')
         : 'No ' + QC_NAMES[p] + ' reports read yet.');
-    $('qcPos').innerHTML = (c.missing.length ? '<div class="msg warn"><b>Open in Swiggy\'s stock report but not in the Swiggy Planning tab</b> — add them to the tab: ' +
+    $('qcPos').innerHTML = (c.missing.length ? '<div class="msg warn"><b>Open in Swiggy\'s stock report but not in the Swiggy Planning tab</b> — upload their PO PDFs above: ' +
         c.missing.map(function (m) { return 'PO ' + esc(m.po) + ' (' + esc(m.wh) + (m.units ? ', ' + fmt(m.units) + ' units' : '') + ')'; }).join(', ') + '</div>' : '') +
-      (c.closed.length ? '<div class="msg warn"><b>In the tab with no shipping date, but no longer open in Swiggy\'s stock report</b> (expired or closed?) — left out of the priorities. Give them a shipping date or remove them from the tab: ' +
-        c.closed.map(function (po) { return 'PO ' + esc(po.po) + ' (' + esc(po.wh) + ', ' + fmt(po.units) + ' units' + (po.release ? ', released ' + prettyDate(po.release) : '') + ')'; }).join(', ') + '</div>' : '') +
+      (c.closed.length ? '<div class="msg warn"><b>Not shipped and expired' + (p === 'swiggy' ? ', or no longer open in Swiggy\'s stock report' : '') + '</b> — left out of the priorities. Give them a shipping date, or use <b>Remove from tab</b> on them: ' +
+        c.closed.map(function (po) { return 'PO ' + esc(po.po) + ' (' + esc(po.wh) + ', ' + fmt(po.units) + ' units' + (po.release ? ', released ' + prettyDate(po.release) : '') + (po.expired ? ', expired ' + prettyDate(po.expiry) : '') + ')'; }).join(', ') + '</div>' : '') +
       (c.open.length ? '<div class="small" style="margin-bottom:6px"><b>' + c.open.length + ' open PO(s)</b> — ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units</div>' +
       c.open.slice().sort(function (a, b) { return (a.ship || '9') .localeCompare(b.ship || '9') || (a.release || '').localeCompare(b.release || ''); }).map(function (po) { return qcPoHtml(p, c, po); }).join('') : '<div class="muted small">No open ' + QC_NAMES[p] + ' POs.</div>') +
       (c.way.length ? '<details style="margin-top:8px"><summary class="small" style="cursor:pointer"><b>' + c.way.length + ' PO(s) on the way</b> (shipped, appointment today or later)</summary><ul class="small">' +
@@ -2783,8 +2805,160 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
           '<td>' + (r.our ? '<span class="pill ok">Linked</span>' : !r.inTab ? '<span class="pill bad">New</span>' : '<span class="pill warn">Not linked</span>') + '</td></tr>';
       }).join('') + '</table></div>';
   }
+  /* ---- Swiggy / Zepto PO PDFs → their tab ---- */
+  /** Text items of a PDF with their position: pages [[{ s, x, y, w }]]. */
+  function qcPdfItems(buf) {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+    return pdfjsLib.getDocument({ data: new Uint8Array(buf) }).promise.then(function (pdf) {
+      var pages = [], p = 0;
+      var next = function () {
+        if (++p > pdf.numPages) return pages;
+        return pdf.getPage(p).then(function (page) { return page.getTextContent(); }).then(function (c) {
+          pages.push(c.items.filter(function (it) { return it.str && it.str.trim(); }).map(function (it) {
+            return { s: it.str.trim(), x: it.transform[4], y: Math.round(it.transform[5] * 10) / 10, w: it.width || 0 };
+          }));
+          return next();
+        });
+      };
+      return next();
+    });
+  }
+  /** Items grouped into lines (top to bottom), each line's items left to right. */
+  function qcPdfLines(items) {
+    var m = {};
+    items.forEach(function (it) { (m[it.y] = m[it.y] || []).push(it); });
+    return Object.keys(m).map(Number).sort(function (a, b) { return b - a; }).map(function (y) {
+      var its = m[y].sort(function (a, b) { return a.x - b.x; });
+      return { y: y, items: its, text: its.map(function (i) { return i.s; }).join('  ') };
+    });
+  }
+  var QC_FC_CITY = { MUM: 'Mumbai', BLR: 'Bengaluru', CHN: 'Chennai', GUR: 'Gurugram', HYD: 'Hyderabad', KOL: 'Kolkata', DEL: 'Delhi', PNQ: 'Pune' };
+  /**
+   * A Swiggy or Zepto PO PDF → { platform, po, wh, release, expiry, lines: [{ code, code2, qty, desc }] }.
+   * Rows are found by their line number + item code; the quantity is the number under the Qty / Quantity heading
+   * on that line (the descriptions wrap over several lines, so the text alone is not enough).
+   */
+  function qcParsePo(pages) {
+    var all = [].concat.apply([], pages), text = qcPdfLines(all).map(function (l) { return l.text; }).join('\n');
+    var flat = pages.map(function (pg) { return qcPdfLines(pg).map(function (l) { return l.text; }).join('\n'); }).join('\n');
+    var get = function (re) { var m = flat.match(re); return m ? m[1].trim() : ''; };
+    var platform = /JUPITER KART|Pod Name:/i.test(flat) ? 'swiggy' : /ZEPTO|Material Code/i.test(flat) ? 'zepto' : '';
+    if (!platform) throw new Error('not a Swiggy or Zepto PO (no "Pod Name" / "Material Code" found).');
+    var out = { platform: platform, po: get(/PO No:\s*([A-Z0-9]+)/i), release: get(/PO Release Date:\s*(\d{4}-\d{2}-\d{2})/i) || get(/PO Date:\s*(\d{4}-\d{2}-\d{2})/i),
+      expiry: get(/PO Expiry Date:\s*(\d{4}-\d{2}-\d{2})/i), lines: [] };
+    if (platform === 'swiggy') out.wh = get(/Pod Name:\s*(.+?)(?:\s{2,}Pod Name:|\n|$)/i);
+    else { var fc = (get(/Address:\s*([A-Z]{3})-/) || '').toUpperCase(); out.wh = fc ? fc + (QC_FC_CITY[fc] ? ' - ' + QC_FC_CITY[fc] : '') : ''; }
+    var qtyHead = null, codeHead = null;
+    pages.forEach(function (pg) {
+      var lines = qcPdfLines(pg);
+      pg.forEach(function (it) {
+        if (!qtyHead && (platform === 'swiggy' ? /^Qty$/i : /^Quantity$/i).test(it.s)) qtyHead = it;
+        if (!codeHead && platform === 'zepto' && /^SKU Code$/i.test(it.s)) codeHead = it;
+      });
+      if (!qtyHead) return;
+      var qx = qtyHead.x + qtyHead.w / 2, anchors = [];
+      lines.forEach(function (l) {
+        var m = l.text.match(platform === 'swiggy' ? /^(\d{1,3})\s+(\d{4,8})\b/ : /^(\d{1,3})\s+(\d{5,10})\b/);
+        if (!m) return;
+        var best = null;
+        l.items.forEach(function (it) {
+          if (!/^\d{1,6}$/.test(it.s) || it.s === m[1] || it.s === m[2]) return;
+          var d = Math.abs(it.x + it.w / 2 - qx);
+          if (d < 45 && (!best || d < best.d)) best = { d: d, q: Number(it.s) };
+        });
+        if (best && best.q > 0) anchors.push({ y: l.y, no: Number(m[1]), code: m[2], qty: best.q });
+      });
+      // Zepto: the SKU code (a long id) wraps over two lines in its column; joined top to bottom they come in row order.
+      var uuids = [];
+      if (platform === 'zepto' && codeHead) {
+        var cx = codeHead.x, txt = pg.filter(function (it) { return it.x > cx - 30 && it.x < cx + 40 && it.y < codeHead.y && /^[0-9a-f-]+$/i.test(it.s); })
+          .sort(function (a, b) { return b.y - a.y || a.x - b.x; }).map(function (it) { return it.s; }).join('').replace(/\s+/g, '');
+        uuids = txt.match(/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi) || [];
+      }
+      anchors.forEach(function (a, i) {
+        out.lines.push(platform === 'zepto' ? { code: uuids[i] || '', code2: a.code, qty: a.qty } : { code: a.code, qty: a.qty });
+      });
+    });
+    if (!out.po) throw new Error('no PO number found.');
+    if (!out.lines.length) throw new Error('PO ' + out.po + ': no item lines found.');
+    out.units = out.lines.reduce(function (s, l) { return s + l.qty; }, 0);
+    return out;
+  }
+
+  /** Name of a Swiggy / Zepto code: the tab's SKU name, else the report's / mapping's name; '' when unknown. */
+  function qcNameOf(p, code, code2) {
+    var x = (S.qc && S.qc[p]) || {}, hit = '';
+    (x.items || []).some(function (it) { if ((code && it.code.toLowerCase() === String(code).toLowerCase()) || (code2 && it.code2 === String(code2))) { hit = it.name; return true; } return false; });
+    return hit;
+  }
+  function qcRepName(p, code) {
+    var x = (S.qc && S.qc[p]) || {}, n = '';
+    (x.snap || []).some(function (s) { if (s.code === String(code)) { n = s.sku; return true; } return false; });
+    if (!n) ((S.qc && S.qc.skus) || []).some(function (s) { if (s.p === p && s.code === String(code)) { n = s.our || s.name; return true; } return false; });
+    return n;
+  }
+  /** The PO PDFs read, waiting to be written to their tab. */
+  function drawQcPdfs() {
+    var box = $('qcPdfs'); if (!box) return;
+    var list = S.qcPdfs || [];
+    if (!list.length) { box.innerHTML = ''; box.style.display = 'none'; return; }
+    box.style.display = '';
+    var ed = can('Planner');
+    box.innerHTML = '<h3 style="margin-top:0">📄 PO PDFs read — check, then write them to their tab</h3>' +
+      (list.length > 1 && ed ? '<button class="btn p" id="qcPdfAll">Write all ' + list.filter(function (x) { return !x.err; }).length + ' to their tabs</button>' : '') +
+      list.map(function (x, i) {
+        if (x.err) return '<div class="msg bad">' + esc(x.name) + ': ' + esc(x.err) + '</div>';
+        var inTab = ((S.qc && S.qc[x.platform] && S.qc[x.platform].pos) || []).some(function (q) { return q.po === x.po; });
+        var nNew = x.lines.filter(function (l) { return !qcNameOf(x.platform, l.code, l.code2); }).length;
+        return '<div class="card" style="margin-top:8px"><b>' + QC_NAMES[x.platform] + ' · ' + esc(x.wh || '?') + ' · PO ' + esc(x.po) + '</b> · ' + fmt(x.units) + ' units · released ' + prettyDate(x.release) + (x.expiry ? ' · expires ' + prettyDate(x.expiry) : '') +
+          ' ' + (inTab ? '<span class="pill info">already in the tab — its column is updated</span>' : '<span class="pill ok">new column</span>') + (nNew ? ' <span class="pill warn">' + nNew + ' new SKU row(s)</span>' : '') +
+          '<div class="scroll" style="margin-top:6px"><table class="t qct"><tr><th>Their code</th><th>SKU (tab row)</th><th class="right">Qty</th></tr>' +
+          x.lines.map(function (l, j) {
+            var nm = qcNameOf(x.platform, l.code, l.code2);
+            return '<tr><td class="small" style="word-break:break-all;max-width:240px">' + esc(l.code || l.code2) + (l.code && l.code2 ? '<br><span class="muted">' + esc(l.code2) + '</span>' : '') + '</td><td>' +
+              (nm ? esc(nm) : '<span class="pill warn">new row</span> ' + (ed ? '<input type="text" class="qcNewName" data-i="' + i + '" data-j="' + j + '" value="' + esc(l.name || qcRepName(x.platform, l.code) || '') + '" placeholder="SKU name for the new row" style="min-width:200px">' : '')) +
+              '</td><td class="right"><b>' + fmt(l.qty) + '</b></td></tr>';
+          }).join('') + '</table></div>' +
+          (ed ? '<div style="margin-top:6px"><button class="btn p sm qcPdfGo" data-i="' + i + '">Write to the ' + (x.platform === 'swiggy' ? 'Swiggy Planning' : 'Zepto') + ' tab</button> <button class="btn sm qcPdfDrop" data-i="' + i + '">Leave out</button></div>' : '') + '</div>';
+      }).join('');
+    box.oninput = function (e) { var el = e.target; if (!el.classList.contains('qcNewName')) return; var x = S.qcPdfs[+el.getAttribute('data-i')]; if (x) x.lines[+el.getAttribute('data-j')].name = el.value; };
+    box.onclick = function (e) {
+      var b = e.target.closest('.qcPdfGo, .qcPdfDrop, #qcPdfAll'); if (!b) return;
+      if (b.id === 'qcPdfAll') { qcWritePdfs(S.qcPdfs.filter(function (x) { return !x.err; })); return; }
+      var x = S.qcPdfs[+b.getAttribute('data-i')];
+      if (b.classList.contains('qcPdfDrop')) { S.qcPdfs.splice(S.qcPdfs.indexOf(x), 1); drawQcPdfs(); return; }
+      qcWritePdfs([x]);
+    };
+  }
+  function qcWritePdfs(list) {
+    var done = [], errs = [], chain = Promise.resolve();
+    $('qcMsg').innerHTML = '<span class="spin"></span> Writing ' + list.length + ' PO(s) to their tab…';
+    list.forEach(function (x) {
+      chain = chain.then(function () {
+        var lines = x.lines.map(function (l) { return { code: l.code, code2: l.code2 || '', qty: l.qty, name: qcNameOf(x.platform, l.code, l.code2) ? '' : (l.name || qcRepName(x.platform, l.code) || '') }; });
+        return api('importQcPo', S.token, x.platform, { po: x.po, wh: x.wh, release: x.release, expiry: x.expiry, lines: lines }).then(function (r) {
+          S.qc = r.qc; if (S.dash) S.dash.qc = r.qc;
+          S.qcPdfs.splice(S.qcPdfs.indexOf(x), 1);
+          done.push(QC_NAMES[x.platform] + ' PO ' + x.po + ' ' + (r.created ? 'written to' : 'updated in') + ' the ' + r.tab + ' tab, column ' + r.col + (r.newRows.length ? ' — new SKU row(s): ' + r.newRows.join(', ') : '') + '.');
+        }, function (e) { errs.push('PO ' + x.po + ': ' + e.message); });
+      });
+    });
+    chain.then(function () { $('qcMsg').innerHTML = msgs(done, 'ok') + msgs(errs, 'bad'); drawQcPdfs(); drawQc(); });
+  }
   /** Reads the chosen report files; a platform is worked out and saved once both of its files are in. */
   function qcLoadFiles(files) {
+    var pdfs = files.filter(function (f) { return /\.pdf$/i.test(f.name); });
+    files = files.filter(function (f) { return !/\.pdf$/i.test(f.name); });
+    if (pdfs.length) {
+      if (typeof pdfjsLib === 'undefined') { $('qcMsg').innerHTML = msgs(['The PDF reader did not load (no internet?). Reload the page.'], 'bad'); }
+      else Promise.all(pdfs.map(function (f) {
+        return f.arrayBuffer().then(qcPdfItems).then(function (pages) { var x = qcParsePo(pages); x.name = f.name; return x; }).catch(function (e) { return { name: f.name, err: e.message }; });
+      })).then(function (list) {
+        S.qcPdfs = (S.qcPdfs || []).filter(function (o) { return !list.some(function (n) { return n.po && n.po === o.po; }); }).concat(list);
+        drawQcPdfs();
+        if (!files.length) $('qcMsg').innerHTML = msgs([list.filter(function (x) { return !x.err; }).length + ' PO PDF(s) read — check them below and write them to their tab.'], 'info');
+      });
+    }
     if (!files.length) return;
     $('qcMsg').innerHTML = '<span class="spin"></span> Reading ' + files.length + ' file(s)…';
     Promise.all(files.map(function (f) {
@@ -2832,7 +3006,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var low = c.rows.filter(function (r) { return r.days != null && r.days < c.lead; }).sort(function (a, b) { return Math.floor(a.days) - Math.floor(b.days) || b.rate - a.rate; });
       return '<div style="flex:1 1 320px"><b>' + QC_NAMES[p] + '</b> · ' + c.open.length + ' open PO(s), ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units' + (must ? ' · <span class="pill bad">' + must + ' line(s) must send</span>' : '') +
         (c.way.length ? ' · ' + c.way.length + ' on the way' : '') +
-        (c.missing.length || c.closed.length ? '<div class="small" style="color:var(--warn,#b45309);margin-top:2px">⚠ ' + [c.missing.length ? c.missing.length + ' PO(s) open on Swiggy but not in the tab' : '', c.closed.length ? c.closed.length + ' PO(s) in the tab no longer open on Swiggy' : ''].filter(Boolean).join(' · ') + '</div>' : '') +
+        (c.missing.length || c.closed.length ? '<div class="small" style="color:var(--warn,#b45309);margin-top:2px">⚠ ' + [c.missing.length ? c.missing.length + ' PO(s) open on Swiggy but not in the tab' : '', c.closed.length ? c.closed.length + ' PO(s) expired / no longer open' : ''].filter(Boolean).join(' · ') + '</div>' : '') +
         (!(c.x.snap || []).length ? '<div class="small muted">No reports read yet.</div>' : low.length ? '<div class="small" style="margin-top:4px">Runs out within ' + c.lead + ' days: ' + low.slice(0, 8).map(function (r) { return esc(qcWhLabel(p, r.wh)) + ' · ' + esc(r.sku) + ' <b>' + qcDaysTxt(r.days) + 'd</b>'; }).join(' · ') + (low.length > 8 ? ' · +' + (low.length - 8) + ' more' : '') + '</div>' : '<div class="small muted">Nothing runs out within ' + c.lead + ' days.</div>') +
         (c.x.meta ? '<div class="small muted">Reports up to ' + prettyDate(c.x.meta.salesTo) + '</div>' : '') + '</div>';
     }).filter(Boolean);
