@@ -272,7 +272,8 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
   - A new PO gets a column after the last PO, with one empty column first when its release date is different (the tabs group POs by release date).
   - A PO already in the tab is updated in its own column.
   - Row 1 is the warehouse, row 2 the PO no. (its expiry date goes in the cell's note), row 3 the release date, and from row 7 the quantity on each SKU's row.
-  - A SKU not in the tab yet gets a new row at the end of the SKU list. Its name can be typed before writing.
+  - A SKU not in the tab yet gets a new row inserted right under the last SKU row; rows below it move down. Its name can be typed before writing.
+  - **Which rows are SKU rows:** rows whose column B has a Swiggy item code (a number) or a Zepto SKU code (or, for Zepto, a material code in E). Notes, dates, PO numbers and a Total row kept below the SKU list are not SKUs: they are not listed, not counted in PO quantities, and never changed when a PO is written or removed.
 - **Shipping date (row 4):** set from the Shipment Manager's 🚚 Dispatch Date when the PO's shipment has one; a date already in the tab is not changed. It can also be set on the PO in the app.
 - **Appointment (row 5):** set on the PO in the app (**Save dates**).
 - **Remove from tab** empties a PO's column, for a PO written by mistake or closed.
