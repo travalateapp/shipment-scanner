@@ -351,5 +351,11 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 
   This is the only place their stock and days per warehouse are shown; the Swiggy and Zepto tabs keep the uploads, POs, What to send first and SKU mapping.
 - **Calendar entries** start with a bold letter for the platform: **B** Blinkit, **S** Swiggy, **Z** Zepto.
+- **Hovers:**
+  - A Swiggy / Zepto PO number (calendar, PO cards) shows its warehouse, status, dates and each SKU line.
+  - In Items, a Swiggy / Zepto Shipped or Planned number lists the POs behind it.
+- **Warehouse names:**
+  - Swiggy is shown per warehouse, e.g. "Bengaluru IM1", "Bengaluru Ecom2", "Delhi GGNFC5", "AHM Delhivery". Its stock and POs are per warehouse. Its sales report is per city, so a city's sales are split over its warehouses by their share of Swiggy's POs for that SKU (else of all its POs, else evenly).
+  - Zepto is shown in full: Mumbai, Bengaluru, Chennai, Gurugram.
 - In the calendar, with no Blinkit warehouse picked, their POs show on the shipping day (🚚, counted in the load) and on the appointment day (📍).
 - Those dates are changed in the sheet.
