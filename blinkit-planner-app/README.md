@@ -325,6 +325,18 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 - **What to send first:** all open Swiggy + Zepto PO lines per SKU, compared with our stock in Travalate Inventory (matched by the SKU name in the tab).
 - **Stock and days per warehouse:** stock, on the way, open POs, and days with and without the open POs.
 
+**Projections (Platform: Blinkit / Swiggy / Zepto / All)**
+- **Swiggy / Zepto:** their open POs per SKU.
+  - "Planned + Shipped" also counts POs on the way.
+  - **TI stock** comes through the SKU mapping.
+  - **Their stock** and **On the way** come from shipped POs not arrived yet.
+  - **Monthly sale** = sold per day × 30, from the sales history. **Projection 30 days** = monthly sale × 1.2.
+  - Warehouse-wise shows their warehouses: Swiggy cities, Zepto MUM / BLR / CHN / GUR.
+- **All:** Blinkit ROs + Swiggy / Zepto POs added up per our SKU.
+  - Blinkit SKUs are matched by their TI SKU; Swiggy / Zepto codes by their link. Unlinked codes stay on their own row.
+  - Warehouse-wise then shows one column per platform.
+- The Excel download follows the platform chosen.
+
 **Dashboard**
 - A **🛵 Swiggy & Zepto** card: open POs, lines that must be sent, and items that run out within the Lead Days.
 - In the calendar, with no Blinkit warehouse picked, their POs show on the shipping day (🚚, counted in the load) and on the appointment day (📍).

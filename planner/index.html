@@ -711,7 +711,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 swiggy-zepto-write';
+  var PAGE_BUILD = '2026-11-28 swiggy-zepto-proj';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3029,8 +3029,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
 
   function renderProj() {
     var P = S.proj = S.proj || { view: 'total', scope: 'created', group: '', q: '' };
+    P.plat = P.plat || 'blinkit';
     $('app').innerHTML = '<div class="card"><h2>Projections</h2>' +
       '<div class="row" style="align-items:flex-end">' +
+        '<div><label class="f">Platform</label><select id="pPlat">' + [['blinkit', 'Blinkit'], ['swiggy', 'Swiggy'], ['zepto', 'Zepto'], ['all', 'All (Blinkit + Swiggy + Zepto)']].map(function (o) {
+          return '<option value="' + o[0] + '"' + (P.plat === o[0] ? ' selected' : '') + '>' + o[1] + '</option>'; }).join('') + '</select></div>' +
         '<div style="flex:0 0 auto"><label class="f">View</label><div class="seg" id="pView"><button data-v="total" class="' + (P.view === 'total' ? 'on' : '') + '">Total</button><button data-v="wh" class="' + (P.view === 'wh' ? 'on' : '') + '">Warehouse-wise</button></div></div>' +
         '<div><label class="f">ROs</label><select id="pScope">' +
           '<option value="created"' + (P.scope === 'created' ? ' selected' : '') + '>Planned, not shipped yet</option>' +
@@ -3043,6 +3046,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       '<div class="card" style="padding:0" id="pOut"><div class="muted" style="padding:14px">Loading…</div></div>';
     $('pView').onclick = function (e) { var v = e.target.getAttribute('data-v'); if (!v) return; P.view = v; Array.prototype.forEach.call(this.children, function (b) { b.classList.toggle('on', b.getAttribute('data-v') === v); }); drawProj(); };
     $('pScope').onchange = function () { P.scope = this.value; drawProj(); };
+    $('pPlat').onchange = function () { P.plat = this.value; drawProj(); };
+    // Swiggy / Zepto POs, sales and stock (their tabs and last reports).
+    if (!S.qc && S.dash && S.dash.qc) S.qc = S.dash.qc;
+    api('getQc', S.token).then(function (r) { S.qc = r; if (S.dash) S.dash.qc = r; if (S.tab === 'proj') drawProj(); }, function () {});
     $('pGroup').onchange = function () { P.group = this.value; drawProj(); };
     $('pQ').oninput = function () { P.q = this.value; drawProj(); };
     $('pXls').onclick = exportProj;
@@ -3072,7 +3079,100 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   /** Warehouse names compared loosely: "Pune P3 - Feeder Warehouse" = "Pune P3 Feeder" = "pune p3". */
   function whLoose(s) { return String(s || '').toLowerCase().replace(/feeder|warehouse/g, '').replace(/[^a-z0-9]/g, ''); }
   function monthlyOf(t) { return t ? Math.round(Math.max(t.s7 / 7 * 30, t.s15 / 15 * 30, t.s30)) : null; }
+  /**
+   * Projections per platform. Blinkit: open ROs (below). Swiggy / Zepto: their open POs (not shipped; with "Planned +
+   * Shipped" also those on the way), their stock and sold per day from the last reports (monthly sale = per day × 30),
+   * "on the way" = shipped POs not arrived yet, TI stock through the SKU mapping. All: the three added up per our SKU
+   * (Blinkit SKUs by their TI SKU, Swiggy / Zepto codes by their link in SKU mapping); Warehouse-wise then shows one
+   * column per platform.
+   */
+  var PROJ_LBL = {
+    blinkit: { ord: 'ROs', stock: 'Current inventory', inc: 'Blinkit incoming', col: 'warehouse' },
+    swiggy: { ord: 'POs', stock: 'Swiggy stock', inc: 'On the way', col: 'warehouse' },
+    zepto: { ord: 'POs', stock: 'Zepto stock', inc: 'On the way', col: 'warehouse' },
+    all: { ord: 'ROs / POs', stock: 'Platform stock', inc: 'Incoming / on the way', col: 'platform' }
+  };
   function projData() {
+    var p = (S.proj && S.proj.plat) || 'blinkit';
+    var d = p === 'blinkit' ? projBlinkit() : p === 'all' ? projAll() : projQc(p);
+    d.plat = p; d.lbl = PROJ_LBL[p];
+    return d;
+  }
+  /** The Blinkit group of our SKU (TI SKU name), when a Blinkit SKU has it as its TI SKU. */
+  function projGroupOfTi(our) {
+    if (!our) return '';
+    var k = tiNorm(our), g = '';
+    (S.boot.skus || []).some(function (s) { if (tiKey(s.item, s.sku) === k) { g = s.group; return true; } return false; });
+    return g;
+  }
+  function projQc(p) {
+    var P = S.proj, c = qcCalc(p), x0 = c.x, snap = x0.snap || [];
+    var pos = c.open.concat(P.scope === 'createdAll' ? c.way : []);
+    var snapBy = {};
+    snap.forEach(function (r) { var s = snapBy[r.code] = snapBy[r.code] || { stock: 0, rate: 0, wh: {} }; s.stock += r.stock; s.rate += r.rate; s.wh[r.wh] = r; });
+    var wayBy = {};
+    c.way.forEach(function (po) { po.lines.forEach(function (l) { var m = wayBy[l.code] = wayBy[l.code] || { t: 0, wh: {} }; m.t += l.qty; m.wh[po.whKey || po.wh] = (m.wh[po.whKey || po.wh] || 0) + l.qty; }); });
+    var by = {}, whs = [], nPo = {};
+    pos.forEach(function (po) {
+      var w = po.whKey || po.wh; nPo[po.po] = 1; if (whs.indexOf(w) < 0) whs.push(w);
+      po.lines.forEach(function (l) {
+        var our = qcOurOf(p, l.code) || qcSuggest(l.name);
+        var x = by[l.code] = by[l.code] || { code: l.code, item: String(l.code).length > 12 ? String(l.code).slice(0, 8) + '…' : l.code, sku: l.name || l.code, our: our,
+          name: our ? '→ ' + our : 'not linked (Swiggy / Zepto → SKU mapping)', group: projGroupOfTi(our), wh: {}, total: 0, ros: {}, plat: p };
+        x.wh[w] = (x.wh[w] || 0) + l.qty; x.total += l.qty; x.ros[po.po] = 1;
+      });
+    });
+    whs.sort();
+    var q = String(P.q || '').trim().toLowerCase(), has = snap.length > 0;
+    var rows = Object.keys(by).map(function (k) {
+      var x = by[k], s = snapBy[x.code];
+      x.nRo = Object.keys(x.ros).length;
+      x.sale = s ? Math.round(s.rate * 30) : (has ? 0 : null);
+      x.proj = x.sale == null ? null : Math.round(x.sale * PROJ_X);
+      x.blinkit = s ? s.stock : (has ? 0 : null);
+      x.inc = (wayBy[x.code] || {}).t || 0;
+      x.ti = x.our && S.ti && S.ti.ok && S.ti.map[tiNorm(x.our)] != null ? S.ti.map[tiNorm(x.our)] : null;
+      x.saleWh = {}; x.projWh = {}; x.stockWh = {}; x.incWh = {};
+      whs.forEach(function (w) {
+        var r = s && s.wh[w];
+        x.stockWh[w] = r ? r.stock : (has ? 0 : null);
+        x.saleWh[w] = r ? Math.round(r.rate * 30) : (has ? 0 : null);
+        x.projWh[w] = x.saleWh[w] == null ? null : Math.round(x.saleWh[w] * PROJ_X);
+        x.incWh[w] = ((wayBy[x.code] || {}).wh || {})[w] || 0;
+      });
+      return x;
+    }).filter(function (x) { return (!P.group || x.group === P.group) && (!q || (x.sku + ' ' + x.code + ' ' + x.our).toLowerCase().indexOf(q) >= 0); })
+      .sort(function (a, b) { return b.total - a.total || String(a.sku).localeCompare(String(b.sku)); });
+    return { rows: rows, whs: whs, whLabel: function (w) { return qcWhLabel(p, w); }, nRo: Object.keys(nPo).length, hasSale: has, invAt: x0.meta ? 'reports up to ' + prettyDate(x0.meta.salesTo) : '', unmatched: [], incSrc: 'qc' };
+  }
+  function projAll() {
+    var parts = { Blinkit: projBlinkit(), Swiggy: projQc('swiggy'), Zepto: projQc('zepto') }, by = {}, whs = [];
+    Object.keys(parts).forEach(function (P) {
+      parts[P].rows.forEach(function (r) {
+        var our = P === 'Blinkit' ? '' : r.our;
+        var key = P === 'Blinkit' ? 't:' + tiKey(r.item, r.sku) : our ? 't:' + tiNorm(our) : 'q:' + P + r.code;
+        var x = by[key] = by[key] || { item: '', sku: '', name: '', group: '', names: [], wh: {}, total: 0, nRo: 0, ti: null, blinkit: 0, inc: 0, sale: 0, proj: 0, saleWh: {}, projWh: {}, stockWh: {}, incWh: {} };
+        if (P === 'Blinkit') { x.sku = r.sku; x.item = r.item; x.group = r.group; }
+        else if (!x.sku) { x.sku = our || r.sku; x.group = r.group; }
+        x.names.push(P + (P === 'Blinkit' ? ' ' + (r.name || r.sku) : ' ' + r.sku));
+        if (whs.indexOf(P) < 0) whs.push(P);
+        x.wh[P] = (x.wh[P] || 0) + r.total; x.total += r.total; x.nRo += r.nRo;
+        if (x.ti == null && r.ti != null) x.ti = r.ti;
+        x.blinkit += r.blinkit || 0; x.inc += r.inc || 0; x.sale += r.sale || 0; x.proj += r.proj || 0;
+        x.stockWh[P] = (x.stockWh[P] || 0) + (r.blinkit || 0); x.incWh[P] = (x.incWh[P] || 0) + (r.inc || 0);
+        x.saleWh[P] = (x.saleWh[P] || 0) + (r.sale || 0); x.projWh[P] = (x.projWh[P] || 0) + (r.proj || 0);
+      });
+    });
+    var rows = Object.keys(by).map(function (k) {
+      var x = by[k]; x.name = x.names.join(' · ');
+      ['Blinkit', 'Swiggy', 'Zepto'].forEach(function (w) { ['stockWh', 'incWh', 'saleWh', 'projWh'].forEach(function (f) { if (x[f][w] == null) x[f][w] = 0; }); });
+      return x;
+    })
+      .sort(function (a, b) { return b.total - a.total || String(a.sku).localeCompare(String(b.sku)); });
+    return { rows: rows, whs: ['Blinkit', 'Swiggy', 'Zepto'].filter(function (w) { return whs.indexOf(w) >= 0; }), whLabel: function (w) { return w; },
+      nRo: parts.Blinkit.nRo + parts.Swiggy.nRo + parts.Zepto.nRo, hasSale: parts.Blinkit.hasSale || parts.Swiggy.hasSale || parts.Zepto.hasSale, invAt: '', unmatched: [], incSrc: 'all' };
+  }
+  function projBlinkit() {
     var P = S.proj, td = today(), sm = skuMap();
     var lines = (S.boot.openROs || []).filter(function (r) {
       if (r.status === 'Planned') { if (P.scope !== 'open') return false; }
@@ -3140,11 +3240,22 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     return { rows: rows, whs: whs, nRo: Object.keys(ros).length, hasSale: !!inv, invAt: inv ? inv.generatedAt : '', unmatched: unmatched, incSrc: incSrc };
   }
 
+  function projQcNote(d, wv) {
+    var P = S.proj, sc = P.scope === 'createdAll' ? 'not shipped + on the way' : 'not shipped yet';
+    var ti = '<b>TI stock</b> = Travalate Inventory now, through Swiggy / Zepto → SKU mapping' + (S.ti ? (S.ti.ok ? '' : ' (' + esc(S.ti.error || 'could not be read') + ')') : ' (reading…)') + '; red when less than the total quantity. ';
+    if (d.plat === 'all') return 'Blinkit ROs + Swiggy / Zepto POs, ' + sc + ' · ' + d.nRo + ' RO(s) / PO(s), added up per our SKU (Blinkit SKUs by their TI SKU, Swiggy / Zepto codes by their link — unlinked codes stay on their own row). ' + ti +
+      '<b>Platform stock</b>, <b>Incoming / on the way</b>, <b>Monthly sale</b> and <b>Projection 30 days</b> (× ' + PROJ_X + ') are the three platforms added up' + (wv ? '; Warehouse-wise shows one column per platform.' : '.');
+    var nm = QC_NAMES[d.plat], x = (S.qc && S.qc[d.plat]) || {};
+    return nm + ' POs ' + sc + ' · ' + d.nRo + ' PO(s), from the ' + (d.plat === 'swiggy' ? 'Swiggy Planning' : 'Zepto') + ' tab. ' + ti +
+      '<b>' + nm + ' stock</b> = its stock in the last report' + (d.plat === 'swiggy' ? ' (Swiggy warehouses only, not dark stores)' : '') + '. <b>On the way</b> = shipped POs not arrived yet. ' +
+      '<b>Monthly sale</b> = sold per day × 30 (highest of the 7, 15 and 30-day averages of the sales history). <b>Projection 30 days</b> = monthly sale × ' + PROJ_X + '.' +
+      (x.meta ? ' Reports up to ' + prettyDate(x.meta.salesTo) + '.' : ' <span style="color:var(--warn)">No ' + nm + ' reports read yet (Swiggy / Zepto tab).</span>');
+  }
   function drawProj() {
     var box = $('pOut'); if (!box) return;
-    var P = S.proj, d = projData(), wv = P.view === 'wh';
-    var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
-    $('pNote').innerHTML = (P.scope === 'createdAll' ? 'Planned and Shipped ROs (not delivered)' : P.scope === 'open' ? 'Planned and Draft ROs not shipped yet' : 'Planned ROs not shipped yet') +
+    var P = S.proj, d = projData(), wv = P.view === 'wh', LB = d.lbl;
+    var short = d.whLabel || function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
+    $('pNote').innerHTML = d.plat !== 'blinkit' ? projQcNote(d, wv) : (P.scope === 'createdAll' ? 'Planned and Shipped ROs (not delivered)' : P.scope === 'open' ? 'Planned and Draft ROs not shipped yet' : 'Planned ROs not shipped yet') +
       ' · ' + d.nRo + ' RO' + (d.nRo === 1 ? '' : 's') + '. <b>TI stock</b> = Travalate Inventory now' +
       (S.ti ? (S.ti.ok ? '' : ' (' + esc(S.ti.error || 'could not be read') + ')') : ' (reading…)') + '; red when it is less than the total quantity. ' +
       '<b>Current inventory</b> = Total sellable on Blinkit today' + (wv ? '' : ', all warehouses') + '. <b>Blinkit incoming</b> = ROs Blinkit already shows as on their way (' +
@@ -3152,7 +3263,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       (wv ? ' (all warehouses in its column; per warehouse in the row under each SKU)' : ', all warehouses') + '. <b>Projection 30 days</b> = monthly sale × ' + PROJ_X + '.' +
       (d.hasSale ? ' Inventory ' + esc(d.invAt || '') + '.' : S.projInvErr ? ' Could not read the Inventory: ' + esc(S.projInvErr) : ' Reading the Inventory…') +
       (wv && d.unmatched.length ? ' <span style="color:var(--warn)">No sales found in the Inventory for ' + esc(d.unmatched.map(short).join(', ')) + ' (named differently there).</span>' : '');
-    if (!d.rows.length) { box.innerHTML = '<div class="muted" style="padding:14px">No open RO quantities for these choices.</div>'; return; }
+    if (!d.rows.length) { box.innerHTML = '<div class="muted" style="padding:14px">No open ' + (d.plat === 'blinkit' ? 'RO' : d.plat === 'all' ? 'RO / PO' : 'PO') + ' quantities for these choices.</div>'; return; }
     var tot = { total: 0, sale: 0, proj: 0, ti: 0, blinkit: 0, inc: 0, wh: {}, saleWh: {}, projWh: {}, stockWh: {}, incWh: {} };
     d.rows.forEach(function (x) {
       tot.total += x.total; tot.sale += x.sale || 0; tot.proj += x.proj || 0; tot.ti += x.ti || 0; tot.blinkit += x.blinkit || 0; tot.inc += x.inc || 0;
@@ -3171,8 +3282,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var pk = JSON.stringify(P); if (S.projKey !== pk) { S.projKey = pk; S.projPage = 1; }
     var ppg = page('projPage', d.rows.length);
     var html = '<div class="scroll"><table class="t proj' + (wv ? ' pwh' : '') + '"><tr><th>SKU · Item ID</th>' + (wv ? '' : '<th>Name</th>') + '<th>Group</th>' +
-      (wv ? d.whs.map(function (w) { return '<th class="right" title="' + esc(w) + '">' + esc(short(w)) + '</th>'; }).join('') : '<th class="right">ROs</th>') +
-      '<th class="right">Total qty</th><th class="right">TI stock</th><th class="right">Current inventory</th><th class="right">Blinkit incoming</th><th class="right">Monthly sale</th><th class="right">Projection 30 days</th></tr>' +
+      (wv ? d.whs.map(function (w) { return '<th class="right" title="' + esc(w) + '">' + esc(short(w)) + '</th>'; }).join('') : '<th class="right">' + LB.ord + '</th>') +
+      '<th class="right">Total qty</th><th class="right">TI stock</th><th class="right">' + LB.stock + '</th><th class="right">' + LB.inc + '</th><th class="right">Monthly sale</th><th class="right">Projection 30 days</th></tr>' +
       d.rows.slice(ppg.start, ppg.end).map(function (x) {
         var main = '<tr class="' + (wv ? 'pm' : '') + '"><td><b>' + esc(x.sku || '—') + '</b> <span class="small muted">' + x.item + '</span>' + (wv && x.name ? '<div class="small muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</div>' : '') + '</td>' +
           (wv ? '' : '<td class="small" style="max-width:280px;overflow:hidden;text-overflow:ellipsis">' + esc(x.name) + '</td>') + '<td>' + esc(x.group || '—') + '</td>' +
@@ -3185,14 +3296,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
             d.whs.map(function (w) { var v = vals[w]; return '<td class="right small">' + (v == null ? '<span class="muted">…</span>' : v ? fmt(v) : '<span class="muted">0</span>') + '</td>'; }).join('') +
             '<td colspan="6"></td></tr>';
         };
-        return main + sub('Current inventory', x.stockWh, '') + (d.incSrc ? sub('Blinkit incoming', x.incWh, '') : '') +
+        return main + sub(LB.stock, x.stockWh, '') + (d.incSrc ? sub(LB.inc, x.incWh, '') : '') +
           sub('Monthly sale', x.saleWh, '') + sub('Projection 30 days (× ' + PROJ_X + ')', x.projWh, 'pl');
       }).join('') +
       '<tr class="tot"><td>Total · ' + d.rows.length + ' SKU' + (d.rows.length === 1 ? '' : 's') + '</td>' + (wv ? '' : '<td></td>') + '<td></td>' +
       (wv ? d.whs.map(function (w) { return '<td class="right">' + fmt(tot.wh[w]) + '</td>'; }).join('') : '<td class="right">' + d.nRo + '</td>') +
       '<td class="right">' + fmt(tot.total) + '</td><td class="right">' + (S.ti && S.ti.ok ? fmt(tot.ti) : '') + '</td><td class="right">' + (d.hasSale ? fmt(tot.blinkit) : '') + '</td>' +
       '<td class="right">' + (d.incSrc ? fmt(tot.inc) : '') + '</td><td class="right">' + (d.hasSale ? fmt(tot.sale) : '') + '</td><td class="right">' + (d.hasSale ? fmt(tot.proj) : '') + '</td></tr>' +
-      (wv && d.hasSale ? [['Current inventory', tot.stockWh, '']].concat(d.incSrc ? [['Blinkit incoming', tot.incWh, '']] : [])
+      (wv && d.hasSale ? [[LB.stock, tot.stockWh, '']].concat(d.incSrc ? [[LB.inc, tot.incWh, '']] : [])
         .concat([['Monthly sale', tot.saleWh, ''], ['Projection 30 days (× ' + PROJ_X + ')', tot.projWh, 'pl']]).map(function (t) {
           return '<tr class="ps tot2 ' + t[2] + '"><td class="small">↳ ' + t[0] + '</td><td></td>' + d.whs.map(function (w) { return '<td class="right small">' + fmt(t[1][w]) + '</td>'; }).join('') + '<td colspan="6"></td></tr>';
         }).join('') : '') +
@@ -3202,24 +3313,25 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   }
 
   function exportProj() {
-    var P = S.proj, d = projData(), wv = P.view === 'wh', rows = [];
+    var P = S.proj, d = projData(), wv = P.view === 'wh', rows = [], LB = d.lbl;
     d.rows.forEach(function (x) {
       var o = { SKU: x.sku, 'Item ID': x.item, Name: x.name, Group: x.group };
-      if (wv) { o.Row = 'RO qty'; d.whs.forEach(function (w) { o[w] = x.wh[w] || 0; }); } else o.ROs = x.nRo;
-      o['Total qty'] = x.total; o['TI stock'] = x.ti == null ? '' : x.ti; o['Current inventory'] = x.blinkit == null ? '' : x.blinkit;
-      o['Blinkit incoming'] = x.inc == null ? '' : x.inc;
+      var wl = d.whLabel || function (w) { return w; };
+      if (wv) { o.Row = LB.ord + ' qty'; d.whs.forEach(function (w) { o[wl(w)] = x.wh[w] || 0; }); } else o[LB.ord] = x.nRo;
+      o['Total qty'] = x.total; o['TI stock'] = x.ti == null ? '' : x.ti; o[LB.stock] = x.blinkit == null ? '' : x.blinkit;
+      o[LB.inc] = x.inc == null ? '' : x.inc;
       o['Monthly sale'] = x.sale == null ? '' : x.sale; o['Projection 30 days'] = x.proj == null ? '' : x.proj;
       rows.push(o);
-      if (wv) [['Current inventory', x.stockWh], ['Blinkit incoming', x.incWh], ['Monthly sale', x.saleWh], ['Projection 30 days', x.projWh]].forEach(function (p) {
+      if (wv) [[LB.stock, x.stockWh], [LB.inc, x.incWh], ['Monthly sale', x.saleWh], ['Projection 30 days', x.projWh]].forEach(function (p) {
         var o2 = { SKU: x.sku, 'Item ID': x.item, Name: x.name, Group: x.group, Row: p[0] };
-        d.whs.forEach(function (w) { o2[w] = p[1][w] == null ? '' : p[1][w]; });
+        d.whs.forEach(function (w) { o2[wl(w)] = p[1][w] == null ? '' : p[1][w]; });
         rows.push(o2);
       });
     });
     var wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows), wv ? 'Warehouse-wise' : 'Total');
     saveBlob(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }),
-      'Projections_' + (wv ? 'warehouse_' : '') + today() + '.xlsx');
+      'Projections_' + (d.plat !== 'blinkit' ? d.plat + '_' : '') + (wv ? 'warehouse_' : '') + today() + '.xlsx');
   }
 
   /**
