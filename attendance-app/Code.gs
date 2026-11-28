@@ -43,7 +43,7 @@ const ROLES = ['EMPLOYEE', 'ADMIN', 'SUPER_ADMIN', 'GUARD'];
 // Raised with every change to this file or to Index.html (keep NEEDS_SERVER in Index.html the same). The page
 // compares it with the version it needs: an older server → the super admin is told to deploy Code.gs; a newer
 // server → the page reloads itself to get the new Index.html (newVersionReload).
-const SERVER_VERSION = 20261073;
+const SERVER_VERSION = 20261074;
 
 /** What a super admin can allow each admin to do. */
 const PERMISSIONS = [
@@ -69,7 +69,8 @@ const PERM_HEADERS = ['Emp ID', 'Name'].concat(PERMISSIONS.map(p => p.label))
 const AUDIT_HEADERS = ['Time', 'By', 'Action', 'Emp ID', 'Date', 'Details'];
 
 const EMP_HEADERS = ['Emp ID', 'Name', 'PIN', 'Monthly Salary', 'Role', 'Active', 'Join Date', 'Phone',
-  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut', 'Birth Date'];
+  'PF Active', 'PF Bank Salary', 'PF Employee', 'PF Employer', 'Mark From Anywhere', 'Shift Start', 'Shift End', 'Hourly OT', 'Morning OT', 'Gender', 'In Leaderboard', 'Late Cut', 'Birth Date',
+  'Morning OT From', 'Morning OT To'];
 const HOLIDAY_HEADERS = ['Date', 'Holiday Name', 'Type', 'Close At', 'OT For', 'Applies To'];
 // Type 'Short Day' + Close At (e.g. 16:30): a working day on which the office closes early (see shortenDay_).
 const SHORT_DAY = 'Short Day';
@@ -1883,7 +1884,7 @@ function adminStaff(token) {
     canSetRole: ctx.perms.superAdmin,
     list: getPeople_().filter(e => canEditEmployee_(ctx, e.id)).map(e => ({
       id: e.id, name: e.name, salary: salaryFor_(e, todayStr_().slice(0, 7)), baseSalary: e.salary, role: e.role, active: e.active,
-      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, gender: e.gender, leaderboard: e.leaderboard, lateCut: e.lateCut, birthDate: e.birthDate,
+      joinDate: e.joinDate, phone: e.phone, anywhere: e.anywhere, periods: periods_(e), increments: incrementsOf_(e), shiftStart: e.shiftStart, shiftEnd: e.shiftEnd, hourlyOt: e.hourlyOt, morningOt: e.morningOt, morningFrom: e.morningFrom, morningTo: e.morningTo, gender: e.gender, leaderboard: e.leaderboard, lateCut: e.lateCut, birthDate: e.birthDate,
       face: readFaces_()[e.id] ? readFaces_()[e.id].at || 'yes' : '',
     })),
   };
@@ -1932,7 +1933,8 @@ function adminSaveStaff(token, data) {
       row[5] = 'Yes'; row[6] = "'" + joinDate; row[7] = phone;
       if (h['PF Active'] !== undefined) row[h['PF Active']] = 'No';
       row[anyCol - 1] = anywhere ? 'Yes' : 'No';
-      if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3]; }
+      if (timing) { const hh = headerIndex_(sh); row[hh['Shift Start']] = timing[0]; row[hh['Shift End']] = timing[1]; row[hh['Hourly OT']] = timing[2]; row[hh['Morning OT']] = timing[3];
+        row[hh['Morning OT From']] = timing[4]; row[hh['Morning OT To']] = timing[5]; }
       if (gender !== null) row[h['Gender']] = genderCell(gender);
       if (lateCut !== null) row[h['Late Cut']] = lateCut ? 'Yes' : 'No';
       if (birthDate) row[h['Birth Date']] = "'" + monthDayCell_(birthDate);
@@ -1968,10 +1970,13 @@ function adminSaveStaff(token, data) {
         sh.getRange(row, hh['Shift End'] + 1).setValue(timing[1]);
         sh.getRange(row, hh['Hourly OT'] + 1).setValue(timing[2]);
         sh.getRange(row, hh['Morning OT'] + 1).setValue(timing[3]);
-        if ((emp.shiftStart || '') + '-' + (emp.shiftEnd || '') + '-' + emp.hourlyOt + '-' + emp.morningOt !==
-          String(timing[0]).replace("'", '') + '-' + String(timing[1]).replace("'", '') + '-' + (timing[2] === 'Yes') + '-' + (timing[3] === 'Yes')) {
-          audit_(ctx.emp, 'EDIT_TIMING', emp.id, '', (timing[0] ? String(timing[0]).replace("'", '') + '–' + String(timing[1]).replace("'", '') : 'company shift') +
-            ', hourly OT ' + timing[2] + ', morning OT ' + timing[3]);
+        sh.getRange(row, hh['Morning OT From'] + 1).setValue(timing[4]);
+        sh.getRange(row, hh['Morning OT To'] + 1).setValue(timing[5]);
+        const plain = v => String(v).replace("'", '');
+        if ((emp.shiftStart || '') + '-' + (emp.shiftEnd || '') + '-' + emp.hourlyOt + '-' + emp.morningOt + '-' + (emp.morningFrom || '') + '-' + (emp.morningTo || '') !==
+          plain(timing[0]) + '-' + plain(timing[1]) + '-' + (timing[2] === 'Yes') + '-' + (timing[3] === 'Yes') + '-' + plain(timing[4]) + '-' + plain(timing[5])) {
+          audit_(ctx.emp, 'EDIT_TIMING', emp.id, '', (timing[0] ? plain(timing[0]) + '–' + plain(timing[1]) : 'company shift') +
+            ', hourly OT ' + timing[2] + ', morning OT ' + timing[3] + (timing[4] || timing[5] ? ' (' + (plain(timing[4]) || 'start') + ' to ' + (plain(timing[5]) || 'no end') + ')' : ''));
         }
       }
       forget_('employees');
@@ -3965,6 +3970,7 @@ function getPeople_() {
           shiftEnd: toTimeStr_(get(r, 'Shift End')),
           hourlyOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Hourly OT')).trim()),
           morningOt: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Morning OT')).trim()),
+          morningFrom: toDateStr_(get(r, 'Morning OT From')), morningTo: toDateStr_(get(r, 'Morning OT To')), // blank = no limit
           gender: parseGender_(get(r, 'Gender')),
           leaderboard: !/^(n|no|false|0|off)$/i.test(String(get(r, 'In Leaderboard')).trim()), // blank = Yes
           lateCut: !/^(n|no|false|0|off)$/i.test(String(get(r, 'Late Cut')).trim()), // blank = Yes
@@ -4046,7 +4052,7 @@ function empSettings_(emp, s) {
   const start = toMinutes_(emp.shiftStart), end = toMinutes_(emp.shiftEnd);
   const own = start != null && end != null && start !== end;
   let o = s;
-  if (own || emp.hourlyOt === false || emp.morningOt === false || emp.lateCut === false) {
+  if (own || emp.hourlyOt === false || emp.morningOt === false || emp.lateCut === false || emp.morningFrom || emp.morningTo) {
     o = Object.assign({}, s);
     if (own) {
       const hours = ((end - start + 1440) % 1440) / 60;
@@ -4058,6 +4064,7 @@ function empSettings_(emp, s) {
     }
     if (emp.hourlyOt === false) o.hourlyOt = false;
     if (emp.morningOt === false) o.morningOt = false;
+    if (emp.morningFrom || emp.morningTo) { o.morningFrom = emp.morningFrom; o.morningTo = emp.morningTo; } // applied per day in shortenDay_
     if (emp.lateCut === false) o.lateCut = false;
   }
   emp._sBase = s; emp._s = o;
@@ -4069,7 +4076,10 @@ function shiftFields_(data) {
   const a = toTimeStr_(data.shiftStart), b = toTimeStr_(data.shiftEnd);
   if (!!a !== !!b) throw new Error('Enter both the shift start and end time, or leave both empty for the company shift.');
   if (a && a === b) throw new Error('Shift start and end cannot be the same time.');
-  return [a ? "'" + a : '', b ? "'" + b : '', data.hourlyOt === false ? 'No' : 'Yes', data.morningOt === false ? 'No' : 'Yes'];
+  const mf = toDateStr_(data.morningFrom), mt = toDateStr_(data.morningTo);
+  if (mf && mt && mt < mf) throw new Error('Morning OT "Till" date must be on or after the "From" date.');
+  return [a ? "'" + a : '', b ? "'" + b : '', data.hourlyOt === false ? 'No' : 'Yes', data.morningOt === false ? 'No' : 'Yes',
+    mf ? "'" + mf : '', mt ? "'" + mt : ''];
 }
 
 function readAttendance_() {
@@ -4331,6 +4341,10 @@ function shortDays_() {
  * out, otEndMin = the closing time: work after it makes up for coming late but earns no OT (dayWorkedMin_).
  */
 function shortenDay_(es, date, empId) {
+  // Morning OT only between its From / To dates (when set); outside them only evening OT counts that day.
+  if (date && es.morningOt !== false && ((es.morningFrom && date < es.morningFrom) || (es.morningTo && date > es.morningTo))) {
+    es = Object.assign({}, es, { morningOt: false });
+  }
   const sd = date ? shortDays_()[date] : null;
   if (!sd || (empId && !holidayAppliesTo_(date, empId))) return es; // short day not for this employee: normal day
   // (The "Allow Overnight Shift" setting only lets a check-out after midnight close the day before; it must not

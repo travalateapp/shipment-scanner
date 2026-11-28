@@ -1231,7 +1231,7 @@
   }
 
   /** Version of Code.gs this page needs (see SERVER_VERSION in Code.gs). */
-  var NEEDS_SERVER = 20261073;
+  var NEEDS_SERVER = 20261074;
   function serverOldHtml() {
     var h = S.home;
     if (!h || !S.profile || S.profile.role !== 'SUPER_ADMIN' || (h.serverVersion || 0) >= NEEDS_SERVER) return '';
@@ -3914,8 +3914,9 @@
         (e.gender ? '' : (e.role === 'GUARD' ? '' : '<div class="sub" style="color:var(--orange)">Gender not set</div>')) +
         (e.leaderboard === false && e.role !== 'GUARD' ? '<div class="sub">🏆 Not in the OT leaderboard</div>' : '') +
         (e.role !== 'GUARD' ? '<div class="sub">' + (e.face ? '🙂 Face registered' : '<span class="muted">Face not registered</span>') + '</div>' : '') +
-        (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
-          e.hourlyOt === false ? 'no hourly OT' + (e.lateCut === false ? ', no late cut' : ', late cut from salary') : (e.morningOt === false ? 'evening OT only' : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
+        (e.shiftStart || e.hourlyOt === false || e.morningOt === false || e.morningFrom || e.morningTo || e.anywhere ? '<div class="sub">' + [e.shiftStart ? '⏰ ' + esc(e.shiftStart) + '–' + esc(e.shiftEnd) : '',
+          e.hourlyOt === false ? 'no hourly OT' + (e.lateCut === false ? ', no late cut' : ', late cut from salary') : (e.morningOt === false ? 'evening OT only' :
+            e.morningFrom || e.morningTo ? 'morning OT ' + (e.morningFrom ? 'from ' + esc(fmtDate(e.morningFrom)) : '') + (e.morningTo ? ' till ' + esc(fmtDate(e.morningTo)) : '') : ''), e.anywhere ? '📍 anywhere' : ''].filter(String).join(' · ') + '</div>' : '') + '</div>' +
         '<div class="right">' + (e.active ? '' : chip('CLOSED').replace('Closed', 'Inactive')) + (e.role !== 'EMPLOYEE' ? ' <span class="chip s-PF">' + esc(e.role.replace('_', ' ')) + '</span>' : '') +
         '<div><button class="link" onclick="openStaffForm(' + i + ')">Edit</button></div></div></div>';
     });
@@ -4017,6 +4018,12 @@
       '<div class="grid2"><select id="sfBirthD" class="inp">' + days + '</select><select id="sfBirthM" class="inp">' + mons + '</select></div></div>';
   }
 
+  /** Morning OT dates only matter while Morning OT (and hourly OT) is on. */
+  function sfMorningDates() {
+    var on = $('sfMorningOt') && $('sfMorningOt').checked && !$('sfMorningOt').disabled;
+    ['sfMorningFrom', 'sfMorningTo'].forEach(function (id) { if ($(id)) $(id).disabled = !on; });
+    if ($('sfMorningDates')) $('sfMorningDates').style.opacity = on ? 1 : .45;
+  }
   function openStaffForm(i) {
     var isNew = i < 0, e = isNew ? { id: '', name: '', salary: '', joinDate: todayLocal(), phone: '', active: true, role: 'EMPLOYEE' } : S.staff.list[i];
     var html = '<h2 style="margin-top:0">' + (isNew ? 'Add employee' : esc(e.name)) + '</h2>' +
@@ -4035,8 +4042,11 @@
         '<p class="muted small" style="margin:4px 0 0">Leave empty for the company shift. With an own shift, late marks, early leaving and OT use these times.</p>' +
         '<div class="grid2"><div class="field"><label>Shift start</label><input id="sfShiftStart" class="inp" type="time" value="' + esc(e.shiftStart || '') + '"></div>' +
         '<div class="field"><label>Shift end</label><input id="sfShiftEnd" class="inp" type="time" value="' + esc(e.shiftEnd || '') + '"></div></div>' +
-        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked;$(\'sfLateCut\').disabled=this.checked"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
-        '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + '> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label>' +
+        '<label class="check" style="margin-top:8px"><input type="checkbox" id="sfHourlyOt"' + (e.hourlyOt === false ? '' : ' checked') + ' onchange="$(\'sfMorningOt\').disabled=!this.checked;$(\'sfLateCut\').disabled=this.checked;sfMorningDates()"> Hourly OT on working days (untick = only Sunday / week-off work is paid extra)</label>' +
+        '<label class="check"><input type="checkbox" id="sfMorningOt"' + (e.morningOt === false ? '' : ' checked') + (e.hourlyOt === false ? ' disabled' : '') + ' onchange="sfMorningDates()"> Morning OT: coming before the shift start counts as OT (untick = only evening OT, after the shift end)</label>' +
+        '<div id="sfMorningDates" class="grid2" style="margin-left:26px"><div class="field" style="margin-top:6px"><label>From (optional)</label><input id="sfMorningFrom" class="inp" type="date" value="' + esc(e.morningFrom || '') + '"></div>' +
+        '<div class="field" style="margin-top:6px"><label>Till (optional)</label><input id="sfMorningTo" class="inp" type="date" value="' + esc(e.morningTo || '') + '"></div></div>' +
+        '<p class="muted small" style="margin:2px 0 0 26px">Leave empty = always. With dates, morning OT counts only on those days; on other days only evening OT counts.</p>' +
         '<label class="check"><input type="checkbox" id="sfLateCut"' + (e.lateCut === false ? '' : ' checked') + (e.hourlyOt === false ? '' : ' disabled') + '> Cut late coming / early leaving from salary, by the minute, on the month\'s balance: extra time on other days covers short days, but is not paid (only without hourly OT; with hourly OT it is taken from the OT)</label></div>') +
       (e.role === 'GUARD' ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfAnywhere"' + (e.anywhere ? ' checked' : '') + '> Can mark from anywhere (outstation): no office distance check, location still recorded</label>') +
       (isNew ? '' : '<label class="check" style="margin-top:10px"><input type="checkbox" id="sfActive"' + (e.active ? ' checked' : '') + ' onchange="staffActiveChanged(' + i + ')"> Active (untick when someone leaves the company)</label>' +
@@ -4052,6 +4062,7 @@
       (isNew ? '' : '<div class="card" style="background:var(--bg);margin-top:16px"><b>Reset PIN</b><div class="row" style="margin-top:8px"><input id="sfNewPin" class="inp" inputmode="numeric" placeholder="New PIN"><button class="btn small" onclick="resetPin(\'' + esc(e.id) + '\')">Reset</button></div></div>') +
       '<button class="btn ghost" onclick="closeModal()">Cancel</button><div id="sfMsg"></div>';
     openModal(html);
+    sfMorningDates();
   }
 
   /** Unticking Active asks for the last working day; ticking it again asks for the first day back. */
@@ -4133,7 +4144,8 @@
       if (bd && +bd > [31, 29, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31][bm - 1]) { $('sfMsg').innerHTML = errBox('That day does not exist in the chosen month.'); return; }
       data.birthDate = bd ? bm + '-' + bd : '';
     }
-    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; data.lateCut = $('sfLateCut').checked; }
+    if ($('sfShiftStart')) { data.shiftStart = $('sfShiftStart').value; data.shiftEnd = $('sfShiftEnd').value; data.hourlyOt = $('sfHourlyOt').checked; data.morningOt = $('sfMorningOt').checked; data.lateCut = $('sfLateCut').checked;
+      data.morningFrom = $('sfMorningFrom') ? $('sfMorningFrom').value : ''; data.morningTo = $('sfMorningTo') ? $('sfMorningTo').value : ''; }
     if ($('sfRole')) data.role = $('sfRole').value;
     $('sfSave').disabled = true;
     api('adminSaveStaff', S.token, data).then(function (r) {

@@ -243,6 +243,9 @@ Choosing the employee in **Give an advance** shows this month so far (salary ear
 ### 💳 Advances with "Add more"
 A month only recovers money already given by the end of that month: an amount added on 6 Nov does not raise October's deduction (₹1,499 given 23 Oct + ₹12,000 added 6 Nov at ₹6,000/month → October ₹1,499, November ₹6,000, December ₹6,000). Recovered money pays off the oldest payment first; a payment fully recovered shows **✓ Repaid** on its row.
 
+### 🌅 Morning OT for a date range
+Employees → Edit → Work timing: under **Morning OT** there are optional **From** and **Till** dates. Empty = morning OT always counts (as before). With dates, coming before the shift start counts as OT only on days in that range; on other days only evening OT (after the shift end) counts. Stored in the Employees columns *Morning OT From* / *Morning OT To*; the employee list shows "morning OT from … till …".
+
 ### 🛡 Guard: time correction requests
 On the guard's **Mark attendance** screen, **📝 Time correction requests → ＋ Request a time correction**: choose the employee, the date (up to *Request Back-Date Limit* days back), the correct check-in and/or check-out, and a reason. It becomes that employee's normal correction request, shown to admins in **Requests** with "🛡 Raised by …"; approving it updates the times. The guard sees their requests with status and can **Edit** or **Cancel** a pending one (not after the admin decides); the employee sees "Sent for you by …" in their own Requests. Stored in the Requests tab's *Raised By* column.
 
