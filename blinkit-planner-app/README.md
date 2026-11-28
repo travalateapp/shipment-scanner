@@ -260,7 +260,9 @@ missing, add it. The default is Yes.
 | RO Log | One row per RO line. This is what the app works from, and you can filter it like any sheet. |
 | Planner Snapshot | The last plan's figures, for the dashboard |
 
-## Swiggy / Zepto (tab)
+## Swiggy and Zepto (one tab each)
+
+Swiggy and Zepto each have their own tab in the app, with their own upload, open POs, What to send first, SKU mapping and stock table. Only the Dashboard calendar and Projections → All show them together with Blinkit.
 
 Swiggy and Zepto raise their own POs, so the app creates nothing for them. It shows **what matters most to send**.
 
@@ -306,7 +308,7 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
   - Sold per day uses the last 30 days of that history.
   - Days missing between two uploads count as no sales; the upload message says how many.
   - Stock always comes from the newest upload.
-- **SKU mapping:** Swiggy and Zepto codes are not Blinkit's, and new ones appear. The **🔗 SKU mapping** card in the tab lists every code from the tabs and the last reports. Link each one to our SKU as named in Travalate Inventory; the links are saved in the **Planner QC SKUs** tab.
+- **SKU mapping:** Swiggy and Zepto codes are not Blinkit's, and new ones appear. The **🔗 SKU mapping** card in each tab lists every code from the tabs and the last reports. Link each one to our SKU as named in Travalate Inventory; the links are saved in the **Planner QC SKUs** tab.
   - **New:** in a report but not in the tab yet, and not linked.
   - **Fill suggestions:** puts in name matches.
   - **What the link is used for:** **Our stock**, and adding up the same product across Swiggy and Zepto in **What to send first**.
@@ -314,7 +316,7 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 **Warehouses**
 - **Swiggy:** counted per warehouse city, as in the SOH report. Its stock report has warehouse stock only, not dark stores.
 - **Zepto:** counted per Zepto warehouse (MUM, BLR, CHN, GUR), from the cities each one serves.
-- Both city lists are in **Settings → Swiggy / Zepto**, one line per warehouse: `warehouse: city, city`.
+- Both city lists are in **Settings → Swiggy cities / Zepto cities**, one line per warehouse: `warehouse: city, city`.
   - Swiggy: sales in a city without a Swiggy warehouse count under the city named there.
 
 **What the tab shows**
@@ -326,18 +328,18 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 - **Stock and days per warehouse:** stock, on the way, open POs, and days with and without the open POs.
 
 **Projections (Platform: Blinkit / Swiggy / Zepto / All)**
-- **Swiggy / Zepto:** their open POs per SKU.
+- **Swiggy** and **Zepto** (each on its own): open POs per SKU.
   - "Planned + Shipped" also counts POs on the way.
   - **TI stock** comes through the SKU mapping.
   - **Their stock** and **On the way** come from shipped POs not arrived yet.
   - **Monthly sale** = sold per day × 30, from the sales history. **Projection 30 days** = monthly sale × 1.2.
   - Warehouse-wise shows their warehouses: Swiggy cities, Zepto MUM / BLR / CHN / GUR.
-- **All:** Blinkit ROs + Swiggy / Zepto POs added up per our SKU.
-  - Blinkit SKUs are matched by their TI SKU; Swiggy / Zepto codes by their link. Unlinked codes stay on their own row.
+- **All:** Blinkit ROs + Swiggy POs + Zepto POs added up per our SKU.
+  - Blinkit SKUs are matched by their TI SKU; Swiggy and Zepto codes by their link. Unlinked codes stay on their own row.
   - Warehouse-wise then shows one column per platform.
 - The Excel download follows the platform chosen.
 
 **Dashboard**
-- Separate **🛵 Swiggy** and **🛵 Zepto** cards above the Items table: open POs, lines that must be sent, PO check warnings and items that run out within the Lead Days; **Open Swiggy / Open Zepto** goes to that platform in the Swiggy / Zepto tab. The Items table stays Blinkit only.
+- Separate **🛵 Swiggy** and **🛵 Zepto** cards above the Items table: open POs, lines that must be sent, PO check warnings and items that run out within the Lead Days. **Open Swiggy / Open Zepto** goes to that platform's tab. The Items table stays Blinkit only.
 - In the calendar, with no Blinkit warehouse picked, their POs show on the shipping day (🚚, counted in the load) and on the appointment day (📍).
 - Those dates are changed in the sheet.
