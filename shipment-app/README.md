@@ -26,7 +26,7 @@ RO Invoice with the next number `SI/2026-27/D001`, `D002`, … and then cancels 
   stays only in Script Properties.
 - **Counter:** Script Property `DUMMY_RO_INVOICE_SEQ` (the last D number used). Change it there to restart or skip numbers.
 
-## Shipped short → why? (Blinkit)
+## Shipped short → why? (Blinkit, Zepto, Swiggy)
 When a Blinkit shipment sent less than the PO quantity on some lines, **Box Details** and **📥 JPG** (Shipments tab)
 open only once every such line has a reason. A popup lists those SKUs: the PO quantity, what was sent and how many
 less, with a reason beside each. The reason is one of:
@@ -83,3 +83,5 @@ the app's own dialog and names the shipment, PO, date or invoice number where th
 Buttons that already asked (Delete, Remove, Deactivate, Switch Platform, Restore invoice number) ask only once. The
 Enter-key shortcuts are not affected. One click listener (`SAVE_GUARDS_` in `Index.html`) does this: on the dialog's
 action button it clicks the original button again, so each button's own code is unchanged.
+
+Since this change the same pop-up also asks for **Zepto** and **Swiggy** shipments. The reasons are saved in ZEPTO_PO / SWIGGY_PO (columns SHORT_REASON, SHORT_REASON_QTY). The Blinkit Planner copies them into the Zepto / Swiggy Planning tab cell notes. `getBlinkitShortLines(poNumbers, platform)` and `saveBlinkitShortReasons(po, reasons, employee, platform)` take the platform; Blinkit is the default.

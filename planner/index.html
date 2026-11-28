@@ -712,7 +712,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 qc-ro-log2';
+  var PAGE_BUILD = '2026-11-28 qc-short';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3550,8 +3550,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var units = list.reduce(function (s, po) { return s + po.units; }, 0);
     return '<div class="small muted" style="margin:0 4px 6px">' + list.length + ' PO(s) · ' + fmt(units) + ' units' + (words.length ? ' — searched all ' + QC_NAMES[p] + ' POs' : '') + '</div>' + list.map(function (po) {
       var st = stOf(po), must = po.lines.filter(function (l) { return l.prio === 'must'; }).length, k = p + '|' + po.po;
+      var shortL = po.lines.filter(function (l) { return l.short > 0; }), shortN = shortL.reduce(function (s, l) { return s + l.short; }, 0);
       return '<div class="ro' + (open[k] ? ' open' : '') + '" data-po="' + esc(po.po) + '"><div class="h">' +
         '<span class="w">' + platLetter({ qc: p }) + esc(qcWhLabel(p, po.wh)) + ' · ' + QC_NAMES[p] + '</span>' + pill[st] + (must && st === 'open' ? ' <span class="pill bad">' + must + ' must send</span>' : '') +
+        (shortN ? ' <span class="pill bad" title="Shipment Manager: shipped less than the PO">' + fmt(shortN) + ' not sent</span>' : '') +
         '<span class="small">PO ' + prettyDate(po.release) + '</span><span class="small"><b>' + fmt(po.units) + '</b> units · ' + po.lines.length + ' lines</span>' +
         (po.appt ? '<span class="small">app ' + prettyDate(po.appt) + '</span>' : '') + (po.ship ? '<span class="small">🚚 ' + prettyDate(po.ship) + '</span>' : '') +
         '<span class="small">' + qcPoTip(p, po.po) + '</span>' + (po.expiry ? '<span class="small muted">expires ' + prettyDate(po.expiry) + '</span>' : '') + '</div><div class="b">' +
@@ -3563,7 +3565,9 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
         po.lines.map(function (l) {
           var our = qcOurOf(p, l.code), ti = qcStockOf(p, l.code, l.name), pr = QC_PRIO[l.prio];
           return '<tr><td>' + esc(l.name || l.code) + (our ? '<div class="small muted">→ ' + esc(our) + '</div>' : '') + '</td><td class="small" title="' + esc(l.code) + '">' + esc(String(l.code).length > 12 ? String(l.code).slice(0, 8) + '…' : l.code) + '</td>' +
-            '<td>' + esc(projGroupOfTi(our || qcSuggest(l.name)) || '—') + '</td><td class="right"><b>' + fmt(l.qty) + '</b></td>' +
+            '<td>' + esc(projGroupOfTi(our || qcSuggest(l.name)) || '—') + '</td><td class="right"><b>' + fmt(l.qty) + '</b>' +
+              (l.short ? '<div class="small" style="color:var(--bad)" title="Shipment Manager: not all was sent; the planner counts only what was shipped">ordered ' + fmt(l.ordered) + ' · shipped ' + fmt(l.shipped) + ' · ' + fmt(l.short) + ' not sent</div>' +
+                (l.why ? '<div class="small">Why: ' + esc(l.why) + '</div>' : '<div class="small muted">Why: not given yet in the Shipment Manager</div>') : '') + '</td>' +
             (st === 'open' ? '<td class="right">' + (l.rate ? fmt(l.rate, 1) : '–') + '</td><td class="right">' + (l.stock == null ? '–' : fmt(l.stock)) + (l.way ? '<div class="small muted">+' + fmt(l.way) + ' on the way</div>' : '') + '</td>' +
               '<td class="right">' + qcDaysTxt(l.days) + '</td><td>' + (pr ? '<span class="pill ' + pr[0] + '">' + pr[1] + '</span>' : '') + '</td>' : '') +
             '<td class="right">' + (ti == null ? '–' : fmt(ti)) + '</td></tr>';

@@ -816,6 +816,8 @@ function qcPOs_(platform) {
   const v = sh.getDataRange().getValues();
   if (v.length < 7) return { found: true, pos: [], items: [] };
   const notes = sh.getRange(2, 1, 1, v[0].length).getNotes()[0];
+  // Lines shipped short (marked by syncQcShort_): the cell holds what was shipped; its note says what was ordered and why.
+  const cellNotes = v.length > 6 ? sh.getRange(7, 1, v.length - 6, v[0].length).getNotes() : [];
   const items = [];
   for (let i = 6; i < v.length; i++) {
     const name = String(v[i][0]).trim(), code = String(v[i][1]).trim();
@@ -827,7 +829,12 @@ function qcPOs_(platform) {
     const po = String(v[1][c]).trim();
     if (!po) continue;
     const lines = [];
-    items.forEach(it => { const q = Number(v[it.row - 1][c]) || 0; if (q > 0) lines.push({ code: it.code, name: it.name, qty: q }); });
+    items.forEach(it => {
+      const q = Number(v[it.row - 1][c]) || 0, n = String((cellNotes[it.row - 7] || [])[c] || '');
+      const m = n.match(/^Ordered (\d+) — shipped (\d+), (\d+) not sent/);
+      if (m) lines.push({ code: it.code, name: it.name, qty: q, ordered: Number(m[1]), shipped: Number(m[2]), short: Number(m[3]), why: (n.match(/\nWhy: ([^\n]*)/) || [])[1] || '' });
+      else if (q > 0) lines.push({ code: it.code, name: it.name, qty: q });
+    });
     const ex = String(notes[c] || '').match(/Expiry\s*(\d{4}-\d{2}-\d{2})/i);
     pos.push({ col: colLetter_(c + 1), wh: String(v[0][c]).trim(), po: po, release: qcDate_(v[2][c]), ship: qcDate_(v[3][c]),
       appt: qcDate_(v[4][c]), expiry: ex ? ex[1] : '', lines: lines, units: lines.reduce((s, l) => s + l.qty, 0) });
@@ -986,6 +993,8 @@ function importQcPo(token, platform, po) {
       if (r) q[r - 7][0] = (Number(q[r - 7][0]) || 0) + (Number(l.qty) || 0);
     });
     sh.getRange(7, col, q.length, 1).setValues(q);
+    // Rewritten from the PDF: a short mark (red, note) on its SKU rows no longer applies; the next sync sets it again.
+    Object.keys(itemRows).forEach(r => { const cell = sh.getRange(Number(r), col); if (cell.getNote()) cell.setFontColor(null).setFontWeight(null).setNote(''); });
     return { tab: sh.getName(), col: colLetter_(col), created: created, newRows: added, qc: qcData_() };
   } finally { lock.releaseLock(); }
 }
@@ -1054,6 +1063,62 @@ function syncQcShipDates_() {
   });
   return n;
 }
+/**
+ * Swiggy / Zepto lines shipped short, from the Shipment Manager (like Blinkit's): once a PO has a shipment there,
+ * each line of its SWIGGY_PO / ZEPTO_PO sheet with Shipped < PO qty gets, in the Swiggy Planning / Zepto tab, what was
+ * shipped in red bold with the note "Ordered X — shipped Y, Z not sent (Shipment Manager)…" and "Why: …" (the reason
+ * asked on Box Details / JPG there). A line shipped in full again goes back to the ordered quantity. POs released in
+ * the last 60 days are checked.
+ */
+function syncQcShort_() {
+  const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
+  if (!id) return 0;
+  const ss = SpreadsheetApp.openById(id), shSh = ss.getSheetByName('SHIPMENTS');
+  const shipped = {};
+  if (shSh && shSh.getLastRow() > 1) {
+    const w = Math.max(11, Math.min(14, shSh.getLastColumn()));
+    shSh.getRange(2, 1, shSh.getLastRow() - 1, w).getValues().forEach(r => {
+      if (r[10] === true || String(r[10]).toUpperCase() === 'TRUE') return;
+      const po = String(r[5] || '').trim(); if (po) shipped[po] = 1;
+    });
+  }
+  const since = addDaysYmd_(ymd_(new Date()), -60);
+  let n = 0;
+  Object.keys(QC_TABS).forEach(p => {
+    const sh = qcTab_(QC_TABS[p]); if (!sh || sh.getLastColumn() < 6 || sh.getLastRow() < 7) return;
+    const pSh = ss.getSheetByName(p === 'swiggy' ? 'SWIGGY_PO' : 'ZEPTO_PO'); if (!pSh || pSh.getLastRow() < 2) return;
+    const lines = {};
+    pSh.getRange(2, 1, pSh.getLastRow() - 1, Math.min(pSh.getLastColumn(), 17)).getValues().forEach(r => {
+      const po = String(r[0] || '').trim(); if (!po || !shipped[po]) return;
+      if (String(r[13] || '').trim().toUpperCase() === 'CANCELLED') return;
+      const code = String(r[6] || r[5] || '').trim(); if (!code) return;
+      const L = ((lines[po] = lines[po] || {})[code] = lines[po][code] || { q: 0, s: 0, why: '' });
+      L.q += parseInt(r[11], 10) || 0; L.s += parseInt(r[12], 10) || 0;
+      if (r.length > 15 && String(r[15] || '').trim()) L.why = String(r[15]).trim();
+    });
+    if (!Object.keys(lines).length) return;
+    const v = sh.getRange(1, 1, sh.getLastRow(), sh.getLastColumn()).getValues();
+    const notes = sh.getRange(7, 1, v.length - 6, v[0].length).getNotes();
+    const rows = [];
+    for (let i = 6; i < v.length; i++) if (qcIsItem_(p, v[i][0], v[i][1], v[i][4])) rows.push({ i: i, b: String(v[i][1]).trim(), e: String(v[i][4] == null ? '' : v[i][4]).trim() });
+    for (let c = 5; c < v[0].length; c++) {
+      const po = String(v[1][c]).trim(), L0 = lines[po]; if (!L0) continue;
+      const rel = qcDate_(v[2][c]); if (rel && rel < since) continue;
+      rows.forEach(rw => {
+        const L = L0[rw.b] || L0[rw.e]; const note = String(notes[rw.i - 6][c] || ''), cell = sh.getRange(rw.i + 1, c + 1);
+        if (L && L.q > 0 && L.s < L.q) {
+          const want = 'Ordered ' + L.q + ' — shipped ' + L.s + ', ' + (L.q - L.s) + ' not sent (Shipment Manager). The planner counts only what was shipped.' + (L.why ? '\nWhy: ' + L.why : '');
+          if (note !== want || Number(v[rw.i][c]) !== L.s) { cell.setValue(L.s).setFontColor('#d00000').setFontWeight('bold').setNote(want); n++; }
+        } else if (/^Ordered \d+ — shipped/.test(note)) {
+          const ord = L ? L.q : Number((note.match(/^Ordered (\d+)/) || [])[1]) || '';
+          cell.setValue(ord).setFontColor(null).setFontWeight(null).setNote(''); n++;
+        }
+      });
+    }
+  });
+  return n;
+}
+
 /** Saves the Swiggy / Zepto SKU mapping: [{ p, code, name, our }] replaces the whole list. */
 function saveQcSkus(token, list) {
   auth_(token, 'Planner');
@@ -2545,6 +2610,7 @@ function syncFromShipmentManager() {
     const res = syncShipments_();
     if (!res.skipped) res.moved = rollOverdueDispatch_();
     try { res.qcShip = syncQcShipDates_(); } catch (e) { /* tried again next sync */ }
+    try { res.qcShort = syncQcShort_(); } catch (e) { /* tried again next sync */ }
     return res;
   } finally { lock.releaseLock(); }
 }
@@ -2564,6 +2630,7 @@ function syncShipments(token, force) {
     const res = syncShipments_();
     try { res.cells = refreshShortCells_(); } catch (e) { /* tried again next sync */ }
     try { res.qcShip = syncQcShipDates_(); } catch (e) { /* tried again next sync */ }
+    try { res.qcShort = syncQcShort_(); } catch (e) { /* tried again next sync */ }
     if (!res.skipped) { try { res.moved = rollOverdueDispatch_(); } catch (e) { /* tried again next sync */ } }
     if (res.dates || res.qty || res.short || res.moved || res.reverted) {
       const all = readLog_();

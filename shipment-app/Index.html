@@ -1597,7 +1597,7 @@ input.input-error,select.input-error,.platform-card.input-error,#invoiceModalWra
   </div>
 </div>
 
-<!-- ====== SHIPPED SHORT: WHY? (Blinkit, before Box Details / JPG) ====== -->
+<!-- ====== SHIPPED SHORT: WHY? (Blinkit / Zepto / Swiggy, before Box Details / JPG) ====== -->
 <div id="shortModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:10000;align-items:center;justify-content:center">
   <div style="background:#fff;border-radius:14px;width:min(760px,95vw);max-height:90vh;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,.4)">
     <div style="background:linear-gradient(135deg,#7f1d1d,#b91c1c);color:#fff;padding:14px 20px;border-radius:14px 14px 0 0;display:flex;justify-content:space-between;align-items:center">
@@ -6544,7 +6544,7 @@ function saveDispatchDate_(clear) {
 }
 
 /* ==============================================
-   SHIPPED SHORT → WHY? (Blinkit)
+   SHIPPED SHORT → WHY? (Blinkit / Zepto / Swiggy)
    Box Details / JPG of a Blinkit shipment that sent less than its PO
    quantity on some line open only once every such line has a reason. A
    popup lists those SKUs (PO qty, sent, how many less) with a reason beside
@@ -6560,32 +6560,42 @@ function saveDispatchDate_(clear) {
 var shortLinesCache_ = {};      // PO number → short lines ([] = none, null = loading)
 var shortModalCtx_ = null;      // { s, lines, go, ready }
 var SHORT_REASONS_ = ['Not Enough Quantity', 'Management Decided'];
-function isBlinkitShipment_(s) { return !!s && !s.isDummy && /blinkit/i.test(s.platform || '') && !!String(s.poNumber || '').trim(); }
+// Blinkit, Zepto and Swiggy shipments (PO-driven) ask why a line was shipped short; the planners copy it into their tabs.
+function isBlinkitShipment_(s) { return !!s && !s.isDummy && /blinkit|zepto|swiggy/i.test(s.platform || '') && !!String(s.poNumber || '').trim(); }
+function shortPlat_(s) { const m = String((s && s.platform) || '').toLowerCase().match(/blinkit|zepto|swiggy/); return m ? m[0] : 'blinkit'; }
+function shortKey_(s) { return shortPlat_(s) + '|' + String(s.poNumber).trim(); }
 function shortNeedsReason_(l) { return !l.reason || (l.reasonShort && l.reasonShort !== l.short); }
-function forgetShortLines_(po) { if (po) delete shortLinesCache_[String(po).trim()]; else shortLinesCache_ = {}; }
+function forgetShortLines_(key) { if (key) delete shortLinesCache_[String(key).trim()]; else shortLinesCache_ = {}; } // key = platform|PO
 function prefetchShortLines_(items, force, done) {
-  const pos = [];
+  // One call per platform (their POs are in BLINKIT_PO / ZEPTO_PO / SWIGGY_PO); the cache is keyed "platform|PO".
+  const byPlat = {};
   (items || []).forEach(s => {
-    const po = isBlinkitShipment_(s) ? String(s.poNumber).trim() : '';
-    if (po && (force || shortLinesCache_[po] === undefined) && pos.indexOf(po) < 0) pos.push(po);
+    if (!isBlinkitShipment_(s)) return;
+    const k = shortKey_(s), pl = shortPlat_(s), po = String(s.poNumber).trim(), l = byPlat[pl] = byPlat[pl] || [];
+    if ((force || shortLinesCache_[k] === undefined) && l.indexOf(po) < 0) l.push(po);
   });
-  if (!pos.length) { if (done) done(true); return; }
-  pos.forEach(po => { shortLinesCache_[po] = null; }); // loading
-  google.script.run
-    .withSuccessHandler(raw => {
-      let map = {};
-      try { map = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); } catch (e) { map = {}; }
-      pos.forEach(po => { shortLinesCache_[po] = map[po] || []; });
-      if (done) done(true);
-    })
-    .withFailureHandler(() => { pos.forEach(po => { if (shortLinesCache_[po] === null) delete shortLinesCache_[po]; }); if (done) done(false); })
-    .getBlinkitShortLines(pos);
+  const plats = Object.keys(byPlat).filter(pl => byPlat[pl].length);
+  if (!plats.length) { if (done) done(true); return; }
+  let left = plats.length, ok = true;
+  plats.forEach(pl => {
+    const pos = byPlat[pl];
+    pos.forEach(po => { shortLinesCache_[pl + '|' + po] = null; }); // loading
+    google.script.run
+      .withSuccessHandler(raw => {
+        let map = {};
+        try { map = typeof raw === 'string' ? JSON.parse(raw) : (raw || {}); } catch (e) { map = {}; }
+        pos.forEach(po => { shortLinesCache_[pl + '|' + po] = map[po] || []; });
+        if (--left === 0 && done) done(ok);
+      })
+      .withFailureHandler(() => { ok = false; pos.forEach(po => { if (shortLinesCache_[pl + '|' + po] === null) delete shortLinesCache_[pl + '|' + po]; }); if (--left === 0 && done) done(false); })
+      .getBlinkitShortLines(pos, pl);
+  });
 }
 /** Runs go() only when every line shipped short has a reason; otherwise asks first. */
 function withShortReasons_(i, go) {
   const s = savedShipments[i];
   if (!isBlinkitShipment_(s)) { go(); return; }
-  const po = String(s.poNumber).trim(), lines = shortLinesCache_[po];
+  const lines = shortLinesCache_[shortKey_(s)];
   if (Array.isArray(lines) && !lines.some(shortNeedsReason_)) { go(); return; }
   openShortModal_(s, go);
   if (!Array.isArray(lines)) {
@@ -6604,10 +6614,10 @@ function openShortModal_(s, go) {
   document.getElementById('shortModalSub').textContent = 'Checking the PO quantities…';
   document.getElementById('shortModalGo').disabled = true;
   document.getElementById('shortModal').style.display = 'flex';
-  if (Array.isArray(shortLinesCache_[String(s.poNumber).trim()])) fillShortModal_();
+  if (Array.isArray(shortLinesCache_[shortKey_(s)])) fillShortModal_();
 }
 function fillShortModal_() {
-  const c = shortModalCtx_, s = c.s, lines = shortLinesCache_[String(s.poNumber).trim()] || [];
+  const c = shortModalCtx_, s = c.s, lines = shortLinesCache_[shortKey_(s)] || [];
   c.lines = lines;
   const go = document.getElementById('shortModalGo');
   go.disabled = false;
@@ -6666,11 +6676,11 @@ function saveShortModal_() {
   }
   if (reasons.length) {
     reasons.forEach(r => { c.lines[r.k].reason = r.reason; c.lines[r.k].reasonShort = c.lines[r.k].short; }); // not asked again
-    const po = String(c.s.poNumber).trim();
+    const po = String(c.s.poNumber).trim(), key = shortKey_(c.s), plat = shortPlat_(c.s);
     google.script.run
-      .withSuccessHandler(res => { if (!res || !res.success) { forgetShortLines_(po); alert('The reasons could not be saved: ' + ((res && res.message) || 'unknown error')); } })
-      .withFailureHandler(err => { forgetShortLines_(po); alert('The reasons could not be saved: ' + (err && err.message ? err.message : err)); })
-      .saveBlinkitShortReasons(po, reasons.map(r => ({ itemCode: r.itemCode, reason: r.reason })), currentUser ? currentUser.name : '');
+      .withSuccessHandler(res => { if (!res || !res.success) { forgetShortLines_(key); alert('The reasons could not be saved: ' + ((res && res.message) || 'unknown error')); } })
+      .withFailureHandler(err => { forgetShortLines_(key); alert('The reasons could not be saved: ' + (err && err.message ? err.message : err)); })
+      .saveBlinkitShortReasons(po, reasons.map(r => ({ itemCode: r.itemCode, reason: r.reason })), currentUser ? currentUser.name : '', plat);
   }
   const go = c.go;
   closeShortModal_();
