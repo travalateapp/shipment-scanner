@@ -711,7 +711,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 swiggy-zepto-proj';
+  var PAGE_BUILD = '2026-11-28 qc-cards';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3004,14 +3004,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var c = qcCalc(p); if (!c.x.found && !(c.x.snap || []).length) return '';
       var must = 0; c.open.forEach(function (po) { po.lines.forEach(function (l) { if (l.prio === 'must') must++; }); });
       var low = c.rows.filter(function (r) { return r.days != null && r.days < c.lead; }).sort(function (a, b) { return Math.floor(a.days) - Math.floor(b.days) || b.rate - a.rate; });
-      return '<div style="flex:1 1 320px"><b>' + QC_NAMES[p] + '</b> · ' + c.open.length + ' open PO(s), ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units' + (must ? ' · <span class="pill bad">' + must + ' line(s) must send</span>' : '') +
+      return '<div class="card"><div class="row" style="align-items:center"><h3 style="flex:1 1 200px;margin:0">🛵 ' + QC_NAMES[p] + '</h3><button class="btn sm qcGo" data-p="' + p + '" style="flex:0 0 auto;width:auto">Open ' + QC_NAMES[p] + '</button></div><div style="margin-top:6px">' + c.open.length + ' open PO(s), ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units' + (must ? ' · <span class="pill bad">' + must + ' line(s) must send</span>' : '') +
         (c.way.length ? ' · ' + c.way.length + ' on the way' : '') +
         (c.missing.length || c.closed.length ? '<div class="small" style="color:var(--warn,#b45309);margin-top:2px">⚠ ' + [c.missing.length ? c.missing.length + ' PO(s) open on Swiggy but not in the tab' : '', c.closed.length ? c.closed.length + ' PO(s) expired / no longer open' : ''].filter(Boolean).join(' · ') + '</div>' : '') +
         (!(c.x.snap || []).length ? '<div class="small muted">No reports read yet.</div>' : low.length ? '<div class="small" style="margin-top:4px">Runs out within ' + c.lead + ' days: ' + low.slice(0, 8).map(function (r) { return esc(qcWhLabel(p, r.wh)) + ' · ' + esc(r.sku) + ' <b>' + qcDaysTxt(r.days) + 'd</b>'; }).join(' · ') + (low.length > 8 ? ' · +' + (low.length - 8) + ' more' : '') + '</div>' : '<div class="small muted">Nothing runs out within ' + c.lead + ' days.</div>') +
-        (c.x.meta ? '<div class="small muted">Reports up to ' + prettyDate(c.x.meta.salesTo) + '</div>' : '') + '</div>';
+        (c.x.meta ? '<div class="small muted">Reports up to ' + prettyDate(c.x.meta.salesTo) + '</div>' : '') + '</div></div>';
     }).filter(Boolean);
-    if (!parts.length) return '';
-    return '<div class="card"><div class="row" style="align-items:center"><h3 style="flex:1 1 200px;margin:0">🛵 Swiggy &amp; Zepto</h3><button class="btn sm" id="qcGo">Open Swiggy / Zepto</button></div><div class="row" style="margin-top:8px">' + parts.join('') + '</div></div>';
+    // One card per platform (Swiggy, then Zepto), above the Items table; the calendar below is shared by all three.
+    return parts.join('');
   }
   /** Calendar: Swiggy / Zepto POs on their shipping day (🚚, counted in the load) and appointment day (📍). */
   function qcCalItems() {
@@ -4470,7 +4470,9 @@ function getRoInvoiceStyles_() {
       drawDash();
     };
     initDashCal(d, rows, el);
-    if ($('qcGo')) $('qcGo').onclick = function () { go('qc'); };
+    Array.prototype.forEach.call(document.querySelectorAll('#dashOut .qcGo'), function (b) {
+      b.onclick = function () { S.qcView = S.qcView || { p: 'swiggy', wh: '' }; S.qcView.p = b.getAttribute('data-p'); S.qcView.wh = ''; go('qc'); };
+    });
     $('dTab').onclick = function (e) {
       var a = e.target.closest('.plk'); if (!a) return;
       e.preventDefault();

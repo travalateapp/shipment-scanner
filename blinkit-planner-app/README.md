@@ -338,6 +338,6 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 - The Excel download follows the platform chosen.
 
 **Dashboard**
-- A **🛵 Swiggy & Zepto** card: open POs, lines that must be sent, and items that run out within the Lead Days.
+- Separate **🛵 Swiggy** and **🛵 Zepto** cards above the Items table: open POs, lines that must be sent, PO check warnings and items that run out within the Lead Days; **Open Swiggy / Open Zepto** goes to that platform in the Swiggy / Zepto tab. The Items table stays Blinkit only.
 - In the calendar, with no Blinkit warehouse picked, their POs show on the shipping day (🚚, counted in the load) and on the appointment day (📍).
 - Those dates are changed in the sheet.
