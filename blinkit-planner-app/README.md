@@ -284,6 +284,11 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
   - Days of cover: stock plus what is on the way, divided by sold per day.
 - The result is saved in the **Planner QC Snapshot** tab, so the Dashboard shows it without uploading again.
 - **File names don't matter.** Each file is recognised by its column headings.
+- **New stock report only:** a new stock report on its own updates the stock and uses the saved sales history.
+- **Swiggy check:** Swiggy's stock report lists each warehouse's open POs. The tab is checked against it:
+  - **Missing from the tab:** a PO open on Swiggy but not in the tab is shown as a warning.
+  - **Probably closed:** a PO in the tab with no shipping date that Swiggy no longer lists as open (released before that report) is listed as probably expired or closed, and left out of the priorities.
+- **Zepto warehouse names:** a Zepto PO's warehouse may be written as `MUM - Mumbai` or just `Mumbai`.
 - **Sales history:** sales are kept per day in the **Planner QC Sales** tab, for the last 90 days.
   - A later upload that repeats days already read replaces those days, so nothing is counted twice, and adds the new days.
   - Sold per day uses the last 30 days of that history.

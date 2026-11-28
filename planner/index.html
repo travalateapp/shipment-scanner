@@ -711,7 +711,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 swiggy-zepto-map2';
+  var PAGE_BUILD = '2026-11-28 swiggy-zepto-check';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -2489,7 +2489,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var h = (c[0] || []).map(function (x) { return String(x).trim(); }), has = function (k) { return h.indexOf(k) >= 0; };
     var o = qcObjs(c);
     if (has('FacilityName') && has('WarehouseQtyAvailable')) return { platform: 'swiggy', kind: 'stock', name: name, rows: o.map(function (r) {
-      return { fac: String(r.FacilityName).trim(), city: qcCity(r.City), code: String(r.SkuCode).trim(), qty: Number(r.WarehouseQtyAvailable) || 0, desc: String(r.SkuDescription || '') };
+      return { fac: String(r.FacilityName).trim(), city: qcCity(r.City), code: String(r.SkuCode).trim(), qty: Number(r.WarehouseQtyAvailable) || 0, desc: String(r.SkuDescription || ''),
+        openPos: String(r.OpenPos || ''), openQty: Number(r.OpenPoQuantity) || 0 };
     }) };
     if (has('SKU Number') && has('Sales (Qty) - Units')) return { platform: 'zepto', kind: 'sales', name: name, rows: o.map(function (r) {
       var m = String(r.Date || '').match(/^(\d{1,2})-(\d{1,2})-(\d{4})/);
@@ -2544,9 +2545,15 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var st = S.boot.settings, items = {};
     ((S.qc && S.qc[p] && S.qc[p].items) || []).forEach(function (it) { if (it.code) items[it.code] = it.name; });
     var whOf, facilities = {};
+    var sohPos = null;
     if (p === 'swiggy') {
       var map = qcMap(st.swiggyMap), whs = {};
-      stock.rows.forEach(function (r) { whs[r.city] = 1; facilities[r.fac.toUpperCase()] = r.city; });
+      // Swiggy's stock report also lists each warehouse's open POs: kept to check the Swiggy Planning tab against.
+      sohPos = {};
+      stock.rows.forEach(function (r) {
+        whs[r.city] = 1; facilities[r.fac.toUpperCase()] = r.city;
+        String(r.openPos || '').replace(/[\[\]\s]/g, '').split(',').forEach(function (po) { if (!po) return; var x = sohPos[po] = sohPos[po] || { wh: r.fac, units: 0 }; x.units += r.openQty || 0; });
+      });
       whOf = function (city) { return whs[city] ? city : map[city] && whs[map[city]] ? map[city] : ''; };
     } else {
       var zm = qcMap(st.zeptoMap, true);
@@ -2576,12 +2583,18 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return { wh: x.wh, code: x.code, sku: items[x.code] || desc[x.code] || x.code, rate: Math.round(rate * 100) / 100, stock: x.stock };
     }).filter(function (r) { return r.rate > 0 || r.stock > 0; });
     var unList = Object.keys(un).map(function (c) { return { city: c, units: un[c] }; }).sort(function (a, b) { return b.units - a.units; });
-    return { rows: rows, meta: { salesFrom: first || '', salesTo: last || '', histDays: first ? qcDays(last, first) + 1 : 0, files: [sales.name, stock.name], facilities: p === 'swiggy' ? facilities : undefined,
+    return { rows: rows, meta: { salesFrom: first || '', salesTo: last || '', histDays: first ? qcDays(last, first) + 1 : 0, files: [sales.name, stock.name], stockAt: today(), sohPos: sohPos || undefined, facilities: p === 'swiggy' ? facilities : undefined,
       unassigned: unList.slice(0, 40), unassignedUnits: unList.reduce(function (s, x) { return s + x.units; }, 0) } };
   }
   /** The warehouse a PO goes to, in the snapshot's terms (Swiggy: its city; Zepto: MUM / BLR / CHN / GUR). */
   function qcPoWh(p, x, wh) {
-    if (p === 'zepto') { var code = String(wh).split(' - ')[0].trim().toUpperCase(); return code || ''; }
+    if (p === 'zepto') {
+      var code = String(wh).split(' - ')[0].trim().toUpperCase(), fcs = {};
+      (x.snap || []).forEach(function (r) { fcs[r.wh] = 1; });
+      if (fcs[code] || !(x.snap || []).length) return code;
+      var zm = qcMap(S.boot.settings.zeptoMap, true), c2 = qcCity(String(wh).split(' - ').pop());
+      return zm[c2] || code; // "Mumbai" or "MUM - Mumbai" both work
+    }
     var f = (x.meta && x.meta.facilities) || {}, k = String(wh).trim().toUpperCase();
     return f[k] || f[k.replace(/\s+/g, ' ')] || '';
   }
@@ -2594,11 +2607,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var x = (S.qc && S.qc[p]) || (S.dash && S.dash.qc && S.dash.qc[p]) || { pos: [], snap: [], items: [] };
     var st = S.boot.settings, lead = Number(st.leadDays) || 15, cover = Number(st.coverDays) || 26, t = today();
     var snap = {}; (x.snap || []).forEach(function (r) { snap[r.wh + '|' + r.code] = r; });
-    var onWay = {}, openQ = {}, open = [], way = [];
+    var onWay = {}, openQ = {}, open = [], way = [], closed = [], inTab = {};
+    // Swiggy: a PO in the tab with no shipping date that Swiggy's stock report no longer lists as open (and that was
+    // released before that report) is likely expired or closed: left out of the priorities and listed separately.
+    var soh = p === 'swiggy' && x.meta && x.meta.sohPos, sohAt = x.meta && (x.meta.stockAt || (x.meta.at ? qcYmd(new Date(x.meta.at)) : ''));
     (x.pos || []).forEach(function (po) {
+      inTab[po.po] = 1;
       po.whKey = qcPoWh(p, x, po.wh);
       po.shipped = !!(po.ship && po.ship <= t);
       po.arrived = !!(po.appt && po.appt < t);
+      po.closed = !!(soh && !po.shipped && !soh[po.po] && po.release && sohAt && po.release < sohAt);
+      if (po.closed) { closed.push(po); return; }
       if (!po.shipped) open.push(po); else if (!po.arrived) way.push(po);
       po.lines.forEach(function (l) { var k = po.whKey + '|' + l.code; if (!po.shipped) openQ[k] = (openQ[k] || 0) + l.qty; else if (!po.arrived) onWay[k] = (onWay[k] || 0) + l.qty; });
     });
@@ -2615,7 +2634,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       return { wh: r.wh, code: r.code, sku: r.sku, rate: r.rate, stock: r.stock, way: w, open: o,
         days: r.rate > 0 ? (r.stock + w) / r.rate : null, daysPo: r.rate > 0 ? (r.stock + w + o) / r.rate : null };
     });
-    return { x: x, open: open, way: way, rows: rows, lead: lead, cover: cover };
+    var missing = soh ? Object.keys(soh).filter(function (k) { return !inTab[k]; }).map(function (k) { return { po: k, wh: soh[k].wh, units: soh[k].units }; }) : [];
+    return { x: x, open: open, way: way, closed: closed, missing: missing, rows: rows, lead: lead, cover: cover };
   }
   var QC_PRIO = { must: ['bad', 'Must send'], send: ['warn', 'Send'], wait: ['', 'Can wait'], unk: ['', 'No stock / sales data'] };
   function qcDaysTxt(d) { return d == null ? '–' : d >= 999 ? '999+' : fmt(d, 1); }
@@ -2720,7 +2740,11 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       (m ? 'Reports: sales ' + prettyDate(m.salesFrom) + ' – ' + prettyDate(m.salesTo) + ' · read by ' + esc(m.by || '') + ' ' + new Date(m.at).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) +
         (m.unassignedUnits ? ' · <span title="' + esc((m.unassigned || []).map(function (u) { return u.city + ' ' + u.units; }).join(', ')) + '" style="text-decoration:underline dotted">' + fmt(m.unassignedUnits) + ' units sold in cities not in Settings → Swiggy / Zepto</span>' : '')
         : 'No ' + QC_NAMES[p] + ' reports read yet.');
-    $('qcPos').innerHTML = (c.open.length ? '<div class="small" style="margin-bottom:6px"><b>' + c.open.length + ' open PO(s)</b> — ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units</div>' +
+    $('qcPos').innerHTML = (c.missing.length ? '<div class="msg warn"><b>Open in Swiggy\'s stock report but not in the Swiggy Planning tab</b> — add them to the tab: ' +
+        c.missing.map(function (m) { return 'PO ' + esc(m.po) + ' (' + esc(m.wh) + (m.units ? ', ' + fmt(m.units) + ' units' : '') + ')'; }).join(', ') + '</div>' : '') +
+      (c.closed.length ? '<div class="msg warn"><b>In the tab with no shipping date, but no longer open in Swiggy\'s stock report</b> (expired or closed?) — left out of the priorities. Give them a shipping date or remove them from the tab: ' +
+        c.closed.map(function (po) { return 'PO ' + esc(po.po) + ' (' + esc(po.wh) + ', ' + fmt(po.units) + ' units' + (po.release ? ', released ' + prettyDate(po.release) : '') + ')'; }).join(', ') + '</div>' : '') +
+      (c.open.length ? '<div class="small" style="margin-bottom:6px"><b>' + c.open.length + ' open PO(s)</b> — ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units</div>' +
       c.open.slice().sort(function (a, b) { return (a.ship || '9') .localeCompare(b.ship || '9') || (a.release || '').localeCompare(b.release || ''); }).map(function (po) { return qcPoHtml(p, c, po); }).join('') : '<div class="muted small">No open ' + QC_NAMES[p] + ' POs.</div>') +
       (c.way.length ? '<details style="margin-top:8px"><summary class="small" style="cursor:pointer"><b>' + c.way.length + ' PO(s) on the way</b> (shipped, appointment today or later)</summary><ul class="small">' +
         c.way.map(function (po) { return '<li>' + esc(po.wh) + ' · PO ' + esc(po.po) + ' · ' + fmt(po.units) + ' units · shipped ' + prettyDate(po.ship) + (po.appt ? ' · appt ' + prettyDate(po.appt) : '') + '</li>'; }).join('') + '</ul></details>' : '');
@@ -2768,15 +2792,25 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     })).then(function (res) {
       var errs = [], done = [];
       res.forEach(function (r) { if (r.err) errs.push(r.err); else (S.qcFiles[r.platform] = S.qcFiles[r.platform] || {})[r.kind] = r; });
-      var todo = Object.keys(QC_NAMES).filter(function (p) { var f = S.qcFiles[p]; return f && f.sales && f.stock && res.some(function (r) { return r.platform === p; }); });
-      Object.keys(QC_NAMES).forEach(function (p) { var f = S.qcFiles[p]; if (f && !(f.sales && f.stock)) errs.push(QC_NAMES[p] + ': now add its ' + (f.sales ? 'stock' : 'sales') + ' report too.'); });
+      // A platform is worked out when its stock report is in (sales from this upload merged into the saved history, or
+      // the saved history alone when only a new stock report was chosen).
+      var todo = Object.keys(QC_NAMES).filter(function (p) { var f = S.qcFiles[p]; return f && f.stock && res.some(function (r) { return r.platform === p; }); });
+      Object.keys(QC_NAMES).forEach(function (p) { var f = S.qcFiles[p]; if (f && f.sales && !f.stock) errs.push(QC_NAMES[p] + ': now add its stock report too (the sales report alone is not enough).'); });
       var chain = Promise.resolve();
       todo.forEach(function (p) {
         chain = chain.then(function () { return api('getQcSales', S.token, p); }).then(function (old) {
-          var m = qcMerge(old || [], S.qcFiles[p].sales.rows);
-          var out = qcCompute(p, S.qcFiles[p].sales, S.qcFiles[p].stock, m.hist);
+          var sales = S.qcFiles[p].sales;
+          if (!sales && !(old || []).length) { errs.push(QC_NAMES[p] + ': add its sales report too (no sales saved yet).'); return; }
+          if (!sales) {
+            sales = { rows: [], name: '' };
+            var days = {}; old.forEach(function (h) { days[h[0]] = 1; }); var dl = Object.keys(days).sort();
+            var m0 = { hist: old, stockOnly: true, histFrom: dl[0], histTo: dl[dl.length - 1] };
+          }
+          var m = m0 || qcMerge(old || [], sales.rows);
+          var out = qcCompute(p, sales, S.qcFiles[p].stock, m.hist);
           return api('saveQcSnapshot', S.token, p, out.rows, out.meta, m.hist).then(function (r) {
             S.qc = r; if (S.dash) S.dash.qc = r; S.qcView.p = p;
+            if (m.stockOnly) { done.push(QC_NAMES[p] + ': stock updated from this upload; sales from the saved history (' + prettyDate(m.histFrom) + ' – ' + prettyDate(m.histTo) + '). ' + out.rows.length + ' warehouse × SKU rows.'); return; }
             done.push(QC_NAMES[p] + ': sales ' + prettyDate(m.from) + ' – ' + prettyDate(m.to) + ' read — ' + m.added + ' new day(s)' + (m.replaced ? ', ' + m.replaced + ' day(s) already read before replaced (not counted twice)' : '') +
               '. History now ' + prettyDate(m.histFrom) + ' – ' + prettyDate(m.histTo) + (m.gaps ? ' (' + m.gaps + ' day(s) in between have no report — counted as no sales)' : '') + '. Stock from this upload. ' + out.rows.length + ' warehouse × SKU rows.');
           });
@@ -2798,6 +2832,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       var low = c.rows.filter(function (r) { return r.days != null && r.days < c.lead; }).sort(function (a, b) { return Math.floor(a.days) - Math.floor(b.days) || b.rate - a.rate; });
       return '<div style="flex:1 1 320px"><b>' + QC_NAMES[p] + '</b> · ' + c.open.length + ' open PO(s), ' + fmt(c.open.reduce(function (s, po) { return s + po.units; }, 0)) + ' units' + (must ? ' · <span class="pill bad">' + must + ' line(s) must send</span>' : '') +
         (c.way.length ? ' · ' + c.way.length + ' on the way' : '') +
+        (c.missing.length || c.closed.length ? '<div class="small" style="color:var(--warn,#b45309);margin-top:2px">⚠ ' + [c.missing.length ? c.missing.length + ' PO(s) open on Swiggy but not in the tab' : '', c.closed.length ? c.closed.length + ' PO(s) in the tab no longer open on Swiggy' : ''].filter(Boolean).join(' · ') + '</div>' : '') +
         (!(c.x.snap || []).length ? '<div class="small muted">No reports read yet.</div>' : low.length ? '<div class="small" style="margin-top:4px">Runs out within ' + c.lead + ' days: ' + low.slice(0, 8).map(function (r) { return esc(qcWhLabel(p, r.wh)) + ' · ' + esc(r.sku) + ' <b>' + qcDaysTxt(r.days) + 'd</b>'; }).join(' · ') + (low.length > 8 ? ' · +' + (low.length - 8) + ' more' : '') + '</div>' : '<div class="small muted">Nothing runs out within ' + c.lead + ' days.</div>') +
         (c.x.meta ? '<div class="small muted">Reports up to ' + prettyDate(c.x.meta.salesTo) + '</div>' : '') + '</div>';
     }).filter(Boolean);
