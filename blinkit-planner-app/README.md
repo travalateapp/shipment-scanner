@@ -359,6 +359,11 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
   - The PO checks (missing from the tab, expired or no longer open) show above the list.
 
   The Swiggy and Zepto tabs keep the uploads, What to send first and SKU mapping, with a link to their RO Log.
+- **Shipped short (like Blinkit):** once a Swiggy / Zepto PO has a shipment in the Shipment Manager, the sync checks each line of its SWIGGY_PO / ZEPTO_PO sheet (POs released in the last 60 days).
+  - **Shipped less than the PO qty:** the line's cell in the Swiggy Planning / Zepto tab shows what was shipped, in red bold, with the note "Ordered X — shipped Y, Z not sent (Shipment Manager)… Why: …". The "Why" is the reason asked on Box Details / JPG there.
+  - **The planner counts only what was shipped.** A line later shipped in full goes back to the ordered quantity.
+  - **In the RO Log** the PO card shows "N not sent", and the line shows ordered · shipped · not sent and its Why.
+  - **Matching:** Zepto lines are matched by their material code (column E).
 - **Hovers:**
   - A Swiggy / Zepto PO number (calendar, PO cards) shows the same **Balance** card as a Blinkit RO, from the Shipment Manager's SWIGGY_PO / ZEPTO_PO and its shipments. That covers the shipments with 🚚 dispatch status, and per SKU the PO qty, packed, short and remaining, with the reason when shipped short.
   - A PO not uploaded in the Shipment Manager shows its lines from the tab instead.

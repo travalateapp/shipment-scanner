@@ -3505,7 +3505,7 @@ const PO_COLS = {
   UPLOADED_BY:5, ITEM_CODE:6, UPC:7, DESCRIPTION:8,
   MRP:9, LANDING_RATE:10, GST_PCT:11, PO_QTY:12,
   SHIPPED_QTY:13, STATUS:14,
-  SHORT_REASON:16, // Blinkit: why a line was shipped short (asked on Box Details / JPG); the Blinkit Planner copies it into its month-tab cell note
+  SHORT_REASON:16, // Blinkit / Zepto / Swiggy: why a line was shipped short (asked on Box Details / JPG); the Blinkit Planner copies it into its month-tab cell note
   SHORT_REASON_QTY:17, // how many were short when that reason was given: a different shortfall (shipment edited) asks again
   IS_DUMMY:15 // Blinkit-only "Dummy Order" flag set at PO upload time — see uploadBlinkitPo. Always blank/false for Zepto/Swiggy.
 };
@@ -3568,19 +3568,20 @@ function ensureShortReasonCol_(sheet) {
 /** poNumbers → JSON { po: [{ itemCode, sku, description, poQty, shippedQty, short, reason, reasonShort }] } — only the lines
  *  shipped short (less than the PO quantity, not cancelled) of non-dummy Blinkit POs. Returned as a JSON string
  *  (see getPoLineItems: arrays of objects can arrive corrupted otherwise). */
-function getBlinkitShortLines(poNumbers) {
-  return JSON.stringify(getBlinkitShortLines_(poNumbers));
+function getBlinkitShortLines(poNumbers, platform) {
+  return JSON.stringify(getBlinkitShortLines_(poNumbers, platform));
 }
-function getBlinkitShortLines_(poNumbers) {
+/** platform: 'blinkit' (default), 'zepto' or 'swiggy' — their PO sheets have the same columns. */
+function getBlinkitShortLines_(poNumbers, platform) {
   const want = {};
   (poNumbers || []).forEach(p => { const k = String(p || '').trim(); if (k) want[k] = 1; });
   const out = {};
   if (!Object.keys(want).length) return out;
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_BLINKIT_PO);
+  const cfg = poPlatformConfig_(platform || 'blinkit') || PO_PLATFORM_CONFIG.blinkit;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(cfg.sheetName);
   if (!sheet || sheet.getLastRow() < 2) return out;
   const width = Math.min(sheet.getLastColumn(), PO_COLS.SHORT_REASON_QTY); // no SHORT_REASON column yet = no reasons yet
   const data = sheet.getRange(2, 1, sheet.getLastRow() - 1, width).getValues();
-  const cfg = poPlatformConfig_('blinkit') || PO_PLATFORM_CONFIG.blinkit;
   const skuOf = {};
   try { getSkuData().forEach(s => { if (s.sku && s[cfg.itemIdField]) skuOf[s[cfg.itemIdField].toString().trim()] = s.sku; }); } catch (e) { /* names fall back to the PO description */ }
   data.forEach(r => {
@@ -3601,14 +3602,15 @@ function getBlinkitShortLines_(poNumbers) {
 }
 
 /** Saves why lines were shipped short: reasons = [{ itemCode, reason }]. Only lines still short are written. */
-function saveBlinkitShortReasons(poNumber, reasons, employee) {
+function saveBlinkitShortReasons(poNumber, reasons, employee, platform) {
   const po = String(poNumber || '').trim();
   if (!po || !Array.isArray(reasons) || !reasons.length) return { success: false, message: 'Nothing to save.' };
   const lock = LockService.getScriptLock();
   lock.waitLock(20000);
   try {
-    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(SHEET_BLINKIT_PO);
-    if (!sheet) return { success: false, message: 'No BLINKIT_PO sheet.' };
+    const cfg = poPlatformConfig_(platform || 'blinkit') || PO_PLATFORM_CONFIG.blinkit;
+    const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(cfg.sheetName);
+    if (!sheet) return { success: false, message: 'No ' + cfg.sheetName + ' sheet.' };
     ensureShortReasonCol_(sheet);
     const want = {};
     reasons.forEach(x => { const k = String(x && x.itemCode || '').trim(); if (k) want[k] = String(x.reason || '').trim().slice(0, 300); });
