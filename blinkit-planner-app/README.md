@@ -262,7 +262,7 @@ missing, add it. The default is Yes.
 
 ## Swiggy and Zepto (one tab each)
 
-Swiggy and Zepto each have their own tab in the app, with their own upload, open POs, What to send first, SKU mapping and stock table. Only the Dashboard calendar and Projections → All show them together with Blinkit.
+Swiggy and Zepto each have their own tab in the app, each with two separate uploads (**PO PDFs**, and **sales & inventory reports**; a file of the wrong kind or of the other platform is turned away with a message saying where it belongs), open POs, What to send first, SKU mapping and stock table. Only the Dashboard calendar and Projections → All show them together with Blinkit.
 
 Swiggy and Zepto raise their own POs, so the app creates nothing for them. It shows **what matters most to send**.
 
