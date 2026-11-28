@@ -351,8 +351,15 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
 
   This is the only place their stock and days per warehouse are shown; the Swiggy and Zepto tabs keep the uploads, POs, What to send first and SKU mapping.
 - **Calendar entries** start with a bold letter for the platform: **B** Blinkit, **S** Swiggy, **Z** Zepto.
+- **RO Log chips: Blinkit / Swiggy / Zepto.** Swiggy and Zepto show their POs from their tab:
+  - the PO checks;
+  - open POs with each line's priority, the shipping / appointment date boxes and **Remove from tab**;
+  - POs on the way.
+
+  The Swiggy and Zepto tabs keep the uploads, What to send first and SKU mapping, with a link to their RO Log.
 - **Hovers:**
-  - A Swiggy / Zepto PO number (calendar, PO cards) shows its warehouse, status, dates and each SKU line.
+  - A Swiggy / Zepto PO number (calendar, PO cards) shows the same **Balance** card as a Blinkit RO, from the Shipment Manager's SWIGGY_PO / ZEPTO_PO and its shipments. That covers the shipments with 🚚 dispatch status, and per SKU the PO qty, packed, short and remaining, with the reason when shipped short.
+  - A PO not uploaded in the Shipment Manager shows its lines from the tab instead.
   - In Items, a Swiggy / Zepto Shipped or Planned number lists the POs behind it.
 - **Warehouse names:**
   - Swiggy is shown per warehouse, e.g. "Bengaluru IM1", "Bengaluru Ecom2", "Delhi GGNFC5", "AHM Delhivery". Its stock and POs are per warehouse. Its sales report is per city, so a city's sales are split over its warehouses by their share of Swiggy's POs for that SKU (else of all its POs, else evenly).

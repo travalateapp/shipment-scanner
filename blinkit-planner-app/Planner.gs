@@ -2491,19 +2491,22 @@ function syncShipments_() {
  * line (BLINKIT_PO: item, PO qty, packed = shipped qty, short from the shipment's Adjustments, remaining, why it was
  * shipped short) and the RO's shipments (date, boxes, invoice, 🚚 Dispatch Date).
  */
-function poBalance(token, roNo) {
+function poBalance(token, roNo, platform) {
   auth_(token);
   const po = String(roNo || '').trim();
+  // Swiggy / Zepto POs are in the Shipment Manager's SWIGGY_PO / ZEPTO_PO (same columns as BLINKIT_PO).
+  const plat = /^(swiggy|zepto)$/.test(String(platform || '')) ? String(platform) : 'blinkit';
+  const poSheet = { blinkit: 'BLINKIT_PO', swiggy: 'SWIGGY_PO', zepto: 'ZEPTO_PO' }[plat];
   if (!po) throw new Error('No RO number.');
   const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
   if (!id) return { po: po, linked: false };
   // Kept for 2 minutes for everyone, so hovers (by any user) do not open the Shipment Manager's sheet each time.
-  const cache = CacheService.getScriptCache(), ck = 'pobal_' + po.replace(/[^\w-]/g, '').slice(0, 60);
+  const cache = CacheService.getScriptCache(), ck = 'pobal_' + (plat === 'blinkit' ? '' : plat + '_') + po.replace(/[^\w-]/g, '').slice(0, 60);
   const hit = cache.get(ck);
   if (hit) { try { return JSON.parse(hit); } catch (e) { /* read again */ } }
   const ss = SpreadsheetApp.openById(id);
-  const out = { po: po, linked: true, wh: '', lines: [], shipments: [] };
-  const pSh = ss.getSheetByName('BLINKIT_PO');
+  const out = { po: po, platform: plat, linked: true, wh: '', lines: [], shipments: [] };
+  const pSh = ss.getSheetByName(poSheet);
   if (pSh && pSh.getLastRow() > 1) {
     const w = Math.max(14, Math.min(16, pSh.getLastColumn()));
     pSh.getRange(2, 1, pSh.getLastRow() - 1, w).getValues().forEach(r => {
