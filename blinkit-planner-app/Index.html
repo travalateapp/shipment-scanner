@@ -712,7 +712,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 qc-short';
+  var PAGE_BUILD = '2026-11-28 ask-match';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3883,13 +3883,17 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var nq = askNorm(q), qw = askWords(q), skus = (S.boot.skus || []);
     var hit = skus.filter(function (s) { var n = askNorm(s.sku); return (n.length >= 3 && nq.indexOf(n) >= 0) || nq.indexOf(String(s.item)) >= 0; });
     if (hit.length) { var L0 = Math.max.apply(null, hit.map(function (s) { return askNorm(s.sku).length; })); return hit.filter(function (s) { return askNorm(s.sku).length === L0 || nq.indexOf(String(s.item)) >= 0; }); }
+    // Ranked by how many words of the question a SKU matches ("stretch belt": TR-Stretch-Belt matches 2, the other
+    // belts 1; "belt" alone: every belt); at least half of the SKU's name must match. Only the best are answered.
     var best = 0, out = [];
     skus.forEach(function (s) {
       var w = askWords(s.sku).filter(function (x) { return x.length >= 3; }); if (!w.length) return;
-      var sc = w.filter(function (x) { return qw.indexOf(x) >= 0; }).length / w.length;
+      var m = w.filter(function (x) { return qw.indexOf(x) >= 0; }).length, frac = m / w.length;
+      if (frac < 0.5) return;
+      var sc = m;
       if (sc > best) { best = sc; out = [s]; } else if (sc === best && sc > 0) out.push(s);
     });
-    return best >= 0.5 ? out.slice(0, 5) : [];
+    return out.slice(0, 5);
   }
   /** Warehouses named in the question (any word of the name but "Feeder", "Warehouse"…). */
   function askWhs(q, rows) {
@@ -3953,7 +3957,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var at = new Date(d.meta.at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' });
     return '<table class="askq"><tr><th>Warehouse</th><th class="r">Stock</th><th class="r" title="Delivered, waiting for Blinkit\'s GRN">Deliv.</th><th class="r" title="Shipped, on the road">Shipped</th><th class="r" title="RO made, not shipped yet">Planned</th><th class="r" title="Sold per day">/day</th><th class="r">Days</th></tr>' + body +
       (rs.length > 1 ? '<tr><th>Total</th><th class="r">' + fmt(tot.stock) + '</th><th class="r">' + fmt(tot.dl) + '</th><th class="r">' + fmt(tot.sh) + '</th><th class="r">' + fmt(tot.pl) + '</th><th class="r">' + fmt(tot.rate, 1) + '</th><th></th></tr>' : '') +
-      '</table><div class="small muted">Stock on Blinkit from the last plan (' + at + '); Deliv. = waiting for Blinkit\'s GRN · Shipped = on the road · Planned = RO made, not shipped yet (RO Log now). Hover (or tap) an underlined number for its ROs.</div>';
+      '</table>';
   }
   function askQuestion(q) {
     askSay('me', esc(q));
