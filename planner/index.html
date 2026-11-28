@@ -710,7 +710,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-27 confirm-saves';
+  var PAGE_BUILD = '2026-11-28 delivered-stay-20d';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -3818,16 +3818,18 @@ function getRoInvoiceStyles_() {
   }
 
   /**
-   * Dashboard calendar — 38 days from 7 days ago, as a dispatch plan (Settings → Dispatch):
+   * Dashboard calendar — 51 days from 20 days ago, as a dispatch plan (Settings → Dispatch):
    *  🚚 load bar = units dispatched that day vs the daily capacity (red when over); 📦 packing days before a dispatch;
    *  📍 arrivals (appointment, or dispatch + shipping days); ⚠ items that run out before
    *  their next possible arrival; ⏳ ROs that expire without an appointment. Above the days: the warnings.
    *  Click a day for its details; a dispatch without an appointment can be moved to another day there.
+   * ROs marked Delivered stay on it for 20 days after their delivery day: on their dispatch day (🚚, counted in the
+   * load, no Move / ✕) and their delivery day (✅).
    * Follows the warehouse picked on the dashboard.
    */
   function initDashCal(d, rows, el) {
     var det = $('dCal'); if (!det) return;
-    var DAYS = 38, start = addDays(today(), -7), todayS = today(), c = dConf();
+    var KEEP_DLV = 20, DAYS = 51, start = addDays(today(), -KEEP_DLV), todayS = today(), c = dConf();
     var inWh = function (w) { return !S.dashWh || PlanCore.whNorm(w) === PlanCore.whNorm(S.dashWh); };
     var short = function (w) { return String(w).replace(/ - Feeder( Warehouse)?| Feeder$/, ''); };
     var dlab = function (k) { return new Date(k + 'T12:00:00').toLocaleDateString('en-IN', { weekday: 'short', day: 'numeric', month: 'short' }); };
@@ -3836,7 +3838,12 @@ function getRoInvoiceStyles_() {
       var days = {}, warn = { gap: [], waiting: [], expiring: [], unsched: [] };
       var day = function (k) { return days[k] = days[k] || { disp: [], pack: [], arr: [], ros: [], out: [], exp: [], dlv: [], load: 0 }; };
       // ✅ ROs marked Delivered: on their delivery day.
-      roGroups(d.delivered || []).filter(function (x) { return inWh(x.wh) && x.lines[0] && x.lines[0].deliveredOn; }).forEach(function (x) { day(x.lines[0].deliveredOn).dlv.push(x); });
+      // They stay for 20 days after delivery, also on the day they were dispatched (the day they were shipped, if known).
+      roGroups(d.delivered || []).filter(function (x) { return inWh(x.wh) && x.lines[0] && x.lines[0].deliveredOn && x.lines[0].deliveredOn >= addDays(todayS, -KEEP_DLV); }).forEach(function (x) {
+        x.done = true; day(x.lines[0].deliveredOn).dlv.push(x);
+        var dd = x.shippedOn || dispatchOf(x);
+        if (dd) { day(dd).disp.push(x); day(dd).load += x.units; }
+      });
       var groups = roGroups(d.openROs).filter(function (x) { return inWh(x.wh); });
       groups.forEach(function (x) {
         var dd = dispatchOf(x), ar = arrivalOf(x), ex = expiryOf(x);
@@ -3925,7 +3932,7 @@ function getRoInvoiceStyles_() {
           return ag('Move to', '<input type="date" class="mvIn" data-k="' + esc(r.key) + '" value="' + esc(dispatchOf(r)) + '" min="' + todayS + '"> <button class="btn sm mvGo" data-k="' + esc(r.key) + '">Move</button>') + apptAdd(r);
         };
         info = '<div class="calinfo"><b>' + dlab(S.dashCalDay) + '</b>' + (isWorkDay(S.dashCalDay) ? '' : ' <span class="small muted">(no dispatch day)</span>') +
-          (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul class="rls">' + x.disp.map(function (r) { return roRow(r, r.appt ? (r.dispatchFixed ? 'dispatch set by hand' : !can('Planner') ? 'dispatch from appointment' : '') : '', rmBtn(r), mv(r)); }).join('') + '</ul>' : '') +
+          (x.disp.length ? '<div class="small" style="margin-top:6px"><b>🚚 Dispatch: ' + fmt(x.load) + ' / ' + fmt(c.cap) + ' units</b>' + (x.load > c.cap ? ' <span class="pill bad">over capacity</span>' : '') + '</div><ul class="rls">' + x.disp.map(function (r) { return r.done ? roRow(r, 'delivered ' + prettyDate(r.lines[0].deliveredOn), '', '') : roRow(r, r.appt ? (r.dispatchFixed ? 'dispatch set by hand' : !can('Planner') ? 'dispatch from appointment' : '') : '', rmBtn(r), mv(r)); }).join('') + '</ul>' : '') +
           (x.pack.length ? '<div class="small" style="margin-top:6px"><b>📦 Packing</b> for</div><ul class="rls">' + x.pack.map(function (r) { return roRow(r, 'dispatch ' + prettyDate(dispatchOf(r)), '', ''); }).join('') + '</ul>' : '') +
           (x.arr.length ? '<div class="small" style="margin-top:6px"><b>📍 Arriving</b></div><ul class="rls">' + x.arr.map(function (r) { return roRow(r, r.appt ? '' : 'expected', '', apptAdd(r) + delv(r)); }).join('') + '</ul>' : '') +
           (x.out.length ? '<details style="margin-top:6px"><summary class="small" style="cursor:pointer"><b>⚠ Running out before the next arrival</b> <span class="muted">(' + x.out.length + ' item' + (x.out.length > 1 ? 's' : '') + ' · click to show)</span></summary><ul>' + x.out.map(function (w) { return '<li>' + esc(short(w.r.wh)) + ' · ' + esc(skuText(skuOf(w.r.item), w.r.item)) + ' · next arrival ' + dlab(w.next) + ' · <b>' + w.gap + ' day(s) out</b></li>'; }).join('') + '</ul></details>' : '') +
@@ -3936,7 +3943,7 @@ function getRoInvoiceStyles_() {
           }).join('') + '</ul>' : '') +
           (!(x.disp.length || x.pack.length || x.arr.length || x.out.length || x.exp.length || x.dlv.length) ? '<div class="small muted">Nothing on this day.</div>' : '') + addHtml(S.dashCalDay) + '</div>';
       }
-      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs only. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
+      $('dCalBody').innerHTML = '<div class="small muted" style="margin:8px 0">Open ROs, and delivered ROs for 20 days after delivery. 🚚 dispatch vs ' + fmt(c.cap) + ' units a day · 📦 packing · 📍 arrival · ⚠ runs out before next arrival · ⏳ expires. Dispatch with an appointment = appointment − shipping days. Click a day for details.</div>' +
         warns + '<div class="cal" style="margin-top:8px">' + ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map(function (w) { return '<div class="cw7">' + w + '</div>'; }).join('') + cells + '</div>';
       lastInfo = info;
       if ($('calSched')) $('calSched').onclick = function () {
