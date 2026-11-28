@@ -99,7 +99,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
-  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance, getQc, saveQcSnapshot,
+  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance, getQc, saveQcSnapshot, getQcSales, saveQcSkus,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -778,6 +778,14 @@ function getDashboard(token) {
 const QC_TABS = { swiggy: 'Swiggy Planning', zepto: 'Zepto' };
 const QC_SNAP = 'Planner QC Snapshot';
 const QC_SNAP_HEAD = ['Platform', 'Warehouse', 'Code', 'SKU', 'Daily Rate', 'Stock'];
+// Sales history per day and city: a report uploaded later that repeats days already read replaces those days (no
+// double counting) and adds the new ones. Kept for QC_SALES_KEEP days.
+const QC_SALES = 'Planner QC Sales';
+const QC_SALES_HEAD = ['Platform', 'Date', 'City', 'Code', 'Units'];
+const QC_SALES_KEEP = 90;
+// Swiggy / Zepto code → our SKU (as in Travalate Inventory): their codes differ from Blinkit's and new ones appear.
+const QC_SKUS = 'Planner QC SKUs';
+const QC_SKUS_HEAD = ['Platform', 'Code', 'Name', 'Our SKU'];
 
 /** A tab by name, ignoring capitals and spaces at the ends ("Swiggy Planning " has a trailing space). */
 function qcTab_(name) {
@@ -835,6 +843,12 @@ function qcData_() {
     x.snap = snapRows.filter(r => r[0] === p).map(r => ({ wh: String(r[1]), code: String(r[2]), sku: String(r[3]), rate: Number(r[4]) || 0, stock: Number(r[5]) || 0 }));
     out[p] = x;
   });
+  out.skus = [];
+  try {
+    const sh = SpreadsheetApp.getActive().getSheetByName(QC_SKUS);
+    if (sh && sh.getLastRow() > 1) out.skus = sh.getRange(2, 1, sh.getLastRow() - 1, QC_SKUS_HEAD.length).getValues()
+      .filter(r => r[0] && r[1] !== '').map(r => ({ p: String(r[0]), code: String(r[1]).trim(), name: String(r[2]), our: String(r[3]).trim() }));
+  } catch (e) { /* none yet */ }
   return out;
 }
 function getQc(token) {
@@ -845,7 +859,7 @@ function getQc(token) {
  * Saves one platform's stock / sales read: rows [{ wh, code, sku, rate, stock }] replace that platform's rows;
  * meta { salesFrom, salesTo, stockAt, facilities: { facility name: warehouse city } } is kept with who saved it when.
  */
-function saveQcSnapshot(token, platform, rows, meta) {
+function saveQcSnapshot(token, platform, rows, meta, sales) {
   const u = auth_(token, 'Planner');
   if (!QC_TABS[platform]) throw new Error('Unknown platform.');
   rows = (rows || []).filter(r => r && r.wh && r.code);
@@ -857,10 +871,41 @@ function saveQcSnapshot(token, platform, rows, meta) {
     const all = keep.concat(rows.map(r => [platform, String(r.wh), String(r.code), String(r.sku || ''), Math.round((Number(r.rate) || 0) * 100) / 100, Number(r.stock) || 0]));
     if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, QC_SNAP_HEAD.length).clearContent();
     if (all.length) sh.getRange(2, 1, all.length, QC_SNAP_HEAD.length).setValues(all);
+    if (sales) {
+      // The page sends the whole merged history of this platform (old days not in the new report + the new report).
+      const ss = SpreadsheetApp.getActive().getSheetByName(QC_SALES) || ensureSheet_(QC_SALES, QC_SALES_HEAD);
+      const other = ss.getLastRow() > 1 ? ss.getRange(2, 1, ss.getLastRow() - 1, QC_SALES_HEAD.length).getValues().filter(r => r[0] && r[0] !== platform) : [];
+      const mine = sales.filter(r => r && /^\d{4}-\d{2}-\d{2}$/.test(String(r[0]))).map(r => [platform, "'" + r[0], String(r[1]), String(r[2]), Number(r[3]) || 0]);
+      const allS = other.map(r => [r[0], "'" + (r[1] instanceof Date ? fmtDate_(r[1]) : String(r[1])), r[2], r[3], r[4]]).concat(mine);
+      if (ss.getLastRow() > 1) ss.getRange(2, 1, ss.getLastRow() - 1, QC_SALES_HEAD.length).clearContent();
+      if (allS.length) ss.getRange(2, 1, allS.length, QC_SALES_HEAD.length).setValues(allS);
+    }
     const m = Object.assign({}, meta || {}, { at: Date.now(), by: u.name || u.id });
     let json = JSON.stringify(m);
     if (json.length > 8500) { delete m.facilities; json = JSON.stringify(m); }
     PropertiesService.getScriptProperties().setProperty('QC_META_' + platform, json);
+  } finally { lock.releaseLock(); }
+  return qcData_();
+}
+/** The sales history of one platform: [[yyyy-mm-dd, city, code, units]]. */
+function getQcSales(token, platform) {
+  auth_(token, 'Planner');
+  const sh = SpreadsheetApp.getActive().getSheetByName(QC_SALES);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, QC_SALES_HEAD.length).getValues().filter(r => r[0] === platform)
+    .map(r => [r[1] instanceof Date ? fmtDate_(r[1]) : String(r[1]).replace(/^'/, ''), String(r[2]), String(r[3]), Number(r[4]) || 0]);
+}
+/** Saves the Swiggy / Zepto SKU mapping: [{ p, code, name, our }] replaces the whole list. */
+function saveQcSkus(token, list) {
+  auth_(token, 'Planner');
+  const rows = (list || []).filter(x => x && QC_TABS[x.p] && String(x.code || '').trim())
+    .map(x => [x.p, "'" + String(x.code).trim(), String(x.name || ''), String(x.our || '').trim()]);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = SpreadsheetApp.getActive().getSheetByName(QC_SKUS) || ensureSheet_(QC_SKUS, QC_SKUS_HEAD);
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, QC_SKUS_HEAD.length).clearContent();
+    if (rows.length) sh.getRange(2, 1, rows.length, QC_SKUS_HEAD.length).setValues(rows);
   } finally { lock.releaseLock(); }
   return qcData_();
 }

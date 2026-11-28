@@ -711,7 +711,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
   'use strict';
   var API_URL = '';
   // Shown under the user's name (top right) so you can see which version of the page is running after a deploy.
-  var PAGE_BUILD = '2026-11-28 swiggy-zepto';
+  var PAGE_BUILD = '2026-11-28 swiggy-zepto-map2';
   var IN_APPS_SCRIPT = typeof google !== 'undefined' && google.script && google.script.run;
   var S = { token: load('bp_token'), boot: null, tab: 'dash', inv: null, bulk: null, bulkBuf: null, bulkAt: null, bulkName: '',
     plan: null, final: {}, filter: { whs: [], group: '', only: false, q: '', picks: [] }, starters: null, logFilter: null, manual: [] };
@@ -803,6 +803,7 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     ['#kFromTab, #kSave', function () { return 'Save the SKU list?'; }, 'Save'],
     ['.uS', function () { return 'Save this user?'; }, 'Save'],
     ['#nAdd', function () { return 'Add this user?'; }, 'Add user'],
+    ['#qcSkuSave', function () { return 'Save the Swiggy / Zepto SKU mapping?'; }, 'Save'],
     ['#aSave', function () { return 'Change your PIN?'; }, 'Change PIN'],
     ['#aOut2', function () { return 'Log out?'; }, 'Log out', 'r']
   ];
@@ -1938,10 +1939,10 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     apiCall('getTiStock', [S.token]).then(function (res) {
       var map = {};
       (res.stocks || []).forEach(function (x) { map[tiNorm(x.sku)] = (map[tiNorm(x.sku)] || 0) + (Number(x.qty) || 0); });
-      S.ti = { ok: !!res.ok, map: map, updatedAt: res.updatedAt, monthLabel: res.monthLabel, error: res.error, setup: res.setup };
+      S.ti = { ok: !!res.ok, map: map, names: (res.stocks || []).map(function (x) { return String(x.sku); }), updatedAt: res.updatedAt, monthLabel: res.monthLabel, error: res.error, setup: res.setup };
       if (S.ti.ok) cachePut('bp_cache_ti', S.ti);
     }, function (e) { if (!S.ti || !S.ti.cached) S.ti = { ok: false, map: {}, error: e.message }; else S.ti.cached = false; /* keep the last read, no retry loop */ })
-      .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); if (S.tab === 'proj') drawProj(); });
+      .then(function () { S.tiLoading = false; if (S.tab === 'plan' && S.plan) renderPlanOut(); if (S.tab === 'proj') drawProj(); if (S.tab === 'qc') drawQc(); });
   }
   function tiInfoHtml() {
     if (!S.ti) return '<div class="msg info"><span class="spin"></span> Reading stock from Travalate Inventory (TI)…</div>';
@@ -2499,8 +2500,47 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     }) };
     throw new Error(name + ': not a Swiggy or Zepto report this app knows (Swiggy Sales .xlsx, Swiggy SOH .csv, Zepto Sales .csv, Zepto Inventory .csv).');
   }
+  /**
+   * Merges a new sales report into the saved history (rows [date, city, code, units]): every day in the new report
+   * replaces that day in the history (a report that repeats days already uploaded is not counted twice); older days
+   * stay. Kept for 90 days back from the newest day.
+   */
+  function qcMerge(old, rows) {
+    var agg = {}, newDays = {};
+    rows.forEach(function (r) { newDays[r.date] = 1; var k = r.date + '|' + r.city + '|' + r.code; agg[k] = (agg[k] || 0) + r.units; });
+    var oldDays = {}; old.forEach(function (h) { oldDays[h[0]] = 1; });
+    var hist = old.filter(function (h) { return !newDays[h[0]]; });
+    Object.keys(agg).forEach(function (k) { var a = k.split('|'); hist.push([a[0], a[1], a.slice(2).join('|'), agg[k]]); });
+    var nd = Object.keys(newDays).sort(), to = hist.reduce(function (m, h) { return h[0] > m ? h[0] : m; }, '');
+    var cut = to ? addDays(to, -89) : ''; hist = hist.filter(function (h) { return h[0] >= cut; });
+    var days = {}; hist.forEach(function (h) { days[h[0]] = 1; }); var dl = Object.keys(days).sort();
+    return { hist: hist, from: nd[0], to: nd[nd.length - 1], added: nd.filter(function (d) { return !oldDays[d]; }).length, replaced: nd.filter(function (d) { return oldDays[d]; }).length,
+      histFrom: dl[0], histTo: dl[dl.length - 1], gaps: dl.length ? qcDays(dl[dl.length - 1], dl[0]) + 1 - dl.length : 0 };
+  }
+  /** Our SKU (Travalate Inventory) saved for a Swiggy / Zepto code, or ''. */
+  function qcOurOf(p, code) {
+    var l = (S.qc && S.qc.skus) || (S.dash && S.dash.qc && S.dash.qc.skus) || [];
+    for (var i = 0; i < l.length; i++) if (l[i].p === p && l[i].code === String(code) && l[i].our) return l[i].our;
+    return '';
+  }
+  /** A TI SKU name found by loose matching of the Swiggy / Zepto name (a suggestion for the mapping), or ''. */
+  function qcSuggest(name) {
+    if (!S.ti || !S.ti.ok) return '';
+    var byKey = {}; (S.ti.names || []).forEach(function (n) { byKey[tiNorm(n)] = byKey[tiNorm(n)] || n; });
+    var tries = [name, (String(name).match(/\(([^)]+)\)/) || [])[1], String(name).replace(/\([^)]*\)/g, ''), String(name).replace(/^TR/i, '')];
+    for (var i = 0; i < tries.length; i++) { var k = tiNorm(tries[i]); if (k && byKey[k]) return byKey[k]; }
+    var n = tiNorm(name), hit = '';
+    (S.boot.skus || []).some(function (s) { if (tiNorm(s.sku) === n && s.tiSku && byKey[tiNorm(s.tiSku)]) { hit = byKey[tiNorm(s.tiSku)]; return true; } return false; });
+    return hit;
+  }
+  /** Our stock of a Swiggy / Zepto code: its mapped SKU, else the loose match of its name; null when unknown. */
+  function qcStockOf(p, code, name) {
+    if (!S.ti || !S.ti.ok) return null;
+    var our = qcOurOf(p, code) || qcSuggest(name);
+    return our && S.ti.map[tiNorm(our)] != null ? S.ti.map[tiNorm(our)] : null;
+  }
   /** Sales + stock of one platform → snapshot rows { wh, code, sku, rate, stock } and meta. */
-  function qcCompute(p, sales, stock) {
+  function qcCompute(p, sales, stock, hist) {
     var st = S.boot.settings, items = {};
     ((S.qc && S.qc[p] && S.qc[p].items) || []).forEach(function (it) { if (it.code) items[it.code] = it.name; });
     var whOf, facilities = {};
@@ -2520,21 +2560,23 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       if (!wh) { un[r.city] = (un[r.city] || 0); return; }
       row(wh, r.code).stock += r.qty;
     });
-    var dates = sales.rows.map(function (r) { return r.date; }).sort(), first = dates[0], last = dates[dates.length - 1];
-    var span = first ? qcDays(last, first) + 1 : 1;
-    sales.rows.forEach(function (r) {
-      desc[r.code] = desc[r.code] || r.desc;
-      var wh = whOf(r.city);
-      if (!wh) { un[r.city] = (un[r.city] || 0) + r.units; return; }
-      var x = row(wh, r.code), age = qcDays(last, r.date);
-      x.all += r.units; if (age < 15) x.u15 += r.units; if (age < 7) x.u7 += r.units;
+    // Sold per day from the merged history (old uploads + this one): the highest of the last 7, 15 and 30 days' averages.
+    sales.rows.forEach(function (r) { desc[r.code] = desc[r.code] || r.desc; });
+    var dates = hist.map(function (r) { return r[0]; }).sort(), first = dates[0], last = dates[dates.length - 1];
+    var span = first ? Math.min(30, qcDays(last, first) + 1) : 1;
+    hist.forEach(function (h) {
+      var age = qcDays(last, h[0]); if (age >= 30) return;
+      var wh = whOf(h[1]), u = Number(h[3]) || 0;
+      if (!wh) { un[h[1]] = (un[h[1]] || 0) + u; return; }
+      var x = row(wh, h[2]);
+      x.all += u; if (age < 15) x.u15 += u; if (age < 7) x.u7 += u;
     });
     var rows = Object.keys(by).map(function (k) {
       var x = by[k], rate = Math.max(x.u7 / Math.min(7, span), x.u15 / Math.min(15, span), x.all / span);
       return { wh: x.wh, code: x.code, sku: items[x.code] || desc[x.code] || x.code, rate: Math.round(rate * 100) / 100, stock: x.stock };
     }).filter(function (r) { return r.rate > 0 || r.stock > 0; });
     var unList = Object.keys(un).map(function (c) { return { city: c, units: un[c] }; }).sort(function (a, b) { return b.units - a.units; });
-    return { rows: rows, meta: { salesFrom: first || '', salesTo: last || '', files: [sales.name, stock.name], facilities: p === 'swiggy' ? facilities : undefined,
+    return { rows: rows, meta: { salesFrom: first || '', salesTo: last || '', histDays: first ? qcDays(last, first) + 1 : 0, files: [sales.name, stock.name], facilities: p === 'swiggy' ? facilities : undefined,
       unassigned: unList.slice(0, 40), unassignedUnits: unList.reduce(function (s, x) { return s + x.units; }, 0) } };
   }
   /** The warehouse a PO goes to, in the snapshot's terms (Swiggy: its city; Zepto: MUM / BLR / CHN / GUR). */
@@ -2544,15 +2586,6 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     return f[k] || f[k.replace(/\s+/g, ' ')] || '';
   }
   function qcWhLabel(p, wh) { return p === 'swiggy' ? qcTitle(wh) : wh; }
-  /** Our stock (Travalate Inventory) of a Swiggy / Zepto SKU name, matched loosely; null when not found. */
-  function qcTi(name) {
-    if (!S.ti || !S.ti.ok) return null;
-    var tries = [name, (String(name).match(/\(([^)]+)\)/) || [])[1], String(name).replace(/\([^)]*\)/g, ''), String(name).replace(/^TR/i, '')];
-    for (var i = 0; i < tries.length; i++) { var k = tiNorm(tries[i]); if (k && S.ti.map[k] != null) return S.ti.map[k]; }
-    var n = tiNorm(name), hit = null;
-    (S.boot.skus || []).some(function (s) { if (tiNorm(s.sku) === n) { hit = tiKey(s.item, s.sku); return true; } return false; });
-    return hit && S.ti.map[hit] != null ? S.ti.map[hit] : null;
-  }
   /**
    * Everything shown for one platform: its warehouses' stock / days, and its POs (open = no shipping date yet or a
    * shipping date after today; on the way = shipped, appointment today or later) with each open line's priority.
@@ -2594,8 +2627,8 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       (must ? ' <span class="pill bad">' + must + ' must send</span>' : '') + (po.whKey ? '' : ' <span class="pill warn">warehouse not in the stock report</span>') + '</summary>' +
       '<div class="scroll" style="margin-top:8px"><table class="t qct"><tr><th>SKU</th><th class="right">PO qty</th><th class="right">Sold / day</th><th class="right">Stock there</th><th class="right">On the way</th><th class="right">Days</th><th>Priority</th><th class="right">Our stock</th></tr>' +
       lines.map(function (l) {
-        var pr = QC_PRIO[l.prio], ti = qcTi(l.name);
-        return '<tr><td>' + esc(l.name || l.code) + '</td><td class="right"><b>' + fmt(l.qty) + '</b></td><td class="right">' + (l.rate ? fmt(l.rate, 1) : '–') + '</td><td class="right">' + (l.stock == null ? '–' : fmt(l.stock)) + '</td>' +
+        var pr = QC_PRIO[l.prio], ti = qcStockOf(p, l.code, l.name), our = qcOurOf(p, l.code);
+        return '<tr><td>' + esc(l.name || l.code) + (our ? ' <span class="small muted">→ ' + esc(our) + '</span>' : '') + '</td><td class="right"><b>' + fmt(l.qty) + '</b></td><td class="right">' + (l.rate ? fmt(l.rate, 1) : '–') + '</td><td class="right">' + (l.stock == null ? '–' : fmt(l.stock)) + '</td>' +
           '<td class="right">' + (l.way ? fmt(l.way) : '') + '</td><td class="right">' + qcDaysTxt(l.days) + '</td><td><span class="pill ' + pr[0] + '">' + pr[1] + '</span></td><td class="right">' + (ti == null ? '–' : fmt(ti)) + '</td></tr>';
       }).join('') + '</table></div></details>';
   }
@@ -2604,18 +2637,21 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var by = {};
     Object.keys(calcs).forEach(function (p) {
       calcs[p].open.forEach(function (po) { po.lines.forEach(function (l) {
-        var k = tiNorm(l.name) || l.code, x = by[k] = by[k] || { name: l.name || l.code, must: 0, send: 0, wait: 0 };
+        var our = qcOurOf(p, l.code) || qcSuggest(l.name), k = our ? 'o:' + tiNorm(our) : 'n:' + (tiNorm(l.name) || l.code);
+        var x = by[k] = by[k] || { name: our || l.name || l.code, our: our, names: {}, must: 0, send: 0, wait: 0 };
+        x.names[QC_NAMES[p] + ' ' + (l.name || l.code)] = 1;
         x[l.prio === 'must' ? 'must' : l.prio === 'send' ? 'send' : 'wait'] += l.qty;
       }); });
     });
-    var list = Object.keys(by).map(function (k) { var x = by[k]; x.ti = qcTi(x.name); x.tot = x.must + x.send + x.wait; return x; })
+    var list = Object.keys(by).map(function (k) { var x = by[k]; x.ti = x.our && S.ti && S.ti.ok && S.ti.map[tiNorm(x.our)] != null ? S.ti.map[tiNorm(x.our)] : null; x.tot = x.must + x.send + x.wait; return x; })
       .sort(function (a, b) { return b.must - a.must || b.send - a.send || b.tot - a.tot; });
     if (!list.length) return '<div class="muted small">No open Swiggy / Zepto POs.</div>';
     return '<div class="scroll"><table class="t qct"><tr><th>SKU</th><th class="right">Must send</th><th class="right">Send</th><th class="right">Can wait</th><th class="right">All open POs</th><th class="right">Our stock</th><th>Enough?</th></tr>' +
       list.map(function (x) {
         var ok = x.ti == null ? '' : x.ti >= x.tot ? '<span class="pill ok">Yes, all</span>' : x.must + x.send && x.ti >= x.must + x.send ? '<span class="pill warn">Must send + Send only</span>' :
           x.must && x.ti >= x.must ? '<span class="pill warn">Must send only</span>' : x.must ? '<span class="pill bad">Short for Must send</span>' : '<span class="pill bad">Short for Send</span>';
-        return '<tr><td>' + esc(x.name) + '</td><td class="right">' + (x.must ? '<b>' + fmt(x.must) + '</b>' : '') + '</td><td class="right">' + (x.send ? fmt(x.send) : '') + '</td><td class="right">' + (x.wait ? fmt(x.wait) : '') + '</td>' +
+        var nm = Object.keys(x.names).join(', ');
+        return '<tr><td>' + esc(x.name) + (x.our ? '' : ' <span class="pill warn" title="Link it in SKU mapping below">not linked</span>') + '<div class="small muted">' + esc(nm) + '</div></td><td class="right">' + (x.must ? '<b>' + fmt(x.must) + '</b>' : '') + '</td><td class="right">' + (x.send ? fmt(x.send) : '') + '</td><td class="right">' + (x.wait ? fmt(x.wait) : '') + '</td>' +
           '<td class="right">' + fmt(x.tot) + '</td><td class="right">' + (x.ti == null ? '–' : fmt(x.ti)) + '</td><td>' + ok + '</td></tr>';
       }).join('') + '</table></div>';
   }
@@ -2639,14 +2675,35 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       'POs come from the <b>Swiggy Planning</b> and <b>Zepto</b> tabs; one without a shipping date (or with one after today) is open. ' +
       'Swiggy\'s stock report has its warehouses\' stock only (not its dark stores), so its days are counted from warehouse stock.</div>' +
       (can('Planner') ? '<div class="row" style="margin-top:10px;align-items:flex-end"><div style="flex:2 1 320px"><label class="f">Reports (choose several at once)</label>' +
-        '<input type="file" id="qcFiles" multiple accept=".csv,.xlsx,.xls"><div class="small muted" style="margin-top:4px">Swiggy: Sales (.xlsx) + SOH stock (.csv). Zepto: Sales (.csv) + Inventory (.csv).</div></div></div>' : '') +
+        '<input type="file" id="qcFiles" multiple accept=".csv,.xlsx,.xls"><div class="small muted" style="margin-top:4px">Swiggy: Sales (.xlsx) + SOH stock (.csv). Zepto: Sales (.csv) + Inventory (.csv). Any file names — each file is recognised by its columns. A sales report that repeats days already uploaded replaces those days (nothing is counted twice).</div></div></div>' : '') +
       '<div id="qcMsg" style="margin-top:8px"></div></div>' +
       '<div class="card"><h3 style="margin-top:0">What to send first <span class="small muted" style="font-weight:400">— all open Swiggy + Zepto PO lines per SKU vs our stock (Travalate Inventory)</span></h3><div id="qcDemand"><span class="spin"></span></div></div>' +
+      '<details class="card" id="qcMapCard"' + (S.qcMapOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">🔗 SKU mapping <span class="small" id="qcMapSum" style="font-weight:400"></span></summary>' +
+        '<div class="small muted" style="margin:6px 0">Swiggy and Zepto codes are not Blinkit\'s, and new ones appear. Link each code to our SKU as named in Travalate Inventory: it is used for <b>Our stock</b> and to add up the same product across Swiggy and Zepto in <b>What to send first</b>. ' +
+        'Every code in the Swiggy Planning / Zepto tabs and in the last reports is listed; <span class="pill bad">New</span> = in a report but not in the tab and not linked yet. A grey suggestion is a name that matches; <b>Fill suggestions</b> puts them in.</div>' +
+        '<label class="chip' + (S.qcMapOnlyOpen ? ' on' : '') + '"><input type="checkbox" id="qcMapOnly"' + (S.qcMapOnlyOpen ? ' checked' : '') + '> Only not linked</label>' +
+        '<div id="qcMapBody" style="margin-top:8px"></div>' + (can('Planner') ? '<div id="qcSkuOut"></div><div style="margin-top:8px"><button class="btn" id="qcSkuFill">Fill suggestions</button> <button class="btn p" id="qcSkuSave">Save SKU mapping</button></div>' : '') +
+        '<datalist id="qcTiList"></datalist></details>' +
       '<div class="card"><div class="row" style="align-items:center"><div style="flex:0 0 auto"><div class="seg" id="qcSeg"><button data-p="swiggy" class="' + (Q.p === 'swiggy' ? 'on' : '') + '">Swiggy</button><button data-p="zepto" class="' + (Q.p === 'zepto' ? 'on' : '') + '">Zepto</button></div></div>' +
       '<div class="small muted" id="qcMeta" style="flex:1 1 300px"></div></div><div id="qcPos" style="margin-top:10px"></div></div>' +
       '<div class="card"><div class="row" style="align-items:flex-end"><h3 style="flex:1 1 200px;margin:0">Stock and days per warehouse</h3><div style="flex:0 1 220px"><label class="f">Warehouse</label><select id="qcWh"></select></div></div><div id="qcStock" style="margin-top:10px"></div></div>';
     $('qcSeg').onclick = function (e) { var p = e.target.getAttribute('data-p'); if (!p) return; Q.p = p; Q.wh = ''; Array.prototype.forEach.call(this.children, function (b) { b.classList.toggle('on', b.getAttribute('data-p') === p); }); drawQc(); };
     $('qcWh').onchange = function () { Q.wh = this.value; drawQc(); };
+    $('qcMapCard').addEventListener('toggle', function () { S.qcMapOpen = this.open; });
+    $('qcMapOnly').onchange = function () { S.qcMapOnlyOpen = this.checked; this.parentNode.classList.toggle('on', this.checked); drawQcMap(); };
+    if ($('qcSkuFill')) $('qcSkuFill').onclick = function () {
+      var n = 0; Array.prototype.forEach.call(document.querySelectorAll('#qcMapBody .qcOur'), function (i) { if (!i.value && i.getAttribute('data-sug')) { i.value = i.getAttribute('data-sug'); n++; } });
+      $('qcSkuOut').innerHTML = msgs([n + ' suggestion(s) filled in. Check them, then Save SKU mapping.'], 'info');
+    };
+    if ($('qcSkuSave')) $('qcSkuSave').onclick = function () {
+      var keep = {}; ((S.qc && S.qc.skus) || []).forEach(function (x) { keep[x.p + '|' + x.code] = x; });
+      Array.prototype.forEach.call(document.querySelectorAll('#qcMapBody .qcOur'), function (i) {
+        keep[i.getAttribute('data-p') + '|' + i.getAttribute('data-code')] = { p: i.getAttribute('data-p'), code: i.getAttribute('data-code'), name: i.getAttribute('data-name'), our: i.value.trim() };
+      });
+      var list = Object.keys(keep).map(function (k) { return keep[k]; }).filter(function (x) { return x.our; });
+      api('saveQcSkus', S.token, list).then(function (r) { S.qc = r; if (S.dash) S.dash.qc = r; $('qcSkuOut').innerHTML = msgs([list.length + ' code(s) linked and saved.'], 'ok'); drawQc(); },
+        function (e) { $('qcSkuOut').innerHTML = msgs([e.message], 'bad'); });
+    };
     if ($('qcFiles')) $('qcFiles').onchange = function () { qcLoadFiles(Array.prototype.slice.call(this.files)); this.value = ''; };
     if (!S.qc && S.dash && S.dash.qc) S.qc = S.dash.qc;
     drawQc();
@@ -2670,6 +2727,37 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
     var whs = {}; c.rows.forEach(function (r) { whs[r.wh] = 1; });
     $('qcWh').innerHTML = '<option value="">All warehouses</option>' + Object.keys(whs).sort().map(function (w) { return '<option value="' + esc(w) + '"' + (S.qcView.wh === w ? ' selected' : '') + '>' + esc(qcWhLabel(p, w)) + '</option>'; }).join('');
     $('qcStock').innerHTML = qcStockHtml(p, c);
+    drawQcMap();
+  }
+  /** The SKU mapping table: every code in the tabs, the last reports and the saved mapping. */
+  function drawQcMap() {
+    if (!$('qcMapBody') || !S.qc) return;
+    var rows = {}, add = function (p, code, name, inTab) {
+      code = String(code || '').trim(); if (!code) return;
+      var k = p + '|' + code, r = rows[k] = rows[k] || { p: p, code: code, name: '', inTab: false };
+      if (name && (!r.name || inTab)) r.name = name; if (inTab) r.inTab = true;
+    };
+    Object.keys(QC_NAMES).forEach(function (p) {
+      var x = S.qc[p] || {};
+      (x.items || []).forEach(function (it) { add(p, it.code, it.name, true); });
+      (x.snap || []).forEach(function (s) { add(p, s.code, s.sku, false); });
+    });
+    (S.qc.skus || []).forEach(function (s) { add(s.p, s.code, s.name, false); });
+    $('qcTiList').innerHTML = ((S.ti && S.ti.names) || []).slice().sort().map(function (n) { return '<option value="' + esc(n) + '">'; }).join('');
+    var list = Object.keys(rows).map(function (k) { var r = rows[k]; r.our = qcOurOf(r.p, r.code); r.sug = r.our ? '' : qcSuggest(r.name); return r; });
+    var open = list.filter(function (r) { return !r.our; }), fresh = open.filter(function (r) { return !r.inTab; });
+    $('qcMapSum').innerHTML = '— ' + (list.length - open.length) + ' of ' + list.length + ' linked' + (open.length ? ' · <span class="pill warn">' + open.length + ' not linked</span>' : '') + (fresh.length ? ' <span class="pill bad">' + fresh.length + ' new</span>' : '');
+    if (open.length && S.qcMapOpen == null) { S.qcMapOpen = true; $('qcMapCard').open = true; }
+    var show = list.filter(function (r) { return !S.qcMapOnlyOpen || !r.our; }).sort(function (a, b) { return a.p.localeCompare(b.p) || (!!a.our - !!b.our) || a.name.localeCompare(b.name); });
+    var ed = can('Planner');
+    $('qcMapBody').innerHTML = !show.length ? '<div class="muted small">Nothing to show.</div>' : '<div class="scroll"><table class="t qct"><tr><th>Platform</th><th>Their code</th><th>Their name</th><th>Our SKU (Travalate Inventory)</th><th class="right">Our stock</th><th></th></tr>' +
+      show.map(function (r) {
+        var st = r.our && S.ti && S.ti.ok ? S.ti.map[tiNorm(r.our)] : null;
+        return '<tr><td>' + QC_NAMES[r.p] + '</td><td class="small" style="word-break:break-all;max-width:220px">' + esc(r.code) + '</td><td>' + esc(r.name) + '</td>' +
+          '<td>' + (ed ? '<input type="text" class="qcOur" list="qcTiList" data-p="' + r.p + '" data-code="' + esc(r.code) + '" data-name="' + esc(r.name) + '" data-sug="' + esc(r.sug) + '" value="' + esc(r.our) + '" placeholder="' + esc(r.sug ? 'suggested: ' + r.sug : 'type or pick') + '" style="min-width:160px">' : esc(r.our || '–')) + '</td>' +
+          '<td class="right">' + (st == null ? (r.our && S.ti && S.ti.ok ? '<span class="pill warn" title="Not found in Travalate Inventory">not found</span>' : '–') : fmt(st)) + '</td>' +
+          '<td>' + (r.our ? '<span class="pill ok">Linked</span>' : !r.inTab ? '<span class="pill bad">New</span>' : '<span class="pill warn">Not linked</span>') + '</td></tr>';
+      }).join('') + '</table></div>';
   }
   /** Reads the chosen report files; a platform is worked out and saved once both of its files are in. */
   function qcLoadFiles(files) {
@@ -2684,9 +2772,14 @@ if (typeof module !== 'undefined') module.exports = PlanCore;
       Object.keys(QC_NAMES).forEach(function (p) { var f = S.qcFiles[p]; if (f && !(f.sales && f.stock)) errs.push(QC_NAMES[p] + ': now add its ' + (f.sales ? 'stock' : 'sales') + ' report too.'); });
       var chain = Promise.resolve();
       todo.forEach(function (p) {
-        chain = chain.then(function () {
-          var out = qcCompute(p, S.qcFiles[p].sales, S.qcFiles[p].stock);
-          return api('saveQcSnapshot', S.token, p, out.rows, out.meta).then(function (r) { S.qc = r; if (S.dash) S.dash.qc = r; done.push(QC_NAMES[p] + ': ' + out.rows.length + ' warehouse × SKU rows saved'); S.qcView.p = p; });
+        chain = chain.then(function () { return api('getQcSales', S.token, p); }).then(function (old) {
+          var m = qcMerge(old || [], S.qcFiles[p].sales.rows);
+          var out = qcCompute(p, S.qcFiles[p].sales, S.qcFiles[p].stock, m.hist);
+          return api('saveQcSnapshot', S.token, p, out.rows, out.meta, m.hist).then(function (r) {
+            S.qc = r; if (S.dash) S.dash.qc = r; S.qcView.p = p;
+            done.push(QC_NAMES[p] + ': sales ' + prettyDate(m.from) + ' – ' + prettyDate(m.to) + ' read — ' + m.added + ' new day(s)' + (m.replaced ? ', ' + m.replaced + ' day(s) already read before replaced (not counted twice)' : '') +
+              '. History now ' + prettyDate(m.histFrom) + ' – ' + prettyDate(m.histTo) + (m.gaps ? ' (' + m.gaps + ' day(s) in between have no report — counted as no sales)' : '') + '. Stock from this upload. ' + out.rows.length + ' warehouse × SKU rows.');
+          });
         });
       });
       return chain.then(function () {
@@ -4025,7 +4118,7 @@ function getRoInvoiceStyles_() {
           '<div><span class="pill bad">' + x.red + ' under 7d</span> <span class="pill warn">' + x.amber + ' 7–15d</span></div>' +
           '<div class="small muted" style="margin-top:4px">' + (x.open ? fmt(x.open) + ' units in open ROs' : 'no open ROs') + '</div></div>';
       }).join('') + '</div></div>' +
-      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— dispatch plan, last 7 days + next 30: 🚚 load per day, 📦 packing, 📍 arrivals, ⚠ warnings' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
+      '<details class="card" id="dCal"' + (S.dashCalOpen ? ' open' : '') + '><summary style="cursor:pointer;font-weight:700">📅 Calendar <span class="small muted" style="font-weight:400">— dispatch plan, last 20 days + next 30: 🚚 load per day, 📦 packing, 📍 arrivals, ⚠ warnings' + (S.dashWh ? ' · ' + esc(S.dashWh) : '') + '</span></summary><div id="dCalBody"></div></details>' +
       qcDashHtml() +
       '<div class="card"><div class="row" style="align-items:center;margin-bottom:8px"><h3 style="flex:1 1 300px;margin:0">' + (S.dashWh ? esc(S.dashWh) + ' — ' : '') + 'Items <span class="small muted">(sorted by ' + esc(sortHint) + ' — click a heading to sort' + (S.dashWh ? ' · <a href="#" id="dAll">show all</a>' : '') + ')</span></h3>' +
         '<div style="flex:0 0 auto"><label class="chip' + (S.dashNoRo ? ' on' : '') + '" title="Items whose Planned (on its way) has no open RO in the RO Log"><input type="checkbox" id="dNoRo"' + (S.dashNoRo ? ' checked' : '') + ' style="display:none">Planned without RO <b>' + noRoCount + '</b></label></div>' +

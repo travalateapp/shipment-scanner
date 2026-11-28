@@ -283,6 +283,16 @@ Swiggy and Zepto raise their own POs, so the app creates nothing for them. It sh
   - Stock.
   - Days of cover: stock plus what is on the way, divided by sold per day.
 - The result is saved in the **Planner QC Snapshot** tab, so the Dashboard shows it without uploading again.
+- **File names don't matter.** Each file is recognised by its column headings.
+- **Sales history:** sales are kept per day in the **Planner QC Sales** tab, for the last 90 days.
+  - A later upload that repeats days already read replaces those days, so nothing is counted twice, and adds the new days.
+  - Sold per day uses the last 30 days of that history.
+  - Days missing between two uploads count as no sales; the upload message says how many.
+  - Stock always comes from the newest upload.
+- **SKU mapping:** Swiggy and Zepto codes are not Blinkit's, and new ones appear. The **🔗 SKU mapping** card in the tab lists every code from the tabs and the last reports. Link each one to our SKU as named in Travalate Inventory; the links are saved in the **Planner QC SKUs** tab.
+  - **New:** in a report but not in the tab yet, and not linked.
+  - **Fill suggestions:** puts in name matches.
+  - **What the link is used for:** **Our stock**, and adding up the same product across Swiggy and Zepto in **What to send first**.
 
 **Warehouses**
 - **Swiggy:** counted per warehouse city, as in the SOH report. Its stock report has warehouse stock only, not dark stores.
