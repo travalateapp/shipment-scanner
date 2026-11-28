@@ -59,6 +59,8 @@ const DEFAULT_SETTINGS = [
   ['Short Lead Days', 4, 'Lead days for the warehouses listed in Short Lead Warehouses'],
   ['Short Lead Warehouses', 'Faridabad, Kundli, Jaipur', 'Warehouses with the short lead time (names or parts of names, comma separated)'],
   ['Packing Days', 2, 'Days of packing before dispatch (part of the lead days)'],
+  ['Swiggy City Map', 'ahmedabad: vadodara, rajkot, anand, udaipur, indore, ujjain, surat\nbangalore: mysore, mangaluru, shivamogga, manipal, anantapur, tumakuru, hosur, davanagere, madanapalle\ncentral goa: belgaum, hubli\nchandigarh: ludhiana, sri ganganagar, dehradun, patiala, ambala, saharanpur, amritsar, jalandhar, bathinda\nchennai: vellore, pondicherry, kanchipuram, tirupati, ongole, nellore, cuddalore, thiruvallur\ncoimbatore: tirupur, thanjavur, madurai, karaikkudi, trichy, palakkad, karur, salem, dindigul\ndelhi: moradabad, faridabad, gwalior, aligarh, panipat, agra, meerut, roorkee, bareilly, karnal, mathura, rohtak, sonipat, rudrapur\nguwahati: silchar, siliguri, dibrugarh\nhyderabad: guntur, vijayawada, warangal, khammam, karimnagar, latur, kurnool, nanded, nizamabad\njaipur: ajmer, kota, jodhpur, bikaner\nkochi: thiruvananthapuram, kozhikode, thrissur, kottayam, kollam, alappuzha, thiruvalla, kannur\nkolkata: bhubaneswar, patna, ranchi, jamshedpur, cuttack, muzaffarpur\nlucknow: varanasi, kanpur, allahabad, gorakhpur\nmumbai: nashik, vapi\nnagpur: bhopal, raipur, bhilai, bilaspur\npune: kolhapur, aurangabad, lonavla\nvizag: kakinada, rajahmundry, vizianagaram, bhimavaram, berhampur', 'Swiggy: sales in a city without a Swiggy warehouse count under the warehouse city before the colon (one line per warehouse city: "bangalore: mysore, mangaluru")'],
+  ['Zepto City Map', 'MUM: Mumbai, Pune, Nashik, Surat, Ahmedabad, Vadodra, Rajkot, Nagpur, Indore, Chatrapati Sambhaji Nagar\nBLR: Bengaluru, Mysuru, Hubballi, Belgavi, Davanagere\nCHN: Chennai, Coimbatore, Madurai, Vellore, Puducherry, Kochi, Palakkad, Hyderabad, Vijayawada, Guntur, Warangal, Karimnagar\nGUR: Delhi, Gurugram, Noida, Ghaziabad, Lucknow, Jaipur, SAS Nagar, Chandigarh, Dehradun, Amritsar, Jalandhar, Ludhiana, Meerut, Kanpur, Agra, Varanasi, Prayagraj, Gorakhpur, Haridwar, Panipat, Karnal, Ambala, Patiala, Jammu, Bareilly, Kurukshetra, Sonipat, Udaipur, Kolkata, Jamshedpur', 'Zepto: the cities each Zepto warehouse (MUM, BLR, CHN, GUR) serves; their stock and sales count under it (one line per warehouse: "MUM: Mumbai, Pune")'],
   ['Lock RO Columns', 'Yes', 'Yes = values typed, pasted or deleted in the month tabs\' RO columns (D to the last RO column) are put back at once (colours stay free); needs the guardRoEdits trigger. No = off'],
 ];
 
@@ -97,7 +99,7 @@ const API_FUNCTIONS = {
   publicInfo, login, logout, changePin, getBoot, getSheetInventory, saveSnapshot, getDashboard, createROs, listROs, updateROLine,
   updateBatch, importPdfRO, saveSettings, saveSkus, listUsers, saveUser, resetUserPin, startMonth, syncMonthTabs,
   groupsFromMonthTab, getTiStock, getTiLink, saveTiLink, setDispatchDates, getShipLink, saveShipLink, syncShipments,
-  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance,
+  compactMonthTabs, tidyIfDue, getSmApi, saveSmApi, dummyRoInvoice, poBalance, getQc, saveQcSnapshot, getQcSales, saveQcSkus, importQcPo, removeQcPo, setQcDates,
 };
 
 /** Request body (sent as text/plain): { "fn": "getBoot", "args": [token, ...], "rid": "<retry id>" } */
@@ -250,6 +252,8 @@ function getSettings_() {
     shortLeadWh: String(out['Short Lead Warehouses'] || ''),
     packDays: out['Packing Days'] === '' || isNaN(Number(out['Packing Days'])) ? 2 : Number(out['Packing Days']),
     lockRo: !/^n/i.test(String(out['Lock RO Columns'] == null ? 'Yes' : out['Lock RO Columns'])),
+    swiggyMap: String(out['Swiggy City Map'] || ''),
+    zeptoMap: String(out['Zepto City Map'] || ''),
   };
 }
 
@@ -757,7 +761,295 @@ function getDashboard(token) {
     // ROs delivered in the last 45 days: shown on their delivery day in the calendar, and moved from Planned to Has
     // on the Dashboard when they were marked delivered after the last plan.
     delivered: recentDeliveredOf_(all),
+    // Swiggy / Zepto: their POs (from their tabs) and the last stock / sales read (for the Dashboard and calendar).
+    qc: qcData_(),
   };
+}
+
+/* ---------------- Swiggy / Zepto ---------------- */
+
+/*
+ * Swiggy and Zepto raise their own POs, so nothing is created here: the app reads their POs from the "Swiggy
+ * Planning" and "Zepto" tabs (one column per PO: row 1 warehouse, 2 PO no., 3 release date, 4 shipping date,
+ * 5 appointment date; from row 7 one row per SKU with its name in A and its Swiggy item code / Zepto SKU code in B)
+ * and keeps the last stock / sales read from their report files (worked out in the page) in the "Planner QC Snapshot"
+ * tab, so the Dashboard can show how many days each warehouse's stock lasts and which PO lines matter most.
+ */
+const QC_TABS = { swiggy: 'Swiggy Planning', zepto: 'Zepto' };
+const QC_SNAP = 'Planner QC Snapshot';
+const QC_SNAP_HEAD = ['Platform', 'Warehouse', 'Code', 'SKU', 'Daily Rate', 'Stock'];
+// Sales history per day and city: a report uploaded later that repeats days already read replaces those days (no
+// double counting) and adds the new ones. Kept for QC_SALES_KEEP days.
+const QC_SALES = 'Planner QC Sales';
+const QC_SALES_HEAD = ['Platform', 'Date', 'City', 'Code', 'Units'];
+const QC_SALES_KEEP = 90;
+// Swiggy / Zepto code → our SKU (as in Travalate Inventory): their codes differ from Blinkit's and new ones appear.
+const QC_SKUS = 'Planner QC SKUs';
+const QC_SKUS_HEAD = ['Platform', 'Code', 'Name', 'Our SKU'];
+
+/** A tab by name, ignoring capitals and spaces at the ends ("Swiggy Planning " has a trailing space). */
+function qcTab_(name) {
+  const want = String(name).trim().toLowerCase();
+  return SpreadsheetApp.getActive().getSheets().filter(s => s.getName().trim().toLowerCase() === want)[0] || null;
+}
+function qcDate_(v) {
+  if (v instanceof Date) return fmtDate_(v);
+  const s = String(v == null ? '' : v).trim();
+  const m = s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/); // 28/12/2026, typed as text
+  const d = m ? new Date(Number(m[3].length === 2 ? '20' + m[3] : m[3]), Number(m[2]) - 1, Number(m[1]), 12) : parseDate_(s);
+  return d && !isNaN(d) ? fmtDate_(d) : '';
+}
+/** The POs in a Swiggy / Zepto tab: every column from F on with a PO number in row 2. */
+function qcPOs_(platform) {
+  const sh = qcTab_(QC_TABS[platform]);
+  if (!sh) return { found: false, pos: [], items: [] };
+  const v = sh.getDataRange().getValues();
+  if (v.length < 7) return { found: true, pos: [], items: [] };
+  const notes = sh.getRange(2, 1, 1, v[0].length).getNotes()[0];
+  const items = [];
+  for (let i = 6; i < v.length; i++) {
+    const name = String(v[i][0]).trim(), code = String(v[i][1]).trim();
+    if (!name && !code) continue;
+    items.push({ row: i + 1, name: name, code: code, code2: String(v[i][4] == null ? '' : v[i][4]).trim() });
+  }
+  const pos = [];
+  for (let c = 5; c < v[0].length; c++) {
+    const po = String(v[1][c]).trim();
+    if (!po) continue;
+    const lines = [];
+    items.forEach(it => { const q = Number(v[it.row - 1][c]) || 0; if (q > 0) lines.push({ code: it.code, name: it.name, qty: q }); });
+    const ex = String(notes[c] || '').match(/Expiry\s*(\d{4}-\d{2}-\d{2})/i);
+    pos.push({ col: colLetter_(c + 1), wh: String(v[0][c]).trim(), po: po, release: qcDate_(v[2][c]), ship: qcDate_(v[3][c]),
+      appt: qcDate_(v[4][c]), expiry: ex ? ex[1] : '', lines: lines, units: lines.reduce((s, l) => s + l.qty, 0) });
+  }
+  return { found: true, tab: sh.getName(), pos: pos, items: items };
+}
+function qcSnapSheet_() {
+  return SpreadsheetApp.getActive().getSheetByName(QC_SNAP) || ensureSheet_(QC_SNAP, QC_SNAP_HEAD);
+}
+/** POs, the last stock / sales read and the city maps of both platforms. Never throws (the Dashboard must load). */
+function qcData_() {
+  const out = {};
+  const props = PropertiesService.getScriptProperties();
+  let snapRows = [];
+  try {
+    const sh = SpreadsheetApp.getActive().getSheetByName(QC_SNAP);
+    if (sh && sh.getLastRow() > 1) snapRows = sh.getRange(2, 1, sh.getLastRow() - 1, QC_SNAP_HEAD.length).getValues();
+  } catch (e) { /* no snapshot yet */ }
+  Object.keys(QC_TABS).forEach(p => {
+    let x;
+    try { x = qcPOs_(p); } catch (e) { x = { found: false, pos: [], items: [], error: e.message }; }
+    let meta = null;
+    try { meta = JSON.parse(props.getProperty('QC_META_' + p) || 'null'); } catch (e) { meta = null; }
+    x.meta = meta;
+    x.snap = snapRows.filter(r => r[0] === p).map(r => ({ wh: String(r[1]), code: String(r[2]), sku: String(r[3]), rate: Number(r[4]) || 0, stock: Number(r[5]) || 0 }));
+    out[p] = x;
+  });
+  out.skus = [];
+  try {
+    const sh = SpreadsheetApp.getActive().getSheetByName(QC_SKUS);
+    if (sh && sh.getLastRow() > 1) out.skus = sh.getRange(2, 1, sh.getLastRow() - 1, QC_SKUS_HEAD.length).getValues()
+      .filter(r => r[0] && r[1] !== '').map(r => ({ p: String(r[0]), code: String(r[1]).trim(), name: String(r[2]), our: String(r[3]).trim() }));
+  } catch (e) { /* none yet */ }
+  return out;
+}
+function getQc(token) {
+  auth_(token, 'Viewer');
+  return qcData_();
+}
+/**
+ * Saves one platform's stock / sales read: rows [{ wh, code, sku, rate, stock }] replace that platform's rows;
+ * meta { salesFrom, salesTo, stockAt, facilities: { facility name: warehouse city } } is kept with who saved it when.
+ */
+function saveQcSnapshot(token, platform, rows, meta, sales) {
+  const u = auth_(token, 'Planner');
+  if (!QC_TABS[platform]) throw new Error('Unknown platform.');
+  rows = (rows || []).filter(r => r && r.wh && r.code);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcSnapSheet_();
+    const keep = sh.getLastRow() > 1 ? sh.getRange(2, 1, sh.getLastRow() - 1, QC_SNAP_HEAD.length).getValues().filter(r => r[0] && r[0] !== platform) : [];
+    const all = keep.concat(rows.map(r => [platform, String(r.wh), String(r.code), String(r.sku || ''), Math.round((Number(r.rate) || 0) * 100) / 100, Number(r.stock) || 0]));
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, QC_SNAP_HEAD.length).clearContent();
+    if (all.length) sh.getRange(2, 1, all.length, QC_SNAP_HEAD.length).setValues(all);
+    if (sales) {
+      // The page sends the whole merged history of this platform (old days not in the new report + the new report).
+      const ss = SpreadsheetApp.getActive().getSheetByName(QC_SALES) || ensureSheet_(QC_SALES, QC_SALES_HEAD);
+      const other = ss.getLastRow() > 1 ? ss.getRange(2, 1, ss.getLastRow() - 1, QC_SALES_HEAD.length).getValues().filter(r => r[0] && r[0] !== platform) : [];
+      const mine = sales.filter(r => r && /^\d{4}-\d{2}-\d{2}$/.test(String(r[0]))).map(r => [platform, "'" + r[0], String(r[1]), String(r[2]), Number(r[3]) || 0]);
+      const allS = other.map(r => [r[0], "'" + (r[1] instanceof Date ? fmtDate_(r[1]) : String(r[1])), r[2], r[3], r[4]]).concat(mine);
+      if (ss.getLastRow() > 1) ss.getRange(2, 1, ss.getLastRow() - 1, QC_SALES_HEAD.length).clearContent();
+      if (allS.length) ss.getRange(2, 1, allS.length, QC_SALES_HEAD.length).setValues(allS);
+    }
+    const m = Object.assign({}, meta || {}, { at: Date.now(), by: u.name || u.id });
+    let json = JSON.stringify(m);
+    if (json.length > 8500) { delete m.facilities; json = JSON.stringify(m); }
+    PropertiesService.getScriptProperties().setProperty('QC_META_' + platform, json);
+  } finally { lock.releaseLock(); }
+  return qcData_();
+}
+/** The sales history of one platform: [[yyyy-mm-dd, city, code, units]]. */
+function getQcSales(token, platform) {
+  auth_(token, 'Planner');
+  const sh = SpreadsheetApp.getActive().getSheetByName(QC_SALES);
+  if (!sh || sh.getLastRow() < 2) return [];
+  return sh.getRange(2, 1, sh.getLastRow() - 1, QC_SALES_HEAD.length).getValues().filter(r => r[0] === platform)
+    .map(r => [r[1] instanceof Date ? fmtDate_(r[1]) : String(r[1]).replace(/^'/, ''), String(r[2]), String(r[3]), Number(r[4]) || 0]);
+}
+/*
+ * Writing POs into the Swiggy Planning / Zepto tabs (like the RO columns of the Blinkit month tabs): each PO from its
+ * PDF gets a column — row 1 warehouse, 2 PO no. (its expiry date in the cell's note), 3 release date, from row 7 the
+ * quantity on each SKU's row. A new PO goes after the last PO column, one empty column after it when its release date
+ * differs (the tabs group POs by release date). A PO already in the tab is updated in its own column. A SKU not in the
+ * tab yet gets a new row at the end of the SKU list (name in A, Swiggy item code / Zepto SKU code in B, Zepto material
+ * code in E). Rows 4 (shipping date) and 5 (appointment date) are set from the app or the Shipment Manager.
+ */
+function qcTabForWrite_(platform) {
+  if (!QC_TABS[platform]) throw new Error('Unknown platform.');
+  const sh = qcTab_(QC_TABS[platform]);
+  if (!sh) throw new Error('The tab "' + QC_TABS[platform] + '" is missing in the sheet.');
+  return sh;
+}
+function qcFindPoCol_(sh, po) {
+  const last = sh.getLastColumn();
+  if (last < 6) return 0;
+  const row2 = sh.getRange(2, 1, 1, last).getValues()[0];
+  for (let c = 5; c < last; c++) if (String(row2[c]).trim() === String(po).trim()) return c + 1;
+  return 0;
+}
+/** po: { po, wh, release, expiry, lines: [{ code, code2, qty, name }] }. Returns what was written. */
+function importQcPo(token, platform, po) {
+  const u = auth_(token, 'Planner');
+  if (!po || !po.po || !(po.lines || []).length) throw new Error('Nothing to write: no PO number or no lines.');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcTabForWrite_(platform);
+    const lastRow = Math.max(sh.getLastRow(), 6), lastCol = Math.max(sh.getLastColumn(), 6);
+    const v = sh.getRange(1, 1, lastRow, lastCol).getValues();
+    // SKU rows: by Swiggy item code / Zepto SKU code (B), or Zepto material code (E).
+    const rowOf = {}; let lastItemRow = 6;
+    for (let i = 6; i < v.length; i++) {
+      const b = String(v[i][1]).trim(), e = String(v[i][4] == null ? '' : v[i][4]).trim();
+      if (!String(v[i][0]).trim() && !b) continue;
+      lastItemRow = i + 1;
+      if (b) rowOf[b.toLowerCase()] = i + 1;
+      if (platform === 'zepto' && e) rowOf['e:' + e] = i + 1;
+    }
+    const added = [];
+    po.lines.forEach(l => {
+      const k = String(l.code || '').trim().toLowerCase();
+      if ((k && rowOf[k]) || (l.code2 && rowOf['e:' + String(l.code2).trim()])) return;
+      const r = lastItemRow + 1;
+      if (r > sh.getMaxRows()) sh.insertRowsAfter(sh.getMaxRows(), 1);
+      if (lastItemRow >= 7) sh.getRange(lastItemRow, 1, 1, sh.getMaxColumns()).copyTo(sh.getRange(r, 1, 1, sh.getMaxColumns()), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+      const name = String(l.name || '').trim() || (QC_TABS[platform] + ' ' + (l.code2 || l.code));
+      sh.getRange(r, 1, 1, 2).setValues([[name, String(l.code || l.code2 || '')]]);
+      if (platform === 'zepto' && l.code2) sh.getRange(r, 5).setValue(String(l.code2));
+      if (k) rowOf[k] = r; if (l.code2) rowOf['e:' + String(l.code2).trim()] = r;
+      lastItemRow = r; added.push(name);
+    });
+    let col = qcFindPoCol_(sh, po.po), created = false;
+    if (!col) {
+      created = true;
+      let lastPo = 0;
+      for (let c = 5; c < v[0].length; c++) if (String(v[1][c]).trim()) lastPo = c + 1;
+      if (!lastPo) col = 6;
+      else {
+        const prevRel = qcDate_(v[2][lastPo - 1]);
+        col = lastPo + (prevRel && po.release && prevRel !== po.release ? 2 : 1);
+      }
+      if (col > sh.getMaxColumns()) sh.insertColumnsAfter(sh.getMaxColumns(), col - sh.getMaxColumns());
+      if (lastPo) sh.getRange(1, lastPo, sh.getMaxRows(), 1).copyTo(sh.getRange(1, col, sh.getMaxRows(), 1), SpreadsheetApp.CopyPasteType.PASTE_FORMAT, false);
+    }
+    // The column: header rows, then this PO's quantity on each SKU row (other rows emptied).
+    const rows = Math.max(lastItemRow, 7);
+    sh.getRange(1, col, 3, 1).setValues([[String(po.wh || '')], [String(po.po)], [po.release ? parseDate_(po.release) : '']]);
+    sh.getRange(2, col).setNote(po.expiry ? 'Expiry ' + po.expiry + ' · added by ' + (u.name || u.id) + ' from the PO PDF' : 'Added by ' + (u.name || u.id) + ' from the PO PDF');
+    const q = []; for (let r = 7; r <= rows; r++) q.push(['']);
+    po.lines.forEach(l => {
+      const r = rowOf[String(l.code || '').trim().toLowerCase()] || rowOf['e:' + String(l.code2 || '').trim()];
+      if (r) q[r - 7][0] = (Number(q[r - 7][0]) || 0) + (Number(l.qty) || 0);
+    });
+    sh.getRange(7, col, q.length, 1).setValues(q);
+    return { tab: sh.getName(), col: colLetter_(col), created: created, newRows: added, qc: qcData_() };
+  } finally { lock.releaseLock(); }
+}
+/** Takes a PO out of its tab (its column is emptied; the column itself stays). */
+function removeQcPo(token, platform, poNo) {
+  auth_(token, 'Planner');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcTabForWrite_(platform), col = qcFindPoCol_(sh, poNo);
+    if (!col) throw new Error('PO ' + poNo + ' is not in the ' + sh.getName() + ' tab.');
+    sh.getRange(1, col, Math.max(sh.getLastRow(), 7), 1).clearContent().clearNote();
+    return qcData_();
+  } finally { lock.releaseLock(); }
+}
+/** Shipping date (row 4) and appointment date (row 5) of a PO; '' empties one, undefined leaves it. */
+function setQcDates(token, platform, poNo, ship, appt) {
+  auth_(token, 'Planner');
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = qcTabForWrite_(platform), col = qcFindPoCol_(sh, poNo);
+    if (!col) throw new Error('PO ' + poNo + ' is not in the ' + sh.getName() + ' tab.');
+    if (ship !== undefined && ship !== null) sh.getRange(4, col).setValue(ship ? parseDate_(ship) : '');
+    if (appt !== undefined && appt !== null) sh.getRange(5, col).setValue(appt ? parseDate_(appt) : '');
+    return qcData_();
+  } finally { lock.releaseLock(); }
+}
+/**
+ * Shipping dates from the Shipment Manager: a Swiggy / Zepto PO in its tab with no shipping date gets the 🚚 Dispatch
+ * Date of its shipment there (the shipment's date for shipments entered before DISPATCH_DATE_FROM). A date already in
+ * the tab is never changed.
+ */
+function syncQcShipDates_() {
+  const id = PropertiesService.getScriptProperties().getProperty('SHIP_SHEET_ID');
+  if (!id) return 0;
+  const want = {};
+  Object.keys(QC_TABS).forEach(p => {
+    const sh = qcTab_(QC_TABS[p]); if (!sh || sh.getLastColumn() < 6) return;
+    const v = sh.getRange(1, 1, 4, sh.getLastColumn()).getValues();
+    for (let c = 5; c < v[0].length; c++) {
+      const po = String(v[1][c]).trim();
+      if (po && v[3][c] === '') want[po] = { sh: sh, col: c + 1, p: p };
+    }
+  });
+  if (!Object.keys(want).length) return 0;
+  const shSh = SpreadsheetApp.openById(id).getSheetByName('SHIPMENTS');
+  if (!shSh || shSh.getLastRow() < 2) return 0;
+  const width = Math.max(11, Math.min(14, shSh.getLastColumn()));
+  const sv = shSh.getRange(2, 1, shSh.getLastRow() - 1, width).getValues(), today = ymd_(new Date());
+  let n = 0;
+  sv.forEach(r => {
+    const po = String(r[5] || '').trim(), w = want[po]; if (!w) return;
+    if (!(w.p === 'swiggy' ? /swiggy|instamart/i : /zepto/i).test(String(r[4] || ''))) return;
+    if (r[10] === true || String(r[10]).toUpperCase() === 'TRUE') return;
+    const entered = r[1] instanceof Date ? ymd_(r[1]) : String(r[1] || '').slice(0, 10);
+    let d;
+    if (entered && entered >= DISPATCH_DATE_FROM) d = r[13] instanceof Date ? r[13] : (r[13] ? parseDate_(String(r[13]).slice(0, 10)) : null);
+    else d = r[7] instanceof Date ? r[7] : parseDate_(String(r[7] || '').slice(0, 10));
+    if (!d || ymd_(d) > today) return;
+    w.sh.getRange(4, w.col).setValue(d); delete want[po]; n++;
+  });
+  return n;
+}
+/** Saves the Swiggy / Zepto SKU mapping: [{ p, code, name, our }] replaces the whole list. */
+function saveQcSkus(token, list) {
+  auth_(token, 'Planner');
+  const rows = (list || []).filter(x => x && QC_TABS[x.p] && String(x.code || '').trim())
+    .map(x => [x.p, "'" + String(x.code).trim(), String(x.name || ''), String(x.our || '').trim()]);
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const sh = SpreadsheetApp.getActive().getSheetByName(QC_SKUS) || ensureSheet_(QC_SKUS, QC_SKUS_HEAD);
+    if (sh.getLastRow() > 1) sh.getRange(2, 1, sh.getLastRow() - 1, QC_SKUS_HEAD.length).clearContent();
+    if (rows.length) sh.getRange(2, 1, rows.length, QC_SKUS_HEAD.length).setValues(rows);
+  } finally { lock.releaseLock(); }
+  return qcData_();
 }
 
 /* ---------------- RO Log ---------------- */
@@ -2232,6 +2524,7 @@ function syncFromShipmentManager() {
   try {
     const res = syncShipments_();
     if (!res.skipped) res.moved = rollOverdueDispatch_();
+    try { res.qcShip = syncQcShipDates_(); } catch (e) { /* tried again next sync */ }
     return res;
   } finally { lock.releaseLock(); }
 }
@@ -2250,6 +2543,7 @@ function syncShipments(token, force) {
   try {
     const res = syncShipments_();
     try { res.cells = refreshShortCells_(); } catch (e) { /* tried again next sync */ }
+    try { res.qcShip = syncQcShipDates_(); } catch (e) { /* tried again next sync */ }
     if (!res.skipped) { try { res.moved = rollOverdueDispatch_(); } catch (e) { /* tried again next sync */ } }
     if (res.dates || res.qty || res.short || res.moved || res.reverted) {
       const all = readLog_();
@@ -2387,6 +2681,7 @@ function saveSettings(token, s) {
     'Carry Over Days': s.carryDays,
     'Dispatch Capacity': s.dispatchCap, 'Dispatch Days': s.dispatchDays, 'Lead Days': s.leadDays,
     'Short Lead Days': s.shortLeadDays, 'Short Lead Warehouses': s.shortLeadWh, 'Packing Days': s.packDays,
+    'Swiggy City Map': s.swiggyMap, 'Zepto City Map': s.zeptoMap,
   };
   if (map['Dispatch Capacity'] !== undefined && !(Number(map['Dispatch Capacity']) >= 1)) throw new Error('Dispatch Capacity must be a number above 0.');
   ['Lead Days', 'Short Lead Days'].forEach(k => {
